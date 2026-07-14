@@ -1,0 +1,934 @@
+[
+  {
+    "key": "face_grinding",
+    "pattern": "(磨端面|研端面|端面磨)",
+    "directRootValue": "coverage_reason::requirement",
+    "rootPrompt": "这道端面精加工工序存在的条件，主要依赖以下哪类端面技术要求？",
+    "coverageRootPrompt": "当“磨端面”工序未覆盖所有样本时，存在的条件主要依赖以下哪类端面技术要求？",
+    "rootReasonOrder": [
+      "coverage_reason::requirement",
+      "coverage_reason::structure",
+      "coverage_reason::size",
+      "coverage_reason::material",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "precision",
+        "label": "端面平面度、端面距或跳动要求达到磨削阈值"
+      },
+      {
+        "value": "surface",
+        "label": "端面贴合面或粗糙度要求达到磨削阈值"
+      },
+      {
+        "value": "heat_treatment",
+        "label": "热处理后需要端面精整恢复尺寸"
+      },
+      {
+        "value": "assembly",
+        "label": "端面贴合、密封或尺寸链要求不同"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "groove_grinding",
+    "pattern": "(磨槽|研槽|槽磨|精磨槽|光整槽)",
+    "directRootValue": "coverage_reason::requirement",
+    "rootPrompt": "这道槽精加工工序存在的条件，主要依赖以下哪类槽部技术要求？",
+    "coverageRootPrompt": "当“磨槽”工序未覆盖所有样本时，存在的条件主要依赖以下哪类槽部技术要求？",
+    "rootReasonOrder": [
+      "coverage_reason::requirement",
+      "coverage_reason::structure",
+      "coverage_reason::size",
+      "coverage_reason::material",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "precision",
+        "label": "槽宽、槽深或配合尺寸要求高"
+      },
+      {
+        "value": "surface",
+        "label": "槽表面粗糙度或光整要求高"
+      },
+      {
+        "value": "heat_treatment",
+        "label": "热处理后需要精整恢复槽尺寸"
+      },
+      {
+        "value": "assembly",
+        "label": "关键密封槽、卡簧槽或功能槽要求"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "outer_grinding",
+    "pattern": "(磨外圆|研外圆|精磨外圆|外圆磨|无心磨)",
+    "directRootValue": "coverage_reason::requirement",
+    "rootPrompt": "这道外圆精加工工序存在的条件，主要依赖以下哪类外圆技术要求？",
+    "coverageRootPrompt": "当“磨外圆”工序未覆盖所有样本时，存在的条件主要依赖以下哪类外圆技术要求？",
+    "rootReasonOrder": [
+      "coverage_reason::requirement",
+      "coverage_reason::structure",
+      "coverage_reason::material",
+      "coverage_reason::size",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "precision",
+        "label": "精度等级或形位要求达到磨削阈值"
+      },
+      {
+        "value": "surface",
+        "label": "粗糙度或光整要求达到磨削阈值"
+      },
+      {
+        "value": "heat_treatment",
+        "label": "热处理后需要精整恢复尺寸"
+      },
+      {
+        "value": "assembly",
+        "label": "关键配合面或密封面要求"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "outer_finish_turning",
+    "pattern": "(精车外圆|精车.*外圆|外圆精车|精车A侧外圆|精车B侧外圆)",
+    "directRootValue": "coverage_reason::requirement",
+    "rootPrompt": "这道外圆精加工工序存在的条件，主要依赖以下哪类外圆技术要求？",
+    "coverageRootPrompt": "当“精车外圆”工序未覆盖所有样本时，存在的条件主要依赖以下哪类外圆技术要求？",
+    "rootReasonOrder": [
+      "coverage_reason::requirement",
+      "coverage_reason::structure",
+      "coverage_reason::size",
+      "coverage_reason::material",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "precision",
+        "label": "精度等级达到精车阈值"
+      },
+      {
+        "value": "assembly",
+        "label": "关键配合外圆或定尺寸要求"
+      },
+      {
+        "value": "surface",
+        "label": "粗糙度要求高于半精车稳定能力"
+      },
+      {
+        "value": "structure",
+        "label": "局部关键外圆或基准外圆差异"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "center_hole_process",
+    "pattern": "(研顶尖孔|研顶尖|修中心孔|精整中心孔)",
+    "directRootValue": "coverage_reason::structure",
+    "rootPrompt": "这道中心孔精整工序存在的条件，主要依赖以下哪类中心孔定位或转序条件？",
+    "coverageRootPrompt": "当研顶尖/研顶尖孔工序未覆盖所有样本时，存在的条件主要依赖以下哪类中心孔定位或转序条件？",
+    "rootReasonOrder": [
+      "coverage_reason::structure",
+      "coverage_reason::requirement",
+      "coverage_reason::size",
+      "coverage_reason::material",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "structure",
+        "label": "中心孔定位、转序或精整角色不同"
+      },
+      {
+        "value": "precision",
+        "label": "跳动、同轴度或重复装夹精度要求不同"
+      },
+      {
+        "value": "assembly",
+        "label": "转序定位、热后再定位或中心孔修复要求不同"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "thread_process",
+    "pattern": "(攻螺纹|车螺纹|铣螺纹|套螺纹|螺纹加工)",
+    "directRootValue": "coverage_reason::structure",
+    "rootPrompt": "这道螺纹加工工序存在的条件，主要依赖以下哪类螺纹结构或螺纹加工要求？",
+    "coverageRootPrompt": "当螺纹工序未覆盖所有样本时，存在的条件主要依赖以下哪类螺纹结构或螺纹加工要求？",
+    "rootReasonOrder": [
+      "coverage_reason::structure",
+      "coverage_reason::requirement",
+      "coverage_reason::size",
+      "coverage_reason::material",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "structure",
+        "label": "普通连接、锁紧或功能螺纹场景不同"
+      },
+      {
+        "value": "assembly",
+        "label": "连接、装配或密封边界不同"
+      },
+      {
+        "value": "precision",
+        "label": "螺纹精度、牙型或通止规要求不同"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "profile_hole_process",
+    "pattern": "(打型孔|割型孔|型孔加工|异形孔加工)",
+    "directRootValue": "coverage_reason::structure",
+    "rootPrompt": "这道型孔或异形轮廓加工工序存在的条件，主要依赖以下哪类加工对象？",
+    "coverageRootPrompt": "当打型孔/割型孔工序未覆盖所有样本时，存在的条件主要依赖以下哪类型孔或异形轮廓加工对象？",
+    "rootReasonOrder": [
+      "coverage_reason::structure",
+      "coverage_reason::requirement",
+      "coverage_reason::size",
+      "coverage_reason::material",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "structure",
+        "label": "型孔轮廓、开口边界或复合孔口场景不同"
+      },
+      {
+        "value": "precision",
+        "label": "轮廓尺寸、边界精度或位置关系要求不同"
+      },
+      {
+        "value": "assembly",
+        "label": "止转、配合插入或连接功能要求不同"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "hole_grinding",
+    "pattern": "(磨孔|研孔|珩孔|精整孔|内圆磨|内孔研磨|内孔磨)",
+    "directRootValue": "coverage_reason::requirement",
+    "rootPrompt": "这道内孔精加工工序存在的条件，主要依赖以下哪类内孔精度或配合要求？",
+    "coverageRootPrompt": "当“磨孔/研孔”工序未覆盖所有样本时，存在的条件主要依赖以下哪类内孔精度或配合要求？",
+    "rootReasonOrder": [
+      "coverage_reason::requirement",
+      "coverage_reason::structure",
+      "coverage_reason::size",
+      "coverage_reason::material",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "precision",
+        "label": "孔精度或形位要求达到磨孔阈值"
+      },
+      {
+        "value": "assembly",
+        "label": "关键配合孔或定尺寸孔要求"
+      },
+      {
+        "value": "surface",
+        "label": "孔粗糙度或光整要求较高"
+      },
+      {
+        "value": "structure",
+        "label": "孔结构或可达性边界不同"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "prep_merge",
+    "pattern": "(毛坯准备\\/下料|备料\\/下料|下料\\/毛坯准备)",
+    "directRootValue": "coverage_reason::blank",
+    "rootPrompt": "这组工序都属于毛坯准备阶段，当前更需要确认的是：什么来料或记录口径会让它单列、合并或省略？",
+    "coverageRootPrompt": "如果样本里这一步写法不一致，通常是什么来料、毛坯或记录口径在决定它怎么写？",
+    "rootReasonOrder": [
+      "coverage_reason::blank",
+      "coverage_reason::material",
+      "coverage_reason::structure",
+      "coverage_reason::size",
+      "coverage_reason::requirement"
+    ],
+    "reasonCategories": [
+      {
+        "value": "blank",
+        "label": "毛坯、来料或下料方式在决定它是否单列"
+      },
+      {
+        "value": "material",
+        "label": "材料或来料类别会改变备料/下料安排"
+      },
+      {
+        "value": "structure",
+        "label": "结构尺寸或下料边界会改变安排"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "prep_single",
+    "pattern": "^(备料|下料)$",
+    "directRootValue": "coverage_reason::blank",
+    "rootPrompt": "“{{stepName}}”工序存在的条件主要依赖以下哪类毛坯、来料或下料方式？",
+    "coverageRootPrompt": "当“{{stepName}}”工序未覆盖所有样本时，存在的条件主要依赖以下哪类毛坯、来料或下料方式？",
+    "rootReasonOrder": [
+      "coverage_reason::blank",
+      "coverage_reason::material",
+      "coverage_reason::size",
+      "coverage_reason::structure",
+      "coverage_reason::requirement"
+    ],
+    "reasonCategories": [
+      {
+        "value": "blank",
+        "label": "毛坯、来料或下料方式在决定它是否单列"
+      },
+      {
+        "value": "material",
+        "label": "材料或来料类别会改变备料/下料安排"
+      },
+      {
+        "value": "structure",
+        "label": "结构尺寸或下料边界会改变安排"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "heat_process_generic",
+    "pattern": "^(终热处理|预热处理|热处理)$",
+    "directRootValue": "coverage_reason::requirement",
+    "rootPrompt": "这道热处理，主要是在满足哪一种性能目标或热处理链需求？",
+    "coverageRootPrompt": "这里安排热处理，通常是哪一种性能目标、硬度组织要求或后续热处理链边界在起作用？",
+    "rootReasonOrder": [
+      "coverage_reason::requirement",
+      "coverage_reason::material",
+      "coverage_reason::structure",
+      "coverage_reason::size",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "heat_treatment",
+        "label": "硬度、强度或组织性能目标在驱动这道热处理"
+      },
+      {
+        "value": "surface",
+        "label": "表面强化、终热处理或后续硬态精加工链在驱动"
+      },
+      {
+        "value": "material",
+        "label": "材料牌号、材料类别或技术条件在影响热处理安排"
+      },
+      {
+        "value": "structure",
+        "label": "截面尺寸、变形风险或结构边界在影响热处理选择"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "heat_name_merge",
+    "pattern": "(调质\\/正常化|正常化\\/调质|调质\\/正火|正火\\/调质)",
+    "directRootValue": "coverage_reason::material",
+    "rootPrompt": "这组热处理组合名工序存在的条件，主要依赖以下哪类材料或工艺条件？",
+    "coverageRootPrompt": "这组热处理组合名工序如果写法不一致，主要由材料牌号、材料类别还是热处理技术条件在决定统一采用哪种写法？",
+    "rootReasonOrder": [
+      "coverage_reason::material",
+      "coverage_reason::requirement",
+      "coverage_reason::size",
+      "coverage_reason::structure",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "material",
+        "label": "材料牌号或材料类别在决定热处理分支"
+      },
+      {
+        "value": "heat_treatment",
+        "label": "热处理技术条件或性能要求在决定热处理分支"
+      },
+      {
+        "value": "structure",
+        "label": "截面尺寸或结构边界在影响热处理选择"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "heat_single",
+    "pattern": "^(调质|正常化|正火|淬火|真空淬火|渗氮|氰化|钝化)$",
+    "directRootValue": "coverage_reason::material",
+    "rootPrompt": "“{{stepName}}”这个工序存在的条件，主要依赖以下哪类材料或工艺条件？",
+    "coverageRootPrompt": "“{{stepName}}”这个工序未覆盖所有样本时，存在的条件主要依赖以下哪类材料或工艺条件？",
+    "rootReasonOrder": [
+      "coverage_reason::material",
+      "coverage_reason::requirement",
+      "coverage_reason::size",
+      "coverage_reason::structure",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "material",
+        "label": "材料牌号或材料类别在决定热处理是否单列"
+      },
+      {
+        "value": "heat_treatment",
+        "label": "硬度、组织或热处理链目标在决定是否单列"
+      },
+      {
+        "value": "structure",
+        "label": "截面尺寸、变形风险或结构边界在影响安排"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "stress_relief_single",
+    "pattern": "^(去应力|去应力退火|时效)$",
+    "directRootValue": "coverage_reason::requirement",
+    "rootPrompt": "“{{stepName}}”这个工序存在的条件，主要依赖以下哪类变形控制或转序稳定需求？",
+    "coverageRootPrompt": "“{{stepName}}”这个工序未覆盖所有样本时，存在的条件主要依赖以下哪类变形控制、尺寸稳定或转序边界？",
+    "rootReasonOrder": [
+      "coverage_reason::requirement",
+      "coverage_reason::material",
+      "coverage_reason::structure",
+      "coverage_reason::size",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "stress_risk",
+        "label": "粗加工、热处理前后或前序强加载后的变形/应力风险不同"
+      },
+      {
+        "value": "heat_treatment",
+        "label": "热处理链或尺寸稳定要求不同"
+      },
+      {
+        "value": "structure",
+        "label": "薄壁、长细件或结构边界不同"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "chamfer_edge",
+    "pattern": "(倒角|倒圆|孔口倒角|车倒角|外倒角|内倒角)",
+    "directRootValue": "coverage_reason::structure",
+    "rootPrompt": "这道边缘处理工序存在的条件，主要依赖以下哪类边缘或孔口处理场景？",
+    "coverageRootPrompt": "如果样本里不是每次都单列倒角/倒圆，通常是什么边缘处理需求在决定它是否单列？",
+    "rootReasonOrder": [
+      "coverage_reason::structure",
+      "coverage_reason::requirement",
+      "coverage_reason::size",
+      "coverage_reason::material",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "structure",
+        "label": "边缘场景或孔口场景不同"
+      },
+      {
+        "value": "assembly",
+        "label": "装配导入或保护边缘要求不同"
+      },
+      {
+        "value": "surface",
+        "label": "去毛刺、锐边或边缘质量要求不同"
+      },
+      {
+        "value": "inclusion_relation",
+        "label": "通常已并到相邻工序"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "generic_inspection",
+    "pattern": "^(检验|终检)$",
+    "directRootValue": "coverage_reason::requirement",
+    "rootPrompt": "“{{stepName}}”这个工序存在的条件，主要依赖以下哪类阶段转换或质量控制要求？",
+    "coverageRootPrompt": "“{{stepName}}”这个工序未覆盖所有样本时，存在的条件主要依赖以下哪类过程、热后或交付前的质量关口？",
+    "rootReasonOrder": [
+      "coverage_reason::requirement",
+      "coverage_reason::structure",
+      "coverage_reason::material",
+      "coverage_reason::size",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "precision",
+        "label": "粗加工或中间转序后的过程检验点"
+      },
+      {
+        "value": "heat_treatment",
+        "label": "热处理后或精加工前的状态确认点"
+      },
+      {
+        "value": "surface",
+        "label": "精加工后尺寸、形位或表面状态确认点"
+      },
+      {
+        "value": "assembly",
+        "label": "终检、入库或交付前综合检验点"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "inspection_gate",
+    "pattern": "(烧伤检查|磁粉检查|裂纹检查|荧光检查|渗透检验|外观检查|检验|终检)",
+    "directRootValue": "coverage_reason::requirement",
+    "rootPrompt": "“{{stepName}}”这个工序存在的条件，主要依赖以下哪类质量关口或专项检测要求？",
+    "coverageRootPrompt": "“{{stepName}}”这个工序未覆盖所有样本时，存在的条件主要依赖以下哪类质量关口在决定这里插入专项检测？",
+    "rootReasonOrder": [
+      "coverage_reason::requirement",
+      "coverage_reason::structure",
+      "coverage_reason::material",
+      "coverage_reason::size",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "precision",
+        "label": "车削后或周边加工后的过程检验点"
+      },
+      {
+        "value": "heat_treatment",
+        "label": "淬火后烧伤或热处理后专项检查"
+      },
+      {
+        "value": "assembly",
+        "label": "磁粉、裂纹或表面缺陷专项检测要求"
+      },
+      {
+        "value": "surface",
+        "label": "渗氮后渗透检验或表面质量检查"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "generic_outer_shape",
+    "pattern": "^(车零件|车外形)$",
+    "directRootValue": "coverage_reason::structure",
+    "rootPrompt": "这道车削工序存在的条件，主要依赖以下哪类回转类加工对象？",
+    "coverageRootPrompt": "当“车零件/车外形”工序未覆盖所有样本时，存在的条件主要依赖以下哪类回转外形加工对象？",
+    "rootReasonOrder": [
+      "coverage_reason::structure",
+      "coverage_reason::requirement",
+      "coverage_reason::size",
+      "coverage_reason::material",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "structure",
+        "label": "主回转外形、对称端外形或局部轮廓角色不同"
+      },
+      {
+        "value": "precision",
+        "label": "余量、尺寸链或外形控制要求不同"
+      },
+      {
+        "value": "assembly",
+        "label": "基准建立、换装夹或后续精加工联动要求不同"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "end_face_role",
+    "pattern": "(端面|车端面|精车端面|磨端面)",
+    "directRootValue": "coverage_reason::structure",
+    "rootPrompt": "这道端面加工工序存在的条件，主要依赖以下哪类端面角色或端面加工要求？",
+    "coverageRootPrompt": "当端面加工工序未覆盖所有样本时，存在的条件主要依赖以下哪类端面角色或端面加工要求？",
+    "rootReasonOrder": [
+      "coverage_reason::structure",
+      "coverage_reason::requirement",
+      "coverage_reason::size",
+      "coverage_reason::material",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "structure",
+        "label": "基准端面、贴合端面或孔口端面角色不同"
+      },
+      {
+        "value": "precision",
+        "label": "总长、端面距或端面精度要求不同"
+      },
+      {
+        "value": "assembly",
+        "label": "装配贴合或密封端面要求不同"
+      },
+      {
+        "value": "inclusion_relation",
+        "label": "已并到相邻工序"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "cleanup_stage",
+    "pattern": "(去毛刺|清洗)",
+    "directRootValue": "coverage_reason::requirement",
+    "rootPrompt": "这道去毛刺或清洗工序主要服务于哪类转序节点？",
+    "coverageRootPrompt": "如果样本里不是每次都单列去毛刺/清洗，通常是哪一个转序节点在决定它是否出现？",
+    "rootReasonOrder": [
+      "coverage_reason::requirement",
+      "coverage_reason::structure",
+      "coverage_reason::size",
+      "coverage_reason::material",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "precision",
+        "label": "车削或机械加工后的清理节点不同"
+      },
+      {
+        "value": "surface",
+        "label": "检验前或专项检查前的清理节点不同"
+      },
+      {
+        "value": "heat_treatment",
+        "label": "热处理、渗氮或表面处理后的清理节点不同"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "trace_mark",
+    "pattern": "(标印|打标|标记)",
+    "directRootValue": "coverage_reason::requirement",
+    "rootPrompt": "这道标识工序主要服务于哪类标识或追溯需求？",
+    "coverageRootPrompt": "如果样本里不是每次都单列标印，通常是哪一种追溯或装配标识需求在决定它是否出现？",
+    "rootReasonOrder": [
+      "coverage_reason::requirement",
+      "coverage_reason::structure",
+      "coverage_reason::material",
+      "coverage_reason::size",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "assembly",
+        "label": "追溯、编号或批次标识需求"
+      },
+      {
+        "value": "structure",
+        "label": "装配方向、安装位置或配对标识需求"
+      },
+      {
+        "value": "heat_treatment",
+        "label": "工艺状态、热处理状态或检验状态标识需求"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "groove_feature",
+    "pattern": "(车槽|切槽|环槽|退刀槽|越程槽|密封槽|键槽|花键槽|铣槽|槽加工|外环槽|内环槽)",
+    "directRootValue": "coverage_reason::structure",
+    "rootPrompt": "这道槽加工工序主要受哪类槽部结构特征触发？",
+    "coverageRootPrompt": "当槽加工工序未覆盖所有样本时，存在的条件主要依赖以下哪类槽部结构特征？",
+    "rootReasonOrder": [
+      "coverage_reason::structure",
+      "coverage_reason::requirement",
+      "coverage_reason::size",
+      "coverage_reason::material",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "structure",
+        "label": "退刀槽、密封槽、键槽或一般环槽特征不同"
+      },
+      {
+        "value": "precision",
+        "label": "槽宽、槽深或配合尺寸要求不同"
+      },
+      {
+        "value": "assembly",
+        "label": "密封、卡簧、传动或定位功能要求不同"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "outer_surface_general",
+    "pattern": "(车外圆|车外形|车零件|粗车外圆|半精车外圆|外圆车削|车削类孔?加工|外形车削)",
+    "directRootValue": "coverage_reason::structure",
+    "rootPrompt": "这道外圆加工工序存在的条件，主要依赖以下哪类外圆表面或回转外形？",
+    "coverageRootPrompt": "当外圆加工工序未覆盖所有样本时，存在的条件主要依赖以下哪类外圆表面或回转外形？",
+    "rootReasonOrder": [
+      "coverage_reason::structure",
+      "coverage_reason::requirement",
+      "coverage_reason::size",
+      "coverage_reason::material",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "structure",
+        "label": "主外圆、台阶外圆或基准外圆角色不同"
+      },
+      {
+        "value": "precision",
+        "label": "尺寸、形位或粗糙度要求不同"
+      },
+      {
+        "value": "assembly",
+        "label": "关键配合外圆或基准外圆要求不同"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "hole_process_general",
+    "pattern": "(钻孔|镗孔|铰孔|钻镗孔|钻铰孔|攻螺纹|中心孔|中间通孔|打孔|打型孔|割型孔|研顶尖孔|研顶尖)",
+    "directRootValue": "coverage_reason::structure",
+    "rootPrompt": "这道孔加工工序存在的条件，主要依赖以下哪类孔结构或前道孔加工要求？",
+    "coverageRootPrompt": "当孔加工工序未覆盖所有样本时，存在的条件主要依赖以下哪类孔结构或前道孔加工要求？",
+    "rootReasonOrder": [
+      "coverage_reason::structure",
+      "coverage_reason::requirement",
+      "coverage_reason::size",
+      "coverage_reason::material",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "structure",
+        "label": "通孔、深孔、中心孔或复合孔边界不同"
+      },
+      {
+        "value": "precision",
+        "label": "孔径、孔位或孔深精度要求不同"
+      },
+      {
+        "value": "assembly",
+        "label": "配合孔、导向孔或定尺寸孔要求不同"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "flat_feature",
+    "pattern": "(铣扁|割扁|磨扁|铣平面|对边加工)",
+    "directRootValue": "coverage_reason::structure",
+    "rootPrompt": "这道平面或扁位加工工序存在的条件，主要依赖以下哪类加工对象？",
+    "coverageRootPrompt": "当铣扁/割扁工序未覆盖所有样本时，存在的条件主要依赖以下哪类扁位或平面加工对象？",
+    "rootReasonOrder": [
+      "coverage_reason::structure",
+      "coverage_reason::requirement",
+      "coverage_reason::size",
+      "coverage_reason::material",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "structure",
+        "label": "防转扁位、对边平面或基准平面角色不同"
+      },
+      {
+        "value": "precision",
+        "label": "对边尺寸、平面尺寸或余量控制要求不同"
+      },
+      {
+        "value": "assembly",
+        "label": "定位、装夹或避让功能要求不同"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "package_release",
+    "pattern": "(包装|防护包装|封存)",
+    "directRootValue": "coverage_reason::requirement",
+    "rootPrompt": "这道交付收尾工序主要服务于哪类交付或防护需求？",
+    "coverageRootPrompt": "如果样本里不是每次都单列包装/封存，通常是哪一种交付、防护或转运需求在决定它是否出现？",
+    "rootReasonOrder": [
+      "coverage_reason::requirement",
+      "coverage_reason::structure",
+      "coverage_reason::material",
+      "coverage_reason::size",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "surface",
+        "label": "防锈、防碰伤或表面保护需求不同"
+      },
+      {
+        "value": "assembly",
+        "label": "交付、转运、配套或交接需求不同"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "surface_treat_single",
+    "pattern": "(镀铜|除铜|铬酸阳极化|硬质阳极化|钝化)",
+    "directRootValue": "coverage_reason::requirement",
+    "rootPrompt": "这道表面处理工序主要服务于哪类表面处理目标？",
+    "coverageRootPrompt": "如果样本里不是每次都单列这道表面处理，通常是哪一种表面保护、屏蔽边界或后续处理链在决定它是否出现？",
+    "rootReasonOrder": [
+      "coverage_reason::requirement",
+      "coverage_reason::material",
+      "coverage_reason::structure",
+      "coverage_reason::size",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "surface",
+        "label": "防护、防腐蚀、绝缘或表面稳定性要求不同"
+      },
+      {
+        "value": "heat_treatment",
+        "label": "渗氮、选择性处理或局部屏蔽辅助边界不同"
+      },
+      {
+        "value": "material",
+        "label": "材料基体或表面状态边界不同"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  },
+  {
+    "key": "surface_treat_generic",
+    "pattern": "^表面处理$",
+    "directRootValue": "coverage_reason::requirement",
+    "rootPrompt": "这道表面处理，主要在满足哪一种表面保护或后续处理链需求？",
+    "coverageRootPrompt": "这里安排表面处理，通常是哪一种表面保护、屏蔽边界或后续处理链在起作用？",
+    "rootReasonOrder": [
+      "coverage_reason::requirement",
+      "coverage_reason::material",
+      "coverage_reason::structure",
+      "coverage_reason::size",
+      "coverage_reason::blank"
+    ],
+    "reasonCategories": [
+      {
+        "value": "surface",
+        "label": "防护、防腐蚀、绝缘或表面稳定性要求在驱动"
+      },
+      {
+        "value": "heat_treatment",
+        "label": "渗氮、选择性处理或局部屏蔽辅助边界在驱动"
+      },
+      {
+        "value": "material",
+        "label": "材料基体或表面状态边界在影响表面处理安排"
+      },
+      {
+        "value": "naming_record",
+        "label": "叫法或记录方式不同"
+      }
+    ]
+  }
+]

@@ -1,0 +1,181 @@
+import type { LocalStepQuestionProfile } from '@/config/analysisQuestionProfileTypes'
+import { buildSettingBasisPrompt, buildTriggerScopePrompt } from '@/config/sharedRulePromptTemplates'
+
+export const HEAT_STEP_QUESTION_PROFILES: LocalStepQuestionProfile[] = [
+  {
+    pattern: /(毛坯准备\/下料|备料\/下料|下料\/毛坯准备)/,
+    profile: {
+      key: 'prep_merge',
+      logicCategory: 'special',
+      directRootValue: 'coverage_reason::blank',
+      rootPrompt: '这组工序都属于毛坯准备阶段，当前更需要确认的是：什么来料、毛坯或下料方式会让它存在？',
+      rootReasonOrder: [
+        'coverage_reason::blank',
+        'coverage_reason::material',
+        'coverage_reason::structure',
+        'coverage_reason::size',
+        'coverage_reason::requirement',
+      ],
+      mergeRootPrompt: '请确认这组毛坯准备阶段的归并工序以后统一使用哪个名称？',
+      mergeCoveragePrompt: '这组工序已规范为“{{name}}”。请确认它存在的条件，主要依赖以下哪类毛坯、来料或下料方式？',
+    },
+  },
+  {
+    pattern: /^(备料|下料)$/,
+    profile: {
+      key: 'prep_single',
+      logicCategory: 'special',
+      directRootValue: 'coverage_reason::blank',
+      rootPrompt: buildSettingBasisPrompt('“{{stepName}}”工序', '毛坯、来料或下料方式'),
+      rootReasonOrder: [
+        'coverage_reason::blank',
+        'coverage_reason::material',
+        'coverage_reason::size',
+        'coverage_reason::structure',
+        'coverage_reason::requirement',
+      ],
+      blankTypePrompt: '毛坯准备阶段已经明确，接下来更需要确认的是：它主要由哪一种来料或毛坯状态在驱动？',
+      blankTypeOptions: [
+        { value: 'blank_basis::bar', label: '棒料、管料或型材来料' },
+        { value: 'blank_basis::forging', label: '锻件、铸件或近净成形毛坯' },
+        { value: 'blank_basis::purchased', label: '采购成品料或半成品来料' },
+        { value: 'blank_basis::cutting', label: '按图下料、定尺切断或预下料方式' },
+      ],
+      blankScopePrompt: buildTriggerScopePrompt('“{{stepName}}”工序', '毛坯、来料或下料方式'),
+      blankScopeFallbacks: [
+        { value: 'blank_scope::bar', label: '主要由棒料、管料或型材来料驱动' },
+        { value: 'blank_scope::forging', label: '主要由锻件、铸件或近净成形毛坯驱动' },
+        { value: 'blank_scope::purchased', label: '主要由采购成品料或半成品来料驱动' },
+        { value: 'blank_scope::cutting', label: '主要由按图下料、定尺切断或预下料方式驱动' },
+      ],
+    },
+  },
+  {
+    pattern: /^(终热处理|预热处理|热处理)$/,
+    profile: {
+      key: 'heat_process_generic',
+      logicCategory: 'special',
+      skipRequirementScopeAfterType: true,
+      directRootValue: 'coverage_reason::requirement',
+      rootPrompt: buildSettingBasisPrompt('热处理工序', '性能目标或热处理链需求'),
+      rootReasonOrder: [
+        'coverage_reason::requirement',
+        'coverage_reason::material',
+        'coverage_reason::structure',
+        'coverage_reason::size',
+        'coverage_reason::blank',
+      ],
+      requirementTypePrompt: '这道热处理工序主要服务于哪类热处理目标？',
+      requirementTypeOptions: [
+        { value: 'requirement_scene::hardness', label: '硬度、强度或组织性能目标' },
+        { value: 'requirement_scene::stress_relief', label: '消除应力、控制变形或稳定尺寸' },
+        { value: 'requirement_scene::surface_heat', label: '表面强化、终热处理或后续硬态精加工链' },
+      ],
+      requirementScopePrompt: buildTriggerScopePrompt('热处理工序', '性能或热处理链目标'),
+      requirementScopeFallbacks: [
+        { value: 'requirement_scope::hardness', label: '主要由硬度、强度或组织性能目标驱动' },
+        { value: 'requirement_scope::stress_relief', label: '主要由消除应力、控制变形或稳定尺寸驱动' },
+        { value: 'requirement_scope::surface_heat', label: '主要由终热处理、表面强化或后续硬态精加工链驱动' },
+      ],
+      materialTypePrompt: '如果和材料有关，更接近是由哪一种材料信息在决定这道热处理？',
+      materialTypeOptions: [
+        { value: 'material_basis::grade', label: '按材料牌号' },
+        { value: 'material_basis::class', label: '按材料类别' },
+        { value: 'material_basis::spec', label: '按热处理技术条件' },
+      ],
+    },
+  },
+  {
+    pattern: /(调质\/正常化|正常化\/调质|调质\/正火|正火\/调质)/,
+    profile: {
+      key: 'heat_name_merge',
+      logicCategory: 'special',
+      directRootValue: 'coverage_reason::material',
+      rootPrompt: '这组热处理组合名工序存在的条件，主要依赖以下哪类材料或技术条件？',
+      rootReasonOrder: [
+        'coverage_reason::material',
+        'coverage_reason::requirement',
+        'coverage_reason::size',
+        'coverage_reason::structure',
+        'coverage_reason::blank',
+      ],
+      materialTypePrompt: '区分“调质”和“正常化”时，主要依据哪类材料或技术条件信息？',
+      materialTypeOptions: [
+        { value: 'material_basis::grade', label: '按材料牌号' },
+        { value: 'material_basis::class', label: '按材料类别' },
+        { value: 'material_basis::spec', label: '按热处理技术条件' },
+      ],
+    },
+  },
+  {
+    pattern: /^(调质|正常化|正火|淬火|真空淬火|渗氮|氰化|钝化)$/,
+    profile: {
+      key: 'heat_single',
+      logicCategory: 'special',
+      skipRequirementScopeAfterType: true,
+      directRootValue: 'coverage_reason::material',
+      rootPrompt: buildSettingBasisPrompt('该热处理工序', '材料、性能目标或热处理链边界'),
+      rootReasonOrder: [
+        'coverage_reason::material',
+        'coverage_reason::requirement',
+        'coverage_reason::size',
+        'coverage_reason::structure',
+        'coverage_reason::blank',
+      ],
+      materialTypePrompt: '从材料角度判断时，主要依据哪类材料信息？',
+      materialTypeOptions: [
+        { value: 'material_basis::grade', label: '按材料牌号' },
+        { value: 'material_basis::class', label: '按材料类别' },
+        { value: 'material_basis::spec', label: '按热处理技术条件' },
+      ],
+      requirementTypePrompt: '如果不主要由材料决定，请确认这道热处理工序对应哪类性能或工艺链要求？',
+      requirementTypeOptions: [
+        { value: 'requirement_scene::hardness', label: '硬度、强度或组织性能目标' },
+        { value: 'requirement_scene::stress_relief', label: '消除应力、控制变形或稳定尺寸' },
+        { value: 'requirement_scene::surface_heat', label: '表面强化、渗氮或后续硬态精加工链' },
+      ],
+      requirementScopePrompt: buildTriggerScopePrompt('该热处理工序', '性能或热处理链要求'),
+      requirementScopeFallbacks: [
+        { value: 'requirement_scope::hardness', label: '主要由硬度、强度或组织性能目标驱动' },
+        { value: 'requirement_scope::stress_relief', label: '主要由消除应力、控制变形或稳定尺寸驱动' },
+        { value: 'requirement_scope::surface_heat', label: '主要由表面强化或后续硬态精加工链驱动' },
+      ],
+    },
+  },
+  {
+    pattern: /^(去应力|去应力退火|时效)$/,
+    profile: {
+      key: 'stress_relief_single',
+      logicCategory: 'special',
+      skipRequirementScopeAfterType: true,
+      directRootValue: 'coverage_reason::requirement',
+      rootPrompt: buildSettingBasisPrompt('去应力/时效工序', '变形控制或转序稳定需求'),
+      rootReasonOrder: [
+        'coverage_reason::requirement',
+        'coverage_reason::material',
+        'coverage_reason::structure',
+        'coverage_reason::size',
+        'coverage_reason::blank',
+      ],
+      requirementTypePrompt: '这道应力消除工序主要服务于哪类变形控制场景？',
+      requirementTypeOptions: [
+        { value: 'requirement_scene::stress_after_rough', label: '粗加工后释放应力，避免后续精加工变形' },
+        { value: 'requirement_scene::stress_heat_chain', label: '热处理前后需要稳定尺寸链或基准状态' },
+        { value: 'requirement_scene::stress_thinwall', label: '薄壁、长细件或大切削量工件需要控制变形' },
+        { value: 'requirement_scene::stress_process_load', label: '焊接、成形或前序强加载后需要消除残余应力' },
+      ],
+      requirementScopePrompt: buildTriggerScopePrompt('去应力/时效工序', '变形控制或转序稳定需求'),
+      requirementScopeFallbacks: [
+        { value: 'requirement_scope::stress_after_rough', label: '主要用于粗加工后释放应力，避免后续精加工变形' },
+        { value: 'requirement_scope::stress_heat_chain', label: '主要用于热处理前后稳定尺寸链或基准状态' },
+        { value: 'requirement_scope::stress_thinwall', label: '主要用于薄壁、长细件或大切削量工件控制变形' },
+        { value: 'requirement_scope::stress_process_load', label: '主要用于焊接、成形或前序强加载后消除残余应力' },
+      ],
+      materialTypePrompt: '如果和材料有关，请确认它主要受哪类材料或组织状态边界影响？',
+      materialTypeOptions: [
+        { value: 'material_basis::grade', label: '按材料牌号' },
+        { value: 'material_basis::class', label: '按材料类别' },
+      ],
+    },
+  },
+]

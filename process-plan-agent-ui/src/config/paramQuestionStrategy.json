@@ -1,0 +1,53 @@
+{
+  "familyRules": [
+    {
+      "family": "blank_prep",
+      "label": "毛坯准备类工序",
+      "patterns": ["备料", "下料", "开料", "毛坯准备", "切料"]
+    },
+    {
+      "family": "heat_treat",
+      "label": "热处理类工序",
+      "patterns": ["调质", "正常化", "正火", "淬火", "回火", "退火", "时效", "去应力", "渗氮", "氮化", "热处理"]
+    },
+    {
+      "family": "hole_process",
+      "label": "孔加工类工序",
+      "patterns": ["钻", "镗", "扩孔", "铰", "攻丝", "攻螺纹", "螺纹孔"]
+    },
+    {
+      "family": "turning_shape",
+      "label": "外形/车削类工序",
+      "patterns": ["车", "外圆", "端面", "外形", "粗车", "精车", "磨削", "磨", "车削"]
+    },
+    {
+      "family": "surface_check",
+      "label": "表面处理/检验类工序",
+      "patterns": ["阳极", "发黑", "电镀", "检验", "探伤", "清洗", "去毛刺", "倒角", "表面处理", "喷丸", "抛光"]
+    },
+    {
+      "family": "other",
+      "label": "当前工序",
+      "patterns": []
+    }
+  ],
+  "rootReasonPriority": {
+    "blank_prep": ["coverage_reason::blank", "coverage_reason::material"],
+    "heat_treat": ["coverage_reason::material", "coverage_reason::requirement", "coverage_reason::size"],
+    "hole_process": ["coverage_reason::structure", "coverage_reason::size", "coverage_reason::requirement"],
+    "turning_shape": ["coverage_reason::structure", "coverage_reason::requirement", "coverage_reason::size"],
+    "surface_check": ["coverage_reason::requirement", "coverage_reason::material"],
+    "other": ["coverage_reason::material", "coverage_reason::structure", "coverage_reason::size"]
+  },
+  "terminalQuestionTypes": [
+    "material_scope_select",
+    "generic_structure_select",
+    "size_select",
+    "blank_select",
+    "requirement_select",
+    "precision_select",
+    "heat_treatment_select",
+    "missing_info_select",
+    "multi_primary_select"
+  ]
+}

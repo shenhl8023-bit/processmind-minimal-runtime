@@ -1,0 +1,44 @@
+[
+  {
+    "id": 1,
+    "key": "LLM_API_URL",
+    "value": "https://aimodelhub.ai.kmsoft.com.cn:5050/v1",
+    "description": "LLM API 地址",
+    "updated_at": "2026-07-10T10:32:10.650521"
+  },
+  {
+    "id": 2,
+    "key": "LLM_API_KEY",
+    "value": "sk-f57893727cb66bb9bb079675c5ce1119e8ba745afe6f91fe",
+    "description": "LLM API Key",
+    "updated_at": "2026-07-10T10:32:10.684122"
+  },
+  {
+    "id": 3,
+    "key": "LLM_MODEL",
+    "value": "deepseek-v4-pro",
+    "description": "LLM 模型名称",
+    "updated_at": "2026-07-10T10:32:10.667140"
+  },
+  {
+    "id": 4,
+    "key": "KNOWLEDGE_SEARCH_PROVIDER",
+    "value": "",
+    "description": "工艺知识检索提供方",
+    "updated_at": "2026-05-26T15:47:34.231305"
+  },
+  {
+    "id": 5,
+    "key": "KNOWLEDGE_SEARCH_API_URL",
+    "value": "",
+    "description": "工艺知识检索 API 地址",
+    "updated_at": "2026-05-26T15:47:34.231325"
+  },
+  {
+    "id": 6,
+    "key": "KNOWLEDGE_SEARCH_API_KEY",
+    "value": "",
+    "description": "工艺知识检索 API Key",
+    "updated_at": "2026-05-26T15:47:34.231330"
+  }
+]

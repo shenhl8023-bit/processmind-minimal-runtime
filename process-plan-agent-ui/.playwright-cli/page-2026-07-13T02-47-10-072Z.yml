@@ -1,0 +1,511 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]: ⚙
+      - generic [ref=e7]: ProcessMind典型工艺规程智能体
+    - navigation "Workflow steps" [ref=e8]:
+      - button "1 上传资料" [ref=e9] [cursor=pointer]:
+        - generic [ref=e10]: "1"
+        - generic [ref=e11]: 上传资料
+      - button "2 路线归并" [ref=e13] [cursor=pointer]:
+        - generic [ref=e14]: "2"
+        - generic [ref=e15]: 路线归并
+      - button "3 规则分析" [ref=e17] [cursor=pointer]:
+        - generic [ref=e18]: "3"
+        - generic [ref=e19]: 规则分析
+      - button "4 规则定稿" [ref=e21] [cursor=pointer]:
+        - generic [ref=e22]: "4"
+        - generic [ref=e23]: 规则定稿
+      - button "5 路线生成" [ref=e25] [cursor=pointer]:
+        - generic [ref=e26]: "5"
+        - generic [ref=e27]: 路线生成
+    - button "模型设置" [ref=e29] [cursor=pointer]
+  - main [ref=e30]:
+    - generic [ref=e31]:
+      - generic [ref=e32]:
+        - generic [ref=e33]:
+          - heading "规则分析" [level=1] [ref=e34]
+          - paragraph [ref=e35]: 已保存路线版本一览，左侧选工序、右侧看证据。
+        - generic [ref=e36]:
+          - button "刷新路线" [ref=e37] [cursor=pointer]
+          - button "进入规则定稿" [ref=e38] [cursor=pointer]
+          - button "返回路线归并" [ref=e39] [cursor=pointer]
+      - generic [ref=e40]:
+        - generic [ref=e41]:
+          - generic [ref=e42]: ⌕
+          - searchbox "搜索工序名称" [ref=e43]
+        - generic "工序审核状态筛选" [ref=e44]:
+          - button "待确认 33" [ref=e45] [cursor=pointer]:
+            - text: 待确认
+            - generic [ref=e46]: "33"
+          - button "确认中 0" [ref=e47] [cursor=pointer]:
+            - text: 确认中
+            - generic [ref=e48]: "0"
+          - button "已确认 8" [ref=e49] [cursor=pointer]:
+            - text: 已确认
+            - generic [ref=e50]: "8"
+          - button "全部 41" [ref=e51] [cursor=pointer]:
+            - text: 全部
+            - generic [ref=e52]: "41"
+        - generic [ref=e53]: 显示 33 / 41 道工序
+      - generic [ref=e54]:
+        - generic [ref=e55]:
+          - generic [ref=e57]:
+            - text: 已保存路线
+            - generic [ref=e58]: 只读
+          - generic [ref=e59]:
+            - button "10 下料/备料 需要确认 样本 20/20 20 条明细" [ref=e64] [cursor=pointer]:
+              - generic [ref=e65]:
+                - generic [ref=e66]:
+                  - generic [ref=e67]: "10"
+                  - generic [ref=e68]: 下料/备料
+                - generic [ref=e69]: 需要确认
+              - generic [ref=e71]:
+                - generic [ref=e72]: 样本 20/20
+                - generic [ref=e73]: 20 条明细
+            - button "20 正常化 需要确认 样本 2/20 2 条明细 工步 1" [ref=e78] [cursor=pointer]:
+              - generic [ref=e79]:
+                - generic [ref=e80]:
+                  - generic [ref=e81]: "20"
+                  - generic [ref=e82]: 正常化
+                - generic [ref=e83]: 需要确认
+              - generic [ref=e84]:
+                - generic [ref=e85]:
+                  - generic [ref=e86]: 样本 2/20
+                  - generic [ref=e87]: 2 条明细
+                - button "工步 1" [ref=e89]:
+                  - generic [ref=e92]: 工步
+                  - generic [ref=e93]: "1"
+            - button "30 调质 需要确认 样本 14/20 14 条明细 工步 1" [ref=e98] [cursor=pointer]:
+              - generic [ref=e99]:
+                - generic [ref=e100]:
+                  - generic [ref=e101]: "30"
+                  - generic [ref=e102]: 调质
+                - generic [ref=e103]: 需要确认
+              - generic [ref=e104]:
+                - generic [ref=e105]:
+                  - generic [ref=e106]: 样本 14/20
+                  - generic [ref=e107]: 14 条明细
+                - button "工步 1" [ref=e109]:
+                  - generic [ref=e112]: 工步
+                  - generic [ref=e113]: "1"
+            - button "60 铣扁 需要确认 样本 4/20 4 条明细 工步 3" [ref=e118] [cursor=pointer]:
+              - generic [ref=e119]:
+                - generic [ref=e120]:
+                  - generic [ref=e121]: "60"
+                  - generic [ref=e122]: 铣扁
+                - generic [ref=e123]: 需要确认
+              - generic [ref=e124]:
+                - generic [ref=e125]:
+                  - generic [ref=e126]: 样本 4/20
+                  - generic [ref=e127]: 4 条明细
+                - button "工步 3" [ref=e129]:
+                  - generic [ref=e132]: 工步
+                  - generic [ref=e133]: "3"
+            - button "70 钻孔 需要确认 样本 4/20 4 条明细 工步 2" [ref=e138] [cursor=pointer]:
+              - generic [ref=e139]:
+                - generic [ref=e140]:
+                  - generic [ref=e141]: "70"
+                  - generic [ref=e142]: 钻孔
+                - generic [ref=e143]: 需要确认
+              - generic [ref=e144]:
+                - generic [ref=e145]:
+                  - generic [ref=e146]: 样本 4/20
+                  - generic [ref=e147]: 4 条明细
+                - button "工步 2" [ref=e149]:
+                  - generic [ref=e152]: 工步
+                  - generic [ref=e153]: "2"
+            - button "80 钻铰孔 需要确认 样本 8/20 8 条明细 工步 3" [ref=e158] [cursor=pointer]:
+              - generic [ref=e159]:
+                - generic [ref=e160]:
+                  - generic [ref=e161]: "80"
+                  - generic [ref=e162]: 钻铰孔
+                - generic [ref=e163]: 需要确认
+              - generic [ref=e164]:
+                - generic [ref=e165]:
+                  - generic [ref=e166]: 样本 8/20
+                  - generic [ref=e167]: 8 条明细
+                - button "工步 3" [ref=e169]:
+                  - generic [ref=e172]: 工步
+                  - generic [ref=e173]: "3"
+            - button "90 铣槽 需要确认 样本 5/20 5 条明细 工步 1" [ref=e178] [cursor=pointer]:
+              - generic [ref=e179]:
+                - generic [ref=e180]:
+                  - generic [ref=e181]: "90"
+                  - generic [ref=e182]: 铣槽
+                - generic [ref=e183]: 需要确认
+              - generic [ref=e184]:
+                - generic [ref=e185]:
+                  - generic [ref=e186]: 样本 5/20
+                  - generic [ref=e187]: 5 条明细
+                - button "工步 1" [ref=e189]:
+                  - generic [ref=e192]: 工步
+                  - generic [ref=e193]: "1"
+            - button "100 标记 需要确认 样本 6/20 6 条明细" [ref=e198] [cursor=pointer]:
+              - generic [ref=e199]:
+                - generic [ref=e200]:
+                  - generic [ref=e201]: "100"
+                  - generic [ref=e202]: 标记
+                - generic [ref=e203]: 需要确认
+              - generic [ref=e205]:
+                - generic [ref=e206]: 样本 6/20
+                - generic [ref=e207]: 6 条明细
+            - button "140 去应力 需要确认 样本 5/20 5 条明细 工步 1" [ref=e212] [cursor=pointer]:
+              - generic [ref=e213]:
+                - generic [ref=e214]:
+                  - generic [ref=e215]: "140"
+                  - generic [ref=e216]: 去应力
+                - generic [ref=e217]: 需要确认
+              - generic [ref=e218]:
+                - generic [ref=e219]:
+                  - generic [ref=e220]: 样本 5/20
+                  - generic [ref=e221]: 5 条明细
+                - button "工步 1" [ref=e223]:
+                  - generic [ref=e226]: 工步
+                  - generic [ref=e227]: "1"
+            - button "150 磨孔 需要确认 样本 4/20 7 条明细 工步 1" [ref=e232] [cursor=pointer]:
+              - generic [ref=e233]:
+                - generic [ref=e234]:
+                  - generic [ref=e235]: "150"
+                  - generic [ref=e236]: 磨孔
+                - generic [ref=e237]: 需要确认
+              - generic [ref=e238]:
+                - generic [ref=e239]:
+                  - generic [ref=e240]: 样本 4/20
+                  - generic [ref=e241]: 7 条明细
+                - button "工步 1" [ref=e243]:
+                  - generic [ref=e246]: 工步
+                  - generic [ref=e247]: "1"
+            - button "160 珩孔 需要确认 样本 5/20 11 条明细 工步 1" [ref=e252] [cursor=pointer]:
+              - generic [ref=e253]:
+                - generic [ref=e254]:
+                  - generic [ref=e255]: "160"
+                  - generic [ref=e256]: 珩孔
+                - generic [ref=e257]: 需要确认
+              - generic [ref=e258]:
+                - generic [ref=e259]:
+                  - generic [ref=e260]: 样本 5/20
+                  - generic [ref=e261]: 11 条明细
+                - button "工步 1" [ref=e263]:
+                  - generic [ref=e266]: 工步
+                  - generic [ref=e267]: "1"
+            - button "170 磨外圆 需要确认 样本 16/20 19 条明细 工步 1" [ref=e272] [cursor=pointer]:
+              - generic [ref=e273]:
+                - generic [ref=e274]:
+                  - generic [ref=e275]: "170"
+                  - generic [ref=e276]: 磨外圆
+                - generic [ref=e277]: 需要确认
+              - generic [ref=e278]:
+                - generic [ref=e279]:
+                  - generic [ref=e280]: 样本 16/20
+                  - generic [ref=e281]: 19 条明细
+                - button "工步 1" [ref=e283]:
+                  - generic [ref=e286]: 工步
+                  - generic [ref=e287]: "1"
+            - button "180 磨端面 需要确认 样本 2/20 3 条明细 工步 1" [ref=e292] [cursor=pointer]:
+              - generic [ref=e293]:
+                - generic [ref=e294]:
+                  - generic [ref=e295]: "180"
+                  - generic [ref=e296]: 磨端面
+                - generic [ref=e297]: 需要确认
+              - generic [ref=e298]:
+                - generic [ref=e299]:
+                  - generic [ref=e300]: 样本 2/20
+                  - generic [ref=e301]: 3 条明细
+                - button "工步 1" [ref=e303]:
+                  - generic [ref=e306]: 工步
+                  - generic [ref=e307]: "1"
+            - button "190 磨槽 需要确认 样本 2/20 2 条明细 工步 1" [ref=e312] [cursor=pointer]:
+              - generic [ref=e313]:
+                - generic [ref=e314]:
+                  - generic [ref=e315]: "190"
+                  - generic [ref=e316]: 磨槽
+                - generic [ref=e317]: 需要确认
+              - generic [ref=e318]:
+                - generic [ref=e319]:
+                  - generic [ref=e320]: 样本 2/20
+                  - generic [ref=e321]: 2 条明细
+                - button "工步 1" [ref=e323]:
+                  - generic [ref=e326]: 工步
+                  - generic [ref=e327]: "1"
+            - button "200 去毛刺 需要确认 样本 18/20 18 条明细" [ref=e332] [cursor=pointer]:
+              - generic [ref=e333]:
+                - generic [ref=e334]:
+                  - generic [ref=e335]: "200"
+                  - generic [ref=e336]: 去毛刺
+                - generic [ref=e337]: 需要确认
+              - generic [ref=e339]:
+                - generic [ref=e340]: 样本 18/20
+                - generic [ref=e341]: 18 条明细
+            - button "230 淬火 需要确认 样本 14/20 14 条明细 工步 2" [ref=e346] [cursor=pointer]:
+              - generic [ref=e347]:
+                - generic [ref=e348]:
+                  - generic [ref=e349]: "230"
+                  - generic [ref=e350]: 淬火
+                - generic [ref=e351]: 需要确认
+              - generic [ref=e352]:
+                - generic [ref=e353]:
+                  - generic [ref=e354]: 样本 14/20
+                  - generic [ref=e355]: 14 条明细
+                - button "工步 2" [ref=e357]:
+                  - generic [ref=e360]: 工步
+                  - generic [ref=e361]: "2"
+            - button "240 镀铜 需要确认 样本 2/20 2 条明细 工步 1" [ref=e366] [cursor=pointer]:
+              - generic [ref=e367]:
+                - generic [ref=e368]:
+                  - generic [ref=e369]: "240"
+                  - generic [ref=e370]: 镀铜
+                - generic [ref=e371]: 需要确认
+              - generic [ref=e372]:
+                - generic [ref=e373]:
+                  - generic [ref=e374]: 样本 2/20
+                  - generic [ref=e375]: 2 条明细
+                - button "工步 1" [ref=e377]:
+                  - generic [ref=e380]: 工步
+                  - generic [ref=e381]: "1"
+            - button "250 铬酸阳极化 需要确认 样本 4/20 4 条明细 工步 1" [ref=e386] [cursor=pointer]:
+              - generic [ref=e387]:
+                - generic [ref=e388]:
+                  - generic [ref=e389]: "250"
+                  - generic [ref=e390]: 铬酸阳极化
+                - generic [ref=e391]: 需要确认
+              - generic [ref=e392]:
+                - generic [ref=e393]:
+                  - generic [ref=e394]: 样本 4/20
+                  - generic [ref=e395]: 4 条明细
+                - button "工步 1" [ref=e397]:
+                  - generic [ref=e400]: 工步
+                  - generic [ref=e401]: "1"
+            - button "260 渗氮 需要确认 样本 2/20 2 条明细 工步 1" [ref=e406] [cursor=pointer]:
+              - generic [ref=e407]:
+                - generic [ref=e408]:
+                  - generic [ref=e409]: "260"
+                  - generic [ref=e410]: 渗氮
+                - generic [ref=e411]: 需要确认
+              - generic [ref=e412]:
+                - generic [ref=e413]:
+                  - generic [ref=e414]: 样本 2/20
+                  - generic [ref=e415]: 2 条明细
+                - button "工步 1" [ref=e417]:
+                  - generic [ref=e420]: 工步
+                  - generic [ref=e421]: "1"
+            - button "270 除铜 需要确认 样本 2/20 2 条明细 工步 1" [ref=e426] [cursor=pointer]:
+              - generic [ref=e427]:
+                - generic [ref=e428]:
+                  - generic [ref=e429]: "270"
+                  - generic [ref=e430]: 除铜
+                - generic [ref=e431]: 需要确认
+              - generic [ref=e432]:
+                - generic [ref=e433]:
+                  - generic [ref=e434]: 样本 2/20
+                  - generic [ref=e435]: 2 条明细
+                - button "工步 1" [ref=e437]:
+                  - generic [ref=e440]: 工步
+                  - generic [ref=e441]: "1"
+            - button "280 硬质阳极化 需要确认 样本 4/20 4 条明细 工步 1" [ref=e446] [cursor=pointer]:
+              - generic [ref=e447]:
+                - generic [ref=e448]:
+                  - generic [ref=e449]: "280"
+                  - generic [ref=e450]: 硬质阳极化
+                - generic [ref=e451]: 需要确认
+              - generic [ref=e452]:
+                - generic [ref=e453]:
+                  - generic [ref=e454]: 样本 4/20
+                  - generic [ref=e455]: 4 条明细
+                - button "工步 1" [ref=e457]:
+                  - generic [ref=e460]: 工步
+                  - generic [ref=e461]: "1"
+            - button "290 无损检查 需要确认 样本 15/20 15 条明细" [ref=e466] [cursor=pointer]:
+              - generic [ref=e467]:
+                - generic [ref=e468]:
+                  - generic [ref=e469]: "290"
+                  - generic [ref=e470]: 无损检查
+                - generic [ref=e471]: 需要确认
+              - generic [ref=e473]:
+                - generic [ref=e474]: 样本 15/20
+                - generic [ref=e475]: 15 条明细
+            - button "300 烧伤检查 需要确认 样本 14/20 14 条明细" [ref=e480] [cursor=pointer]:
+              - generic [ref=e481]:
+                - generic [ref=e482]:
+                  - generic [ref=e483]: "300"
+                  - generic [ref=e484]: 烧伤检查
+                - generic [ref=e485]: 需要确认
+              - generic [ref=e487]:
+                - generic [ref=e488]: 样本 14/20
+                - generic [ref=e489]: 14 条明细
+            - button "310 打孔 需要确认 样本 1/20 1 条明细 工步 1" [ref=e494] [cursor=pointer]:
+              - generic [ref=e495]:
+                - generic [ref=e496]:
+                  - generic [ref=e497]: "310"
+                  - generic [ref=e498]: 打孔
+                - generic [ref=e499]: 需要确认
+              - generic [ref=e500]:
+                - generic [ref=e501]:
+                  - generic [ref=e502]: 样本 1/20
+                  - generic [ref=e503]: 1 条明细
+                - button "工步 1" [ref=e505]:
+                  - generic [ref=e508]: 工步
+                  - generic [ref=e509]: "1"
+            - button "320 割型孔 需要确认 样本 5/20 5 条明细 工步 1" [ref=e514] [cursor=pointer]:
+              - generic [ref=e515]:
+                - generic [ref=e516]:
+                  - generic [ref=e517]: "320"
+                  - generic [ref=e518]: 割型孔
+                - generic [ref=e519]: 需要确认
+              - generic [ref=e520]:
+                - generic [ref=e521]:
+                  - generic [ref=e522]: 样本 5/20
+                  - generic [ref=e523]: 5 条明细
+                - button "工步 1" [ref=e525]:
+                  - generic [ref=e528]: 工步
+                  - generic [ref=e529]: "1"
+            - button "330 割扁 需要确认 样本 3/20 3 条明细 工步 1" [ref=e534] [cursor=pointer]:
+              - generic [ref=e535]:
+                - generic [ref=e536]:
+                  - generic [ref=e537]: "330"
+                  - generic [ref=e538]: 割扁
+                - generic [ref=e539]: 需要确认
+              - generic [ref=e540]:
+                - generic [ref=e541]:
+                  - generic [ref=e542]: 样本 3/20
+                  - generic [ref=e543]: 3 条明细
+                - button "工步 1" [ref=e545]:
+                  - generic [ref=e548]: 工步
+                  - generic [ref=e549]: "1"
+            - button "340 打型孔 需要确认 样本 1/20 1 条明细 工步 1" [ref=e554] [cursor=pointer]:
+              - generic [ref=e555]:
+                - generic [ref=e556]:
+                  - generic [ref=e557]: "340"
+                  - generic [ref=e558]: 打型孔
+                - generic [ref=e559]: 需要确认
+              - generic [ref=e560]:
+                - generic [ref=e561]:
+                  - generic [ref=e562]: 样本 1/20
+                  - generic [ref=e563]: 1 条明细
+                - button "工步 1" [ref=e565]:
+                  - generic [ref=e568]: 工步
+                  - generic [ref=e569]: "1"
+            - button "350 去毛刺 需要确认 样本 8/20 19 条明细" [ref=e574] [cursor=pointer]:
+              - generic [ref=e575]:
+                - generic [ref=e576]:
+                  - generic [ref=e577]: "350"
+                  - generic [ref=e578]: 去毛刺
+                - generic [ref=e579]: 需要确认
+              - generic [ref=e581]:
+                - generic [ref=e582]: 样本 8/20
+                - generic [ref=e583]: 19 条明细
+            - button "360 研顶尖孔 需要确认 样本 2/20 4 条明细 工步 1" [ref=e588] [cursor=pointer]:
+              - generic [ref=e589]:
+                - generic [ref=e590]:
+                  - generic [ref=e591]: "360"
+                  - generic [ref=e592]: 研顶尖孔
+                - generic [ref=e593]: 需要确认
+              - generic [ref=e594]:
+                - generic [ref=e595]:
+                  - generic [ref=e596]: 样本 2/20
+                  - generic [ref=e597]: 4 条明细
+                - button "工步 1" [ref=e599]:
+                  - generic [ref=e602]: 工步
+                  - generic [ref=e603]: "1"
+            - button "370 研孔 需要确认 样本 7/20 11 条明细 工步 1" [ref=e608] [cursor=pointer]:
+              - generic [ref=e609]:
+                - generic [ref=e610]:
+                  - generic [ref=e611]: "370"
+                  - generic [ref=e612]: 研孔
+                - generic [ref=e613]: 需要确认
+              - generic [ref=e614]:
+                - generic [ref=e615]:
+                  - generic [ref=e616]: 样本 7/20
+                  - generic [ref=e617]: 11 条明细
+                - button "工步 1" [ref=e619]:
+                  - generic [ref=e622]: 工步
+                  - generic [ref=e623]: "1"
+            - button "380 研外圆 需要确认 样本 3/20 7 条明细 工步 1" [ref=e628] [cursor=pointer]:
+              - generic [ref=e629]:
+                - generic [ref=e630]:
+                  - generic [ref=e631]: "380"
+                  - generic [ref=e632]: 研外圆
+                - generic [ref=e633]: 需要确认
+              - generic [ref=e634]:
+                - generic [ref=e635]:
+                  - generic [ref=e636]: 样本 3/20
+                  - generic [ref=e637]: 7 条明细
+                - button "工步 1" [ref=e639]:
+                  - generic [ref=e642]: 工步
+                  - generic [ref=e643]: "1"
+            - button "390 清洗 需要确认 样本 19/20 25 条明细" [ref=e648] [cursor=pointer]:
+              - generic [ref=e649]:
+                - generic [ref=e650]:
+                  - generic [ref=e651]: "390"
+                  - generic [ref=e652]: 清洗
+                - generic [ref=e653]: 需要确认
+              - generic [ref=e655]:
+                - generic [ref=e656]: 样本 19/20
+                - generic [ref=e657]: 25 条明细
+            - button "400 检验 需要确认 样本 6/20 6 条明细" [ref=e661] [cursor=pointer]:
+              - generic [ref=e662]:
+                - generic [ref=e663]:
+                  - generic [ref=e664]: "400"
+                  - generic [ref=e665]: 检验
+                - generic [ref=e666]: 需要确认
+              - generic [ref=e668]:
+                - generic [ref=e669]: 样本 6/20
+                - generic [ref=e670]: 6 条明细
+        - generic [ref=e671]:
+          - generic [ref=e672]:
+            - generic [ref=e673]:
+              - generic [ref=e674]:
+                - heading "下料/备料" [level=2] [ref=e676]
+                - generic [ref=e677]:
+                  - generic [ref=e678]: 需要确认
+                  - generic [ref=e679]: 第 1 / 41
+              - generic [ref=e680]:
+                - button "上一段" [disabled] [ref=e681]
+                - button "下一个待处理" [ref=e682] [cursor=pointer]
+                - button "下一段" [ref=e683] [cursor=pointer]
+            - generic [ref=e685]:
+              - generic [ref=e686]:
+                - text: 文档
+                - strong [ref=e687]: 20/20
+              - generic [ref=e688]:
+                - text: 明细
+                - strong [ref=e689]: "20"
+              - generic [ref=e690]:
+                - text: 覆盖
+                - strong [ref=e691]: 100%
+              - generic [ref=e692]:
+                - text: 来源
+                - strong [ref=e693]: 下料, 备料
+          - article [ref=e694]:
+            - generic [ref=e695]: 问题树补充判断
+            - generic [ref=e697]:
+              - generic [ref=e698]:
+                - generic [ref=e699]: Q 请确认这组归并工序“下料/备料”以后统一使用哪个名称？
+                - generic [ref=e700]: 专业模板问法
+              - generic [ref=e701]:
+                - button "下料 系统推荐" [ref=e702] [cursor=pointer]:
+                  - generic [ref=e704]: 下料
+                  - generic [ref=e705]: 系统推荐
+                - button "备料" [ref=e706] [cursor=pointer]
+                - button "其他（请补充）" [ref=e709] [cursor=pointer]
+              - generic [ref=e712]:
+                - generic [ref=e716]:
+                  - generic [ref=e717]: 系统优先推荐：下料
+                  - generic [ref=e718]: 这道题只围绕组合名本身拆分出的统一名称候选作答；系统优先推荐当前候选池里排在前面的标准工序名。
+                - button "采用推荐" [ref=e719] [cursor=pointer]
+              - generic [ref=e720]:
+                - button "重答最后一题" [disabled] [ref=e721]
+                - button "重新判断这道工序" [disabled] [ref=e722]
+          - article [ref=e723]:
+            - button "差异样本 展开" [ref=e724] [cursor=pointer]:
+              - generic [ref=e725]: 差异样本
+              - generic [ref=e726]: 展开
+          - article [ref=e727]:
+            - button "内容证据摘录 4 展开" [ref=e728] [cursor=pointer]:
+              - generic [ref=e729]: 内容证据摘录 4
+              - generic [ref=e730]: 展开
+          - article [ref=e731]:
+            - button "原始工序明细 20 展开" [ref=e732] [cursor=pointer]:
+              - generic [ref=e733]: 原始工序明细 20
+              - generic [ref=e734]: 展开
+  - contentinfo [ref=e735]: ProcessMind · 典型工艺规程智能体 · © 2026 · v1.0.0

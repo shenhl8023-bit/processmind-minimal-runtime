@@ -1,0 +1,27 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONPATH=/app/process-plan-agent-api
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential libglib2.0-0 libgl1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY process-plan-agent-api/requirements.txt /app/process-plan-agent-api/requirements.txt
+RUN pip install -r /app/process-plan-agent-api/requirements.txt
+
+COPY process-plan-agent-api/app /app/process-plan-agent-api/app
+COPY process-plan-agent-api/knowledge /app/process-plan-agent-api/knowledge
+COPY process-plan-agent-api/prompt_templates.md /app/process-plan-agent-api/prompt_templates.md
+COPY process-plan-agent-api/prompt_parts /app/process-plan-agent-api/prompt_parts
+COPY docs/配置模板 /app/docs/配置模板
+
+RUN mkdir -p /app/process-plan-agent-api/uploads /data
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

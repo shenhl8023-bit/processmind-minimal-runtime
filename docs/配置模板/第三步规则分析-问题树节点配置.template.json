@@ -1,0 +1,321 @@
+{
+  "meta": {
+    "name": "third_step_rule_tree",
+    "version": "v3",
+    "description": "第三步规则分析问题树模板。系统先自动判断独立工序与组合名工序：独立工序直接确认存在条件，组合名工序先确认统一名称；若未全覆盖，再继续确认存在条件。"
+  },
+  "branches": {
+    "merge": {
+      "root": "merge_name_root",
+      "nodes": [
+        {
+          "node_id": "merge_name_root",
+          "question_type": "merge_name_select",
+          "question": "这组归并工序以后统一使用哪个名称？",
+          "options": [],
+          "option_mode": "extracted",
+          "goal": "先确认 B 类工序的统一名称",
+          "stop_after_answer": true
+        },
+        {
+          "node_id": "merge_reason_root",
+          "question_type": "merge_reason_select",
+          "question": "这组已合并工序之所以可以合并，主要依据更接近下面哪一种情况？",
+          "options": [
+            { "value": "merge_reason::naming", "label": "只是名称不同" },
+            { "value": "merge_reason::contain", "label": "一个工序是另一个工序的一部分或已被包含" },
+            { "value": "merge_reason::different", "label": "它们其实是不同工序" }
+          ],
+          "option_mode": "fixed",
+          "goal": "判断当前归并属于哪种解释路径",
+          "next_map": {
+            "merge_reason::naming": "merge_naming_confirm",
+            "merge_reason::contain": "merge_contain_confirm",
+            "merge_reason::different": "merge_exception_reason"
+          }
+        },
+        {
+          "node_id": "merge_naming_confirm",
+          "question_type": "merge_naming_confirm_select",
+          "question": "这次合并是否可以主要视为名称统一？",
+          "options": [
+            { "value": "merge_naming::yes", "label": "是，可以视为名称统一" },
+            { "value": "merge_naming::partial", "label": "大体可以，但表述范围还有差别" },
+            { "value": "merge_naming::no", "label": "不能这样理解" }
+          ],
+          "option_mode": "fixed",
+          "goal": "确认是否属于名称统一型归并",
+          "stop_after_answer": true
+        },
+        {
+          "node_id": "merge_contain_confirm",
+          "question_type": "merge_contain_confirm_select",
+          "question": "这次合并是否主要因为主工序已经覆盖了局部工序内容？",
+          "options": [
+            { "value": "merge_contain::yes", "label": "是，主要属于主工序覆盖局部工序" },
+            { "value": "merge_contain::partial", "label": "部分是，但仍有表达范围差异" },
+            { "value": "merge_contain::no", "label": "不能这样理解" }
+          ],
+          "option_mode": "fixed",
+          "goal": "确认是否属于覆盖/吸收型归并",
+          "stop_after_answer": true
+        },
+        {
+          "node_id": "merge_exception_reason",
+          "question_type": "merge_exception_reason_select",
+          "question": "如果认为它们其实不是同一回事，这次归并最可能存在什么问题？",
+          "options": [
+            { "value": "merge_exception::invalid", "label": "这次归并可能不成立" },
+            { "value": "merge_exception::name", "label": "当前标准名称不准确" },
+            { "value": "merge_exception::insufficient", "label": "当前证据不足，需要人工复核" }
+          ],
+          "option_mode": "fixed",
+          "goal": "把当前归并收敛到存疑或待复核结论",
+          "stop_after_answer": true
+        }
+      ]
+    },
+    "coverage": {
+      "root": "coverage_reason_root",
+      "nodes": [
+        {
+          "node_id": "coverage_reason_root",
+          "question_type": "generic_reason_select",
+          "question": "想先确认一下：这道工序存在的条件主要依赖以下哪类因素？",
+          "options": [
+            { "value": "coverage_reason::material", "label": "由材质差异导致" },
+            { "value": "coverage_reason::structure", "label": "由结构或特征差异导致" },
+            { "value": "coverage_reason::size", "label": "由尺寸或尺度差异导致" },
+            { "value": "coverage_reason::blank", "label": "由毛坯或来料状态差异导致" },
+            { "value": "coverage_reason::requirement", "label": "由加工要求差异导致" },
+            { "value": "coverage_reason::multi", "label": "由多种因素共同决定" },
+            { "value": "coverage_reason::uncertain", "label": "暂时无法判断" }
+          ],
+          "option_mode": "fixed",
+          "goal": "确定覆盖不足的主要原因类型",
+          "next_map": {
+            "coverage_reason::material": "coverage_material_type",
+            "coverage_reason::structure": "coverage_structure_type",
+            "coverage_reason::size": "coverage_size_type",
+            "coverage_reason::blank": "coverage_blank_type",
+            "coverage_reason::requirement": "coverage_requirement_type",
+            "coverage_reason::multi": "coverage_multi_pair",
+            "coverage_reason::uncertain": "coverage_uncertain_missing"
+          }
+        },
+        {
+          "node_id": "coverage_material_type",
+          "question_type": "material_select",
+          "question": "这道工序的出现，主要是按哪种材料信息区分的？",
+          "options": [
+            { "value": "material_basis::class", "label": "材料大类" },
+            { "value": "material_basis::grade", "label": "材料牌号" },
+            { "value": "material_basis::heat_state", "label": "热处理状态" },
+            { "value": "material_basis::mechanical", "label": "力学性能要求" },
+            { "value": "material_basis::special", "label": "特殊性能" },
+            { "value": "material_basis::unsure", "label": "暂时说不清" }
+          ],
+          "option_mode": "fixed",
+          "goal": "判断材质模块下的区分口径",
+          "next_map": {
+            "material_basis::class": "coverage_material_list",
+            "material_basis::grade": "coverage_material_list",
+            "material_basis::heat_state": "coverage_material_list",
+            "material_basis::mechanical": "coverage_material_list",
+            "material_basis::special": "coverage_material_list",
+            "material_basis::unsure": "coverage_uncertain_missing"
+          }
+        },
+        {
+          "node_id": "coverage_material_list",
+          "question_type": "material_scope_select",
+          "question": "在当前样本里，哪些材料通常会出现这道工序？",
+          "option_mode": "extracted",
+          "extraction_target": "materials",
+          "goal": "提取样本中的材料候选并进行勾选",
+          "stop_after_answer": true
+        },
+        {
+          "node_id": "coverage_structure_type",
+          "question_type": "generic_structure_select",
+          "question": "这道工序存在的条件，主要依赖以下哪类结构或特征差异？",
+          "options": [
+            { "value": "structure::孔类特征", "label": "孔类特征" },
+            { "value": "structure::槽类特征", "label": "槽类特征" },
+            { "value": "structure::台阶或端面类特征", "label": "台阶/端面类特征" },
+            { "value": "structure::螺纹类特征", "label": "螺纹类特征" },
+            { "value": "structure::回转体或非回转体差异", "label": "回转体/非回转体差异" },
+            { "value": "structure::中空或实心差异", "label": "中空/实心差异" },
+            { "value": "structure::薄壁或厚壁差异", "label": "薄壁/厚壁差异" },
+            { "value": "structure::基准或定位相关特征", "label": "基准/定位相关特征" },
+            { "value": "structure::其他结构特征", "label": "其他结构特征" }
+          ],
+          "option_mode": "fixed_or_extracted",
+          "goal": "先把结构或特征中类收住",
+          "next_map": {
+            "__submit__": "coverage_structure_need"
+          }
+        },
+        {
+          "node_id": "coverage_structure_need",
+          "question_type": "structure_need_select",
+          "question": "如果没有当前这类结构或特征，这道工序通常还会出现吗？",
+          "options": [
+            { "value": "structure_need::yes", "label": "是，没有这些特征时通常不会出现" },
+            { "value": "structure_need::partial", "label": "不完全是，还要结合别的条件" },
+            { "value": "structure_need::unknown", "label": "当前还不确定" }
+          ],
+          "option_mode": "fixed",
+          "goal": "确认结构特征是否能单独解释该工序",
+          "stop_after_answer": true
+        },
+        {
+          "node_id": "coverage_size_type",
+          "question_type": "size_select",
+          "question": "这道工序存在的条件，主要依赖以下哪一种尺寸或尺度边界？",
+          "options": [
+            { "value": "size::直径", "label": "直径" },
+            { "value": "size::长度", "label": "长度" },
+            { "value": "size::壁厚", "label": "壁厚" },
+            { "value": "size::孔径", "label": "孔径" },
+            { "value": "size::最大截面", "label": "最大截面" },
+            { "value": "size::长径比", "label": "长径比" },
+            { "value": "size::总体尺寸", "label": "总体尺寸" }
+          ],
+          "option_mode": "fixed_or_extracted",
+          "goal": "先收住主要尺寸边界类型",
+          "next_map": {
+            "__submit__": "coverage_size_boundary"
+          }
+        },
+        {
+          "node_id": "coverage_size_boundary",
+          "question_type": "size_boundary_select",
+          "question": "围绕当前这类尺寸边界，是否已经能总结出一个大致分界？",
+          "options": [
+            { "value": "size_boundary::clear", "label": "有明确分界" },
+            { "value": "size_boundary::trend", "label": "只有大致趋势" },
+            { "value": "size_boundary::unknown", "label": "还没有总结出来" }
+          ],
+          "option_mode": "fixed",
+          "goal": "判断尺寸边界是否已经足够形成规则",
+          "stop_after_answer": true
+        },
+        {
+          "node_id": "coverage_blank_type",
+          "question_type": "blank_select",
+          "question": "这道工序存在的条件，主要依赖以下哪类毛坯或来料状态差异？",
+          "options": [
+            { "value": "blank::棒料", "label": "棒料" },
+            { "value": "blank::管料", "label": "管料" },
+            { "value": "blank::板料", "label": "板料" },
+            { "value": "blank::锻件", "label": "锻件" },
+            { "value": "blank::铸件", "label": "铸件" },
+            { "value": "blank::采购成品料", "label": "采购成品料" }
+          ],
+          "option_mode": "fixed_or_extracted",
+          "goal": "先收住毛坯或来料状态边界",
+          "next_map": {
+            "__submit__": "coverage_blank_need"
+          }
+        },
+        {
+          "node_id": "coverage_blank_need",
+          "question_type": "blank_need_select",
+          "question": "在当前这类毛坯或来料状态下，这道工序是否通常需要保留？",
+          "options": [
+            { "value": "blank_need::yes", "label": "这种状态下通常需要" },
+            { "value": "blank_need::partial", "label": "不完全是，还要看别的条件" },
+            { "value": "blank_need::unknown", "label": "当前还不确定" }
+          ],
+          "option_mode": "fixed",
+          "goal": "确认毛坯状态是否能稳定解释该工序",
+          "stop_after_answer": true
+        },
+        {
+          "node_id": "coverage_requirement_type",
+          "question_type": "requirement_select",
+          "question": "这道工序存在的条件，主要依赖以下哪一类要求差异？",
+          "options": [
+            { "value": "requirement::尺寸精度", "label": "尺寸精度要求" },
+            { "value": "requirement::形位公差", "label": "形位公差要求" },
+            { "value": "requirement::粗糙度", "label": "粗糙度要求" },
+            { "value": "requirement::表面质量", "label": "表面质量要求" },
+            { "value": "requirement::热处理后性能", "label": "热处理后性能要求" },
+            { "value": "requirement::装配配合", "label": "装配配合要求" },
+            { "value": "requirement::检测试验", "label": "检测/试验要求" }
+          ],
+          "option_mode": "fixed_or_extracted",
+          "goal": "先收住主要的要求差异类型",
+          "next_map": {
+            "__submit__": "coverage_requirement_need"
+          }
+        },
+        {
+          "node_id": "coverage_requirement_need",
+          "question_type": "requirement_need_select",
+          "question": "这道工序是否主要出现在要求更高的样本里？",
+          "options": [
+            { "value": "requirement_need::yes", "label": "只有要求更高的样本才会增加" },
+            { "value": "requirement_need::partial", "label": "不完全是，还要结合别的条件" },
+            { "value": "requirement_need::unknown", "label": "当前还不确定" }
+          ],
+          "option_mode": "fixed",
+          "goal": "确认要求差异是否能稳定解释该工序",
+          "stop_after_answer": true
+        },
+        {
+          "node_id": "coverage_multi_pair",
+          "question_type": "multi_factor_select",
+          "question": "如果不是由单一因素决定，当前最主要的两个因素更接近哪一组？",
+          "options": [
+            { "value": "multi::材质+结构", "label": "材质 + 结构" },
+            { "value": "multi::材质+尺寸", "label": "材质 + 尺寸" },
+            { "value": "multi::材质+要求", "label": "材质 + 加工要求" },
+            { "value": "multi::结构+尺寸", "label": "结构 + 尺寸" },
+            { "value": "multi::结构+要求", "label": "结构 + 加工要求" },
+            { "value": "multi::尺寸+要求", "label": "尺寸 + 加工要求" },
+            { "value": "multi::毛坯+结构", "label": "毛坯 + 结构" },
+            { "value": "multi::毛坯+尺寸", "label": "毛坯 + 尺寸" }
+          ],
+          "option_mode": "fixed",
+          "goal": "确定联合因素组合",
+          "next_map": {
+            "__submit__": "coverage_multi_primary"
+          }
+        },
+        {
+          "node_id": "coverage_multi_primary",
+          "question_type": "multi_primary_select",
+          "question": "在当前这组联合因素里，更接近由哪个因素主导？",
+          "options": [
+            { "value": "multi_primary::first", "label": "前一个因素更像主因素" },
+            { "value": "multi_primary::second", "label": "后一个因素更像主因素" },
+            { "value": "multi_primary::both", "label": "两个因素缺一不可" },
+            { "value": "multi_primary::unknown", "label": "当前还不能确定" }
+          ],
+          "option_mode": "fixed",
+          "goal": "确定联合因素中的主次关系",
+          "stop_after_answer": true
+        },
+        {
+          "node_id": "coverage_uncertain_missing",
+          "question_type": "missing_info_select",
+          "question": "当前最缺少哪一类信息？",
+          "options": [
+            { "value": "missing::material", "label": "材质信息缺失" },
+            { "value": "missing::size", "label": "尺寸信息缺失" },
+            { "value": "missing::structure", "label": "结构信息缺失" },
+            { "value": "missing::blank", "label": "毛坯信息缺失" },
+            { "value": "missing::requirement", "label": "图纸/要求信息缺失" },
+            { "value": "missing::sample_count", "label": "样本数量不足" },
+            { "value": "missing::sample_bias", "label": "样本分布不均" }
+          ],
+          "option_mode": "fixed",
+          "goal": "明确当前证据不足主要卡在哪类信息上",
+          "stop_after_answer": true
+        }
+      ]
+    }
+  }
+}

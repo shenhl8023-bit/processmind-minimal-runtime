@@ -1,0 +1,163 @@
+{
+  "auxiliary_operation_names": [
+    "去毛刺",
+    "清洗",
+    "检验",
+    "标印",
+    "包装",
+    "磁粉检查",
+    "裂纹检查",
+    "荧光检查",
+    "烧伤检查"
+  ],
+  "post_branch_stage_order": {
+    "无损检查": 10,
+    "磁粉检查": 10,
+    "裂纹检查": 11,
+    "荧光检查": 12,
+    "烧伤检查": 20,
+    "钻孔": 30,
+    "打孔": 31,
+    "割型孔": 40,
+    "割扁": 41,
+    "割扁、割型孔": 42,
+    "割型孔及割扁": 43,
+    "打型孔": 50,
+    "去毛刺": 60,
+    "研顶尖孔": 70,
+    "研顶尖": 70,
+    "研孔": 80,
+    "研外圆": 90
+  },
+  "terminal_release_order": {
+    "清洗": 1,
+    "检验": 2,
+    "包装": 3
+  },
+  "direct_merge_rules": [
+    {
+      "key": "blank_prep",
+      "required_names": ["下料", "备料"],
+      "standard_name": "下料",
+      "step_family": "毛坯准备类",
+      "phase": "rough",
+      "recommendation_label": "直接归并",
+      "recommendation_reason": "加工意图一致，都是毛坯准备，只是工艺师命名口径不同。",
+      "reason_codes": ["same_process_intent", "naming_variant", "direct_merge"]
+    },
+    {
+      "key": "profile_slot_core_merge",
+      "required_names": ["割型孔", "割扁、割型孔"],
+      "standard_name": "割型孔及割扁",
+      "prefer_standard_name": true,
+      "step_family": "特征加工类",
+      "phase": "special_process",
+      "recommendation_label": "直接归并",
+      "recommendation_reason": "两者存在工步包含关系，“割型孔”被“割扁、割型孔”覆盖，且同属后段型孔/扁位特征加工；合并后以“割型孔及割扁”表达完整对象，具体工步保留在工步层。",
+      "reason_codes": ["step_containment", "same_feature_family", "direct_merge"]
+    },
+    {
+      "key": "quench_core_merge",
+      "required_names": ["淬火", "真空淬火"],
+      "standard_name": "淬火",
+      "prefer_standard_name": true,
+      "step_family": "热处理类",
+      "phase": "heat_treatment",
+      "recommendation_label": "直接归并",
+      "recommendation_reason": "路线输出层统一为上位工序“淬火”，真空淬火作为淬火方式保留到后续规则层表达；该归并不是判断两者工艺条件完全等价。",
+      "reason_codes": ["output_layer_unification", "rule_layer_detail_retained", "direct_merge"]
+    },
+    {
+      "key": "nondestructive_inspection_merge",
+      "required_names": ["磁粉检查", "裂纹检查", "荧光检查"],
+      "standard_name": "无损检查",
+      "prefer_standard_name": true,
+      "step_family": "检查类",
+      "phase": "inspection",
+      "recommendation_label": "直接归并",
+      "recommendation_reason": "三者同属表面裂纹/无损检测目的，在母路线层可合并为“无损检查”；具体检查方式作为工步或规则条件保留。",
+      "reason_codes": ["same_upper_level_purpose", "inspection_method_variant", "direct_merge"]
+    }
+  ],
+  "absorb_into_parent_rules": [
+    {
+      "key": "slot_deburr_into_turning",
+      "child_name": "挖槽去毛刺",
+      "parent_name": "车削加工（A侧）",
+      "required_parent_steps": ["挖槽"],
+      "step_family": "车削类",
+      "phase": "rough",
+      "recommendation_label": "并入上位工序",
+      "recommendation_reason": "该工序更像车削加工中的局部修整动作，通常应并回前面的车削加工工序，而不是与通用去毛刺等同。"
+    },
+    {
+      "key": "turning_internal_bore_into_turning",
+      "child_names": ["钻镗孔"],
+      "parent_names": ["车削加工（A侧）", "车削加工（B侧）"],
+      "required_parent_steps": ["钻镗孔"],
+      "step_family": "车削类",
+      "phase": "rough",
+      "recommendation_label": "并入上位工序",
+      "recommendation_reason": "该工序已被车削加工工步集合覆盖，属于车削内部孔系加工内容；缺少独立后段加工证据时，按通用回并原则并入对应车削加工。",
+      "reason_codes": ["covered_by_parent_steps", "turning_internal_step", "absorb_into_parent"]
+    },
+    {
+      "key": "turning_internal_face_into_turning",
+      "child_names": ["平端面"],
+      "parent_names": ["车削加工（A侧）", "车削加工（B侧）"],
+      "required_parent_steps": ["平端面"],
+      "step_family": "车削类",
+      "phase": "rough",
+      "recommendation_label": "并入上位工序",
+      "recommendation_reason": "该工序已被车削加工工步集合覆盖，属于车削内部端面加工内容；缺少独立后段加工证据时，按通用回并原则并入对应车削加工。",
+      "reason_codes": ["covered_by_parent_steps", "turning_internal_step", "absorb_into_parent"]
+    }
+  ],
+  "keep_separate_rules": [
+    {
+      "key": "drill_vs_drill_ream",
+      "required_names": ["钻孔", "钻铰孔"],
+      "display_name": "钻孔 / 钻铰孔",
+      "step_family": "孔加工类",
+      "phase": "rough",
+      "recommendation_label": "不建议归并",
+      "recommendation_reason": "一个是普通钻削，一个包含铰削定尺寸，差异已上升到加工方法层。"
+    },
+    {
+      "key": "flat_vs_slot",
+      "required_names": ["铣扁", "铣槽"],
+      "display_name": "铣扁 / 铣槽",
+      "step_family": "特征加工类",
+      "phase": "rough",
+      "recommendation_label": "不建议归并",
+      "recommendation_reason": "虽然都属于局部特征加工，但加工对象不同，不能因为同属铣削类就直接合并。"
+    },
+    {
+      "key": "hone_vs_lap",
+      "required_names": ["珩孔", "研孔"],
+      "display_name": "珩孔 / 研孔",
+      "step_family": "孔精整类",
+      "phase": "finish",
+      "recommendation_label": "不建议归并",
+      "recommendation_reason": "两者都属于孔精整，但加工方法和精度控制路径不同，应保持独立。"
+    },
+    {
+      "key": "chromic_vs_hard_anodize",
+      "required_names": ["铬酸阳极化", "硬质阳极化"],
+      "display_name": "铬酸阳极化 / 硬质阳极化",
+      "step_family": "表面处理类",
+      "phase": "surface_treatment",
+      "recommendation_label": "不建议归并",
+      "recommendation_reason": "表面处理方式不同，工艺目的与后续要求并不等价。"
+    },
+    {
+      "key": "shape_hole_vs_shaped_hole",
+      "required_names": ["打孔", "打型孔"],
+      "display_name": "打孔 / 打型孔",
+      "step_family": "特种加工类",
+      "phase": "special_process",
+      "recommendation_label": "不建议归并",
+      "recommendation_reason": "一个是普通穿孔，一个是型孔加工，工艺对象不同。"
+    }
+  ]
+}
