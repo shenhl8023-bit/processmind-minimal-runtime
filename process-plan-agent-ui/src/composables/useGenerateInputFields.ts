@@ -122,9 +122,6 @@ export function useGenerateInputFields(args: {
 
   const requiredFields = computed(() => inputFields.value.filter(field => field.required))
   const filledFieldCount = computed(() => inputFields.value.filter(field => hasFieldValue(field.key)).length)
-  const missingRequiredFields = computed(() => requiredFields.value
-    .filter(field => !hasFieldValue(field.key))
-    .map(field => field.name || field.key))
 
   const factorValues = computed(() => {
     const values: Record<string, any> = {}
@@ -298,7 +295,6 @@ export function useGenerateInputFields(args: {
     initializeFieldValues,
     inputFields,
     inputValue,
-    missingRequiredFields,
     resetFieldValues,
     setCustomInput,
     setFieldBoolean,

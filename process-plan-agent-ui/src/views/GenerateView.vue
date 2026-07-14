@@ -3,26 +3,31 @@
     <header class="generate-header">
       <div>
         <h1>路线生成</h1>
-        <p>填写新零件参数，生成对应的工艺路线结果。</p>
+        <p>填写新零件参数，基于已定稿规则包生成对应的工艺路线与工步树。</p>
       </div>
-      <div class="generate-actions">
-        <button class="btn btn-outline" type="button" @click="goFinalize" :disabled="!projectId">返回定稿</button>
-      </div>
+      <button v-if="projectId" class="generate-back" type="button" @click="goFinalize">返回规则定稿</button>
     </header>
 
+    <div v-if="projectId" class="generate-meta-bar">
+      <span class="generate-project-chip">{{ projectName || `任务 #${projectId}` }}</span>
+      <span class="generate-meta-item">规则包 <strong :class="{ pending: !hasRulePackage }">{{ hasRulePackage ? '已加载' : '待导出' }}</strong></span>
+      <span class="generate-meta-item">输入字段 <strong>{{ inputFields.length }}</strong></span>
+      <span class="generate-meta-item">已填写 <strong>{{ filledFieldCount }}/{{ inputFields.length }}</strong></span>
+    </div>
+
     <section v-if="!projectId" class="empty-panel">
-      <div class="empty-code">05</div>
-      <h2>还没有选择任务</h2>
-      <p>请先从前面步骤进入当前项目，再打开路线生成。</p>
+      <span class="empty-step">05</span>
+      <h2>先选择一个工艺规程任务</h2>
+      <p>路线生成依赖已经定稿的规则包。请从任务列表选择项目，完成规则定稿后再进入此处。</p>
+      <button class="btn btn-primary empty-action" type="button" @click="goUpload">进入任务列表</button>
     </section>
 
-    <div v-if="projectId" class="generate-grid">
+    <div v-else class="generate-grid">
       <GenerateInputPanel
         :project-id="projectId"
         :project-name="projectName"
         :input-fields="inputFields"
         :filled-field-count="filledFieldCount"
-        :missing-required-fields="missingRequiredFields"
         :can-generate="canGenerate"
         :has-rule-package="hasRulePackage"
         :generating="generating"
@@ -56,6 +61,12 @@
       <GenerateRouteOutputPanel
         :error="error"
         :result="result"
+        :project-name="projectName"
+        :input-field-count="inputFields.length"
+        :filled-field-count="filledFieldCount"
+        :has-rule-package="hasRulePackage"
+        :can-generate="canGenerate"
+        :generating="generating"
         @download="downloadOutputJson"
       />
     </div>
@@ -117,7 +128,6 @@ const {
   initializeFieldValues,
   inputFields,
   inputValue,
-  missingRequiredFields,
   resetFieldValues,
   setCustomInput,
   setFieldBoolean,
@@ -130,7 +140,7 @@ const {
 })
 
 const schemaStatusText = computed(() => {
-  if (!hasRulePackage.value) return '当前项目还没有可用规则包，请先在第4步导出规则包。'
+  if (!hasRulePackage.value) return '当前任务还没有可用规则包，请先在第4步导出规则包。'
   return '当前规则包没有定义输入参数，请返回第4步重新导出规则包。'
 })
 
@@ -145,6 +155,10 @@ function goFinalize() {
     path: '/finalize',
     query: buildProjectRouteQuery(projectId.value),
   })
+}
+
+function goUpload() {
+  router.push('/upload')
 }
 
 async function runGenerate() {
@@ -221,8 +235,16 @@ watch(() => route.query.project_id, () => {
 
 <style scoped>
 .generate-view {
+  --generate-ink: #0f172a;
+  --generate-muted: #64748b;
+  --generate-line: #e2e8f0;
+  --generate-surface: #ffffff;
+  --generate-panel: #f8fafc;
+  --generate-accent: #4f46e5;
+  --generate-accent-soft: #eef2ff;
   min-height: calc(100vh - 128px);
-  color: #101828;
+  color: var(--generate-ink);
+  padding-bottom: 22px;
 }
 
 .generate-header {
@@ -234,80 +256,154 @@ watch(() => route.query.project_id, () => {
 }
 
 .generate-header h1 {
+  margin: 0 0 6px;
+  color: var(--generate-ink);
   font-size: 24px;
   line-height: 1.2;
   font-weight: 700;
-  letter-spacing: 0;
-  margin: 0 0 6px;
 }
 
 .generate-header p {
   margin: 0;
-  color: #667085;
+  color: var(--generate-muted);
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 1.7;
 }
 
-.generate-actions {
+.generate-meta-bar {
   display: flex;
-  gap: 8px;
-  flex-shrink: 0;
+  align-items: center;
+  min-height: 56px;
+  gap: 20px;
+  padding: 10px 14px;
+  margin-bottom: 18px;
+  border: 1px solid var(--generate-line);
+  border-radius: 12px;
+  background: var(--generate-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.generate-project-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 7px;
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.generate-meta-item {
+  color: var(--generate-muted);
+  font-size: 13px;
+}
+
+.generate-meta-item strong {
+  margin-left: 4px;
+  color: #334155;
+}
+
+.generate-meta-item strong:not(.pending) {
+  color: #4f46e5;
+}
+
+.generate-meta-item strong.pending {
+  color: #d97706;
+}
+
+.generate-back {
+  height: 36px;
+  padding: 0 13px;
+  border: 1px solid #c7d2fe;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #4f46e5;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
+}
+
+.generate-back:hover {
+  border-color: #6366f1;
+  background: var(--generate-accent-soft);
+  color: #4338ca;
 }
 
 .generate-grid {
   display: grid;
-  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: minmax(330px, 395px) minmax(0, 1fr);
+  gap: 18px;
   align-items: start;
 }
 
 .empty-panel {
-  background: #ffffff;
-  border: 1px solid #e4e7ec;
-  border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
-}
-
-.empty-panel h2 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 0;
-}
-
-.empty-panel p {
-  margin: 4px 0 0;
-  color: #667085;
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-.empty-panel {
-  min-height: 360px;
+  min-height: 380px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  padding: 34px;
   text-align: center;
-  padding: 28px;
+  border: 1px solid var(--generate-line);
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: var(--shadow-sm);
 }
 
-.empty-code {
-  height: 34px;
-  padding: 0 12px;
+.empty-step {
   display: inline-flex;
   align-items: center;
-  border: 1px solid #d0d5dd;
-  border-radius: 999px;
-  color: #667085;
-  font-size: 12px;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  margin-bottom: 16px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #6366f1, #818cf8);
+  color: #ffffff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px;
   font-weight: 800;
-  margin-bottom: 12px;
+}
+
+.empty-panel h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 750;
+}
+
+.empty-panel p {
+  max-width: 430px;
+  margin: 8px 0 18px;
+  color: var(--generate-muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.empty-action {
+  background: #4f46e5;
+}
+
+@media (max-width: 1100px) {
+  .generate-meta-bar { gap: 12px; }
 }
 
 @media (max-width: 900px) {
   .generate-header {
     flex-direction: column;
+  }
+
+  .generate-back {
+    align-self: flex-start;
+  }
+
+  .generate-meta-bar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 10px 14px;
   }
 
   .generate-grid {

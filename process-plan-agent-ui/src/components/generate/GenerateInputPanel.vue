@@ -1,34 +1,38 @@
 <template>
   <aside class="input-panel">
-    <div class="panel-title-row">
+    <div class="input-panel-head">
+      <div class="panel-index">01</div>
       <div>
-        <span class="panel-kicker">输入参数</span>
-        <h2>新零件参数</h2>
-        <p>输入项来自当前规则包，换零件族后会自动变化。</p>
+        <span class="panel-kicker">输入条件</span>
+        <h2>描述新零件</h2>
+        <p>字段由当前定稿规则包定义，填写后用于匹配工艺路线。</p>
       </div>
     </div>
 
-    <div class="input-summary">
-      <div class="summary-chip">
-        <span class="summary-chip-label">任务</span>
-        <span class="summary-chip-value">{{ projectName || `任务 #${projectId}` }}</span>
+    <section class="readiness-card" :class="{ ready: canGenerate }">
+      <div class="readiness-row">
+        <span>参数完成度</span>
+        <strong>{{ filledFieldCount }} / {{ inputFields.length }}</strong>
       </div>
-      <div class="summary-chip">
-        <span class="summary-chip-label">字段</span>
-        <span class="summary-chip-value">{{ inputFields.length }}</span>
+      <div class="readiness-meter" aria-hidden="true">
+        <span :style="{ width: `${readinessPercent}%` }"></span>
       </div>
-      <div class="summary-chip">
-        <span class="summary-chip-label">已选</span>
-        <span class="summary-chip-value">{{ filledFieldCount }}</span>
-      </div>
-      <div class="summary-chip" :class="{ ready: canGenerate }">
-        <span class="summary-chip-label">状态</span>
-        <span class="summary-chip-value">{{ canGenerate ? '可生成' : '待补全' }}</span>
-      </div>
+      <p>{{ canGenerate ? '必填条件已满足，可以生成路线。' : '继续填写必填条件，系统会自动校验。' }}</p>
+    </section>
+
+    <div class="project-strip">
+      <span class="project-strip-label">当前任务</span>
+      <strong>{{ projectName || `任务 #${projectId}` }}</strong>
+      <span class="project-strip-meta">{{ hasRulePackage ? '规则包已加载' : '规则包未就绪' }}</span>
     </div>
 
-    <div v-for="field in inputFields" :key="field.key" class="field-block">
-      <div class="field-shell">
+    <div v-if="inputFields.length" class="field-list">
+      <div
+        v-for="field in inputFields"
+        :key="field.key"
+        class="field-block"
+        :class="{ complete: Boolean(fieldPreviewValue(field.key)), optional: !field.required }"
+      >
         <div class="field-label-row">
           <div class="field-title-stack">
             <span class="field-label">{{ field.name || field.key }}</span>
@@ -37,6 +41,7 @@
           <span class="field-meta">
             <span class="field-type">{{ fieldTypeLabel(field) }}</span>
             <span v-if="!field.required" class="field-optional">可选</span>
+            <span v-else class="field-required">必填</span>
           </span>
         </div>
 
@@ -86,8 +91,8 @@
             </button>
           </div>
           <div class="field-subrow">
-            <span class="field-subtitle">补充输入</span>
-            <span class="field-subhint">用于规则包中未列出的自定义值</span>
+            <span>补充输入</span>
+            <span>添加规则包之外的值</span>
           </div>
           <div class="custom-row">
             <input
@@ -104,7 +109,7 @@
 
         <label v-else-if="isBooleanField(field)" class="check-row">
           <input type="checkbox" :checked="Boolean(fieldValues[field.key])" @change="setFieldBoolean(field.key, checkedValue($event))" />
-          <span>启用</span>
+          <span>启用该条件</span>
         </label>
 
         <input
@@ -117,29 +122,26 @@
         />
 
         <div v-if="fieldPreviewValue(field.key)" class="field-preview">
-          <span class="field-preview-label">当前值</span>
-          <span class="field-preview-value">{{ fieldPreviewValue(field.key) }}</span>
+          <span>已选择</span>
+          <strong>{{ fieldPreviewValue(field.key) }}</strong>
         </div>
       </div>
     </div>
 
     <div v-if="!hasRulePackage || !inputFields.length" class="schema-empty">
-      {{ schemaStatusText }}
+      <strong>无法配置生成参数</strong>
+      <span>{{ schemaStatusText }}</span>
       <button class="mini-btn schema-action" type="button" @click="emit('go-finalize')">返回第4步</button>
-    </div>
-
-    <div v-if="missingRequiredFields.length" class="missing-required">
-      <span class="missing-required-label">还需填写</span>
-      <span v-for="field in missingRequiredFields" :key="field" class="missing-required-chip">{{ field }}</span>
     </div>
 
     <div class="generate-submit">
       <div class="submit-actions">
-        <button class="btn btn-outline btn-half" type="button" @click="clearAllFields" :disabled="generating || !inputFields.length">清空参数</button>
-        <button class="btn btn-outline btn-half" type="button" @click="fillExampleValues" :disabled="generating || !inputFields.length">示例参数</button>
+        <button class="secondary-action" type="button" @click="clearAllFields" :disabled="generating || !inputFields.length">清空</button>
+        <button class="secondary-action" type="button" @click="fillExampleValues" :disabled="generating || !inputFields.length">填入示例</button>
       </div>
-      <button class="btn btn-primary btn-wide generate-cta" type="button" @click="emit('generate')" :disabled="generating || !canGenerate">
-        {{ generating ? '生成中...' : '生成工艺路线' }}
+      <button class="generate-cta" type="button" @click="emit('generate')" :disabled="generating || !canGenerate">
+        <span>{{ generating ? '正在生成路线' : '生成工艺路线' }}</span>
+        <span aria-hidden="true">→</span>
       </button>
       <p v-if="!canGenerate">{{ generateHintText }}</p>
     </div>
@@ -147,12 +149,13 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{
+import { computed } from 'vue'
+
+const props = defineProps<{
   projectId: number | null
   projectName: string
   inputFields: any[]
   filledFieldCount: number
-  missingRequiredFields: string[]
   canGenerate: boolean
   hasRulePackage: boolean
   generating: boolean
@@ -185,193 +188,265 @@ const emit = defineEmits<{
   (event: 'generate'): void
   (event: 'go-finalize'): void
 }>()
+
+const readinessPercent = computed(() => {
+  if (!props.inputFields.length) return 0
+  return Math.min(100, Math.round((props.filledFieldCount / props.inputFields.length) * 100))
+})
 </script>
 
 <style scoped>
 .input-panel {
-  background:
-    linear-gradient(180deg, rgba(248, 250, 252, 0.86), rgba(255, 255, 255, 1) 120px),
-    #ffffff;
-  border: 1px solid #e4e7ec;
-  border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
-  padding: 14px;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --surface: #ffffff;
+  --panel: #f8fafc;
+  --accent: #4f46e5;
+  --accent-soft: #eef2ff;
   position: sticky;
   top: 62px;
-  max-height: calc(100vh - 76px);
-  overflow-y: auto;
-  scrollbar-gutter: stable;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
 }
 
-.panel-kicker {
-  display: inline-flex;
+.input-panel-head {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.panel-index {
+  display: flex;
   align-items: center;
-  height: 22px;
-  padding: 0 8px;
-  margin-bottom: 8px;
-  border-radius: 999px;
-  background: #eff6ff;
-  color: #1d4ed8;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #6366f1, #818cf8);
+  color: #ffffff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
   font-weight: 800;
 }
 
-.panel-title-row h2 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 0;
+.panel-kicker {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
 }
 
-.panel-title-row p {
-  margin: 4px 0 0;
-  color: #667085;
+.input-panel-head h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1.25;
+  font-weight: 750;
+}
+
+.input-panel-head p {
+  margin: 5px 0 0;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.55;
 }
 
-.input-summary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 12px;
+.readiness-card {
+  margin-top: 16px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  background: var(--panel);
 }
 
-.summary-chip {
-  min-height: 52px;
-  padding: 9px 10px;
-  border: 1px solid #e2e8f0;
-  border-radius: 7px;
-  background: #f8fafc;
+.readiness-card.ready {
+  border-color: #9dd5ca;
+  background: var(--accent-soft);
+}
+
+.readiness-row,
+.project-strip,
+.field-label-row,
+.field-subrow,
+.field-preview,
+.submit-actions,
+.generate-cta {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+}
+
+.readiness-row {
   justify-content: space-between;
-  gap: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
 }
 
-.summary-chip.ready {
-  border-color: #c7d2fe;
-  background: #eef2ff;
+.readiness-row strong {
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
 }
 
-.summary-chip-label {
-  color: #64748b;
+.readiness-meter {
+  height: 4px;
+  margin: 9px 0 7px;
+  overflow: hidden;
+  background: #cbd7d4;
+}
+
+.readiness-meter span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.readiness-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.project-strip {
+  gap: 7px;
+  flex-wrap: wrap;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.project-strip-label,
+.project-strip-meta {
+  color: var(--muted);
   font-size: 11px;
   font-weight: 700;
 }
 
-.summary-chip-value {
-  color: #0f172a;
+.project-strip strong {
+  max-width: 185px;
+  overflow: hidden;
+  color: var(--ink);
   font-size: 12px;
-  font-weight: 800;
-  line-height: 1.35;
-  word-break: break-word;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-strip-meta {
+  margin-left: auto;
+  color: var(--accent);
+}
+
+.field-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
 }
 
 .field-block {
-  display: block;
-  margin-top: 14px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfc;
+  transition: border-color 0.16s ease, background 0.16s ease;
 }
 
-.field-shell {
-  padding: 11px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #fcfdff;
+.field-block:focus-within {
+  border-color: var(--accent);
+  background: #ffffff;
+}
+
+.field-block.complete {
+  border-color: #c7d2fe;
+  background: #fafaff;
 }
 
 .field-label-row {
-  display: flex;
-  align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 7px;
+  margin-bottom: 8px;
 }
 
 .field-title-stack {
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+}
+
+.field-label {
+  display: block;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.field-source {
+  display: block;
+  margin-top: 2px;
+  color: #84918f;
+  font-size: 11px;
 }
 
 .field-meta {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   flex-shrink: 0;
 }
 
-.field-label {
-  display: block;
-  font-size: 12px;
-  font-weight: 700;
-  color: #344054;
-}
-
-.field-source {
-  color: #94a3b8;
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.field-type {
+.field-type,
+.field-required,
+.field-optional {
   display: inline-flex;
   align-items: center;
   height: 20px;
-  padding: 0 7px;
-  border-radius: 999px;
-  background: #f2f4f7;
-  color: #475467;
-  font-size: 11px;
-  font-weight: 700;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.field-type {
+  border: 1px solid #e2e8f0;
+  color: var(--muted);
+}
+
+.field-required {
+  background: #fdf0e7;
+  color: #b54708;
 }
 
 .field-optional {
-  flex-shrink: 0;
-  color: #98a2b3;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.schema-empty {
-  margin-top: 14px;
-  padding: 12px;
-  border-radius: 6px;
-  border: 1px solid #fed7aa;
-  background: #fff7ed;
-  color: #9a3412;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.schema-action {
-  margin-top: 10px;
+  color: #84918f;
 }
 
 .text-input {
   width: 100%;
+  height: 36px;
+  padding: 0 10px;
   border: 1px solid #d0d5dd;
   border-radius: 6px;
   background: #ffffff;
-  color: #101828;
+  color: var(--ink);
+  font: inherit;
   font-size: 13px;
-  line-height: 1.5;
   outline: none;
   transition: border-color 0.16s ease, box-shadow 0.16s ease;
-  height: 34px;
-  padding: 0 10px;
 }
 
 .text-input:focus {
-  border-color: #4f46e5;
-  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
 }
 
 .chip-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
+  gap: 6px;
 }
 
 .chip-grid.compact {
@@ -379,196 +454,185 @@ const emit = defineEmits<{
 }
 
 .select-chip {
-  min-height: 32px;
+  min-height: 33px;
+  padding: 5px 7px;
   border: 1px solid #d0d5dd;
   border-radius: 6px;
   background: #ffffff;
-  color: #344054;
+  color: #40504f;
+  font: inherit;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 650;
   cursor: pointer;
-  transition: all 0.16s ease;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
 }
 
 .select-chip:hover {
-  border-color: #98a2b3;
-  background: #f9fafb;
+  border-color: var(--accent);
 }
 
 .select-chip.active {
-  border-color: #4f46e5;
-  background: #eef2ff;
-  color: #3730a3;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: #4338ca;
+}
+
+.field-subrow {
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.field-subrow span:first-child {
+  color: #40504f;
+  font-weight: 750;
 }
 
 .custom-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 58px;
-  gap: 8px;
-  margin-top: 8px;
+  gap: 7px;
+  margin-top: 7px;
 }
 
-.field-subrow {
-  margin-top: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.field-subtitle {
-  color: #475569;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.field-subhint {
-  color: #94a3b8;
-  font-size: 11px;
-}
-
-.mini-btn {
-  height: 34px;
-  padding: 0 10px;
+.mini-btn,
+.secondary-action {
   border: 1px solid #d0d5dd;
   border-radius: 6px;
   background: #ffffff;
-  color: #344054;
-  font-size: 12px;
-  font-weight: 700;
+  color: #40504f;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 750;
   cursor: pointer;
 }
 
-.mini-btn:hover {
-  background: #f9fafb;
-  border-color: #98a2b3;
+.mini-btn {
+  height: 36px;
+  padding: 0 9px;
+}
+
+.mini-btn:hover,
+.secondary-action:hover {
+  border-color: var(--accent);
+  color: #4338ca;
 }
 
 .check-row {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-height: 34px;
-  color: #344054;
+  min-height: 36px;
+  color: #40504f;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 650;
 }
 
 .check-row input {
   width: 16px;
   height: 16px;
-  accent-color: #4f46e5;
+  accent-color: var(--accent);
 }
 
 .field-preview {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px dashed #e2e8f0;
-  display: flex;
-  align-items: baseline;
   gap: 8px;
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px dashed #d7dfdc;
+  color: var(--muted);
+  font-size: 11px;
 }
 
-.field-preview-label {
-  flex-shrink: 0;
-  color: #94a3b8;
-  font-size: 11px;
+.field-preview strong {
+  overflow: hidden;
+  color: #40504f;
   font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.field-preview-value {
-  color: #334155;
-  font-size: 11px;
-  line-height: 1.5;
+.schema-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #f1c497;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.schema-action {
+  height: 30px;
+  margin-top: 2px;
 }
 
 .generate-submit {
   margin-top: 16px;
-  border-top: 1px solid #eaecf0;
   padding-top: 12px;
+  border-top: 1px solid var(--line);
 }
 
-.missing-required {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin-top: 14px;
-  padding: 9px 10px;
-  border: 1px solid #fed7aa;
-  border-radius: 7px;
-  background: #fff7ed;
+.submit-actions {
+  gap: 7px;
+  margin-bottom: 8px;
 }
 
-.missing-required-label {
-  color: #9a3412;
-  font-size: 11px;
+.secondary-action {
+  flex: 1;
+  height: 34px;
+}
+
+.generate-cta {
+  justify-content: space-between;
+  width: 100%;
+  min-height: 42px;
+  padding: 0 13px;
+  border: 1px solid #4f46e5;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #4f46e5, #6366f1);
+  color: #ffffff;
+  font: inherit;
+  font-size: 13px;
   font-weight: 800;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
 }
 
-.missing-required-chip {
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: #ffffff;
-  color: #c2410c;
-  font-size: 10.5px;
-  font-weight: 700;
+.generate-cta:hover:not(:disabled) {
+  border-color: #4338ca;
+  background: linear-gradient(135deg, #4338ca, #4f46e5);
+  transform: translateY(-1px);
+}
+
+.generate-cta:disabled,
+.secondary-action:disabled,
+.mini-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
 }
 
 .generate-submit p {
   margin: 8px 0 0;
-  color: #98a2b3;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.btn-wide {
-  width: 100%;
-  justify-content: center;
-}
-
-.submit-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.btn-half {
-  width: 100%;
-  justify-content: center;
-}
-
-.generate-cta {
-  min-height: 38px;
+  color: #84918f;
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 @media (max-width: 900px) {
   .input-panel {
     position: static;
-    max-height: none;
-    overflow: visible;
-  }
-
-  .input-summary,
-  .submit-actions {
-    grid-template-columns: 1fr;
   }
 
   .field-subrow {
-    flex-direction: column;
     align-items: flex-start;
-  }
-
-  .generate-submit {
-    position: sticky;
-    bottom: 0;
-    z-index: 5;
-    margin: 14px -6px -6px;
-    padding: 10px 6px 6px;
-    background: rgba(255, 255, 255, 0.96);
-    backdrop-filter: blur(10px);
-    box-shadow: 0 -8px 18px rgba(15, 23, 42, 0.06);
+    flex-direction: column;
+    gap: 2px;
   }
 }
 </style>
