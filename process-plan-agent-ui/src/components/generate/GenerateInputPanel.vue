@@ -1,30 +1,13 @@
 <template>
   <aside class="input-panel">
     <div class="input-panel-head">
-      <div class="panel-index">01</div>
-      <div>
-        <span class="panel-kicker">输入条件</span>
-        <h2>描述新零件</h2>
-        <p>字段由当前定稿规则包定义，填写后用于匹配工艺路线。</p>
+      <div class="panel-head-left">
+        <span class="panel-title">输入条件</span>
+        <span class="panel-subtitle">描述新零件</span>
       </div>
     </div>
 
-    <section class="readiness-card" :class="{ ready: canGenerate }">
-      <div class="readiness-row">
-        <span>参数完成度</span>
-        <strong>{{ filledFieldCount }} / {{ inputFields.length }}</strong>
-      </div>
-      <div class="readiness-meter" aria-hidden="true">
-        <span :style="{ width: `${readinessPercent}%` }"></span>
-      </div>
-      <p>{{ canGenerate ? '必填条件已满足，可以生成路线。' : '继续填写必填条件，系统会自动校验。' }}</p>
-    </section>
 
-    <div class="project-strip">
-      <span class="project-strip-label">当前任务</span>
-      <strong>{{ projectName || `任务 #${projectId}` }}</strong>
-      <span class="project-strip-meta">{{ hasRulePackage ? '规则包已加载' : '规则包未就绪' }}</span>
-    </div>
 
     <div v-if="inputFields.length" class="field-list">
       <div
@@ -55,7 +38,7 @@
         />
 
         <div v-else-if="isSingleSelectField(field)">
-          <div v-if="field.allowed_values?.length" class="chip-grid" :class="{ compact: field.allowed_values.length > 8 }">
+          <div v-if="field.allowed_values?.length" class="chip-grid" :class="{ compact: field.allowed_values.length > 9 }">
             <button
               v-for="item in field.allowed_values"
               :key="item"
@@ -78,7 +61,7 @@
         </div>
 
         <div v-else-if="isArrayField(field)">
-          <div v-if="field.allowed_values?.length" class="chip-grid" :class="{ compact: field.allowed_values.length > 8 }">
+          <div v-if="field.allowed_values?.length" class="chip-grid" :class="{ compact: field.allowed_values.length > 9 }">
             <button
               v-for="item in field.allowed_values"
               :key="item"
@@ -121,10 +104,7 @@
           @input="setFieldText(field.key, inputValue($event))"
         />
 
-        <div v-if="fieldPreviewValue(field.key)" class="field-preview">
-          <span>已选择</span>
-          <strong>{{ fieldPreviewValue(field.key) }}</strong>
-        </div>
+
       </div>
     </div>
 
@@ -204,8 +184,8 @@ const readinessPercent = computed(() => {
   --panel: #f8fafc;
   --accent: #4f46e5;
   --accent-soft: #eef2ff;
-  position: sticky;
-  top: 62px;
+  height: 100%;
+  overflow-y: auto;
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -213,134 +193,104 @@ const readinessPercent = computed(() => {
   box-shadow: var(--shadow-sm);
 }
 
-.input-panel-head {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  gap: 10px;
-  align-items: start;
+.input-panel::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
 
-.panel-index {
+.input-panel::-webkit-scrollbar-track {
+  background: #f8fafc;
+  border-radius: 6px;
+}
+
+.input-panel::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 6px;
+}
+
+.input-panel::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* 与右侧 .output-head 共用同一标题栏尺寸，保证底部分割线水平对齐 */
+.input-panel-head {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #6366f1, #818cf8);
-  color: #ffffff;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
-  font-weight: 800;
+  justify-content: space-between;
+  min-height: 28px;
+  padding: 0 4px 12px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 12px;
+  box-sizing: content-box;
 }
 
-.panel-kicker {
-  display: block;
-  margin-bottom: 3px;
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 800;
+.panel-head-left {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 28px;
 }
 
-.input-panel-head h2 {
-  margin: 0;
+.panel-title {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 28px;
   color: var(--ink);
-  font-size: 18px;
-  line-height: 1.25;
-  font-weight: 750;
 }
 
-.input-panel-head p {
-  margin: 5px 0 0;
+.panel-subtitle {
+  font-size: 13px;
+  line-height: 28px;
   color: var(--muted);
+  margin-left: 8px;
+  font-weight: 500;
+}
+
+.panel-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.mini-progress-label {
   font-size: 12px;
-  line-height: 1.55;
+  color: var(--muted);
 }
 
-.readiness-card {
-  margin-top: 16px;
-  padding: 11px 12px;
-  border: 1px solid var(--line);
-  background: var(--panel);
+.mini-progress-label strong {
+  color: var(--ink);
+  font-weight: 700;
 }
 
-.readiness-card.ready {
-  border-color: #9dd5ca;
-  background: var(--accent-soft);
+.mini-progress-track {
+  width: 60px;
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
 }
 
-.readiness-row,
-.project-strip,
+.mini-progress-fill {
+  height: 100%;
+  background: #cbd5e1;
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}
+
+.mini-progress-fill.ready {
+  background: linear-gradient(90deg, #6366f1, #4f46e5);
+}
+
 .field-label-row,
 .field-subrow,
-.field-preview,
 .submit-actions,
 .generate-cta {
   display: flex;
   align-items: center;
 }
 
-.readiness-row {
-  justify-content: space-between;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 750;
-}
 
-.readiness-row strong {
-  color: var(--ink);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-}
-
-.readiness-meter {
-  height: 4px;
-  margin: 9px 0 7px;
-  overflow: hidden;
-  background: #cbd7d4;
-}
-
-.readiness-meter span {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  transition: width 0.2s ease;
-}
-
-.readiness-card p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-.project-strip {
-  gap: 7px;
-  flex-wrap: wrap;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--line);
-}
-
-.project-strip-label,
-.project-strip-meta {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.project-strip strong {
-  max-width: 185px;
-  overflow: hidden;
-  color: var(--ink);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.project-strip-meta {
-  margin-left: auto;
-  color: var(--accent);
-}
 
 .field-list {
   display: flex;
@@ -445,13 +395,15 @@ const readinessPercent = computed(() => {
 
 .chip-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
 }
 
 .chip-grid.compact {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
+
+
 
 .select-chip {
   min-height: 33px;
@@ -459,10 +411,10 @@ const readinessPercent = computed(() => {
   border: 1px solid #d0d5dd;
   border-radius: 6px;
   background: #ffffff;
-  color: #40504f;
+  color: #334155;
   font: inherit;
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 600;
   cursor: pointer;
   transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
 }
@@ -486,8 +438,8 @@ const readinessPercent = computed(() => {
 }
 
 .field-subrow span:first-child {
-  color: #40504f;
-  font-weight: 750;
+  color: #0f172a;
+  font-weight: 700;
 }
 
 .custom-row {
@@ -502,10 +454,10 @@ const readinessPercent = computed(() => {
   border: 1px solid #d0d5dd;
   border-radius: 6px;
   background: #ffffff;
-  color: #40504f;
+  color: #334155;
   font: inherit;
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -525,9 +477,9 @@ const readinessPercent = computed(() => {
   align-items: center;
   gap: 8px;
   min-height: 36px;
-  color: #40504f;
+  color: #334155;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .check-row input {
@@ -536,22 +488,7 @@ const readinessPercent = computed(() => {
   accent-color: var(--accent);
 }
 
-.field-preview {
-  gap: 8px;
-  margin-top: 9px;
-  padding-top: 8px;
-  border-top: 1px dashed #d7dfdc;
-  color: var(--muted);
-  font-size: 11px;
-}
 
-.field-preview strong {
-  overflow: hidden;
-  color: #40504f;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .schema-empty {
   display: flex;
@@ -561,6 +498,7 @@ const readinessPercent = computed(() => {
   margin-top: 14px;
   padding: 12px;
   border: 1px solid #f1c497;
+  border-radius: 8px;
   background: #fff7ed;
   color: #9a3412;
   font-size: 12px;
@@ -599,7 +537,7 @@ const readinessPercent = computed(() => {
   color: #ffffff;
   font: inherit;
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
   cursor: pointer;
   transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
 }

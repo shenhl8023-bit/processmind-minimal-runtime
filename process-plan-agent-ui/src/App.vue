@@ -160,6 +160,14 @@ onMounted(() => {
   --shadow-md: 0 4px 12px -2px rgba(0,0,0,0.06), 0 2px 6px -1px rgba(0,0,0,0.04); /* Deeper hover shadow */
   --shadow-lg: 0 12px 32px -4px rgba(0,0,0,0.1), 0 8px 16px -4px rgba(0,0,0,0.06); /* Heavy lift shadow */
   --transition: all 0.2s ease;
+  /* 主内容区与底部导航共用，保证「进入下一步」按钮右缘与上方卡片对齐 */
+  --page-max-width: 1280px;
+  --page-padding-x: 24px;
+}
+
+html {
+  /* 预留滚动条槽，避免 fixed 底栏与文档流主内容因滚动条宽度错位 */
+  scrollbar-gutter: stable;
 }
 
 html, body {
@@ -395,8 +403,8 @@ html, body {
 /* ===== Main Content ===== */
 .main-area {
   flex: 1;
-  padding: 14px 24px 92px;
-  max-width: 1280px;
+  padding: 14px var(--page-padding-x) 56px;
+  max-width: var(--page-max-width);
   width: 100%;
   min-width: 0;
   margin: 0 auto;
@@ -510,10 +518,14 @@ html, body {
    unreadable controls. The step row becomes an independently scrollable rail
    so the page itself never gains a horizontal scrollbar. */
 @media (max-width: 900px) {
+  :root {
+    --page-padding-x: 16px;
+  }
+
   .top-bar {
     height: auto;
     min-height: 48px;
-    padding: 8px 16px 0;
+    padding: 8px var(--page-padding-x) 0;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
@@ -550,14 +562,18 @@ html, body {
   }
 
   .main-area {
-    padding: 12px 16px 138px;
+    padding: 12px var(--page-padding-x) 88px;
   }
 }
 
 @media (max-width: 520px) {
+  :root {
+    --page-padding-x: 12px;
+  }
+
   .top-bar {
-    padding-left: 12px;
-    padding-right: 12px;
+    padding-left: var(--page-padding-x);
+    padding-right: var(--page-padding-x);
   }
 
   .brand-name {
@@ -575,11 +591,11 @@ html, body {
   }
 
   .main-area {
-    padding-inline: 12px;
+    padding-inline: var(--page-padding-x);
   }
 
   .footer {
-    padding-inline: 12px;
+    padding-inline: var(--page-padding-x);
     line-height: 1.4;
   }
 }

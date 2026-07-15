@@ -56,25 +56,25 @@ defineEmits<{
   right: 0;
   bottom: 0;
   z-index: 45;
-  padding: 10px 24px 14px;
-  background: linear-gradient(180deg, rgba(248, 250, 252, 0), rgba(248, 250, 252, 0.92) 34%, rgba(248, 250, 252, 0.98));
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
+  background: rgba(248, 250, 252, 0.97);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   pointer-events: none;
 }
 
 .workflow-nav-inner {
-  width: min(1280px, 100%);
-  min-height: 52px;
+  /* 与 App.vue .main-area 同一最大宽度与左右内边距，保证按钮右缘对齐上方模块 */
+  max-width: var(--page-max-width, 1280px);
+  width: 100%;
+  height: 48px;
   margin: 0 auto;
-  padding: 8px 10px 8px 16px;
+  padding: 0 var(--page-padding-x, 24px);
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  border: 1px solid rgba(226, 232, 240, 0.96);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.12);
-  backdrop-filter: blur(14px);
   pointer-events: auto;
 }
 
@@ -140,14 +140,15 @@ defineEmits<{
 
 @media (max-width: 900px) {
   .workflow-nav-footer {
-    padding: 8px 12px 10px;
+    padding: 8px var(--page-padding-x, 16px) 10px;
   }
 
   .workflow-nav-inner {
     align-items: stretch;
     flex-direction: column;
+    height: auto;
     gap: 8px;
-    padding: 10px;
+    padding: 10px 0;
   }
 
   .workflow-nav-actions {

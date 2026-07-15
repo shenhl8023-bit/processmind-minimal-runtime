@@ -530,8 +530,8 @@ function applyRecommendedSelection() {
 }
 
 .detail-card-title {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 700;
   color: #0f172a;
   margin-bottom: 10px;
   display: flex;

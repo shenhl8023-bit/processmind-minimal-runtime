@@ -2,7 +2,25 @@
   <article class="detail-card detail-card-wide">
     <button class="detail-collapse-toggle" type="button" @click="$emit('toggle')">
       <span class="detail-card-title">差异样本</span>
-      <span class="detail-collapse-indicator">{{ expanded ? '收起' : '展开' }}</span>
+      <span class="detail-collapse-indicator">
+        <span>{{ expanded ? '收起' : '展开' }}</span>
+        <svg
+          class="detail-collapse-chevron"
+          :class="{ 'detail-collapse-chevron--open': expanded }"
+          viewBox="0 0 16 16"
+          width="9"
+          height="9"
+          fill="none"
+        >
+          <path
+            d="M6 4l4 4-4 4"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </span>
     </button>
     <template v-if="expanded">
       <p class="detail-helper-text">用途：帮助你判断这道工序出现时通常伴随什么，不出现时又更像哪类路线。</p>
@@ -143,9 +161,20 @@ function cleanDocName(name?: string) {
 }
 
 .detail-collapse-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 12.5px;
   font-weight: 600;
   color: #6366f1;
+}
+
+.detail-collapse-chevron {
+  transition: transform 0.2s ease;
+}
+
+.detail-collapse-chevron--open {
+  transform: rotate(90deg);
 }
 
 .sample-compare-grid {

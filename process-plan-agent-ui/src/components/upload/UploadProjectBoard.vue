@@ -1,13 +1,16 @@
 <template>
   <div class="card project-card">
-    <div class="card-title">
-      <svg class="header-icon-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="3" y="3" width="7" height="9" rx="1" />
-        <rect x="14" y="3" width="7" height="5" rx="1" />
-        <rect x="14" y="12" width="7" height="9" rx="1" />
-        <rect x="3" y="16" width="7" height="5" rx="1" />
-      </svg>
-      任务卡片
+    <div class="project-card-header">
+      <div class="project-card-title-row">
+        <svg class="header-icon-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="9" rx="1" />
+          <rect x="14" y="3" width="7" height="5" rx="1" />
+          <rect x="14" y="12" width="7" height="9" rx="1" />
+          <rect x="3" y="16" width="7" height="5" rx="1" />
+        </svg>
+        <span class="project-card-title">上传任务资料</span>
+      </div>
+      <p class="project-card-desc">先创建工艺规程规则任务，再按任务上传文件。每个任务的文档、规则和生成结果独立保存。</p>
     </div>
     <div class="project-board">
       <button class="project-tile project-tile-new" :disabled="creatingProject" @click="$emit('create')">
@@ -92,13 +95,34 @@ defineEmits<{
 
 <style scoped>
 .project-card {
-  padding: 10px 14px;
+  padding: 12px 14px;
   margin-bottom: 10px;
   flex-shrink: 0;
 }
-.project-card .card-title {
-  font-size: 13px;
-  margin-bottom: 8px;
+
+.project-card-header {
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+}
+
+.project-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.project-card-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.project-card-desc {
+  margin: 4px 0 0 22px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.45;
 }
 .project-board {
   display: grid;

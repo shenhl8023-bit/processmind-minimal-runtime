@@ -1,18 +1,19 @@
 <template>
   <div class="generate-view">
-    <header class="generate-header">
-      <div>
-        <h1>路线生成</h1>
-        <p>填写新零件参数，基于已定稿规则包生成对应的工艺路线与工步树。</p>
+    <div class="generate-header-card">
+      <div class="gh-left-content">
+        <span class="gh-page-title">路线生成</span>
+        <template v-if="projectId">
+          <span class="generate-project-chip">{{ projectName || `任务 #${projectId}` }}</span>
+          
+          <div class="gh-meta-section">
+            <span class="generate-meta-item">规则包 <strong :class="{ pending: !hasRulePackage }">{{ hasRulePackage ? packageMetaLabel : '待导出' }}</strong></span>
+            <span class="generate-meta-item">契约 <strong>{{ packageSchemaVersion || '-' }}</strong></span>
+            <span class="generate-meta-item">输入字段 <strong>{{ inputFields.length }}</strong></span>
+            <span class="generate-meta-item">已填写 <strong>{{ filledFieldCount }}/{{ inputFields.length }}</strong></span>
+          </div>
+        </template>
       </div>
-    </header>
-
-    <div v-if="projectId" class="generate-meta-bar">
-      <span class="generate-project-chip">{{ projectName || `任务 #${projectId}` }}</span>
-      <span class="generate-meta-item">规则包 <strong :class="{ pending: !hasRulePackage }">{{ hasRulePackage ? packageMetaLabel : '待导出' }}</strong></span>
-      <span class="generate-meta-item">契约 <strong>{{ packageSchemaVersion || '-' }}</strong></span>
-      <span class="generate-meta-item">输入字段 <strong>{{ inputFields.length }}</strong></span>
-      <span class="generate-meta-item">已填写 <strong>{{ filledFieldCount }}/{{ inputFields.length }}</strong></span>
     </div>
 
     <section v-if="!projectId" class="empty-panel">
@@ -309,67 +310,71 @@ onDeactivated(() => {
   --generate-panel: #f8fafc;
   --generate-accent: #4f46e5;
   --generate-accent-soft: #eef2ff;
-  min-height: calc(100vh - 128px);
+  height: calc(100vh - 118px);
   color: var(--generate-ink);
-  padding-bottom: 22px;
 }
 
-.generate-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 18px;
-  padding: 4px 0 14px;
-}
-
-.generate-header h1 {
-  margin: 0 0 6px;
-  color: var(--generate-ink);
-  font-size: 24px;
-  line-height: 1.2;
-  font-weight: 700;
-}
-
-.generate-header p {
-  margin: 0;
-  color: var(--generate-muted);
-  font-size: 13px;
-  line-height: 1.7;
-}
-
-.generate-meta-bar {
+.generate-header-card {
   display: flex;
   align-items: center;
-  min-height: 56px;
-  gap: 20px;
-  padding: 10px 14px;
-  margin-bottom: 18px;
+  justify-content: space-between;
+  gap: 16px;
+  background: #ffffff;
   border: 1px solid var(--generate-line);
   border-radius: 12px;
-  background: var(--generate-surface);
+  padding: 8px 12px;
   box-shadow: var(--shadow-sm);
+  margin-bottom: 12px;
+}
+
+.gh-left-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.gh-page-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--generate-ink);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .generate-project-chip {
   display: inline-flex;
   align-items: center;
-  min-height: 32px;
-  padding: 0 12px;
-  border-radius: 7px;
   background: #0f172a;
-  color: #ffffff;
-  font-size: 13px;
-  font-weight: 800;
+  color: #f1f5f9;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.gh-meta-section {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-left: 12px;
+  border-left: 1px solid var(--generate-line);
+  padding-left: 16px;
 }
 
 .generate-meta-item {
+  font-size: 12.5px;
   color: var(--generate-muted);
-  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
 }
 
 .generate-meta-item strong {
-  margin-left: 4px;
-  color: #334155;
+  color: #0f172a;
+  font-weight: 700;
 }
 
 .generate-meta-item strong:not(.pending) {
@@ -382,9 +387,10 @@ onDeactivated(() => {
 
 .generate-grid {
   display: grid;
-  grid-template-columns: minmax(330px, 395px) minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
   align-items: start;
+  height: calc(100vh - 178px);
 }
 
 .empty-panel {
@@ -434,23 +440,31 @@ onDeactivated(() => {
   background: #4f46e5;
 }
 
-@media (max-width: 1100px) {
-  .generate-meta-bar { gap: 12px; }
-}
-
 @media (max-width: 900px) {
-  .generate-header {
+  .generate-header-card {
     flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 12px;
   }
 
-  .generate-meta-bar {
-    align-items: flex-start;
+  .gh-left-content {
     flex-wrap: wrap;
-    gap: 10px 14px;
+    gap: 8px 12px;
+  }
+
+  .gh-meta-section {
+    margin-left: 0;
+    border-left: none;
+    padding-left: 0;
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 6px 12px;
   }
 
   .generate-grid {
     grid-template-columns: 1fr;
+    height: auto;
   }
 }
 </style>

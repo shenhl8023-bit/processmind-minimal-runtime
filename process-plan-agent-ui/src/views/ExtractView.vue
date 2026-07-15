@@ -744,7 +744,7 @@ async function initializeExtractView() {
     const projects = await listProjects()
     const savedId = resolveAvailableProjectId(routeProjectId, projects)
     if (!savedId) {
-      errorMsg.value = '请先在第一步创建或选择任务'
+      errorMsg.value = '请先创建或选择任务'
       status.value = 'error'
       return
     }
@@ -758,7 +758,7 @@ async function initializeExtractView() {
     const current = projects.find((item) => item.id === projectId.value)
     if (!current) {
       projectId.value = null
-      errorMsg.value = '当前任务已不存在，请回到第一步重新创建任务。'
+      errorMsg.value = '当前任务已不存在，请重新创建任务。'
       status.value = 'error'
       return
     }
@@ -848,7 +848,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   /* 与第4步一致：填满 main-area（topbar 48 + pad-top 14 + pad-bottom 92） */
-  height: calc(100vh - 154px);
+  height: calc(100vh - 118px);
   min-height: 0;
   overflow: hidden;
 }

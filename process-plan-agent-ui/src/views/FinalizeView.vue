@@ -1,29 +1,28 @@
 <template>
   <div class="finalize-view">
     <div class="analysis-style-header">
-      <div class="ash-top">
-        <div class="ash-titles">
-          <h1>{{ FINALIZE_VIEW_COPY.pageTitle }}</h1>
-          <p>{{ FINALIZE_VIEW_COPY.pageSubtitle }}</p>
-        </div>
-        <div class="ash-actions">
-          <button class="ash-btn-outline" @click="downloadRuleDocument" :disabled="exportingRulePackage || !segmentCards.length">
-            {{ exportingRulePackage ? '正在导出...' : FINALIZE_VIEW_COPY.exportDocument }}
-          </button>
-          <button class="ash-btn-outline" @click="toggleOnlyEdited" :disabled="!segmentCards.length">
-            {{ onlyEdited ? FINALIZE_VIEW_COPY.showAll : FINALIZE_VIEW_COPY.showEditedOnly }}
-          </button>
-          <button class="ash-btn-outline" @click="reloadWorkspace" :disabled="loading || !projectId">
-            {{ FINALIZE_VIEW_COPY.refresh }}
-          </button>
+      <div class="ash-left-content">
+        <span class="ash-page-title">规则定稿</span>
+        <span class="ash-dark-chip">{{ projectName || '未命名任务' }}</span>
+        
+        <div class="ash-meta-section">
+          <span class="ash-meta-item">已保存版本 <strong>V{{ savedRoute?.version || '-' }}</strong></span>
+          <span class="ash-meta-item" v-if="lastExportedRulePackageVersion">规则包 <strong>V{{ lastExportedRulePackageVersion }}</strong></span>
+          <span class="ash-meta-item">总工序段 <strong>{{ segmentCards.length }}</strong></span>
+          <span class="ash-meta-item" v-if="editedSegmentCount">本页已微调 <strong class="highlight-text">{{ editedSegmentCount }}</strong></span>
         </div>
       </div>
-      <div class="ash-meta-bar">
-        <span class="ash-dark-chip">{{ projectName || '未命名任务' }}</span>
-        <span class="ash-meta-item">已保存版本 <strong>V{{ savedRoute?.version || '-' }}</strong></span>
-        <span class="ash-meta-item" v-if="lastExportedRulePackageVersion">规则包 <strong>V{{ lastExportedRulePackageVersion }}</strong></span>
-        <span class="ash-meta-item">总工序段 <strong>{{ segmentCards.length }}</strong></span>
-        <span class="ash-meta-item" v-if="editedSegmentCount">本页已微调 <strong class="highlight-text">{{ editedSegmentCount }}</strong></span>
+
+      <div class="ash-actions">
+        <button class="ash-btn-outline" @click="downloadRuleDocument" :disabled="exportingRulePackage || !segmentCards.length">
+          {{ exportingRulePackage ? '正在导出...' : FINALIZE_VIEW_COPY.exportDocument }}
+        </button>
+        <button class="ash-btn-outline" @click="toggleOnlyEdited" :disabled="!segmentCards.length">
+          {{ onlyEdited ? FINALIZE_VIEW_COPY.showAll : FINALIZE_VIEW_COPY.showEditedOnly }}
+        </button>
+        <button class="ash-btn-outline" @click="reloadWorkspace" :disabled="loading || !projectId">
+          {{ FINALIZE_VIEW_COPY.refresh }}
+        </button>
       </div>
     </div>
 
@@ -363,122 +362,88 @@ onDeactivated(() => {
 }
 
 .analysis-style-header {
-  margin-bottom: 12px;
-}
-
-.ash-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  gap: 16px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 8px 12px;
+  box-shadow: 0 1.5px 5px rgba(15, 23, 42, 0.02);
+  margin-bottom: 12px;
 }
 
-.ash-titles {
+.ash-left-content {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
 
-.ash-titles h1 {
-  margin: 0;
-  font-size: 20px;
+.ash-page-title {
+  font-size: 15px;
   font-weight: 700;
-  line-height: 1.25;
   color: #0f172a;
-  letter-spacing: -0.02em;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.ash-titles p {
-  margin: 4px 0 0;
-  font-size: 13px;
-  line-height: 1.6;
-  color: #94a3b8;
-  font-weight: 400;
+.ash-dark-chip {
+  background: #0f172a;
+  color: #f1f5f9;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.ash-meta-section {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-left: 12px;
+  border-left: 1px solid #cbd5e1;
+  padding-left: 16px;
+}
+
+.ash-meta-item {
+  font-size: 12.5px;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.ash-meta-item strong {
+  color: #0f172a;
+  font-weight: 700;
 }
 
 .ash-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
-
-.ash-btn-plain {
-  background: transparent;
-  border: none;
-  color: #64748b;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  padding: 5px 8px;
-  transition: color 0.2s;
-}
-.ash-btn-plain:hover { color: #0f172a; }
 
 .ash-btn-outline {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   background: #ffffff;
-  border: 1px solid #c7d2fe;
-  color: #4f46e5;
+  border: 1px solid #cbd5e1;
+  color: #475569;
   padding: 5px 12px;
   border-radius: 7px;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.15s ease;
 }
-.ash-btn-outline:hover { background: #f8fafc; border-color: #a5b4fc; }
+.ash-btn-outline:hover { background: #f8fafc; border-color: #cbd5e1; color: #0f172a; }
 .ash-btn-outline:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.ash-btn-primary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: #4f46e5;
-  color: #ffffff;
-  border: none;
-  padding: 5px 14px;
-  border-radius: 7px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.ash-btn-primary:hover:not(:disabled) { background: #4338ca; box-shadow: 0 4px 12px -2px rgba(79, 70, 229, 0.4); }
-.ash-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.ash-meta-bar {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 10px 14px;
-}
-
-.ash-dark-chip {
-  background: #0f172a;
-  color: #f1f5f9;
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.ash-meta-item {
-  font-size: 13px;
-  color: #64748b;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.ash-meta-item strong {
-  color: #0f172a;
-  font-weight: 600;
-}
 
 .highlight-text {
   color: #ea580c !important;
@@ -488,7 +453,7 @@ onDeactivated(() => {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
   gap: 14px;
-  height: calc(100vh - 272px);
+  height: calc(100vh - 178px);
 }
 
 .finalize-results {
@@ -509,10 +474,25 @@ onDeactivated(() => {
 }
 
 @media (max-width: 900px) {
-  .ash-top {
-    align-items: stretch;
+  .analysis-style-header {
     flex-direction: column;
-    gap: 14px;
+    align-items: stretch;
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .ash-left-content {
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+
+  .ash-meta-section {
+    margin-left: 0;
+    border-left: none;
+    padding-left: 0;
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 6px 12px;
   }
 
   .ash-actions {
@@ -525,11 +505,6 @@ onDeactivated(() => {
   .ash-actions button {
     min-height: 36px;
     width: 100%;
-  }
-
-  .ash-meta-bar {
-    flex-wrap: wrap;
-    gap: 8px 14px;
   }
 
   .finalize-layout {

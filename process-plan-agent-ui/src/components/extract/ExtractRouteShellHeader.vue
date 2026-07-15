@@ -4,7 +4,7 @@
       <div class="route-shell-info">
         <div class="route-shell-title">{{ editUnlocked ? '结果路线微调' : '路线归并' }}</div>
         <span class="route-shell-sep">·</span>
-        <div class="route-shell-desc">{{ editUnlocked ? '推荐归并已完成，右侧可继续人工微调' : '按归并原则确认标准路线' }}</div>
+        <div class="route-shell-desc">{{ editUnlocked ? '可对右侧结果路线进行人工调整' : '按归并原则确认标准路线' }}</div>
       </div>
       <div class="route-shell-actions">
         <div class="route-shell-stats">
@@ -24,7 +24,7 @@
       </div>
     </div>
 
-    <div v-if="notice" class="route-shell-banner" :class="{ 'route-shell-banner-warning': isWarningNotice }">
+    <div v-if="notice && isWarningNotice" class="route-shell-banner route-shell-banner-warning">
       {{ notice }}
     </div>
   </div>
@@ -80,7 +80,7 @@ const isWarningNotice = computed(() =>
 }
 
 .route-shell-title {
-  font-size: 13.5px;
+  font-size: 15px;
   font-weight: 700;
   color: #0f172a;
   white-space: nowrap;
@@ -88,7 +88,7 @@ const isWarningNotice = computed(() =>
 }
 
 .route-shell-desc {
-  font-size: 11.5px;
+  font-size: 13px;
   color: #94a3b8;
   white-space: nowrap;
   overflow: hidden;

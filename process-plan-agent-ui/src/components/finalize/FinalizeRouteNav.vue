@@ -124,6 +124,25 @@ defineEmits<{
   padding: 14px;
 }
 
+.route-nav::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.route-nav::-webkit-scrollbar-track {
+  background: #f8fafc;
+  border-radius: 6px;
+}
+
+.route-nav::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 6px;
+}
+
+.route-nav::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
 .route-nav-head {
   display: flex;
   justify-content: space-between;

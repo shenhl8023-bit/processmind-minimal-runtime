@@ -34,8 +34,6 @@
           <div class="route-main">
             <div class="route-meta-row">
               <span class="route-meta-coverage">样本 {{ segmentCoverageLabel(segment) }}</span>
-              <span v-if="segment.step_family" class="route-meta-tag">{{ segment.step_family }}</span>
-              <span v-if="segmentPhaseLabel(segment)" class="route-meta-tag">{{ segmentPhaseLabel(segment) }}</span>
               <span class="route-meta-details">{{ segment.detail_coverage.matched_rows }} 条明细</span>
             </div>
 

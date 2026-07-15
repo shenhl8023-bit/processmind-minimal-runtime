@@ -5,7 +5,25 @@
         内容证据摘录
         <span v-if="excerpts.length" class="detail-card-count">{{ excerpts.length }}</span>
       </span>
-      <span class="detail-collapse-indicator">{{ expanded ? '收起' : '展开' }}</span>
+      <span class="detail-collapse-indicator">
+        <span>{{ expanded ? '收起' : '展开' }}</span>
+        <svg
+          class="detail-collapse-chevron"
+          :class="{ 'detail-collapse-chevron--open': expanded }"
+          viewBox="0 0 16 16"
+          width="9"
+          height="9"
+          fill="none"
+        >
+          <path
+            d="M6 4l4 4-4 4"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </span>
     </button>
     <template v-if="expanded">
       <div v-if="excerpts.length" class="excerpt-list">
@@ -60,9 +78,20 @@ defineEmits<{
 }
 
 .detail-collapse-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 12.5px;
   font-weight: 600;
   color: #6366f1;
+}
+
+.detail-collapse-chevron {
+  transition: transform 0.2s ease;
+}
+
+.detail-collapse-chevron--open {
+  transform: rotate(90deg);
 }
 
 .excerpt-list {

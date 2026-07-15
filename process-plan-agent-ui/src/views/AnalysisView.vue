@@ -1,9 +1,10 @@
 <template>
   <div class="analysis-view">
     <div class="analysis-hero">
-      <div>
-        <h1>规则分析</h1>
-        <p class="analysis-desc">已保存路线版本一览，左侧选工序、右侧看证据。</p>
+      <div class="analysis-hero-info">
+        <div class="analysis-hero-title">规则分析</div>
+        <span class="analysis-hero-sep">·</span>
+        <div class="analysis-hero-desc">已保存路线版本一览，左侧选工序、右侧看证据。</div>
       </div>
       <div class="analysis-actions">
         <button class="btn btn-outline btn-sm" @click="loadSavedRoute(true)" :disabled="loading || !projectId">
@@ -363,7 +364,7 @@ function goToFinalize() {
   display: flex;
   flex-direction: column;
   /* 与第4步一致：填满 main-area（topbar 48 + pad-top 14 + pad-bottom 92） */
-  height: calc(100vh - 154px);
+  height: calc(100vh - 118px);
   min-height: 0;
   overflow: hidden;
   background: #f8fafc;
@@ -371,33 +372,79 @@ function goToFinalize() {
 
 .analysis-hero {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
   align-items: center;
-  margin-bottom: 8px;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 1.5px 5px rgba(15, 23, 42, 0.02);
+  margin-bottom: 6px;
   flex-shrink: 0;
 }
 
-.analysis-hero h1 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 700;
-  line-height: 1.25;
-  color: #0f172a;
-  letter-spacing: -0.02em;
+.analysis-hero-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
-.analysis-desc {
-  margin: 4px 0 0;
+.analysis-hero-sep {
+  color: #cbd5e1;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.analysis-hero-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.analysis-hero-desc {
   font-size: 13px;
-  line-height: 1.5;
   color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .analysis-actions {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 12px;
   flex-shrink: 0;
+}
+
+.analysis-hero-stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 4px;
+}
+
+.analysis-hero-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: rgba(255, 255, 255, 0.86);
+  font-size: 10.5px;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.analysis-hero-stat strong {
+  font-size: 11px;
+  font-weight: 700;
+  color: #0f172a;
 }
 
 .analysis-layout {
@@ -425,7 +472,8 @@ function goToFinalize() {
   display: flex;
   align-items: center;
   gap: 7px;
-  min-width: 190px;
+  width: 289px;
+  flex-shrink: 0;
   height: 32px;
   padding: 0 10px;
   border: 1px solid #cbd5e1;
@@ -473,6 +521,17 @@ function goToFinalize() {
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.analysis-filter-btn:hover:not(.active) {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.analysis-filter-btn:hover:not(.active) span {
+  background: #cbd5e1;
+  color: #0f172a;
 }
 
 .analysis-filter-btn span {
@@ -514,6 +573,25 @@ function goToFinalize() {
 .analysis-column {
   min-width: 0;
   overflow-y: auto;
+}
+
+.analysis-column::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.analysis-column::-webkit-scrollbar-track {
+  background: #f8fafc;
+  border-radius: 6px;
+}
+
+.analysis-column::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 6px;
+}
+
+.analysis-column::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }
 
 .analysis-column-left,
@@ -704,13 +782,13 @@ function goToFinalize() {
 
 .detail-card {
   padding: 12px;
-  border-radius: 10px;
+  border-radius: 12px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
 }
 
 .detail-card-wide {
-  margin-top: 8px;
+  margin-top: 12px;
 }
 
 .detail-collapse-toggle {

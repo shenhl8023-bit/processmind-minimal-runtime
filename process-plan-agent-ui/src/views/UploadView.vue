@@ -1,9 +1,5 @@
 <template>
   <div class="upload-view">
-    <div class="page-header">
-      <h1>第一步：上传任务资料</h1>
-      <p class="page-desc">先创建工艺规程规则任务，再按任务上传文件。每个任务的文档、规则和生成结果独立保存。</p>
-    </div>
 
     <UploadProjectBoard
       :projects="visibleProjects"
@@ -483,24 +479,9 @@ const goNext = async () => {
 .upload-view {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 154px);
+  height: calc(100vh - 118px);
   overflow: hidden;
   box-sizing: border-box;
-}
-
-/* Page Header: Tighter & Compact */
-.page-header {
-  margin-bottom: 10px;
-  flex-shrink: 0;
-}
-.page-header h1 {
-  font-size: 18px;
-  font-weight: 700;
-  margin-bottom: 2px;
-}
-.page-desc {
-  font-size: 12px;
-  color: var(--text-secondary);
 }
 
 /* Content Grid Area (Split Columns) */

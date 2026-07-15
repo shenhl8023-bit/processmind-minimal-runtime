@@ -17,11 +17,8 @@
 
     <section v-else-if="!result" class="route-placeholder">
       <div class="placeholder-heading">
-        <div class="panel-index">02</div>
-        <div>
-          <span class="placeholder-eyebrow">结果工作区</span>
-          <h2>等待生成路线</h2>
-        </div>
+        <span class="placeholder-eyebrow">结果工作区</span>
+        <h2>等待生成路线</h2>
       </div>
       <p class="placeholder-copy">完成左侧条件输入后，这里将呈现可审查的工艺路线、工序工步树与导出结果。</p>
 
@@ -55,53 +52,42 @@
 
     <section v-else class="route-output">
       <div class="output-head">
-        <div>
-          <span class="placeholder-eyebrow">生成结果</span>
-          <h2>工序工步树</h2>
-          <p>{{ projectName || '当前任务' }} · 已生成 {{ result.steps.length }} 道工序</p>
+        <div class="output-head-left">
+          <span class="output-title">工序工步树</span>
+          <div class="output-stats-inline">
+            <span class="stat-inline-item">工序 <strong>{{ result.steps.length }}</strong></span>
+            <span class="stat-inline-sep">/</span>
+            <span class="stat-inline-item">主线 <strong>{{ mainStepCount }}</strong></span>
+            <span class="stat-inline-sep">/</span>
+            <span class="stat-inline-item">条件 <strong>{{ branchStepCount }}</strong></span>
+            <span class="stat-inline-sep">/</span>
+            <span class="stat-inline-item">工步 <strong>{{ processStepCount }}</strong></span>
+          </div>
         </div>
         <button class="export-button" type="button" @click="emit('download')" :disabled="!result.output_json_text">导出 JSON</button>
       </div>
 
-      <p v-if="result.summary" class="route-summary">{{ result.summary }}</p>
 
-      <div class="route-stats">
-        <div>
-          <span>工序</span>
-          <strong>{{ result.steps.length }}</strong>
-        </div>
-        <div>
-          <span>主线工序</span>
-          <strong>{{ mainStepCount }}</strong>
-        </div>
-        <div>
-          <span>条件工序</span>
-          <strong>{{ branchStepCount }}</strong>
-        </div>
-        <div>
-          <span>工步</span>
-          <strong>{{ processStepCount }}</strong>
-        </div>
-      </div>
 
       <div class="route-tree">
         <div v-for="(step, index) in result.steps" :key="`${step.name}-${index}`" class="route-node">
           <div class="route-track">
-            <span class="route-dot" :class="{ branch: step.op_type !== 'MAIN' }">{{ displayStepSequence(step, index) }}</span>
+            <div class="route-dot" :class="{ 'route-dot--active': step.op_type === 'MAIN' }"></div>
             <span v-if="index < result.steps.length - 1" class="route-line"></span>
           </div>
           <article class="route-card" :class="{ branch: step.op_type !== 'MAIN' }">
             <div class="route-name-row">
               <div class="route-title-group">
-                <span class="route-seq-inline">{{ displayStepSequence(step, index) }}</span>
+                <span class="route-seq" :class="{ 'route-seq--active': step.op_type === 'MAIN' }">{{ displayStepSequence(step, index) }}</span>
                 <h3>{{ step.name }}</h3>
               </div>
               <span class="route-kind" :class="{ branch: step.op_type !== 'MAIN' }">{{ step.op_type === 'MAIN' ? '主线工序' : '条件工序' }}</span>
             </div>
             <div v-if="normalizedProcessSteps(step).length" class="route-step-area">
               <div class="route-step-summary">
-                <span>工步明细</span>
-                <strong>{{ normalizedProcessSteps(step).length }}</strong>
+                <span class="route-step-caret">›</span>
+                <span>工步</span>
+                <span class="route-step-count">{{ normalizedProcessSteps(step).length }}</span>
               </div>
               <div class="process-step-chips">
                 <span
@@ -159,12 +145,31 @@ const processStepCount = computed(() => (
   --panel: #f8fafc;
   --accent: #4f46e5;
   --accent-soft: #eef2ff;
-  min-height: 610px;
+  height: 100%;
+  overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: 14px;
   background-color: #ffffff;
   box-shadow: var(--shadow-sm);
-  overflow: hidden;
+}
+
+.result-panel::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.result-panel::-webkit-scrollbar-track {
+  background: #f8fafc;
+  border-radius: 6px;
+}
+
+.result-panel::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 6px;
+}
+
+.result-panel::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }
 
 .route-placeholder {
@@ -179,30 +184,19 @@ const processStepCount = computed(() => (
 
 .placeholder-heading {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 12px;
-}
-
-.panel-index {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #6366f1, #818cf8);
-  color: #ffffff;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
-  font-weight: 800;
+  text-align: center;
+  gap: 4px;
 }
 
 .placeholder-eyebrow {
   display: block;
-  margin-bottom: 3px;
+  margin-bottom: 4px;
   color: var(--accent);
-  font-size: 11px;
-  font-weight: 800;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .route-placeholder h2,
@@ -211,7 +205,7 @@ const processStepCount = computed(() => (
   color: var(--ink);
   font-size: 20px;
   line-height: 1.25;
-  font-weight: 750;
+  font-weight: 700;
 }
 
 .placeholder-copy {
@@ -219,6 +213,7 @@ const processStepCount = computed(() => (
   color: var(--muted);
   font-size: 13px;
   line-height: 1.7;
+  text-align: center;
 }
 
 .readiness-list {
@@ -229,9 +224,9 @@ const processStepCount = computed(() => (
 
 .readiness-item {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   padding: 13px 0;
   border-bottom: 1px solid var(--line);
 }
@@ -240,14 +235,14 @@ const processStepCount = computed(() => (
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 25px;
-  height: 25px;
+  width: 24px;
+  height: 24px;
   border: 1px solid #c7d2fe;
   border-radius: 50%;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .readiness-item.ready .readiness-index {
@@ -267,21 +262,21 @@ const processStepCount = computed(() => (
 
 .readiness-item strong {
   color: var(--ink);
-  font-size: 12px;
-  font-weight: 750;
+  font-size: 13.5px;
+  font-weight: 600;
 }
 
 .readiness-item div span {
   margin-top: 2px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
 .readiness-state {
-  color: #84918f;
-  font-size: 10px;
-  font-weight: 800;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .readiness-item.ready .readiness-state {
@@ -354,26 +349,63 @@ const processStepCount = computed(() => (
 }
 
 .route-output {
-  padding: 20px;
+  /* 与左侧 .input-panel 内边距一致，标题底线才能水平对齐 */
+  padding: 16px;
 }
 
+/* 以左侧「输入条件」标题栏为基准：同高度、同底边距、同分割线 */
 .output-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 14px;
+  min-height: 28px;
+  padding: 0 4px 12px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 12px;
+  box-sizing: content-box;
 }
 
-.output-head p {
-  margin: 5px 0 0;
+.output-head-left {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 28px;
+  gap: 8px;
+}
+
+.output-title {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 28px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.output-stats-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+  font-size: 12.5px;
+  line-height: 28px;
   color: var(--muted);
-  font-size: 12px;
-  line-height: 1.5;
+}
+
+.stat-inline-item strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.stat-inline-sep {
+  color: #cbd5e1;
 }
 
 .export-button {
   flex-shrink: 0;
-  height: 34px;
+  height: 28px;
   padding: 0 11px;
   border: 1px solid #c7d2fe;
   border-radius: 7px;
@@ -382,6 +414,7 @@ const processStepCount = computed(() => (
   font: inherit;
   font-size: 12px;
   font-weight: 750;
+  line-height: 1;
   cursor: pointer;
 }
 
@@ -401,44 +434,12 @@ const processStepCount = computed(() => (
   border-left: 3px solid #6366f1;
   border-radius: 6px;
   background: var(--panel);
-  color: #40504f;
+  color: #334155;
   font-size: 12px;
   line-height: 1.65;
 }
 
-.route-stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1px;
-  margin: 16px 0 22px;
-  background: var(--line);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  overflow: hidden;
-}
 
-.route-stats div {
-  padding: 10px 12px;
-  background: #ffffff;
-}
-
-.route-stats span,
-.route-stats strong {
-  display: block;
-}
-
-.route-stats span {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 750;
-}
-
-.route-stats strong {
-  margin-top: 3px;
-  color: var(--ink);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 18px;
-}
 
 .route-tree {
   display: flex;
@@ -456,32 +457,33 @@ const processStepCount = computed(() => (
   display: flex;
   flex-direction: column;
   align-items: center;
+  flex-shrink: 0;
+  width: 14px;
+  padding-top: 14px;
 }
 
 .route-dot {
-  z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: #6366f1;
-  color: #ffffff;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 10px;
-  font-weight: 800;
+  background: #cbd5e1;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px #cbd5e1;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  z-index: 1;
 }
 
-.route-dot.branch {
-  background: #8b5cf6;
+.route-dot--active {
+  background: #6366f1;
+  box-shadow: 0 0 0 1px #6366f1, 0 0 0 3px rgba(99, 102, 241, 0.25);
 }
 
 .route-line {
   flex: 1;
   width: 1px;
   min-height: 20px;
-  background: #bdcac7;
+  background: #cbd5e1;
 }
 
 .route-card {
@@ -517,20 +519,28 @@ const processStepCount = computed(() => (
   gap: 8px;
 }
 
-.route-seq-inline {
+.route-seq {
   display: inline-flex;
-  flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  min-width: 38px;
-  height: 22px;
-  padding: 0 6px;
-  border-radius: 4px;
-  background: var(--panel);
-  color: #40504f;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  min-width: 22px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: #f1f5f9;
+  color: #475569;
+  font-weight: 700;
   font-size: 10px;
-  font-weight: 800;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  flex-shrink: 0;
+  border: 1px solid #e2e8f0;
+  transition: all 0.15s ease;
+}
+
+.route-seq--active {
+  background: #6366f1;
+  color: #ffffff;
+  border-color: #6366f1;
 }
 
 .route-name-row h3 {
@@ -571,24 +581,28 @@ const processStepCount = computed(() => (
 .route-step-summary {
   display: flex;
   align-items: center;
-  gap: 7px;
-  margin-bottom: 8px;
+  gap: 6px;
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 750;
+  font-size: 11.5px;
+  font-weight: 500;
+  margin-bottom: 6px;
 }
 
-.route-step-summary strong {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 19px;
-  height: 19px;
-  border-radius: 4px;
-  background: var(--panel);
-  color: #40504f;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+.route-step-caret {
+  font-size: 13px;
+  font-weight: 700;
+  color: #94a3b8;
+  line-height: 1;
+}
+
+.route-step-count {
+  background: #f1f5f9;
+  color: #475569;
+  border-radius: 999px;
+  padding: 1px 6px;
   font-size: 10px;
+  font-weight: 700;
+  border: 1px solid #e2e8f0;
 }
 
 .process-step-chips {
@@ -605,15 +619,15 @@ const processStepCount = computed(() => (
   border: 1px solid #e2e8f0;
   border-radius: 4px;
   background: #f8faf9;
-  color: #40504f;
+  color: #334155;
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 600;
   line-height: 1.35;
 }
 
 .no-process-steps {
   margin-bottom: 0;
-  color: #84918f;
+  color: var(--muted);
   font-size: 11px;
 }
 
@@ -623,16 +637,23 @@ const processStepCount = computed(() => (
 }
 
 @media (max-width: 700px) {
-  .route-placeholder,
-  .route-output {
+  .route-placeholder {
     padding: 24px 16px;
+  }
+
+  .route-output {
+    padding: 16px;
   }
 
   .route-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .output-head,
+  .output-head {
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
   .route-name-row {
     align-items: flex-start;
     flex-direction: column;
