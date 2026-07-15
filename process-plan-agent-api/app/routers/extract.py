@@ -5,6 +5,7 @@
 """
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
@@ -42,8 +43,19 @@ from app.services.extraction_pipeline import (
 )
 from app.services.finalized_rule_package_helpers import (
     json_dumps,
+    json_dumps_list,
+    json_loads,
+    json_loads_list,
     serialize_finalized_rule_package,
 )
+from app.services.rule_packages.contracts import RulePackageV2
+from app.services.rule_packages.hashing import (
+    legacy_rule_package_content_hash,
+    rule_package_content_hash,
+)
+from app.services.rule_packages.lifecycle import publish_rule_package
+from app.services.rule_packages.loader import load_published_rule_package
+from app.services.rule_packages.validator import validate_rule_package
 from app.services.process_tree_builder import build_superset_process_tree
 from app.services.route_merge.config import ROUTE_MERGE_ALGO_VERSION
 from app.services.extraction_tasks import set_extraction_task_state
@@ -377,6 +389,49 @@ async def save_finalized_rule_package(
     if not (body.rule_report_md or "").strip():
         raise HTTPException(400, "rule_report.md 内容不能为空")
 
+    schema_version = str(body.schema_version or "1.0").strip()
+    if schema_version not in {"1.0", "2.0"}:
+        raise HTTPException(400, f"不支持的规则包 schema_version：{schema_version}")
+    package_name = (body.package_name or "process_route_rules").strip() or "process_route_rules"
+
+    server_validation = dict(body.validation_report or {})
+    manifest = dict(body.manifest or {})
+    test_cases = list(body.test_cases or [])
+    if schema_version == "2.0":
+        try:
+            package_v2 = RulePackageV2.model_validate({
+                "manifest": manifest,
+                "input_schema": body.input_schema,
+                "route_catalog": body.route_catalog,
+                "route_rules": body.route_rules,
+                "test_cases": test_cases,
+            })
+        except ValidationError as exc:
+            raise HTTPException(422, detail=exc.errors(include_url=False)) from exc
+        if package_v2.manifest.project_id != body.project_id:
+            raise HTTPException(422, "manifest.project_id 与请求 project_id 不一致")
+        if package_v2.manifest.package_name != package_name:
+            raise HTTPException(422, "manifest.package_name 与请求 package_name 不一致")
+        validation = validate_rule_package(package_v2)
+        server_validation = validation.model_dump(mode="json")
+        if not validation.valid:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": "规则包校验未通过，无法导出。",
+                    "validation": server_validation,
+                },
+            )
+        content_hash = rule_package_content_hash(package_v2)
+    else:
+        content_hash = legacy_rule_package_content_hash(
+            package_name=package_name,
+            input_schema=body.input_schema,
+            route_catalog=body.route_catalog,
+            route_rules=body.route_rules,
+            rule_report_md=body.rule_report_md,
+        )
+
     latest_version = (
         await db.execute(
             select(func.max(FinalizedRulePackage.version)).where(
@@ -385,35 +440,33 @@ async def save_finalized_rule_package(
         )
     ).scalar_one_or_none()
     version = int(latest_version or 0) + 1
-    package_name = (body.package_name or "process_route_rules").strip() or "process_route_rules"
     row = FinalizedRulePackage(
         project_id=body.project_id,
         route_version_id=body.route_version_id,
         version=version,
         package_name=package_name,
+        schema_version=schema_version,
+        status="draft",
+        manifest_json=json_dumps(manifest),
         input_schema_json=json_dumps(body.input_schema),
         route_catalog_json=json_dumps(body.route_catalog),
         route_rules_json=json_dumps(body.route_rules),
+        test_cases_json=json_dumps_list(test_cases),
         rule_report_md=body.rule_report_md,
-        validation_report_json=json_dumps(body.validation_report),
+        validation_report_json=json_dumps(server_validation),
+        content_hash=content_hash,
         created_by=(body.created_by or "默认用户").strip() or "默认用户",
     )
     db.add(row)
-    await db.commit()
-    await db.refresh(row)
+    await db.flush()
+    await publish_rule_package(row, db, actor=row.created_by)
     return serialize_finalized_rule_package(row)
 
 
 @router.get("/finalized-rule-packages/latest", response_model=FinalizedRulePackageOut)
 async def get_latest_finalized_rule_package(project_id: int, db: AsyncSession = Depends(get_db)):
     await _ensure_project_exists(project_id, db)
-    row = (
-        await db.execute(
-            select(FinalizedRulePackage)
-            .where(FinalizedRulePackage.project_id == project_id)
-            .order_by(FinalizedRulePackage.version.desc(), FinalizedRulePackage.id.desc())
-        )
-    ).scalar_one_or_none()
+    row = await load_published_rule_package(project_id, db)
     if not row:
         raise HTTPException(404, "当前任务还没有导出的规则包。")
     return serialize_finalized_rule_package(row)
@@ -436,8 +489,16 @@ async def list_finalized_rule_packages(project_id: int, db: AsyncSession = Depen
             route_version_id=row.route_version_id,
             version=row.version,
             package_name=row.package_name,
+            schema_version=row.schema_version or "1.0",
+            status=row.status or "published",
+            content_hash=row.content_hash or "",
             created_by=row.created_by or "默认用户",
             created_at=row.created_at,
+            published_by=row.published_by,
+            published_at=row.published_at,
+            supersedes_id=row.supersedes_id,
+            validation_report=json_loads(row.validation_report_json),
+            test_case_count=len(json_loads_list(row.test_cases_json)),
         )
         for row in rows
     ]

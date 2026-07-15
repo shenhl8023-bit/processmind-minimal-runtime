@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { RouterView, useRoute, useRouter } from 'vue-router'
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import ModelSettingsDrawer from '@/components/settings/ModelSettingsDrawer.vue'
 import {
   buildProjectRouteQuery,
   resolveCurrentProjectId,
 } from '@/composables/useCurrentProject'
+import { workflowRouteLoaders } from '@/router'
 
 const route = useRoute()
 const router = useRouter()
@@ -91,6 +92,23 @@ const openSettings = () => {
   settingsVisible.value = true
 }
 
+onMounted(() => {
+  if (typeof window === 'undefined') return
+  const prefetchWorkflowViews = () => {
+    workflowRouteLoaders.forEach((loader) => {
+      void loader()
+    })
+  }
+  const idleWindow = window as Window & {
+    requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number
+  }
+  if (idleWindow.requestIdleCallback) {
+    idleWindow.requestIdleCallback(prefetchWorkflowViews, { timeout: 2000 })
+    return
+  }
+  window.setTimeout(prefetchWorkflowViews, 800)
+})
+
 </script>
 
 <template>
@@ -146,7 +164,11 @@ const openSettings = () => {
 
     <!-- Main Content Area -->
     <main class="main-area">
-      <RouterView />
+      <RouterView v-slot="{ Component, route: viewRoute }">
+        <KeepAlive include="UploadView,ExtractView">
+          <component :is="Component" :key="viewRoute.name || viewRoute.path" />
+        </KeepAlive>
+      </RouterView>
     </main>
 
     <!-- Footer -->

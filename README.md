@@ -38,7 +38,33 @@ processmind-minimal-runtime-20260709/
 
 ## 运行方式一：本地开发运行
 
-### 1. 启动后端
+### 双击启动（推荐）
+
+首次启动会自动安装后端和前端依赖，启动成功后会自动打开浏览器。API 和前端在后台运行，运行日志位于 `.runtime/logs/`。
+
+Windows：
+
+1. 双击 `start-windows.cmd` 启动项目
+2. 双击 `stop-windows.cmd` 停止项目
+
+macOS：
+
+1. 双击 `start-macos.command` 启动项目
+2. 双击 `stop-macos.command` 停止项目
+
+macOS 如果首次打开时被系统拦截，请在 Finder 中右键脚本并选择“打开”。如果脚本经 Windows 压缩包传输后提示没有执行权限，请在“终端”中进入项目目录并执行一次：
+
+```bash
+chmod +x start-macos.command stop-macos.command
+```
+
+本地启动需要 Python 3.11+、Node.js 20+ 和 npm。
+
+脚本会检查 8000 和 5173 端口。端口被其他程序占用时会停止启动并显示占用进程，不会结束无关程序。
+
+### 终端启动
+
+#### 1. 启动后端
 
 ```bash
 cd processmind-minimal-runtime-20260709
@@ -51,7 +77,7 @@ cd processmind-minimal-runtime-20260709
 - API: [http://127.0.0.1:8000](http://127.0.0.1:8000)
 - Swagger: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 
-### 2. 启动前端
+#### 2. 启动前端
 
 新开一个终端：
 
@@ -101,6 +127,10 @@ docker compose up -d --build
 4. 前端组件：`process-plan-agent-ui/src/components/`
 5. 路由规则知识：`process-plan-agent-api/knowledge/`
 6. 提示词模板：`process-plan-agent-api/prompt_templates.md`
+
+## 规则包 V2 说明
+
+第 4 步导出 V2 规则包后会直接成为第 5 步可用的当前规则包。第 5 步会优先使用已导出的 V2 规则包执行 `plan_route`；如果当前任务还没有规则包，则继续提示回到第 4 步导出。
 
 ## 备注
 

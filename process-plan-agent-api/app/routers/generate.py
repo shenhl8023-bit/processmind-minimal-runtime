@@ -55,6 +55,10 @@ from app.services.param_project_context import (
 )
 from app.services.question_harness_hooks import build_question_harness_hooks
 from app.services.finalized_route_generator import generate_steps_from_finalized_rule_package
+from app.services.rule_packages.loader import load_published_rule_package
+from app.services.rule_packages.lifecycle import RulePackageLifecycleError, v2_package_from_row
+from app.services.rule_packages.planner import RoutePlanningError, plan_route
+from app.services.rule_packages.validator import validate_rule_package
 from app.services.legacy_operation_route_selector import (
     collapse_redundant_quality_gates as _collapse_redundant_quality_gates,
     select_best_operations as _select_best_operations,
@@ -141,13 +145,7 @@ def _normalize_input_values(body: GenerateRequest) -> dict[str, object]:
 
 
 async def _latest_finalized_rule_package(project_id: int, db: AsyncSession) -> FinalizedRulePackage | None:
-    return (
-        await db.execute(
-            select(FinalizedRulePackage)
-            .where(FinalizedRulePackage.project_id == project_id)
-            .order_by(FinalizedRulePackage.version.desc(), FinalizedRulePackage.id.desc())
-        )
-    ).scalar_one_or_none()
+    return await load_published_rule_package(project_id, db)
 
 
 def _source_labels_for_factor_field(field: FactorFieldOut) -> list[str]:
@@ -988,6 +986,12 @@ async def generate_route(
     steps: list[RouteStep] = []
     summary = "当前已基于第二步提炼结果生成路线"
     output_mode = "route_rules"
+    rule_package_id: int | None = None
+    rule_package_version: int | None = None
+    rule_package_hash: str | None = None
+    schema_version: str | None = None
+    matched_rule_ids: list[str] = []
+    selected_process_ids: list[str] = []
     result = await db.execute(
         select(Operation)
         .where(Operation.project_id == body.project_id)
@@ -997,19 +1001,70 @@ async def generate_route(
     operations = result.scalars().all()
     inputs = _normalize_input_values(body)
     finalized_package = await _latest_finalized_rule_package(body.project_id, db)
+    rule_engine = str(getattr(project, "rule_engine", None) or "auto").strip().lower()
+    if rule_engine not in {"auto", "v1", "v2"}:
+        rule_engine = "auto"
     if finalized_package:
-        package_result = generate_steps_from_finalized_rule_package(
-            finalized_package,
-            inputs,
-            collapse_quality_gates=_collapse_redundant_quality_gates,
-            parse_factor_condition=_parse_factor_condition,
-            matches_factor_condition=_matches_factor_condition,
-            to_bool=_to_bool,
-            to_float=_to_float,
-        )
-        if package_result:
-            steps, summary = package_result
-            output_mode = "finalized_rule_package"
+        schema_version = str(finalized_package.schema_version or "1.0")
+        rule_package_id = finalized_package.id
+        rule_package_version = finalized_package.version
+        rule_package_hash = finalized_package.content_hash or ""
+        if schema_version == "2.0" and rule_engine != "v1":
+            # Stage 3: published V2 packages execute via plan_route (production).
+            try:
+                package_v2 = v2_package_from_row(finalized_package)
+                validation = validate_rule_package(package_v2)
+                if not validation.valid:
+                    detail = {
+                        "message": f"已发布规则包 V{finalized_package.version} 校验未通过，无法生成",
+                        "validation": validation.model_dump(mode="json"),
+                    }
+                    raise HTTPException(status_code=422, detail=detail)
+                plan = plan_route(package_v2, inputs)
+                steps = [
+                    RouteStep(
+                        process_id=step.process_id,
+                        sequence=step.sequence,
+                        name=step.name,
+                        op_type=step.op_type,
+                        reason=step.reason,
+                        process_steps=list(step.process_steps or []),
+                    )
+                    for step in plan.steps
+                ]
+                matched_rule_ids = [trace.rule_id for trace in plan.traces if trace.matched]
+                selected_process_ids = list(plan.selected_process_ids)
+                summary = (
+                    f"已基于已发布规则包 V{finalized_package.version}（schema 2.0）"
+                    f"确定性规划生成，命中 {len(matched_rule_ids)} 条规则"
+                )
+                output_mode = "finalized_rule_package_v2"
+            except HTTPException:
+                raise
+            except RulePackageLifecycleError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except RoutePlanningError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+        elif schema_version != "2.0":
+            package_result = generate_steps_from_finalized_rule_package(
+                finalized_package,
+                inputs,
+                collapse_quality_gates=_collapse_redundant_quality_gates,
+                parse_factor_condition=_parse_factor_condition,
+                matches_factor_condition=_matches_factor_condition,
+                to_bool=_to_bool,
+                to_float=_to_float,
+            )
+            if package_result:
+                steps, summary = package_result
+                output_mode = "finalized_rule_package"
+        else:
+            summary = (
+                f"当前任务已将规则引擎切到 V1/旧规则路径；"
+                f"已发布 V2 规则包 V{finalized_package.version} 本次未参与正式生成"
+            )
 
     if not steps and operations:
         steps = _select_best_operations(operations, inputs)
@@ -1020,7 +1075,19 @@ async def generate_route(
     route = GeneratedRoute(
         project_id=body.project_id,
         input_factors=body.model_dump_json(),
-        result_json=json.dumps([s.model_dump() for s in steps], ensure_ascii=False),
+        result_json=json.dumps(
+            {
+                "steps": [s.model_dump() for s in steps],
+                "rule_package_id": rule_package_id,
+                "rule_package_version": rule_package_version,
+                "rule_package_hash": rule_package_hash,
+                "schema_version": schema_version,
+                "matched_rule_ids": matched_rule_ids,
+                "selected_process_ids": selected_process_ids,
+                "output_mode": output_mode,
+            },
+            ensure_ascii=False,
+        ),
     )
     db.add(route)
     project.status = "GENERATED"
@@ -1033,4 +1100,10 @@ async def generate_route(
         summary=build_generate_summary(steps, summary),
         output_json_text=build_generate_output_json(body.project_id, output_mode, steps),
         output_mode=output_mode,
+        rule_package_id=rule_package_id,
+        rule_package_version=rule_package_version,
+        rule_package_hash=rule_package_hash,
+        schema_version=schema_version,
+        matched_rule_ids=matched_rule_ids,
+        selected_process_ids=selected_process_ids,
     )

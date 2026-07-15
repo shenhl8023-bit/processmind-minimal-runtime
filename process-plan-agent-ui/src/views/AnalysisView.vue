@@ -6,7 +6,7 @@
         <p class="analysis-desc">已保存路线版本一览，左侧选工序、右侧看证据。</p>
       </div>
       <div class="analysis-actions">
-        <button class="btn btn-outline btn-sm" @click="loadSavedRoute" :disabled="loading || !projectId">
+        <button class="btn btn-outline btn-sm" @click="loadSavedRoute(true)" :disabled="loading || !projectId">
           刷新路线
         </button>
         <button class="btn btn-outline btn-sm" @click="goToFinalize" :disabled="!projectId">

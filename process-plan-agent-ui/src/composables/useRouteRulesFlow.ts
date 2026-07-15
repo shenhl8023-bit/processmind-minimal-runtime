@@ -18,7 +18,7 @@ type UseRouteRulesFlowOptions = {
   routeMergeNormalizedSegments: Ref<any[]>
   selectedMergeGroupId: Ref<string>
   routeMergeNotice: Ref<string>
-  loadRouteMergeWorkspaceFromBackend: () => Promise<boolean>
+  loadRouteMergeWorkspaceFromBackend: (syncPreviewDraft?: boolean, forceRefresh?: boolean) => Promise<boolean>
   clearRouteResultDraftStorage: () => void
   clearPreviewHighlight: () => void
 }
@@ -84,7 +84,7 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
     options.clearPreviewHighlight()
   }
 
-  async function loadRouteRulesResults() {
+  async function loadRouteRulesResults(forceRefresh = false) {
     if (!options.projectId.value) return
     options.routeWorkspaceLoading.value = true
     status.value = 'done'
@@ -108,7 +108,7 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
       error: null,
     }
     try {
-      const loaded = await options.loadRouteMergeWorkspaceFromBackend()
+      const loaded = await options.loadRouteMergeWorkspaceFromBackend(true, forceRefresh)
       if (!loaded) throw new Error('路线归并工作台加载失败，请刷新后重试。')
       extractTask.value = null
     } catch (e: any) {

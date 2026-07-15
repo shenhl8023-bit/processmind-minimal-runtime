@@ -1,4 +1,9 @@
 import { api, apiBaseUrl } from './client'
+import {
+  clearAllWorkflowDataCache,
+  getWorkflowDataCache,
+  setWorkflowDataCache,
+} from '@/composables/workflowDataCache'
 
 export interface DocumentItem {
   id: number
@@ -26,12 +31,20 @@ export async function uploadDocuments(files: File[], projectId: number) {
   const { data } = await api.post('/api/documents/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
+  clearAllWorkflowDataCache()
   return data
 }
 
-export async function listDocuments(projectId: number) {
+export async function listDocuments(projectId: number, forceRefresh = false) {
+  const cacheKey = `api:documents:list:${projectId}`
+  if (!forceRefresh) {
+    const cached = getWorkflowDataCache<DocumentItem[]>(cacheKey)
+    if (cached) return cached
+  }
   const { data } = await api.get('/api/documents/', { params: { project_id: projectId } })
-  return data as DocumentItem[]
+  const documents = data as DocumentItem[]
+  setWorkflowDataCache(cacheKey, documents)
+  return documents
 }
 
 export async function getDocumentPreview(docId: number) {
@@ -61,11 +74,13 @@ export function buildDocumentPdfPageUrl(docId: number, pageNo: number) {
 
 export async function deleteDocument(id: number) {
   const { data } = await api.delete(`/api/documents/${id}`)
+  clearAllWorkflowDataCache()
   return data
 }
 
 export async function createReference(body: { title: string; content?: string; document_id?: number; project_id?: number; ref_type?: string }) {
   const { data } = await api.post('/api/documents/references', body)
+  clearAllWorkflowDataCache()
   return data
 }
 
@@ -76,15 +91,23 @@ export async function uploadReferences(files: File[], projectId: number) {
   const { data } = await api.post('/api/documents/references/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
+  clearAllWorkflowDataCache()
   return data
 }
 
-export async function listReferences(projectId: number) {
+export async function listReferences(projectId: number, forceRefresh = false) {
+  const cacheKey = `api:documents:references:${projectId}`
+  if (!forceRefresh) {
+    const cached = getWorkflowDataCache<any[]>(cacheKey)
+    if (cached) return cached
+  }
   const { data } = await api.get('/api/documents/references', { params: { project_id: projectId } })
+  setWorkflowDataCache(cacheKey, data)
   return data
 }
 
 export async function deleteReference(id: number) {
   const { data } = await api.delete(`/api/documents/references/${id}`)
+  clearAllWorkflowDataCache()
   return data
 }

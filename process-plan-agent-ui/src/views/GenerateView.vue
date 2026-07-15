@@ -10,7 +10,8 @@
 
     <div v-if="projectId" class="generate-meta-bar">
       <span class="generate-project-chip">{{ projectName || `任务 #${projectId}` }}</span>
-      <span class="generate-meta-item">规则包 <strong :class="{ pending: !hasRulePackage }">{{ hasRulePackage ? '已加载' : '待导出' }}</strong></span>
+      <span class="generate-meta-item">规则包 <strong :class="{ pending: !hasRulePackage }">{{ hasRulePackage ? packageMetaLabel : '待导出' }}</strong></span>
+      <span class="generate-meta-item">契约 <strong>{{ packageSchemaVersion || '-' }}</strong></span>
       <span class="generate-meta-item">输入字段 <strong>{{ inputFields.length }}</strong></span>
       <span class="generate-meta-item">已填写 <strong>{{ filledFieldCount }}/{{ inputFields.length }}</strong></span>
     </div>
@@ -108,6 +109,9 @@ const projectId = ref<number | null>(null)
 const projectName = ref('')
 const inputSchema = ref<Record<string, any> | null>(null)
 const hasRulePackage = ref(false)
+const packageSchemaVersion = ref('')
+const packageVersion = ref<number | null>(null)
+const packageHash = ref('')
 const generating = ref(false)
 const error = ref('')
 const result = ref<GenerateRouteResult | null>(null)
@@ -139,8 +143,15 @@ const {
   projectId,
 })
 
+const packageMetaLabel = computed(() => {
+  if (!hasRulePackage.value) return '待导出'
+  const versionText = packageVersion.value ? `V${packageVersion.value}` : '已导出'
+  const hashText = packageHash.value ? ` · ${packageHash.value.slice(0, 8)}` : ''
+  return `${versionText}${hashText}`
+})
+
 const schemaStatusText = computed(() => {
-  if (!hasRulePackage.value) return '当前任务还没有可用规则包，请先在第4步导出规则包。'
+  if (!hasRulePackage.value) return '当前任务还没有可用规则包。请先在第4步导出规则包。'
   return '当前规则包没有定义输入参数，请返回第4步重新导出规则包。'
 })
 
@@ -195,6 +206,9 @@ async function loadGenerateContext() {
       projectName.value = ''
       inputSchema.value = null
       hasRulePackage.value = false
+      packageSchemaVersion.value = ''
+      packageVersion.value = null
+      packageHash.value = ''
       resetFieldValues()
       return
     }
@@ -210,10 +224,16 @@ async function loadGenerateContext() {
     if (latestPackage?.input_schema) {
       inputSchema.value = latestPackage.input_schema
       hasRulePackage.value = true
+      packageSchemaVersion.value = String(latestPackage.schema_version || latestPackage.input_schema?.schema_version || '1.0')
+      packageVersion.value = latestPackage.version ?? null
+      packageHash.value = latestPackage.content_hash || ''
       initializeFieldValues()
     } else {
       inputSchema.value = null
       hasRulePackage.value = false
+      packageSchemaVersion.value = ''
+      packageVersion.value = null
+      packageHash.value = ''
       resetFieldValues()
     }
   } catch (err) {

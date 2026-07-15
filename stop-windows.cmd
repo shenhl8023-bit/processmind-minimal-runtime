@@ -1,8 +1,20 @@
 @echo off
 setlocal
-echo Stopping ProcessMind services on ports 5173 and 8000...
-for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R /C:":5173 .*LISTENING" /C:":8000 .*LISTENING"') do (
-  taskkill /PID %%P /F >nul 2>nul
+set "ROOT=%~dp0"
+if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
+
+set "EXIT_CODE=0"
+echo Stopping ProcessMind...
+echo.
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\scripts\manage-windows.ps1" -Action Stop
+if errorlevel 1 (
+  echo.
+  echo ProcessMind could not be stopped cleanly.
+  set "EXIT_CODE=1"
 )
-echo Done.
-pause
+
+if not "%PROCESSMIND_NO_PAUSE%"=="1" (
+  echo.
+  pause
+)
+exit /b %EXIT_CODE%

@@ -1,0 +1,134 @@
+{
+  "manifest": {
+    "schema_version": "2.0",
+    "package_name": "shaft_rules",
+    "project_id": 12,
+    "route_version_id": 31,
+    "scope": {"type": "project", "key": "12"},
+    "applicability": {
+      "part_families": ["shaft"],
+      "manufacturing_modes": ["machining"]
+    },
+    "compiled_from": {"template_ids": [], "source_rule_package_ids": []}
+  },
+  "input_schema": {
+    "schema_version": "2.0",
+    "fields": [
+      {
+        "key": "material.grade",
+        "label": "材料牌号",
+        "type": "string",
+        "required": true,
+        "source": "CAD/PLM",
+        "options": [],
+        "allow_custom": true
+      },
+      {
+        "key": "cad.features",
+        "label": "CAD 特征",
+        "type": "multi_select",
+        "required": true,
+        "source": "CAD",
+        "options": [],
+        "allow_custom": true
+      },
+      {
+        "key": "target_hardness_hrc",
+        "label": "目标硬度 HRC",
+        "type": "number",
+        "required": false,
+        "source": "图样",
+        "options": [],
+        "allow_custom": false,
+        "unit": "HRC",
+        "validation": {"min": 0, "max": 70}
+      }
+    ]
+  },
+  "route_catalog": {
+    "schema_version": "2.0",
+    "processes": [
+      {
+        "process_id": "process_prepare",
+        "process_code": "PREP",
+        "display_name": "准备",
+        "phase": "prepare",
+        "default_sequence": 100,
+        "main": true,
+        "steps": [{"step_id": "prepare.clean", "name": "清理", "kind": "primary"}],
+        "constraints": {"requires": [], "must_run_after": [], "must_run_before": [], "conflicts_with": []}
+      },
+      {
+        "process_id": "process_rough_machine",
+        "process_code": "ROUGH",
+        "display_name": "粗加工",
+        "phase": "rough",
+        "default_sequence": 200,
+        "main": false,
+        "steps": [{"step_id": "rough.turn", "name": "粗车", "kind": "primary"}],
+        "constraints": {"requires": ["process_prepare"], "must_run_after": [], "must_run_before": [], "conflicts_with": []}
+      },
+      {
+        "process_id": "process_quench",
+        "process_code": "HT-QUENCH",
+        "display_name": "淬火",
+        "phase": "heat_treatment",
+        "default_sequence": 300,
+        "main": false,
+        "steps": [{"step_id": "quench.run", "name": "执行淬火", "kind": "primary"}],
+        "constraints": {"requires": ["process_rough_machine"], "must_run_after": [], "must_run_before": [], "conflicts_with": []}
+      },
+      {
+        "process_id": "process_mill_slot",
+        "process_code": "MILL-SLOT",
+        "display_name": "铣槽",
+        "phase": "machining",
+        "default_sequence": 250,
+        "main": false,
+        "steps": [{"step_id": "slot.mill", "name": "铣削槽", "kind": "primary"}],
+        "constraints": {"requires": ["process_prepare"], "must_run_after": [], "must_run_before": ["process_quench"], "conflicts_with": []}
+      },
+      {
+        "process_id": "process_nitriding",
+        "process_code": "HT-NITRIDE",
+        "display_name": "渗氮",
+        "phase": "surface_treatment",
+        "default_sequence": 400,
+        "main": false,
+        "steps": [],
+        "constraints": {"requires": [], "must_run_after": [], "must_run_before": [], "conflicts_with": ["process_quench"]}
+      }
+    ]
+  },
+  "route_rules": {
+    "schema_version": "2.0",
+    "rules": [
+      {
+        "rule_id": "material.9cr18.quench",
+        "priority": 100,
+        "enabled": true,
+        "when": {
+          "all": [
+            {"field": "material.grade", "op": "in", "value": ["9Cr18", "95Cr18"]},
+            {"field": "target_hardness_hrc", "op": "gte", "value": 55}
+          ]
+        },
+        "then": {"include_process_ids": ["process_quench"], "exclude_process_ids": [], "reason": "材料和硬度要求"}
+      },
+      {
+        "rule_id": "feature.slot.mill",
+        "priority": 90,
+        "enabled": true,
+        "when": {"field": "cad.features", "op": "contains", "value": "槽类特征"},
+        "then": {"include_process_ids": ["process_mill_slot"], "exclude_process_ids": [], "reason": "CAD 槽特征"}
+      }
+    ]
+  },
+  "test_cases": [
+    {
+      "case_id": "9cr18-slot-high-hardness",
+      "input": {"material": {"grade": "9Cr18"}, "cad": {"features": ["槽类特征"]}, "target_hardness_hrc": 58},
+      "expect": {"included_process_ids": ["process_prepare", "process_rough_machine", "process_mill_slot", "process_quench"], "excluded_process_ids": ["process_nitriding"]}
+    }
+  ]
+}

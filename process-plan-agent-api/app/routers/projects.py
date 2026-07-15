@@ -23,7 +23,7 @@ from app.models.models import (
     Reference,
     RouteMergeSnapshot,
 )
-from app.schemas.schemas import ProjectCreate, ProjectOut, ProjectProfileOut
+from app.schemas.schemas import ProjectCreate, ProjectOut, ProjectProfileOut, ProjectRuleEngineUpdate
 from app.services.extraction_tasks import cancel_extraction_task
 from app.services.profile_registry import list_profiles, normalize_profile
 
@@ -123,8 +123,26 @@ async def list_project_profiles(mode: str | None = None):
 async def create_project(body: ProjectCreate, db: AsyncSession = Depends(get_db)):
     mode = "route_rules"
     profile = normalize_profile(mode, body.profile)
-    project = Project(name=body.name, mode=mode, profile=profile, status="CREATED")
+    project = Project(name=body.name, mode=mode, profile=profile, rule_engine="auto", status="CREATED")
     db.add(project)
+    await db.commit()
+    await db.refresh(project)
+    return project
+
+
+@router.patch("/{project_id}/rule-engine", response_model=ProjectOut)
+async def update_project_rule_engine(
+    project_id: int,
+    body: ProjectRuleEngineUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    project = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
+    if not project:
+        raise HTTPException(404, "任务不存在")
+    normalized = str(body.rule_engine or "auto").strip().lower()
+    if normalized not in {"auto", "v1", "v2"}:
+        raise HTTPException(400, "规则引擎只支持 auto / v1 / v2")
+    project.rule_engine = normalized
     await db.commit()
     await db.refresh(project)
     return project

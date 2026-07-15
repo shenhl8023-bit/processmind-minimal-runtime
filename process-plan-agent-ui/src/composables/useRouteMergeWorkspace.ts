@@ -10,6 +10,12 @@ import {
 } from '@/api'
 import type { RouteMergeGroup, RouteMergePreviewItem } from '@/composables/useRouteMergeResultWorkspace'
 import { formatRouteDisplayName } from '@/composables/routeNameDisplay'
+import {
+  clearWorkflowDataCache,
+  clearWorkflowProjectDataCache,
+  getWorkflowDataCache,
+  setWorkflowDataCache,
+} from '@/composables/workflowDataCache'
 
 type UseRouteMergeWorkspaceOptions = {
   projectId: Ref<number | null>
@@ -40,6 +46,16 @@ type UseRouteMergeWorkspaceOptions = {
   focusMergeGroup: (groupId: string) => Promise<void>
   cancelRouteMergeRename: () => void
   cancelPreviewRename: () => void
+}
+
+type RouteMergeWorkspaceSnapshot = {
+  supersetResult: Awaited<ReturnType<typeof getSupersetRoute>>
+  mergeResult: Awaited<ReturnType<typeof getMergeSuggestions>>
+  normalizedResult: Awaited<ReturnType<typeof getNormalizedSupersetRoute>>
+}
+
+function routeMergeWorkspaceCacheKey(projectId: number | string) {
+  return `workflow:route-merge:v1:${projectId}`
 }
 
 export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
@@ -112,42 +128,71 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
     return overlapping[0]?.item.id || ''
   }
 
-  async function loadRouteMergeWorkspaceFromBackend(syncPreviewDraft = true) {
-    if (!options.projectId.value) return false
-    try {
-      const previousSnapshotMeta = readRouteMergeSnapshotMeta()
-      options.clearLegacyRouteMergeStorage()
-      const supersetResult = await getSupersetRoute(options.projectId.value)
-      const mergeResult = await getMergeSuggestions(options.projectId.value)
-      const normalizedResult = await getNormalizedSupersetRoute(options.projectId.value)
-      const currentSnapshotMeta = {
-        algo_version: String(normalizedResult.algo_version || mergeResult.algo_version || ''),
-        source_signature: String(normalizedResult.source_signature || mergeResult.source_signature || ''),
-      }
-      const snapshotChanged = Boolean(
-        previousSnapshotMeta
-        && (
-          String(previousSnapshotMeta.algo_version || '') !== currentSnapshotMeta.algo_version
-          || String(previousSnapshotMeta.source_signature || '') !== currentSnapshotMeta.source_signature
-        ),
+  async function applyRouteMergeWorkspaceSnapshot(
+    snapshot: RouteMergeWorkspaceSnapshot,
+    syncPreviewDraft: boolean,
+  ) {
+    const previousSnapshotMeta = readRouteMergeSnapshotMeta()
+    options.clearLegacyRouteMergeStorage()
+    const { supersetResult, mergeResult, normalizedResult } = snapshot
+    const currentSnapshotMeta = {
+      algo_version: String(normalizedResult.algo_version || mergeResult.algo_version || ''),
+      source_signature: String(normalizedResult.source_signature || mergeResult.source_signature || ''),
+    }
+    const snapshotChanged = Boolean(
+      previousSnapshotMeta
+      && (
+        String(previousSnapshotMeta.algo_version || '') !== currentSnapshotMeta.algo_version
+        || String(previousSnapshotMeta.source_signature || '') !== currentSnapshotMeta.source_signature
+      ),
+    )
+    if (snapshotChanged) {
+      options.clearRouteResultDraftStorage()
+    }
+    options.routes.value = supersetResult.superset_route || []
+    options.routeMergeSuggestions.value = mergeResult.merge_suggestions || []
+    options.routeMergeNormalizedSegments.value = normalizedResult.normalized_superset_route || []
+    options.routeMergeGroups.value = options.buildRouteMergeGroupsFromSuggestions(options.routeMergeSuggestions.value)
+    options.selectedMergeGroupId.value = options.findPreferredMergeGroupId(options.routeMergeGroups.value)
+    await nextTick()
+    if (syncPreviewDraft) {
+      options.syncRouteMergePreviewDraft(
+        findPreviewItemIdForGroupId(options.selectedMergeGroupId.value),
       )
-      if (snapshotChanged) {
-        options.clearRouteResultDraftStorage()
+    }
+    routeMergeNotice.value = buildRouteMergeSnapshotNotice(previousSnapshotMeta, currentSnapshotMeta)
+    writeRouteMergeSnapshotMeta(currentSnapshotMeta)
+    return true
+  }
+
+  async function fetchRouteMergeWorkspace(projectId: number, forceRefresh = false) {
+    const [supersetResult, mergeResult, normalizedResult] = await Promise.all([
+      getSupersetRoute(projectId, forceRefresh),
+      getMergeSuggestions(projectId, forceRefresh),
+      getNormalizedSupersetRoute(projectId, forceRefresh),
+    ])
+    return {
+      supersetResult,
+      mergeResult,
+      normalizedResult,
+    }
+  }
+
+  async function loadRouteMergeWorkspaceFromBackend(syncPreviewDraft = true, forceRefresh = false) {
+    if (!options.projectId.value) return false
+    const projectId = options.projectId.value
+    const cacheKey = routeMergeWorkspaceCacheKey(projectId)
+    try {
+      const cachedSnapshot = forceRefresh
+        ? null
+        : getWorkflowDataCache<RouteMergeWorkspaceSnapshot>(cacheKey)
+      if (cachedSnapshot) {
+        return await applyRouteMergeWorkspaceSnapshot(cachedSnapshot, syncPreviewDraft)
       }
-      options.routes.value = supersetResult.superset_route || []
-      options.routeMergeSuggestions.value = mergeResult.merge_suggestions || []
-      options.routeMergeNormalizedSegments.value = normalizedResult.normalized_superset_route || []
-      options.routeMergeGroups.value = options.buildRouteMergeGroupsFromSuggestions(options.routeMergeSuggestions.value)
-      options.selectedMergeGroupId.value = options.findPreferredMergeGroupId(options.routeMergeGroups.value)
-      await nextTick()
-      if (syncPreviewDraft) {
-        options.syncRouteMergePreviewDraft(
-          findPreviewItemIdForGroupId(options.selectedMergeGroupId.value),
-        )
-      }
-      routeMergeNotice.value = buildRouteMergeSnapshotNotice(previousSnapshotMeta, currentSnapshotMeta)
-      writeRouteMergeSnapshotMeta(currentSnapshotMeta)
-      return true
+
+      const snapshot = await fetchRouteMergeWorkspace(projectId, forceRefresh)
+      setWorkflowDataCache(cacheKey, snapshot)
+      return await applyRouteMergeWorkspaceSnapshot(snapshot, syncPreviewDraft)
     } catch (error) {
       console.error('加载后端路线归并工作台失败', error)
       return false
@@ -155,7 +200,7 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
   }
 
   async function refreshRouteMergeWorkspace(preferredGroupId?: string, syncPreviewDraft = true) {
-    const loaded = await loadRouteMergeWorkspaceFromBackend(syncPreviewDraft)
+    const loaded = await loadRouteMergeWorkspaceFromBackend(syncPreviewDraft, true)
     if (!loaded) return false
     if (
       preferredGroupId
@@ -186,6 +231,7 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
         suggestion_id: suggestion.suggestion_id,
         action,
       })
+      clearWorkflowProjectDataCache(options.projectId.value)
       options.clearRouteResultDraftStorage()
       await refreshRouteMergeWorkspace(nextGroupId, true)
       options.triggerPreviewHighlight({
@@ -278,6 +324,7 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
           project_id: options.projectId.value,
           normalized_superset_route: payload,
         })
+        clearWorkflowProjectDataCache(options.projectId.value)
         options.routeMergeNormalizedSegments.value = saved.normalized_superset_route || []
         routeMergeNotice.value = '第三步结果路线已保存到后端。'
         return true
@@ -291,6 +338,7 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
     const suggestion = options.selectedMergeSuggestionItem.value
     if (options.projectId.value && current && suggestion?.suggestion_id) {
       try {
+        clearWorkflowDataCache(routeMergeWorkspaceCacheKey(options.projectId.value))
         await reviewMergeSuggestion({
           project_id: options.projectId.value,
           suggestion_id: suggestion.suggestion_id,

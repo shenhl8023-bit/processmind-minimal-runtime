@@ -187,6 +187,10 @@ import {
   sortProjects,
 } from '@/utils/uploadViewHelpers'
 
+defineOptions({
+  name: 'UploadView',
+})
+
 const router = useRouter()
 const deleteDialogVisible = ref(false)
 const projectToDelete = ref<any>(null)
@@ -212,8 +216,10 @@ const visibleProjects = computed(() =>
 )
 
 onMounted(async () => {
-  await loadProfileCatalog()
-  await ensureProjectReady()
+  await Promise.all([
+    loadProfileCatalog(),
+    ensureProjectReady(),
+  ])
   await loadData()
 })
 

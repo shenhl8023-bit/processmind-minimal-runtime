@@ -18,11 +18,16 @@ class ProjectOut(BaseModel):
     name: str
     mode: str
     profile: str
+    rule_engine: str = "auto"
     status: str
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ProjectRuleEngineUpdate(BaseModel):
+    rule_engine: str = "auto"
 
 
 class ProjectProfileOut(BaseModel):
@@ -348,9 +353,12 @@ class FinalizedRulePackageSaveRequest(BaseModel):
     project_id: int
     route_version_id: Optional[int] = None
     package_name: str = "process_route_rules"
+    schema_version: str = "1.0"
+    manifest: Dict[str, Any] = Field(default_factory=dict)
     input_schema: Dict[str, Any] = Field(default_factory=dict)
     route_catalog: Dict[str, Any] = Field(default_factory=dict)
     route_rules: Dict[str, Any] = Field(default_factory=dict)
+    test_cases: List[Dict[str, Any]] = Field(default_factory=list)
     rule_report_md: str = ""
     validation_report: Dict[str, Any] = Field(default_factory=dict)
     created_by: str = "默认用户"
@@ -362,13 +370,21 @@ class FinalizedRulePackageOut(BaseModel):
     route_version_id: Optional[int] = None
     version: int
     package_name: str
+    schema_version: str = "1.0"
+    status: str = "published"
+    manifest: Dict[str, Any] = Field(default_factory=dict)
     input_schema: Dict[str, Any] = Field(default_factory=dict)
     route_catalog: Dict[str, Any] = Field(default_factory=dict)
     route_rules: Dict[str, Any] = Field(default_factory=dict)
+    test_cases: List[Dict[str, Any]] = Field(default_factory=list)
     rule_report_md: str = ""
     validation_report: Dict[str, Any] = Field(default_factory=dict)
+    content_hash: str = ""
     created_by: str = "默认用户"
     created_at: datetime
+    published_by: Optional[str] = None
+    published_at: Optional[datetime] = None
+    supersedes_id: Optional[int] = None
 
 
 class FinalizedRulePackageListItemOut(BaseModel):
@@ -377,8 +393,16 @@ class FinalizedRulePackageListItemOut(BaseModel):
     route_version_id: Optional[int] = None
     version: int
     package_name: str
+    schema_version: str = "1.0"
+    status: str = "published"
+    content_hash: str = ""
     created_by: str = "默认用户"
     created_at: datetime
+    published_by: Optional[str] = None
+    published_at: Optional[datetime] = None
+    supersedes_id: Optional[int] = None
+    validation_report: Dict[str, Any] = Field(default_factory=dict)
+    test_case_count: int = 0
 
 
 class SupersetRouteOut(BaseModel):
@@ -464,6 +488,12 @@ class GenerateResponse(BaseModel):
     summary: str
     output_json_text: Optional[str] = None
     output_mode: str = "route_rules"
+    rule_package_id: Optional[int] = None
+    rule_package_version: Optional[int] = None
+    rule_package_hash: Optional[str] = None
+    schema_version: Optional[str] = None
+    matched_rule_ids: List[str] = Field(default_factory=list)
+    selected_process_ids: List[str] = Field(default_factory=list)
 
 
 class ParamJsonStepOut(BaseModel):

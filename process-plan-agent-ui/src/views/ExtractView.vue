@@ -179,7 +179,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, defineAsyncComponent, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, onActivated, onDeactivated, defineAsyncComponent, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ExtractPageHeader from '@/components/extract/ExtractPageHeader.vue'
 import ExtractRouteActionFooter from '@/components/extract/ExtractRouteActionFooter.vue'
@@ -208,6 +208,7 @@ import {
   routeOperationDuplicateLabel as getRouteOperationDuplicateLabel,
 } from '@/composables/extractViewHelpers'
 import {
+  resolveCurrentProjectId,
   resolveAvailableProjectId,
 } from '@/composables/useCurrentProject'
 import {
@@ -215,10 +216,15 @@ import {
   type OperationItem,
   type MergeSuggestion,
 } from '@/api'
+import { getWorkflowDataRevision } from '@/composables/workflowDataCache'
 
 const MergeQueuePanel = defineAsyncComponent(() => import('@/components/extract/MergeQueuePanel.vue'))
 const NormalizedRoutePanel = defineAsyncComponent(() => import('@/components/extract/NormalizedRoutePanel.vue'))
 const SourceRoutePanel = defineAsyncComponent(() => import('@/components/extract/SourceRoutePanel.vue'))
+
+defineOptions({
+  name: 'ExtractView',
+})
 
 type RouteFullSetSection = {
   key: string
@@ -283,6 +289,8 @@ const routeMergeResolvedCount = computed(() =>
 )
 const routeRulesAutoRefreshRunning = ref(false)
 const routeRulesAutoRefreshAt = ref(0)
+const extractViewActive = ref(true)
+const lastInitializedDataRevision = ref(-1)
 const canEnterRouteFactorAnalysis = computed(() =>
   routeMergeGroupsSorted.value.length > 0
   && routeMergePendingCount.value === 0
@@ -519,6 +527,7 @@ function buildRouteMergeGroupsFromSuggestions(suggestions: MergeSuggestion[]) {
 }
 
 async function refreshRouteRulesSnapshotOnResume(force = false) {
+  if (!extractViewActive.value) return
   if (!projectId.value) return
   if (status.value === 'loading') return
   if (routeRulesAutoRefreshRunning.value) return
@@ -526,7 +535,7 @@ async function refreshRouteRulesSnapshotOnResume(force = false) {
 
   routeRulesAutoRefreshRunning.value = true
   try {
-    await loadRouteRulesResults()
+    await loadRouteRulesResults(true)
     const resumeRouteMerge = String(route.query.resume || '').trim() === 'route_merge' || String(route.query.from || '').trim() === 'analysis'
     if (resumeRouteMerge && routeMergePendingCount.value === 0) {
       syncRouteMergePreviewDraftFromNormalizedRoute()
@@ -542,10 +551,12 @@ async function refreshRouteRulesSnapshotOnResume(force = false) {
 }
 
 function handleWindowFocusRefresh() {
+  if (!extractViewActive.value) return
   void refreshRouteRulesSnapshotOnResume()
 }
 
 function handleVisibilityRefresh() {
+  if (!extractViewActive.value) return
   if (document.visibilityState !== 'visible') return
   void refreshRouteRulesSnapshotOnResume()
 }
@@ -578,6 +589,7 @@ async function openRouteFactorAnalysis() {
 }
 
 function handleMergeKeydown(e: KeyboardEvent) {
+  if (!extractViewActive.value) return
   const target = e.target as HTMLElement
   if (target && ['INPUT', 'TEXTAREA'].includes(target.tagName)) return
 
@@ -631,6 +643,18 @@ function handleMergeKeydown(e: KeyboardEvent) {
 async function initializeExtractView() {
   const routeProjectId = String(route.query.project_id || '')
   const resumeRouteMerge = String(route.query.resume || '').trim() === 'route_merge' || String(route.query.from || '').trim() === 'analysis'
+  const preferredProjectId = resolveCurrentProjectId(routeProjectId)
+  const currentDataRevision = getWorkflowDataRevision()
+  const alreadyInitialized = Boolean(
+    preferredProjectId
+    && projectId.value === Number(preferredProjectId)
+    && lastInitializedDataRevision.value === currentDataRevision
+    && (status.value === 'idle' || status.value === 'loading' || status.value === 'done')
+  )
+
+  if (!resumeRouteMerge && alreadyInitialized) {
+    return
+  }
 
   try {
     const projects = await listProjects()
@@ -656,6 +680,7 @@ async function initializeExtractView() {
     }
     if (resumeRouteMerge) {
       await loadRouteRulesResults()
+      lastInitializedDataRevision.value = getWorkflowDataRevision()
       if (routeMergePendingCount.value === 0) {
         syncRouteMergePreviewDraftFromNormalizedRoute()
       } else {
@@ -665,11 +690,13 @@ async function initializeExtractView() {
     }
     if (current?.status === 'EXTRACTING') {
       status.value = 'loading'
+      lastInitializedDataRevision.value = getWorkflowDataRevision()
       void pollExtractionTask()
       return
     }
     if (current?.status === 'ROUTE_SET_READY' || current?.status === 'GENERATED') {
       await loadRouteRulesResults()
+      lastInitializedDataRevision.value = getWorkflowDataRevision()
       return
     }
   } catch (e) {
@@ -678,20 +705,31 @@ async function initializeExtractView() {
 
   try {
     status.value = 'idle'
+    lastInitializedDataRevision.value = getWorkflowDataRevision()
   } catch (e) {
     console.error(e)
   }
 }
 
 onMounted(async () => {
+  extractViewActive.value = true
   window.addEventListener('keydown', handleMergeKeydown)
   window.addEventListener('focus', handleWindowFocusRefresh)
   document.addEventListener('visibilitychange', handleVisibilityRefresh)
   await initializeExtractView()
 })
 
-watch(() => route.query.project_id, () => {
+watch(() => [route.path, route.query.project_id, route.query.resume, route.query.from], () => {
+  if (!route.path.startsWith('/extract')) return
   void initializeExtractView()
+})
+
+onActivated(() => {
+  extractViewActive.value = true
+})
+
+onDeactivated(() => {
+  extractViewActive.value = false
 })
 
 onBeforeUnmount(() => {

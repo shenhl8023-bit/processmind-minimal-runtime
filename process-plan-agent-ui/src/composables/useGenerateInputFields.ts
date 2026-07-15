@@ -8,6 +8,14 @@ export type GenerateInputField = {
   examples?: string[]
   allowed_values?: string[]
   required?: boolean
+  allow_custom?: boolean
+  unit?: string
+  validation?: {
+    min?: number | null
+    max?: number | null
+    min_length?: number | null
+    max_length?: number | null
+  }
 }
 
 type FactorDictionaryEntry = {
@@ -31,6 +39,53 @@ function normalizeSchemaFields(fields: any, required: boolean): GenerateInputFie
       required,
     }))
     .filter(field => field.key)
+}
+
+function normalizeV2Fields(fields: any): GenerateInputField[] {
+  if (!Array.isArray(fields)) return []
+  return fields
+    .map((field) => {
+      const options = Array.isArray(field?.options)
+        ? field.options.map((item: any) => String(item?.value ?? item?.label ?? '').trim()).filter(Boolean)
+        : []
+      return {
+        key: String(field?.key || '').trim(),
+        name: String(field?.label || field?.name || field?.key || '').trim(),
+        type: String(field?.type || 'string').trim().toLowerCase(),
+        source: String(field?.source || '').trim(),
+        examples: options.slice(0, 3),
+        allowed_values: options,
+        required: Boolean(field?.required),
+        allow_custom: Boolean(field?.allow_custom),
+        unit: field?.unit ? String(field.unit) : undefined,
+        validation: field?.validation || undefined,
+      }
+    })
+    .filter(field => field.key)
+}
+
+/** Expand dotted keys like material.grade into nested objects for V2 expression engine. */
+export function nestFactorValues(flat: Record<string, any>) {
+  const nested: Record<string, any> = {}
+  Object.entries(flat || {}).forEach(([key, value]) => {
+    if (!key.includes('.')) {
+      nested[key] = value
+      return
+    }
+    const parts = key.split('.').filter(Boolean)
+    let cursor = nested
+    parts.forEach((part, index) => {
+      if (index === parts.length - 1) {
+        cursor[part] = value
+        return
+      }
+      if (!cursor[part] || typeof cursor[part] !== 'object' || Array.isArray(cursor[part])) {
+        cursor[part] = {}
+      }
+      cursor = cursor[part]
+    })
+  })
+  return nested
 }
 
 function normalizeFactorDictionary(dictionary: any) {
@@ -111,9 +166,14 @@ export function useGenerateInputFields(args: {
   const fieldValues = ref<Record<string, any>>({})
   const customInputValues = ref<Record<string, string>>({})
 
+  const schemaVersion = computed(() => String(args.inputSchema.value?.schema_version || '1.0'))
+
   const inputFields = computed<GenerateInputField[]>(() => {
     const schema = args.inputSchema.value
     if (!schema) return []
+    if (String(schema.schema_version || '') === '2.0' && Array.isArray(schema.fields)) {
+      return normalizeV2Fields(schema.fields)
+    }
     const factorDictionary = normalizeFactorDictionary(schema.factor_dictionary)
     const required = normalizeSchemaFields(schema.required_inputs, true)
     const optional = normalizeSchemaFields(schema.optional_inputs, false)
@@ -135,6 +195,9 @@ export function useGenerateInputFields(args: {
         values[field.key] = value
       }
     })
+    if (schemaVersion.value === '2.0') {
+      return nestFactorValues(values)
+    }
     return values
   })
 
@@ -295,7 +358,9 @@ export function useGenerateInputFields(args: {
     initializeFieldValues,
     inputFields,
     inputValue,
+    nestFactorValues,
     resetFieldValues,
+    schemaVersion,
     setCustomInput,
     setFieldBoolean,
     setFieldText,

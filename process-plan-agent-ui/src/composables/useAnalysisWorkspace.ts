@@ -310,8 +310,8 @@ export function useAnalysisWorkspace() {
     )
   })
 
-  async function reloadSavedRouteWorkspace() {
-    await loadSavedRoute()
+  async function reloadSavedRouteWorkspace(forceRefresh = false) {
+    await loadSavedRoute(forceRefresh)
     clearDocumentPreviewTexts()
   }
 

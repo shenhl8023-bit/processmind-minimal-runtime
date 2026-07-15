@@ -13,6 +13,9 @@
           <button class="ash-btn-outline" @click="downloadRuleDocument" :disabled="exportingRulePackage || !segmentCards.length">
             {{ exportingRulePackage ? '正在导出...' : FINALIZE_VIEW_COPY.exportDocument }}
           </button>
+          <button class="ash-btn-plain" @click="downloadRuleDocumentV1Compat" :disabled="exportingRulePackage || !segmentCards.length" title="迁移期兼容：导出 V1">
+            {{ FINALIZE_VIEW_COPY.exportDocumentV1 }}
+          </button>
           <button class="ash-btn-outline" @click="toggleOnlyEdited" :disabled="!segmentCards.length">
             {{ onlyEdited ? FINALIZE_VIEW_COPY.showAll : FINALIZE_VIEW_COPY.showEditedOnly }}
           </button>
@@ -113,8 +116,8 @@ import FinalizeRouteNav from '@/components/finalize/FinalizeRouteNav.vue'
 import FinalizeRuleCard from '@/components/finalize/FinalizeRuleCard.vue'
 import {
   getSavedNormalizedRoute,
-  getSupersetRoute,
   getLatestFinalizedRulePackage,
+  getSupersetRoute,
   listOperations,
   listProjects,
   type OperationItem,
@@ -212,6 +215,7 @@ function finalizeSegmentMetaLabel(segment: SavedNormalizedRouteVersionResult['se
 const {
   exportingRulePackage,
   downloadRuleDocument,
+  downloadRuleDocumentV1Compat,
 } = useFinalizeRulePackageExport({
   projectId,
   projectName,
@@ -222,8 +226,9 @@ const {
   phaseLabel: resolveFinalizePhase,
   primarySteps: finalizeSegmentPrimarySteps,
   attachedSteps: finalizeSegmentAttachedSteps,
-  onExportedVersion: (version) => {
+  onExportedVersion: (version, meta) => {
     lastExportedRulePackageVersion.value = version
+    console.info(`规则包 V${version} 已导出，可用于第 5 步。`, meta)
   },
 })
 
@@ -234,12 +239,12 @@ function goBackToAnalysis() {
   })
 }
 
-async function loadWorkspace() {
+async function loadWorkspace(forceRefresh = false) {
   loading.value = true
   error.value = ''
 
   try {
-    const projectList = await listProjects()
+    const projectList = await listProjects(forceRefresh)
     const resolvedProjectId = resolveAvailableProjectId(String(route.query.project_id || ''), projectList)
     if (!resolvedProjectId) {
       projectId.value = null
@@ -259,21 +264,18 @@ async function loadWorkspace() {
         query: { ...route.query, project_id: resolvedProjectId },
       })
     }
-    const [routeResult, operationList, supersetResult] = await Promise.all([
-      getSavedNormalizedRoute(projectId.value),
-      listOperations(projectId.value),
-      getSupersetRoute(projectId.value),
+    const currentProject = projectList.find(project => project.id === projectId.value)
+    const [routeResult, operationList, supersetResult, latestPackage] = await Promise.all([
+      getSavedNormalizedRoute(projectId.value, forceRefresh),
+      listOperations(projectId.value, forceRefresh),
+      getSupersetRoute(projectId.value, forceRefresh),
+      getLatestFinalizedRulePackage(projectId.value, forceRefresh).catch(() => null),
     ])
     savedRoute.value = routeResult
     operations.value = operationList
     supersetOperations.value = supersetResult.superset_route || []
-    projectName.value = projectList.find(project => project.id === projectId.value)?.name || `任务 #${projectId.value}`
-    try {
-      const latestRulePackage = await getLatestFinalizedRulePackage(projectId.value)
-      lastExportedRulePackageVersion.value = latestRulePackage.version
-    } catch {
-      lastExportedRulePackageVersion.value = null
-    }
+    projectName.value = currentProject?.name || `任务 #${projectId.value}`
+    lastExportedRulePackageVersion.value = latestPackage?.version || null
     readDrafts()
     activeSegmentId.value = routeResult.segments[0]?.id || ''
   } catch (err: any) {
@@ -290,7 +292,7 @@ async function loadWorkspace() {
 }
 
 async function reloadWorkspace() {
-  await loadWorkspace()
+  await loadWorkspace(true)
 }
 
 watch(() => route.query.project_id, () => {
@@ -461,6 +463,58 @@ onMounted(async () => {
 
 .finalize-results {
   min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .ash-top {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .ash-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+  }
+
+  .ash-actions button {
+    min-height: 36px;
+    width: 100%;
+  }
+
+  .ash-meta-bar {
+    flex-wrap: wrap;
+    gap: 8px 14px;
+  }
+
+  .finalize-layout {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+
+  .finalize-results {
+    max-height: none;
+    overflow: visible;
+  }
+
+  :deep(.route-nav) {
+    max-height: 420px;
+  }
+}
+
+@media (max-width: 520px) {
+  .ash-titles h1 {
+    font-size: 18px;
+  }
+
+  .ash-dark-chip {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 

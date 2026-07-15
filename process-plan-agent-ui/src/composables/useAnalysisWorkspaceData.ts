@@ -42,12 +42,12 @@ export function useAnalysisWorkspaceData(options: UseAnalysisWorkspaceDataOption
     error.value = errorMessage
   }
 
-  async function loadSavedRoute() {
+  async function loadSavedRoute(forceRefresh = false) {
     if (!projectId.value) return
     loading.value = true
     error.value = ''
     try {
-      const projects = await listProjects()
+      const projects = await listProjects(forceRefresh)
       const current = projects.find(item => item.id === projectId.value)
       if (!current) {
         clearStoredCurrentProjectId()
@@ -56,11 +56,11 @@ export function useAnalysisWorkspaceData(options: UseAnalysisWorkspaceDataOption
         return
       }
       const [data, operationItems, supersetResult, documentItems, detailItems] = await Promise.all([
-        getSavedNormalizedRoute(projectId.value),
-        listOperations(projectId.value),
-        getSupersetRoute(projectId.value),
-        listDocuments(projectId.value),
-        getDocumentOperationDetails(projectId.value),
+        getSavedNormalizedRoute(projectId.value, forceRefresh),
+        listOperations(projectId.value, forceRefresh),
+        getSupersetRoute(projectId.value, forceRefresh),
+        listDocuments(projectId.value, forceRefresh),
+        getDocumentOperationDetails(projectId.value, undefined, undefined, forceRefresh),
       ])
       savedRoute.value = data
       operations.value = operationItems || []

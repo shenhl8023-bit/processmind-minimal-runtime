@@ -1,4 +1,9 @@
 import { FINALIZE_EXPORT_COPY } from '@/config/finalizeRulePresentation'
+import type {
+  CompileRulePackageRequest,
+  RulePackageCondition,
+  RulePackageRule,
+} from '@/api/rulePackages'
 
 export function sanitizeMarkdownInline(text: string) {
   return String(text || '').replace(/\|/g, '\\|').trim()
@@ -383,4 +388,364 @@ export function validateRulePackage(inputSchema: any, routeCatalog: any, routeRu
   }
 
   return { errors, warnings }
+}
+
+
+function stableProcessId(rawId: string, displayName: string) {
+  const text = String(rawId || '').trim()
+  if (text) return text
+  const slug = String(displayName || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9一-鿿]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  return slug ? `process_${slug}` : 'process_unknown'
+}
+
+function slugStepId(processId: string, stepName: string, index: number, kind: 'primary' | 'attached') {
+  const base = String(stepName || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9一-鿿]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  return `${processId}.${kind}.${base || index + 1}`
+}
+
+function leafCondition(field: string, op: string, value: unknown): RulePackageCondition {
+  return { field, op, value }
+}
+
+function resolveProcessIdsByName(
+  processName: string,
+  processes: Array<{ process_id: string; display_name: string }>,
+) {
+  const normalized = normalizeExportProcessName(processName)
+  return processes
+    .filter((item) => {
+      const display = normalizeExportProcessName(item.display_name)
+      return display === normalized || display.includes(normalized) || normalized.includes(display)
+    })
+    .map((item) => item.process_id)
+}
+
+function buildStaticV2Rules(processes: Array<{ process_id: string; display_name: string }>) {
+  const rules: RulePackageRule[] = []
+
+  const pushNamed = (
+    ruleId: string,
+    priority: number,
+    when: RulePackageCondition,
+    processNames: string[],
+    reason: string,
+  ) => {
+    const includeIds = Array.from(
+      new Set(processNames.flatMap((name) => resolveProcessIdsByName(name, processes))),
+    )
+    if (!includeIds.length) return
+    rules.push({
+      rule_id: ruleId,
+      priority,
+      enabled: true,
+      when,
+      then: {
+        include_process_ids: includeIds,
+        exclude_process_ids: [],
+        reason,
+      },
+    })
+  }
+
+  pushNamed(
+    'material.9Cr18.heat',
+    100,
+    leafCondition('material.grade', 'in', ['9Cr18', '95Cr18']),
+    ['调质', '淬火'],
+    '9Cr18 材料规则',
+  )
+  pushNamed(
+    'material.4Cr14.normalize',
+    100,
+    leafCondition('material.grade', 'in', ['4Cr14Ni14W2Mo']),
+    ['正常化'],
+    '4Cr14 材料规则',
+  )
+
+  const featureRules: Array<[string, string[]]> = [
+    ['扁位/平面', ['铣扁', '割扁']],
+    ['槽类特征', ['铣槽', '磨槽']],
+    ['普通孔/辅助孔', ['钻孔', '打孔']],
+    ['铰孔/精孔', ['钻铰孔']],
+    ['型孔/割扁', ['割型孔', '打型孔']],
+    ['顶尖孔', ['研顶尖孔']],
+  ]
+  featureRules.forEach(([feature, processNames]) => {
+    pushNamed(
+      `feature.${feature}`,
+      90,
+      leafCondition('cad.features', 'contains', feature),
+      processNames,
+      `CAD 特征 ${feature}`,
+    )
+  })
+
+  const precisionRules: Array<[string, string[]]> = [
+    ['孔精加工', ['磨孔']],
+    ['珩孔要求', ['珩孔']],
+    ['研孔要求', ['研孔']],
+    ['外圆磨削', ['磨外圆']],
+    ['端面磨削', ['磨端面']],
+    ['槽磨削', ['磨槽']],
+    ['研外圆', ['研外圆']],
+  ]
+  precisionRules.forEach(([precision, processNames]) => {
+    pushNamed(
+      `precision.${precision}`,
+      80,
+      leafCondition('precision.grades', 'contains', precision),
+      processNames,
+      `精度要求 ${precision}`,
+    )
+  })
+
+  const specialRules: Array<[string, string[]]> = [
+    ['渗氮层要求', ['镀铜', '渗氮', '除铜']],
+    ['铬酸阳极化要求', ['铬酸阳极化']],
+    ['硬质阳极化要求', ['硬质阳极化']],
+    ['追溯标印', ['标记']],
+    ['磁粉检查要求', ['磁粉检查', '荧光检查']],
+    ['烧伤检查要求', ['烧伤检查']],
+  ]
+  specialRules.forEach(([requirement, processNames]) => {
+    pushNamed(
+      `special.${requirement}`,
+      70,
+      leafCondition('special.requirements', 'contains', requirement),
+      processNames,
+      `特殊要求 ${requirement}`,
+    )
+  })
+
+  return rules
+}
+
+function setNestedInputValue(target: Record<string, any>, key: string, value: unknown) {
+  const parts = String(key || '').split('.').filter(Boolean)
+  if (!parts.length) return
+  let current = target
+  parts.slice(0, -1).forEach((part) => {
+    if (!current[part] || typeof current[part] !== 'object' || Array.isArray(current[part])) {
+      current[part] = {}
+    }
+    current = current[part]
+  })
+  current[parts[parts.length - 1]!] = value
+}
+
+function defaultInputValueForField(field: CompileRulePackageRequest['fields'][number]) {
+  const firstOption = field.options?.[0]?.value || '样例值'
+  if (field.type === 'multi_select') return [firstOption]
+  if (field.type === 'single_select') return firstOption
+  if (field.type === 'number') {
+    const min = field.validation?.min
+    const max = field.validation?.max
+    if (typeof min === 'number' && typeof max === 'number') return (min + max) / 2
+    if (typeof min === 'number') return min
+    if (typeof max === 'number') return max
+    return 1
+  }
+  if (field.type === 'boolean') return true
+  return firstOption
+}
+
+function buildDefaultV2TestCases(
+  fields: CompileRulePackageRequest['fields'],
+  processes: CompileRulePackageRequest['processes'],
+): CompileRulePackageRequest['test_cases'] {
+  const input: Record<string, any> = {}
+  fields.forEach((field) => {
+    setNestedInputValue(input, field.key, defaultInputValueForField(field))
+  })
+  const mainProcessIds = processes
+    .filter((process) => process.main)
+    .map((process) => process.process_id)
+  return [
+    {
+      case_id: 'default-smoke',
+      input,
+      expect: {
+        included_process_ids: mainProcessIds,
+        excluded_process_ids: [],
+      },
+    },
+  ]
+}
+
+export function buildV2InputFields() {
+  const dictionary = buildFactorDictionaryExport()
+  return [
+    {
+      key: 'material.grade',
+      label: dictionary.material_grade.label,
+      type: 'single_select' as const,
+      required: true,
+      source: dictionary.material_grade.source,
+      options: dictionary.material_grade.values.map((value: string) => ({ value, label: value })),
+      allow_custom: true,
+    },
+    {
+      key: 'cad.features',
+      label: dictionary.cad_features.label,
+      type: 'multi_select' as const,
+      required: true,
+      source: dictionary.cad_features.source,
+      options: dictionary.cad_features.values.map((value: string) => ({ value, label: value })),
+      allow_custom: true,
+    },
+    {
+      key: 'precision.grades',
+      label: dictionary.precision_grades.label,
+      type: 'multi_select' as const,
+      required: true,
+      source: dictionary.precision_grades.source,
+      options: dictionary.precision_grades.values.map((value: string) => ({ value, label: value })),
+      allow_custom: true,
+    },
+    {
+      key: 'special.requirements',
+      label: dictionary.special_requirements.label,
+      type: 'multi_select' as const,
+      required: false,
+      source: dictionary.special_requirements.source,
+      options: dictionary.special_requirements.values.map((value: string) => ({ value, label: value })),
+      allow_custom: true,
+    },
+  ]
+}
+
+export function buildCompileRequestFromCards(args: {
+  projectId: number
+  packageName: string
+  routeVersionId?: number | null
+  cards: any[]
+  displayName: (segment: any) => string
+  phaseLabel: (segment: any) => string
+  primarySteps: (segment: any) => string[]
+  attachedSteps: (segment: any) => string[]
+}): CompileRulePackageRequest {
+  const processMap = new Map<string, any>()
+  args.cards.forEach((item) => {
+    const displayName = normalizeExportProcessName(args.displayName(item.segment))
+    const processId = stableProcessId(exportProcessIdForItem(item), displayName)
+    const primary = args.primarySteps(item.segment).map((name, index) => ({
+      step_id: slugStepId(processId, name, index, 'primary'),
+      name,
+      kind: 'primary' as const,
+    }))
+    const attached = args.attachedSteps(item.segment).map((name, index) => ({
+      step_id: slugStepId(processId, name, index, 'attached'),
+      name,
+      kind: 'attached' as const,
+    }))
+    const existing = processMap.get(processId)
+    if (!existing) {
+      processMap.set(processId, {
+        process_id: processId,
+        process_code: processId.replace(/^process_/, '').toUpperCase(),
+        display_name: displayName,
+        phase: args.phaseLabel(item.segment) || item.segment?.phase || '',
+        default_sequence: Number(item.segment?.sequence || 0) * 10,
+        main: isMainlineFinalizeCard(item),
+        steps: [...primary, ...attached],
+        constraints: {
+          requires: [],
+          must_run_after: [],
+          must_run_before: [],
+          conflicts_with: [],
+        },
+      })
+      return
+    }
+    existing.main = existing.main || isMainlineFinalizeCard(item)
+    existing.default_sequence = Math.min(existing.default_sequence, Number(item.segment?.sequence || 0) * 10)
+    const known = new Set(existing.steps.map((step: any) => step.name))
+    ;[...primary, ...attached].forEach((step) => {
+      if (!known.has(step.name)) {
+        existing.steps.push(step)
+        known.add(step.name)
+      }
+    })
+  })
+
+  const processes = Array.from(processMap.values()).sort(
+    (a, b) => Number(a.default_sequence || 0) - Number(b.default_sequence || 0),
+  )
+  const staticRules = buildStaticV2Rules(
+    processes.map((item) => ({ process_id: item.process_id, display_name: item.display_name })),
+  )
+  const fields = buildV2InputFields()
+
+  return {
+    project_id: args.projectId,
+    package_name: args.packageName,
+    route_version_id: args.routeVersionId ?? null,
+    applicability: {
+      part_families: [],
+      manufacturing_modes: ['machining'],
+    },
+    fields,
+    processes,
+    rules: staticRules,
+    test_cases: buildDefaultV2TestCases(fields, processes),
+  }
+}
+
+export function buildRuleReportFromV2Package(args: {
+  projectName: string
+  packageName: string
+  contentHash: string
+  processes: Array<{ process_id: string; display_name: string; main?: boolean; default_sequence?: number }>
+  rules: Array<{ rule_id: string; then?: { reason?: string; include_process_ids?: string[] } }>
+  validation?: { valid?: boolean; errors?: Array<{ message?: string }>; warnings?: Array<{ message?: string }> }
+}) {
+  const lines: string[] = []
+  lines.push(`# ${FINALIZE_EXPORT_COPY.documentTitle}`)
+  lines.push('')
+  lines.push(`- 任务名称：${args.projectName || '未命名任务'}`)
+  lines.push(`- 规则包：${args.packageName}`)
+  lines.push(`- schema_version：2.0`)
+  lines.push(`- content_hash：${args.contentHash || '-'}`)
+  lines.push(`- 导出时间：${new Date().toLocaleString('zh-CN', { hour12: false })}`)
+  lines.push(`- 工序数量：${args.processes.length}`)
+  lines.push(`- 规则数量：${args.rules.length}`)
+  lines.push(`- 校验：${args.validation?.valid === false ? '未通过' : '通过'}`)
+  lines.push('')
+  lines.push('## 工序目录')
+  lines.push('')
+  args.processes
+    .slice()
+    .sort((a, b) => Number(a.default_sequence || 0) - Number(b.default_sequence || 0))
+    .forEach((process) => {
+      lines.push(`- ${process.default_sequence ?? '-'} · ${process.display_name} (\`${process.process_id}\`)${process.main ? ' · 主线' : ''}`)
+    })
+  lines.push('')
+  lines.push('## 规则摘要')
+  lines.push('')
+  args.rules.forEach((rule) => {
+    const includes = (rule.then?.include_process_ids || []).join(', ')
+    lines.push(`- ${rule.rule_id}：${rule.then?.reason || ''} → ${includes}`)
+  })
+  if (args.validation?.errors?.length) {
+    lines.push('')
+    lines.push('## 校验错误')
+    lines.push('')
+    args.validation.errors.forEach((issue) => lines.push(`- ${issue.message || ''}`))
+  }
+  if (args.validation?.warnings?.length) {
+    lines.push('')
+    lines.push('## 校验警告')
+    lines.push('')
+    args.validation.warnings.forEach((issue) => lines.push(`- ${issue.message || ''}`))
+  }
+  lines.push('')
+  return lines.join('\n')
 }

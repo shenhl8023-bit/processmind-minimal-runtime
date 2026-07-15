@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import init_db
-from app.routers import documents, extract, generate, projects, settings
+from app.routers import documents, extract, generate, projects, rule_packages, settings
 from app.services.route_rules_builtin_knowledge import preload_builtin_knowledge_cache
 
 
@@ -37,6 +37,7 @@ app.add_middleware(
 
 app.include_router(documents.router)
 app.include_router(extract.router)
+app.include_router(rule_packages.router)
 app.include_router(generate.router)
 app.include_router(projects.router)
 app.include_router(settings.router)

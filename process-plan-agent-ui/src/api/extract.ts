@@ -1,4 +1,10 @@
 import { api } from './client'
+import {
+  clearAllWorkflowDataCache,
+  clearWorkflowProjectDataCache,
+  getWorkflowDataCache,
+  setWorkflowDataCache,
+} from '@/composables/workflowDataCache'
 
 export interface OperationFactor {
   id: number
@@ -237,13 +243,21 @@ export interface FinalizedRulePackageResult {
   route_version_id?: number | null
   version: number
   package_name: string
+  schema_version: string
+  status: 'draft' | 'published' | 'superseded' | 'archived' | string
+  manifest: Record<string, any>
   input_schema: Record<string, any>
   route_catalog: Record<string, any>
   route_rules: Record<string, any>
+  test_cases: Array<Record<string, any>>
   rule_report_md: string
   validation_report: Record<string, any>
+  content_hash: string
   created_by: string
   created_at: string
+  published_by?: string | null
+  published_at?: string | null
+  supersedes_id?: number | null
 }
 
 export interface FinalizedRulePackageListItem {
@@ -252,8 +266,16 @@ export interface FinalizedRulePackageListItem {
   route_version_id?: number | null
   version: number
   package_name: string
+  schema_version: string
+  status: 'draft' | 'published' | 'superseded' | 'archived' | string
+  content_hash: string
   created_by: string
   created_at: string
+  published_by?: string | null
+  published_at?: string | null
+  supersedes_id?: number | null
+  validation_report?: Record<string, any>
+  test_case_count?: number
 }
 
 export interface ExtractionTaskStartResult {
@@ -300,15 +322,33 @@ export async function startExtraction(projectId: number, forceReextract: boolean
       ...(forceReextract ? { force_reextract: true } : {}),
     },
   })
+  clearAllWorkflowDataCache()
   return data as ExtractionTaskStartResult
 }
 
-export async function listOperations(projectId: number) {
+export async function listOperations(projectId: number, forceRefresh = false) {
+  const cacheKey = `api:extract:operations:${projectId}`
+  if (!forceRefresh) {
+    const cached = getWorkflowDataCache<OperationItem[]>(cacheKey)
+    if (cached) return cached
+  }
   const { data } = await api.get('/api/extract/operations', { params: { project_id: projectId } })
-  return data as OperationItem[]
+  const operations = data as OperationItem[]
+  setWorkflowDataCache(cacheKey, operations)
+  return operations
 }
 
-export async function getDocumentOperationDetails(projectId: number, documentId?: number, operationName?: string) {
+export async function getDocumentOperationDetails(
+  projectId: number,
+  documentId?: number,
+  operationName?: string,
+  forceRefresh = false,
+) {
+  const cacheKey = `api:extract:document-operation-details:${projectId}:${documentId || 'all'}:${operationName || 'all'}`
+  if (!forceRefresh) {
+    const cached = getWorkflowDataCache<DocumentOperationDetailResult>(cacheKey)
+    if (cached) return cached
+  }
   const { data } = await api.get('/api/extract/document-operation-details', {
     params: {
       project_id: projectId,
@@ -316,27 +356,57 @@ export async function getDocumentOperationDetails(projectId: number, documentId?
       ...(operationName ? { operation_name: operationName } : {}),
     },
   })
-  return data as DocumentOperationDetailResult
+  const result = data as DocumentOperationDetailResult
+  setWorkflowDataCache(cacheKey, result)
+  return result
 }
 
-export async function getSupersetRoute(projectId: number) {
+export async function getSupersetRoute(projectId: number, forceRefresh = false) {
+  const cacheKey = `api:extract:superset-route:${projectId}`
+  if (!forceRefresh) {
+    const cached = getWorkflowDataCache<SupersetRouteResult>(cacheKey)
+    if (cached) return cached
+  }
   const { data } = await api.get('/api/extract/superset-route', { params: { project_id: projectId } })
-  return data as SupersetRouteResult
+  const result = data as SupersetRouteResult
+  setWorkflowDataCache(cacheKey, result)
+  return result
 }
 
-export async function getMergeSuggestions(projectId: number) {
+export async function getMergeSuggestions(projectId: number, forceRefresh = false) {
+  const cacheKey = `api:extract:merge-suggestions:${projectId}`
+  if (!forceRefresh) {
+    const cached = getWorkflowDataCache<MergeSuggestionResult>(cacheKey)
+    if (cached) return cached
+  }
   const { data } = await api.get('/api/extract/merge-suggestions', { params: { project_id: projectId } })
-  return data as MergeSuggestionResult
+  const result = data as MergeSuggestionResult
+  setWorkflowDataCache(cacheKey, result)
+  return result
 }
 
-export async function getNormalizedSupersetRoute(projectId: number) {
+export async function getNormalizedSupersetRoute(projectId: number, forceRefresh = false) {
+  const cacheKey = `api:extract:normalized-superset-route:${projectId}`
+  if (!forceRefresh) {
+    const cached = getWorkflowDataCache<NormalizedSupersetRouteResult>(cacheKey)
+    if (cached) return cached
+  }
   const { data } = await api.get('/api/extract/normalized-superset-route', { params: { project_id: projectId } })
-  return data as NormalizedSupersetRouteResult
+  const result = data as NormalizedSupersetRouteResult
+  setWorkflowDataCache(cacheKey, result)
+  return result
 }
 
-export async function getSavedNormalizedRoute(projectId: number) {
+export async function getSavedNormalizedRoute(projectId: number, forceRefresh = false) {
+  const cacheKey = `api:extract:saved-normalized-route:${projectId}`
+  if (!forceRefresh) {
+    const cached = getWorkflowDataCache<SavedNormalizedRouteVersionResult>(cacheKey)
+    if (cached) return cached
+  }
   const { data } = await api.get('/api/extract/saved-normalized-route', { params: { project_id: projectId } })
-  return data as SavedNormalizedRouteVersionResult
+  const result = data as SavedNormalizedRouteVersionResult
+  setWorkflowDataCache(cacheKey, result)
+  return result
 }
 
 export async function saveNormalizedSupersetRoute(body: {
@@ -367,6 +437,7 @@ export async function saveNormalizedSupersetRoute(body: {
   }>
 }) {
   const { data } = await api.post('/api/extract/normalized-superset-route/save', body)
+  clearAllWorkflowDataCache()
   return data as NormalizedSupersetRouteResult
 }
 
@@ -384,6 +455,7 @@ export async function saveSegmentRuleReview(body: {
   }>
 }) {
   const { data } = await api.post('/api/extract/segment-rule-reviews', body)
+  clearWorkflowProjectDataCache(body.project_id)
   return data as SegmentRuleReviewSaveResult
 }
 
@@ -391,25 +463,58 @@ export async function saveFinalizedRulePackage(body: {
   project_id: number
   route_version_id?: number | null
   package_name?: string
+  schema_version?: string
+  manifest?: Record<string, any>
   input_schema: Record<string, any>
   route_catalog: Record<string, any>
   route_rules: Record<string, any>
+  test_cases?: Array<Record<string, any>>
   rule_report_md: string
   validation_report?: Record<string, any>
   created_by?: string
 }) {
   const { data } = await api.post('/api/extract/finalized-rule-packages', body)
+  clearAllWorkflowDataCache()
   return data as FinalizedRulePackageResult
 }
 
-export async function getLatestFinalizedRulePackage(projectId: number) {
+export async function getLatestFinalizedRulePackage(projectId: number, forceRefresh = false) {
+  const cacheKey = `api:extract:finalized-rule-packages:latest:${projectId}`
+  if (!forceRefresh) {
+    const cached = getWorkflowDataCache<FinalizedRulePackageResult>(cacheKey)
+    if (cached) return cached
+  }
   const { data } = await api.get('/api/extract/finalized-rule-packages/latest', { params: { project_id: projectId } })
-  return data as FinalizedRulePackageResult
+  const result = data as FinalizedRulePackageResult
+  setWorkflowDataCache(cacheKey, result)
+  return result
 }
 
-export async function listFinalizedRulePackages(projectId: number) {
+export async function listFinalizedRulePackages(projectId: number, forceRefresh = false) {
+  const cacheKey = `api:extract:finalized-rule-packages:list:${projectId}`
+  if (!forceRefresh) {
+    const cached = getWorkflowDataCache<FinalizedRulePackageListItem[]>(cacheKey)
+    if (cached) return cached
+  }
   const { data } = await api.get('/api/extract/finalized-rule-packages', { params: { project_id: projectId } })
-  return data as FinalizedRulePackageListItem[]
+  const result = data as FinalizedRulePackageListItem[]
+  setWorkflowDataCache(cacheKey, result)
+  return result
+}
+
+export interface FinalizedRulePackageSimulationResult {
+  content_hash: string
+  validation: {
+    valid: boolean
+    errors: Array<Record<string, any>>
+    warnings: Array<Record<string, any>>
+    test_results: Array<Record<string, any>>
+  }
+  plan?: {
+    steps: Array<Record<string, any>>
+    selected_process_ids: string[]
+    traces: Array<Record<string, any>>
+  } | null
 }
 
 export async function reviewMergeSuggestion(body: {
@@ -419,6 +524,7 @@ export async function reviewMergeSuggestion(body: {
   manual_label?: string
 }) {
   const { data } = await api.post('/api/extract/merge-suggestions/review', body)
+  clearWorkflowProjectDataCache(body.project_id)
   return data
 }
 

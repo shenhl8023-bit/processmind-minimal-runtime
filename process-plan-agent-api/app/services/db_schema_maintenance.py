@@ -1,3 +1,6 @@
+import hashlib
+import json
+
 from sqlalchemy import text
 
 from app.services.profile_registry import ROUTE_RULES_PROFILE
@@ -19,6 +22,8 @@ async def ensure_project_schema(conn):
         columns = [row[1] for row in result.fetchall()]
         if column_name not in columns:
             await conn.execute(text(f'ALTER TABLE "{table_name}" ADD COLUMN {ddl}'))
+            return True
+        return False
 
     await ensure_column("documents", "project_id", "project_id INTEGER")
     await ensure_column("references", "project_id", "project_id INTEGER")
@@ -30,6 +35,7 @@ async def ensure_project_schema(conn):
     await ensure_column("normalized_route_segment_rule_reviews", "question_trail_json", "question_trail_json TEXT")
     await ensure_column("projects", "mode", "mode VARCHAR(50) DEFAULT 'route_rules'")
     await ensure_column("projects", "profile", f"profile VARCHAR(100) DEFAULT '{ROUTE_RULES_PROFILE}'")
+    await ensure_column("projects", "rule_engine", "rule_engine VARCHAR(20) DEFAULT 'auto'")
 
     await conn.execute(text(f"""
         UPDATE projects
@@ -50,6 +56,13 @@ async def ensure_project_schema(conn):
         WHERE profile IS NULL
            OR TRIM(profile) = ''
            OR profile NOT LIKE 'route_rules.%'
+    """))
+    await conn.execute(text("""
+        UPDATE projects
+        SET rule_engine = 'auto'
+        WHERE rule_engine IS NULL
+           OR TRIM(rule_engine) = ''
+           OR rule_engine NOT IN ('auto', 'v1', 'v2')
     """))
     await conn.execute(text("""
         UPDATE projects
@@ -131,6 +144,106 @@ async def ensure_project_schema(conn):
         CREATE UNIQUE INDEX IF NOT EXISTS uq_finalized_rule_packages_project_version
         ON finalized_rule_packages (project_id, version)
     """))
+
+    status_added = await ensure_column(
+        "finalized_rule_packages",
+        "status",
+        "status VARCHAR(20) NOT NULL DEFAULT 'published'",
+    )
+    await ensure_column(
+        "finalized_rule_packages",
+        "schema_version",
+        "schema_version VARCHAR(20) NOT NULL DEFAULT '1.0'",
+    )
+    await ensure_column("finalized_rule_packages", "manifest_json", "manifest_json TEXT")
+    await ensure_column("finalized_rule_packages", "test_cases_json", "test_cases_json TEXT")
+    await ensure_column("finalized_rule_packages", "content_hash", "content_hash VARCHAR(64)")
+    await ensure_column("finalized_rule_packages", "published_by", "published_by VARCHAR(100)")
+    await ensure_column("finalized_rule_packages", "published_at", "published_at DATETIME")
+    await ensure_column("finalized_rule_packages", "supersedes_id", "supersedes_id INTEGER")
+
+    if status_added:
+        await conn.execute(text("""
+            UPDATE finalized_rule_packages
+            SET status = 'superseded',
+                schema_version = COALESCE(NULLIF(TRIM(schema_version), ''), '1.0'),
+                published_at = COALESCE(published_at, created_at)
+        """))
+        await conn.execute(text("""
+            UPDATE finalized_rule_packages
+            SET status = 'published'
+            WHERE id IN (
+                SELECT id
+                FROM finalized_rule_packages AS candidate
+                WHERE candidate.id = (
+                    SELECT latest.id
+                    FROM finalized_rule_packages AS latest
+                    WHERE latest.project_id = candidate.project_id
+                    ORDER BY latest.version DESC, latest.id DESC
+                    LIMIT 1
+                )
+            )
+        """))
+
+    await _backfill_rule_package_hashes(conn)
+    await _normalize_published_rule_packages(conn)
+    await conn.execute(text("""
+        CREATE INDEX IF NOT EXISTS idx_finalized_rule_packages_project_status
+        ON finalized_rule_packages (project_id, status, version DESC, id DESC)
+    """))
+    await conn.execute(text("""
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_rule_package_project_published
+        ON finalized_rule_packages (project_id)
+        WHERE status = 'published'
+    """))
+
+
+async def _backfill_rule_package_hashes(conn):
+    rows = (
+        await conn.execute(text("""
+            SELECT id, schema_version, package_name, manifest_json, input_schema_json,
+                   route_catalog_json, route_rules_json, test_cases_json, rule_report_md
+            FROM finalized_rule_packages
+            WHERE content_hash IS NULL OR TRIM(content_hash) = ''
+        """))
+    ).mappings().all()
+    for row in rows:
+        payload = {
+            "schema_version": row["schema_version"] or "1.0",
+            "package_name": row["package_name"] or "",
+            "manifest": row["manifest_json"] or "",
+            "input_schema": row["input_schema_json"] or "",
+            "route_catalog": row["route_catalog_json"] or "",
+            "route_rules": row["route_rules_json"] or "",
+            "test_cases": row["test_cases_json"] or "",
+            "rule_report": row["rule_report_md"] or "",
+        }
+        canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        content_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        await conn.execute(
+            text("UPDATE finalized_rule_packages SET content_hash = :content_hash WHERE id = :id"),
+            {"content_hash": content_hash, "id": row["id"]},
+        )
+
+
+async def _normalize_published_rule_packages(conn):
+    rows = (
+        await conn.execute(text("""
+            SELECT project_id, id
+            FROM finalized_rule_packages
+            WHERE status = 'published'
+            ORDER BY project_id ASC, version DESC, id DESC
+        """))
+    ).all()
+    seen_projects: set[int] = set()
+    for project_id, package_id in rows:
+        if project_id in seen_projects:
+            await conn.execute(
+                text("UPDATE finalized_rule_packages SET status = 'superseded' WHERE id = :id"),
+                {"id": package_id},
+            )
+        else:
+            seen_projects.add(project_id)
 
 
 async def dedupe_operations(conn):
