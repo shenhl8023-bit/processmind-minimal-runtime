@@ -478,11 +478,12 @@ const goNext = async () => {
 </script>
 
 <style scoped>
-/* Root Layout Container: Full-Height Flex Fitting */
+/* Root Layout Container: Full-Height Flex Fitting
+   与第4步一致：填满 main-area（topbar 48 + pad-top 14 + pad-bottom 92） */
 .upload-view {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 176px); /* Leave room for the fixed workflow footer. */
+  height: calc(100vh - 154px);
   overflow: hidden;
   box-sizing: border-box;
 }

@@ -844,6 +844,17 @@ onBeforeUnmount(() => {
 
 .tag-neutral { background: #eef2f7; color: #475569; }
 
+.results-area {
+  display: flex;
+  flex-direction: column;
+  /* 与第4步一致：填满 main-area（topbar 48 + pad-top 14 + pad-bottom 92） */
+  height: calc(100vh - 154px);
+  min-height: 0;
+  overflow: hidden;
+}
+.results-area > :not(.route-merge-layout) {
+  flex-shrink: 0;
+}
 .results-area > .card { margin-bottom: 24px; }
 .results-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .blocked-text { font-size: 13px; color: var(--text-muted); }
@@ -857,11 +868,15 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(220px, 0.8fr) minmax(360px, 1.2fr) minmax(280px, 1.0fr);
   gap: 16px;
   align-items: stretch;
-  height: calc(100vh - 312px);
+  flex: 1;
+  min-height: 0;
+  height: auto;
 }
 .route-merge-layout-manual {
   grid-template-columns: minmax(300px, 0.88fr) minmax(420px, 1.12fr);
-  height: calc(100vh - 312px);
+  flex: 1;
+  min-height: 0;
+  height: auto;
 }
 
 .route-mobile-tabs {
@@ -1356,16 +1371,21 @@ onBeforeUnmount(() => {
     text-align: center;
   }
 
+  .results-area {
+    height: auto;
+    overflow: visible;
+  }
   .route-merge-layout,
   .route-merge-layout-manual {
     grid-template-columns: 1fr;
+    flex: none;
     height: auto !important;
   }
   .module-dual { grid-template-columns: 1fr; }
   .merge-minimal-summary { grid-template-columns: 1fr; }
   .module-head { flex-direction: column; align-items: stretch; }
   .module-stats { justify-content: flex-start; }
-  .route-pane { min-height: unset; max-height: 500px !important; }
+  .route-pane { min-height: unset; max-height: none; }
   .route-merge-layout.route-mobile-pane-source .route-pane:not(.route-pane-left),
   .route-merge-layout.route-mobile-pane-queue .route-pane:not(.route-pane-center),
   .route-merge-layout.route-mobile-pane-result .route-pane:not(.route-pane-right) {
@@ -1375,8 +1395,8 @@ onBeforeUnmount(() => {
   .route-merge-layout.route-mobile-pane-source .route-pane-left,
   .route-merge-layout.route-mobile-pane-queue .route-pane-center,
   .route-merge-layout.route-mobile-pane-result .route-pane-right {
-    max-height: calc(100vh - 360px) !important;
-    min-height: 360px;
+    max-height: calc(100vh - 210px) !important;
+    min-height: 200px;
   }
   .merge-focus-name { font-size: 24px; }
   .merge-edit-head { flex-direction: column; align-items: stretch; }

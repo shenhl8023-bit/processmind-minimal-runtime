@@ -360,7 +360,12 @@ function goToFinalize() {
 <style scoped>
 .analysis-view {
   padding: 0;
-  min-height: calc(100vh - 128px);
+  display: flex;
+  flex-direction: column;
+  /* 与第4步一致：填满 main-area（topbar 48 + pad-top 14 + pad-bottom 92） */
+  height: calc(100vh - 154px);
+  min-height: 0;
+  overflow: hidden;
   background: #f8fafc;
 }
 
@@ -370,6 +375,7 @@ function goToFinalize() {
   gap: 12px;
   align-items: center;
   margin-bottom: 8px;
+  flex-shrink: 0;
 }
 
 .analysis-hero h1 {
@@ -398,7 +404,9 @@ function goToFinalize() {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
   gap: 14px;
-  height: calc(100vh - 272px);
+  flex: 1;
+  min-height: 0;
+  height: auto;
 }
 
 .analysis-filter-bar {
@@ -410,6 +418,7 @@ function goToFinalize() {
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   background: #ffffff;
+  flex-shrink: 0;
 }
 
 .analysis-search {
@@ -1208,6 +1217,8 @@ function goToFinalize() {
 
 @media (max-width: 760px) {
   .analysis-view {
+    height: auto;
+    overflow: visible;
     padding: 20px 16px 28px;
   }
 
