@@ -1,5 +1,6 @@
+import hashlib
 import json
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -30,6 +31,23 @@ from app.services.route_merge.workspace import (
     get_latest_route_merge_snapshot,
 )
 from app.services.process_knowledge import canonicalize_route_label
+
+
+def canonical_normalized_route_json(normalized_route: list[dict[str, object]] | list[Any] | Any) -> str:
+    """Stable JSON for route content comparison (key order independent)."""
+    return json.dumps(normalized_route, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def normalized_route_content_hash(normalized_route: list[dict[str, object]] | list[Any] | Any) -> str:
+    return hashlib.sha256(canonical_normalized_route_json(normalized_route).encode("utf-8")).hexdigest()
+
+
+def parse_route_json(route_json: str | None) -> list[Any]:
+    try:
+        payload = json.loads(route_json or "[]")
+    except Exception:
+        return []
+    return payload if isinstance(payload, list) else []
 
 
 async def get_latest_normalized_route_version(
@@ -94,6 +112,25 @@ async def save_normalized_route_version(
     normalized_route: list[dict[str, object]],
 ) -> NormalizedRouteVersion:
     latest = await get_latest_normalized_route_version(project_id, db)
+    if latest:
+        latest_items = parse_route_json(latest.route_json)
+        if normalized_route_content_hash(latest_items) == normalized_route_content_hash(normalized_route):
+            # Same route content: reuse current version (no bump). Refresh metadata if needed.
+            dirty = False
+            if str(latest.source_signature or "") != str(source_signature or ""):
+                latest.source_signature = source_signature
+                dirty = True
+            if int(latest.total_docs or 0) != int(total_docs):
+                latest.total_docs = total_docs
+                dirty = True
+            if int(latest.segment_count or 0) != len(normalized_route):
+                latest.segment_count = len(normalized_route)
+                dirty = True
+            if dirty:
+                await db.commit()
+                await db.refresh(latest)
+            return latest
+
     version_number = int(latest.version or 0) + 1 if latest else 1
     version_row = NormalizedRouteVersion(
         project_id=project_id,

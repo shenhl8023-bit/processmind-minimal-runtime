@@ -10,9 +10,6 @@
           <button class="ash-btn-outline" @click="downloadRuleDocument" :disabled="exportingRulePackage || !segmentCards.length">
             {{ exportingRulePackage ? '正在导出...' : FINALIZE_VIEW_COPY.exportDocument }}
           </button>
-          <button class="ash-btn-plain" @click="downloadRuleDocumentV1Compat" :disabled="exportingRulePackage || !segmentCards.length" title="迁移期兼容：导出 V1">
-            {{ FINALIZE_VIEW_COPY.exportDocumentV1 }}
-          </button>
           <button class="ash-btn-outline" @click="toggleOnlyEdited" :disabled="!segmentCards.length">
             {{ onlyEdited ? FINALIZE_VIEW_COPY.showAll : FINALIZE_VIEW_COPY.showEditedOnly }}
           </button>
@@ -234,7 +231,6 @@ function finalizeSegmentMetaLabel(segment: SavedNormalizedRouteVersionResult['se
 const {
   exportingRulePackage,
   downloadRuleDocument,
-  downloadRuleDocumentV1Compat,
 } = useFinalizeRulePackageExport({
   projectId,
   projectName,
