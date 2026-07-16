@@ -36,5 +36,6 @@ declare module 'vue' {
     UploadMainFileCard: typeof import('./components/upload/UploadMainFileCard.vue')['default']
     UploadProjectBoard: typeof import('./components/upload/UploadProjectBoard.vue')['default']
     UploadReferenceCard: typeof import('./components/upload/UploadReferenceCard.vue')['default']
+    WorkflowNavFooter: typeof import('./components/workflow/WorkflowNavFooter.vue')['default']
   }
 }

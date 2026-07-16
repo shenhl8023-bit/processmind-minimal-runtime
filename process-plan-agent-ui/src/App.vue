@@ -1,15 +1,13 @@
 <script setup lang="ts">
-import { RouterView, useRoute, useRouter } from 'vue-router'
+import { RouterView, useRoute } from 'vue-router'
 import { computed, onMounted, ref } from 'vue'
 import ModelSettingsDrawer from '@/components/settings/ModelSettingsDrawer.vue'
 import {
-  buildProjectRouteQuery,
   resolveCurrentProjectId,
 } from '@/composables/useCurrentProject'
 import { workflowRouteLoaders } from '@/router'
 
 const route = useRoute()
-const router = useRouter()
 const activeIndex = computed(() => route.path)
 const settingsVisible = ref(false)
 
@@ -38,55 +36,7 @@ const stepStatus = (stepNumber: number) => {
   return 'available'
 }
 
-const stepIsLocked = (stepNumber: number) => stepStatus(stepNumber) === 'locked'
-
 const stepIsCompleted = (stepNumber: number) => stepStatus(stepNumber) === 'completed'
-
-const handleSelect = (key: string) => {
-  const step = workflowSteps.find(item => item.path === key)
-  if (step && stepIsLocked(step.number)) return
-
-  const projectId = resolveCurrentProjectId(String(route.query.project_id || ''))
-
-  if (key === '/extract') {
-    router.push({
-      path: key,
-      query: buildProjectRouteQuery(
-        projectId,
-        activeIndex.value.startsWith('/analysis')
-          ? { resume: 'route_merge', from: 'analysis' }
-          : undefined,
-      ),
-    })
-    return
-  }
-
-  if (key === '/analysis') {
-    router.push({
-      path: key,
-      query: buildProjectRouteQuery(projectId),
-    })
-    return
-  }
-
-  if (key === '/finalize') {
-    router.push({
-      path: key,
-      query: buildProjectRouteQuery(projectId),
-    })
-    return
-  }
-
-  if (key === '/generate') {
-    router.push({
-      path: key,
-      query: buildProjectRouteQuery(projectId),
-    })
-    return
-  }
-
-  router.push(key)
-}
 
 const openSettings = () => {
   settingsVisible.value = true
@@ -124,30 +74,30 @@ onMounted(() => {
       </div>
 
       <nav class="step-indicator" aria-label="Workflow steps">
-        <button type="button" :class="['step step-button', stepStatus(1)]" :disabled="stepIsLocked(1)" :aria-current="stepStatus(1) === 'active' ? 'step' : undefined" @click="handleSelect('/upload')">
+        <div :class="['step', stepStatus(1)]" :aria-current="stepStatus(1) === 'active' ? 'step' : undefined">
           <div class="step-dot">1</div>
           <span>上传资料</span>
-        </button>
+        </div>
         <div class="step-line" :class="{ completed: stepIsCompleted(1) }" aria-hidden="true"></div>
-        <button type="button" :class="['step step-button', stepStatus(2)]" :disabled="stepIsLocked(2)" :aria-current="stepStatus(2) === 'active' ? 'step' : undefined" @click="handleSelect('/extract')">
+        <div :class="['step', stepStatus(2)]" :aria-current="stepStatus(2) === 'active' ? 'step' : undefined">
           <div class="step-dot">2</div>
           <span>路线归并</span>
-        </button>
+        </div>
         <div class="step-line" :class="{ completed: stepIsCompleted(2) }" aria-hidden="true"></div>
-        <button type="button" :class="['step step-button', stepStatus(3)]" :disabled="stepIsLocked(3)" :aria-current="stepStatus(3) === 'active' ? 'step' : undefined" @click="handleSelect('/analysis')">
+        <div :class="['step', stepStatus(3)]" :aria-current="stepStatus(3) === 'active' ? 'step' : undefined">
           <div class="step-dot">3</div>
           <span>规则分析</span>
-        </button>
+        </div>
         <div class="step-line" :class="{ completed: stepIsCompleted(3) }" aria-hidden="true"></div>
-        <button type="button" :class="['step step-button', stepStatus(4)]" :disabled="stepIsLocked(4)" :aria-current="stepStatus(4) === 'active' ? 'step' : undefined" @click="handleSelect('/finalize')">
+        <div :class="['step', stepStatus(4)]" :aria-current="stepStatus(4) === 'active' ? 'step' : undefined">
           <div class="step-dot">4</div>
           <span>规则定稿</span>
-        </button>
+        </div>
         <div class="step-line" :class="{ completed: stepIsCompleted(4) }" aria-hidden="true"></div>
-        <button type="button" :class="['step step-button', stepStatus(5)]" :disabled="stepIsLocked(5)" :aria-current="stepStatus(5) === 'active' ? 'step' : undefined" @click="handleSelect('/generate')">
+        <div :class="['step', stepStatus(5)]" :aria-current="stepStatus(5) === 'active' ? 'step' : undefined">
           <div class="step-dot">5</div>
           <span>路线生成</span>
-        </button>
+        </div>
       </nav>
 
       <div class="top-bar-right">
@@ -165,7 +115,10 @@ onMounted(() => {
     <!-- Main Content Area -->
     <main class="main-area">
       <RouterView v-slot="{ Component, route: viewRoute }">
-        <KeepAlive include="UploadView,ExtractView">
+        <KeepAlive
+          include="UploadView,ExtractView,AnalysisView,FinalizeView,GenerateView"
+          :max="5"
+        >
           <component :is="Component" :key="viewRoute.name || viewRoute.path" />
         </KeepAlive>
       </RouterView>
@@ -375,23 +328,10 @@ html, body {
   gap: 6px;
   font-size: 12px;
   color: var(--text-muted);
-  transition: var(--transition);
-}
-
-.step-button {
-  border: none;
-  background: transparent;
-  padding: 0;
-  cursor: pointer;
+  cursor: default;
   flex-shrink: 0;
-}
-
-.step-button:hover {
-  color: var(--accent);
-}
-
-.step-button:disabled {
-  cursor: not-allowed;
+  user-select: none;
+  transition: var(--transition);
 }
 
 .step.active {
@@ -455,7 +395,7 @@ html, body {
 /* ===== Main Content ===== */
 .main-area {
   flex: 1;
-  padding: 14px 24px 0;
+  padding: 14px 24px 92px;
   max-width: 1280px;
   width: 100%;
   min-width: 0;
@@ -610,7 +550,7 @@ html, body {
   }
 
   .main-area {
-    padding: 12px 16px 0;
+    padding: 12px 16px 138px;
   }
 }
 

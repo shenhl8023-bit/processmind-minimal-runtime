@@ -1,4 +1,4 @@
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { FactorCandidate } from '@/components/analysis/types'
 import type { SegmentFactorReview } from '@/api'
@@ -29,10 +29,14 @@ import { buildResultSummary } from '@/composables/analysisQuestionTreeNodes'
 import { answersFromTrail, savedQuestionTrail } from '@/composables/analysisQuestionTreeState'
 import { useAnalysisReviewPersistence } from '@/composables/useAnalysisReviewPersistence'
 import { useAnalysisWorkspaceData } from '@/composables/useAnalysisWorkspaceData'
+import { getWorkflowDataRevision } from '@/composables/workflowDataCache'
 
 export function useAnalysisWorkspace() {
   const route = useRoute()
   const router = useRouter()
+  let analysisViewActive = false
+  let initialLoadFinished = false
+  let loadedDataRevision = -1
   const {
     loading,
     error,
@@ -311,8 +315,9 @@ export function useAnalysisWorkspace() {
   })
 
   async function reloadSavedRouteWorkspace(forceRefresh = false) {
-    await loadSavedRoute(forceRefresh)
     clearDocumentPreviewTexts()
+    await loadSavedRoute(forceRefresh)
+    loadedDataRevision = getWorkflowDataRevision()
   }
 
   const {
@@ -358,6 +363,7 @@ export function useAnalysisWorkspace() {
   }
 
   watch(() => route.query.project_id, async () => {
+    if (!analysisViewActive) return
     resolveProjectId()
     await reloadSavedRouteWorkspace()
   })
@@ -404,13 +410,35 @@ export function useAnalysisWorkspace() {
 
   onMounted(async () => {
     resolveProjectId()
-    await reloadSavedRouteWorkspace()
-    resetAnalysisPanelState()
-    await ensureMatchedDocumentPreviewTexts()
+    try {
+      await reloadSavedRouteWorkspace()
+      resetAnalysisPanelState()
+    } finally {
+      initialLoadFinished = true
+    }
+  })
+
+  onActivated(() => {
+    analysisViewActive = true
     window.addEventListener('keydown', handleKeydown)
+    if (!initialLoadFinished || loading.value) return
+
+    const routeProjectId = Number(route.query.project_id || 0)
+    const projectChanged = routeProjectId > 0 && routeProjectId !== projectId.value
+    if (!projectChanged && loadedDataRevision === getWorkflowDataRevision()) return
+
+    resolveProjectId()
+    void reloadSavedRouteWorkspace().then(resetAnalysisPanelState)
+  })
+
+  onDeactivated(() => {
+    analysisViewActive = false
+    loadedDataRevision = getWorkflowDataRevision()
+    window.removeEventListener('keydown', handleKeydown)
   })
 
   onUnmounted(() => {
+    analysisViewActive = false
     clearDocumentPreviewPdfPages()
     window.removeEventListener('keydown', handleKeydown)
   })

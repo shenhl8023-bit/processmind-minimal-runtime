@@ -9,12 +9,6 @@
         <button class="btn btn-outline btn-sm" @click="loadSavedRoute(true)" :disabled="loading || !projectId">
           刷新路线
         </button>
-        <button class="btn btn-outline btn-sm" @click="goToFinalize" :disabled="!projectId">
-          进入规则定稿
-        </button>
-        <button class="btn btn-primary btn-sm" @click="goBackToExtract">
-          返回路线归并
-        </button>
       </div>
     </div>
 
@@ -205,6 +199,16 @@
         </div>
       </div>
     </template>
+
+    <WorkflowNavFooter
+      :summary="analysisNavSummary"
+      previous-label="← 返回路线归并"
+      next-label="进入规则定稿 →"
+      :previous-disabled="!projectId"
+      :next-disabled="!projectId"
+      @previous="goBackToExtract"
+      @next="goToFinalize"
+    />
   </div>
 </template>
 
@@ -212,6 +216,7 @@
 import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AnalysisRouteList from '@/components/analysis/AnalysisRouteList.vue'
+import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
 import { buildProjectRouteQuery } from '@/composables/useCurrentProject'
 import { useAnalysisWorkspace } from '@/composables/useAnalysisWorkspace'
 import { useRouteSegmentSteps } from '@/composables/useRouteSegmentSteps'
@@ -318,6 +323,13 @@ const segmentFilterOptions = computed(() => [
   { value: 'completed' as const, label: '已确认', count: completedSegmentCount.value },
   { value: 'all' as const, label: '全部', count: savedRoute.value?.segments.length || 0 },
 ])
+const analysisNavSummary = computed(() => {
+  if (!projectId.value) return '请先完成第二步路线归并并保存标准化母路线。'
+  if (loading.value) return '正在装载规则分析工作区。'
+  if (error.value) return '当前没有可分析的已保存路线，请返回路线归并。'
+  const total = savedRoute.value?.segments.length || 0
+  return `规则分析进度：已确认 ${completedSegmentCount.value}/${total}，确认中 ${inProgressSegmentCount.value}，待确认 ${pendingSegmentCount.value}。`
+})
 
 watch(filteredSegments, (segments) => {
   if (!segments.length) return
@@ -386,7 +398,7 @@ function goToFinalize() {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
   gap: 14px;
-  height: calc(100vh - 200px);
+  height: calc(100vh - 272px);
 }
 
 .analysis-filter-bar {

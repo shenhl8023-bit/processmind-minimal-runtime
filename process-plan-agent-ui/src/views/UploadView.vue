@@ -57,15 +57,13 @@
       </button>
     </div>
 
-    <div class="action-footer" v-if="selectedProjectId && mainFiles.length > 0">
-      <div class="summary-text">
-        当前任务已上传 <b>{{ mainFiles.length }}</b> 份工艺规程
-        <span v-if="refFiles.length > 0">，<b>{{ refFiles.length }}</b> 份参考资料</span>
-      </div>
-      <button class="btn btn-primary next-btn" :disabled="uploading || mainFiles.length === 0" @click="goNext">
-        进入路线归并 →
-      </button>
-    </div>
+    <WorkflowNavFooter
+      :summary="uploadNavSummary"
+      :show-previous="false"
+      next-label="进入路线归并 →"
+      :next-disabled="!canEnterExtract"
+      @next="goNext"
+    />
 
     <!-- Custom Delete Confirmation Dialog -->
     <el-dialog
@@ -169,6 +167,7 @@ import { useRouter } from 'vue-router'
 import UploadMainFileCard from '@/components/upload/UploadMainFileCard.vue'
 import UploadProjectBoard from '@/components/upload/UploadProjectBoard.vue'
 import UploadReferenceCard from '@/components/upload/UploadReferenceCard.vue'
+import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
 import { uploadDocuments, listDocuments, deleteDocument, createReference, listReferences, uploadReferences, deleteReference, listProjects, createProject, deleteProject, listProjectProfiles, type ProjectProfile } from '@/api'
 import {
   buildProjectRouteQuery,
@@ -387,6 +386,15 @@ const resolvedNewProjectProfile = computed(() => {
   return availableNewProjectProfiles.value.length === 1 ? (availableNewProjectProfiles.value[0]?.key ?? '') : ''
 })
 const canCreateProject = computed(() => Boolean(newProjectName.value.trim()))
+const canEnterExtract = computed(() =>
+  Boolean(selectedProjectId.value) && mainFiles.value.length > 0 && !uploading.value
+)
+const uploadNavSummary = computed(() => {
+  if (!selectedProjectId.value) return '请先创建或选择任务，再上传工艺规程文件。'
+  if (mainFiles.value.length === 0) return '当前任务还没有上传工艺规程文件，上传后才能进入路线归并。'
+  const refText = refFiles.value.length > 0 ? `，${refFiles.value.length} 份参考资料` : ''
+  return `当前任务已上传 ${mainFiles.value.length} 份工艺规程${refText}。`
+})
 
 function profileShortLabel(profileKey?: string) {
   return resolveProfileShortLabel(profileCatalog.value, profileKey)
@@ -453,7 +461,7 @@ const removeRef = async (id: number) => {
 }
 
 const goNext = async () => {
-  if (mainFiles.value.length === 0) return
+  if (!canEnterExtract.value) return
   setStoredCurrentProjectId(selectedProjectId.value)
   const nextPath = '/extract'
   const targetUrl = `${nextPath}?${new URLSearchParams(buildProjectRouteQuery(selectedProjectId.value)).toString()}`
@@ -474,7 +482,7 @@ const goNext = async () => {
 .upload-view {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 96px); /* Perfect fit in single-viewport height, no outer scrollbar */
+  height: calc(100vh - 176px); /* Leave room for the fixed workflow footer. */
   overflow: hidden;
   box-sizing: border-box;
 }
@@ -554,38 +562,8 @@ const goNext = async () => {
   margin-bottom: 6px;
 }
 
-/* Action Footer: Sleek & Fixed at Bottom */
-.action-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 16px;
-  background: var(--bg-card);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-light);
-  position: relative;
-  z-index: 2;
-  flex-shrink: 0;
-  margin-top: 10px;
-}
-.summary-text {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-.next-btn {
-  min-width: 160px;
-  height: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12.5px;
-  padding: 0 16px;
-  box-sizing: border-box;
-}
-
 @media (max-width: 900px) {
   .content-grid { grid-template-columns: 1fr; overflow-y: auto; }
-  .action-footer { flex-direction: column; gap: 8px; align-items: stretch; }
   .upload-view { height: auto; overflow: visible; }
 }
 

@@ -5,7 +5,6 @@
         <h1>路线生成</h1>
         <p>填写新零件参数，基于已定稿规则包生成对应的工艺路线与工步树。</p>
       </div>
-      <button v-if="projectId" class="generate-back" type="button" @click="goFinalize">返回规则定稿</button>
     </header>
 
     <div v-if="projectId" class="generate-meta-bar">
@@ -71,14 +70,24 @@
         @download="downloadOutputJson"
       />
     </div>
+
+    <WorkflowNavFooter
+      :summary="generateNavSummary"
+      previous-label="← 返回规则定稿"
+      next-label="已是最后一步"
+      :previous-disabled="!projectId"
+      next-disabled
+      @previous="goFinalize"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onActivated, onDeactivated, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import GenerateInputPanel from '@/components/generate/GenerateInputPanel.vue'
 import GenerateRouteOutputPanel from '@/components/generate/GenerateRouteOutputPanel.vue'
+import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
 import {
   generateRoute,
   getLatestFinalizedRulePackage,
@@ -101,9 +110,14 @@ import {
 import {
   downloadGeneratedRouteJson,
 } from '@/utils/generateRouteOutput'
+import { getWorkflowDataRevision } from '@/composables/workflowDataCache'
 
 const route = useRoute()
 const router = useRouter()
+let generateViewActive = false
+let contextLoading = false
+let initialLoadFinished = false
+let loadedDataRevision = -1
 
 const projectId = ref<number | null>(null)
 const projectName = ref('')
@@ -160,6 +174,13 @@ const generateHintText = computed(() => {
   if (!inputFields.value.length) return '当前规则包没有定义输入参数。'
   return '请先补全必填输入参数。'
 })
+const generateNavSummary = computed(() => {
+  if (!projectId.value) return '请先选择一个任务，完成规则定稿后再进入路线生成。'
+  if (!hasRulePackage.value) return '当前任务还没有可用规则包，请返回第四步导出规则包。'
+  if (generating.value) return '正在生成工艺路线。'
+  if (result.value) return '路线已生成，可在右侧查看结果或导出 JSON。'
+  return `规则包 ${packageMetaLabel.value} 已就绪，输入字段已填写 ${filledFieldCount.value}/${inputFields.value.length}。`
+})
 
 function goFinalize() {
   router.push({
@@ -198,6 +219,7 @@ function downloadOutputJson() {
 }
 
 async function loadGenerateContext() {
+  contextLoading = true
   try {
     const projects = await listProjects()
     const resolvedProjectId = resolveAvailableProjectId(String(route.query.project_id || ''), projects)
@@ -241,15 +263,40 @@ async function loadGenerateContext() {
     inputSchema.value = null
     hasRulePackage.value = false
     resetFieldValues()
+  } finally {
+    contextLoading = false
+    loadedDataRevision = getWorkflowDataRevision()
   }
 }
 
-onMounted(loadGenerateContext)
+onMounted(async () => {
+  try {
+    await loadGenerateContext()
+  } finally {
+    initialLoadFinished = true
+  }
+})
 
 watch(() => route.query.project_id, () => {
+  if (!generateViewActive) return
   result.value = null
   error.value = ''
   void loadGenerateContext()
+})
+
+onActivated(() => {
+  generateViewActive = true
+  if (!initialLoadFinished || contextLoading) return
+
+  const routeProjectId = Number(route.query.project_id || 0)
+  const projectChanged = routeProjectId > 0 && routeProjectId !== projectId.value
+  if (!projectChanged && loadedDataRevision === getWorkflowDataRevision()) return
+  void loadGenerateContext()
+})
+
+onDeactivated(() => {
+  generateViewActive = false
+  loadedDataRevision = getWorkflowDataRevision()
 })
 </script>
 
@@ -333,26 +380,6 @@ watch(() => route.query.project_id, () => {
   color: #d97706;
 }
 
-.generate-back {
-  height: 36px;
-  padding: 0 13px;
-  border: 1px solid #c7d2fe;
-  border-radius: 7px;
-  background: #ffffff;
-  color: #4f46e5;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
-}
-
-.generate-back:hover {
-  border-color: #6366f1;
-  background: var(--generate-accent-soft);
-  color: #4338ca;
-}
-
 .generate-grid {
   display: grid;
   grid-template-columns: minmax(330px, 395px) minmax(0, 1fr);
@@ -414,10 +441,6 @@ watch(() => route.query.project_id, () => {
 @media (max-width: 900px) {
   .generate-header {
     flex-direction: column;
-  }
-
-  .generate-back {
-    align-self: flex-start;
   }
 
   .generate-meta-bar {

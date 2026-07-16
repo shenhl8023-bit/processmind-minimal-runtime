@@ -171,6 +171,8 @@
       <ExtractRouteActionFooter
         :pending-count="routeMergePendingCount"
         :can-enter="canEnterRouteFactorAnalysis"
+        :entering="routeFactorAnalysisEntering"
+        @previous="goBackToUpload"
         @next="openRouteFactorAnalysis"
       />
       </template>
@@ -210,6 +212,7 @@ import {
 import {
   resolveCurrentProjectId,
   resolveAvailableProjectId,
+  setStoredCurrentProjectId,
 } from '@/composables/useCurrentProject'
 import {
   listProjects,
@@ -291,6 +294,8 @@ const routeRulesAutoRefreshRunning = ref(false)
 const routeRulesAutoRefreshAt = ref(0)
 const extractViewActive = ref(true)
 const lastInitializedDataRevision = ref(-1)
+const routeFactorAnalysisEntering = ref(false)
+const lastSavedRouteResultFingerprint = ref('')
 const canEnterRouteFactorAnalysis = computed(() =>
   routeMergeGroupsSorted.value.length > 0
   && routeMergePendingCount.value === 0
@@ -526,6 +531,53 @@ function buildRouteMergeGroupsFromSuggestions(suggestions: MergeSuggestion[]) {
   )
 }
 
+function buildRouteResultSaveFingerprint(items = routeMergeResultItems.value) {
+  return JSON.stringify(items.map(item => ({
+    id: String(item.id || ''),
+    groupId: String(item.groupId || ''),
+    sequence: Number(item.sequence || 0),
+    name: String(item.name || '').trim(),
+    status: String(item.status || ''),
+    operationIds: (item.operationIds || []).map(id => Number(id)).filter(Boolean),
+    sourceNodes: (item.sourceNodes || []).map(value => String(value || '').trim()).filter(Boolean),
+    childItems: (item.childItems || []).map(child => ({
+      id: String(child.id || ''),
+      groupId: String(child.groupId || ''),
+      name: String(child.name || '').trim(),
+      operationIds: (child.operationIds || []).map(id => Number(id)).filter(Boolean),
+      sourceNodes: (child.sourceNodes || []).map(value => String(value || '').trim()).filter(Boolean),
+    })),
+  })))
+}
+
+function routeResultMatchesBackendWorkspace(routeResultFingerprint: string) {
+  if (!routeMergeNormalizedSegments.value.length) return false
+  return routeResultFingerprint === buildRouteResultSaveFingerprint(routeMergePreviewItems.value)
+}
+
+function hasInMemoryRouteMergeWorkspace(projectIdToCheck?: number | string | null) {
+  const normalizedProjectId = Number(projectIdToCheck || 0)
+  if (!normalizedProjectId || projectId.value !== normalizedProjectId) return false
+  if (status.value !== 'done') return false
+  return Boolean(
+    routes.value.length
+    || routeMergeGroups.value.length
+    || routeMergeSuggestions.value.length
+    || routeMergeNormalizedSegments.value.length
+  )
+}
+
+function restoreRouteMergeWorkspaceFromMemory() {
+  status.value = 'done'
+  routeWorkspaceLoading.value = false
+  if (routeMergePendingCount.value === 0) {
+    syncRouteMergePreviewDraftFromNormalizedRoute()
+  } else {
+    resetRouteMergePreviewDraft()
+  }
+  lastInitializedDataRevision.value = getWorkflowDataRevision()
+}
+
 async function refreshRouteRulesSnapshotOnResume(force = false) {
   if (!extractViewActive.value) return
   if (!projectId.value) return
@@ -577,15 +629,43 @@ async function rejectAllMergeGroups() {
 
 async function openRouteFactorAnalysis() {
   if (!canEnterRouteFactorAnalysis.value || !projectId.value) return
-  const saved = await saveRouteMergeWorkspaceBase((message) => {
-    errorMsg.value = message
-    routeMergeNotice.value = message
-  })
-  if (!saved) return
-  await router.push({
-    path: '/analysis',
-    query: { project_id: String(projectId.value) },
-  })
+  if (routeFactorAnalysisEntering.value) return
+  routeFactorAnalysisEntering.value = true
+  errorMsg.value = ''
+  const routeResultFingerprint = buildRouteResultSaveFingerprint()
+  try {
+    if (
+      routeResultFingerprint
+      && (
+        routeResultFingerprint === lastSavedRouteResultFingerprint.value
+        || routeResultMatchesBackendWorkspace(routeResultFingerprint)
+      )
+    ) {
+      routeMergeNotice.value = '结果路线已是最新，直接进入规则分析。'
+    } else {
+      routeMergeNotice.value = '正在保存标准化结果路线，保存完成后将进入规则分析。'
+      const saved = await saveRouteMergeWorkspaceBase((message) => {
+        errorMsg.value = message
+        routeMergeNotice.value = message
+      })
+      if (!saved) return
+      lastSavedRouteResultFingerprint.value = routeResultFingerprint
+      lastInitializedDataRevision.value = getWorkflowDataRevision()
+    }
+    await router.push({
+      path: '/analysis',
+      query: { project_id: String(projectId.value) },
+    })
+  } finally {
+    routeFactorAnalysisEntering.value = false
+  }
+}
+
+function goBackToUpload() {
+  if (projectId.value) {
+    setStoredCurrentProjectId(projectId.value)
+  }
+  router.push('/upload')
 }
 
 function handleMergeKeydown(e: KeyboardEvent) {
@@ -655,6 +735,10 @@ async function initializeExtractView() {
   if (!resumeRouteMerge && alreadyInitialized) {
     return
   }
+  if (resumeRouteMerge && hasInMemoryRouteMergeWorkspace(preferredProjectId)) {
+    restoreRouteMergeWorkspaceFromMemory()
+    return
+  }
 
   try {
     const projects = await listProjects()
@@ -695,6 +779,10 @@ async function initializeExtractView() {
       return
     }
     if (current?.status === 'ROUTE_SET_READY' || current?.status === 'GENERATED') {
+      if (resumeRouteMerge && hasInMemoryRouteMergeWorkspace(savedId)) {
+        restoreRouteMergeWorkspaceFromMemory()
+        return
+      }
       await loadRouteRulesResults()
       lastInitializedDataRevision.value = getWorkflowDataRevision()
       return
@@ -769,11 +857,11 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(220px, 0.8fr) minmax(360px, 1.2fr) minmax(280px, 1.0fr);
   gap: 16px;
   align-items: stretch;
-  height: calc(100vh - 240px);
+  height: calc(100vh - 312px);
 }
 .route-merge-layout-manual {
   grid-template-columns: minmax(300px, 0.88fr) minmax(420px, 1.12fr);
-  height: calc(100vh - 240px);
+  height: calc(100vh - 312px);
 }
 
 .route-mobile-tabs {
@@ -1287,8 +1375,8 @@ onBeforeUnmount(() => {
   .route-merge-layout.route-mobile-pane-source .route-pane-left,
   .route-merge-layout.route-mobile-pane-queue .route-pane-center,
   .route-merge-layout.route-mobile-pane-result .route-pane-right {
-    max-height: calc(100vh - 280px) !important;
-    min-height: 420px;
+    max-height: calc(100vh - 360px) !important;
+    min-height: 360px;
   }
   .merge-focus-name { font-size: 24px; }
   .merge-edit-head { flex-direction: column; align-items: stretch; }

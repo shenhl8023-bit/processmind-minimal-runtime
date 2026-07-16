@@ -7,9 +7,6 @@
           <p>{{ FINALIZE_VIEW_COPY.pageSubtitle }}</p>
         </div>
         <div class="ash-actions">
-          <button class="ash-btn-plain" @click="goBackToAnalysis" :disabled="!projectId">
-            {{ FINALIZE_VIEW_COPY.backToAnalysis }}
-          </button>
           <button class="ash-btn-outline" @click="downloadRuleDocument" :disabled="exportingRulePackage || !segmentCards.length">
             {{ exportingRulePackage ? '正在导出...' : FINALIZE_VIEW_COPY.exportDocument }}
           </button>
@@ -19,7 +16,7 @@
           <button class="ash-btn-outline" @click="toggleOnlyEdited" :disabled="!segmentCards.length">
             {{ onlyEdited ? FINALIZE_VIEW_COPY.showAll : FINALIZE_VIEW_COPY.showEditedOnly }}
           </button>
-          <button class="ash-btn-primary" @click="reloadWorkspace" :disabled="loading || !projectId">
+          <button class="ash-btn-outline" @click="reloadWorkspace" :disabled="loading || !projectId">
             {{ FINALIZE_VIEW_COPY.refresh }}
           </button>
         </div>
@@ -105,15 +102,25 @@
       </section>
     </div>
 
+    <WorkflowNavFooter
+      :summary="finalizeNavSummary"
+      previous-label="← 返回规则分析"
+      next-label="进入路线生成 →"
+      :previous-disabled="!projectId"
+      :next-disabled="!projectId || !lastExportedRulePackageVersion"
+      @previous="goBackToAnalysis"
+      @next="goToGenerate"
+    />
 
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onActivated, onDeactivated, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import FinalizeRouteNav from '@/components/finalize/FinalizeRouteNav.vue'
 import FinalizeRuleCard from '@/components/finalize/FinalizeRuleCard.vue'
+import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
 import {
   getSavedNormalizedRoute,
   getLatestFinalizedRulePackage,
@@ -136,9 +143,13 @@ import { useFinalizeRulePackageExport } from '@/composables/useFinalizeRulePacka
 import { useRouteSegmentSteps } from '@/composables/useRouteSegmentSteps'
 import { buildProjectRouteQuery, resolveAvailableProjectId } from '@/composables/useCurrentProject'
 import { FINALIZE_VIEW_COPY } from '@/config/finalizeRulePresentation'
+import { getWorkflowDataRevision } from '@/composables/workflowDataCache'
 
 const route = useRoute()
 const router = useRouter()
+let finalizeViewActive = false
+let initialLoadFinished = false
+let loadedDataRevision = -1
 
 const loading = ref(false)
 const error = ref('')
@@ -183,6 +194,14 @@ const visibleSegments = computed(() =>
 const editedSegmentCount = computed(() =>
   segmentCards.value.filter(item => item.edited).length,
 )
+const finalizeNavSummary = computed(() => {
+  if (!projectId.value) return '请先完成第三步规则分析，再进入规则定稿。'
+  if (loading.value) return '正在装载第四步定稿结果。'
+  if (error.value) return '当前没有可预览的定稿结果，请返回规则分析。'
+  if (!segmentCards.value.length) return '当前没有可展示的工序，请先在第三步完成至少一版规则分析结果。'
+  if (!lastExportedRulePackageVersion.value) return '请先导出规则包，导出后即可进入路线生成。'
+  return `规则包 V${lastExportedRulePackageVersion.value} 已就绪，可进入路线生成。`
+})
 
 function syncActiveSegment() {
   const currentExists = visibleSegments.value.some(item => item.segment.id === activeSegmentId.value)
@@ -239,6 +258,13 @@ function goBackToAnalysis() {
   })
 }
 
+function goToGenerate() {
+  router.push({
+    path: '/generate',
+    query: buildProjectRouteQuery(projectId.value),
+  })
+}
+
 async function loadWorkspace(forceRefresh = false) {
   loading.value = true
   error.value = ''
@@ -288,6 +314,7 @@ async function loadWorkspace(forceRefresh = false) {
     error.value = err?.response?.data?.detail || '当前任务还没有第三步可预览的已保存结果，请先回到第三步完成分析。'
   } finally {
     loading.value = false
+    loadedDataRevision = getWorkflowDataRevision()
   }
 }
 
@@ -296,6 +323,7 @@ async function reloadWorkspace() {
 }
 
 watch(() => route.query.project_id, () => {
+  if (!finalizeViewActive) return
   void loadWorkspace()
 })
 
@@ -308,7 +336,26 @@ watch([visibleSegments, onlyEdited], () => {
 }, { deep: true })
 
 onMounted(async () => {
-  await loadWorkspace()
+  try {
+    await loadWorkspace()
+  } finally {
+    initialLoadFinished = true
+  }
+})
+
+onActivated(() => {
+  finalizeViewActive = true
+  if (!initialLoadFinished || loading.value) return
+
+  const routeProjectId = Number(route.query.project_id || 0)
+  const projectChanged = routeProjectId > 0 && routeProjectId !== projectId.value
+  if (!projectChanged && loadedDataRevision === getWorkflowDataRevision()) return
+  void loadWorkspace()
+})
+
+onDeactivated(() => {
+  finalizeViewActive = false
+  loadedDataRevision = getWorkflowDataRevision()
 })
 </script>
 
@@ -445,7 +492,7 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
   gap: 14px;
-  height: calc(100vh - 200px);
+  height: calc(100vh - 272px);
 }
 
 .finalize-results {

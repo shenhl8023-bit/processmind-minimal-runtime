@@ -286,7 +286,7 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
 
   async function saveRouteMergeWorkspace(setError: (message: string) => void) {
     options.saveRouteResultDraftToStorage()
-    routeMergeNotice.value = '当前结果路线草稿已保存。'
+    routeMergeNotice.value = '正在保存标准化结果路线，保存完成后将进入规则分析。'
     if (options.projectId.value && options.routeMergeEditUnlocked.value) {
       try {
         const normalizeStringList = (values: unknown, fallbackValues: string[] = []) => {
