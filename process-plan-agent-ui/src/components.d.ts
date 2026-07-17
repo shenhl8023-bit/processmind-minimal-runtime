@@ -13,7 +13,6 @@ declare module 'vue' {
   export interface GlobalComponents {
     AnalysisRouteList: typeof import('./components/analysis/AnalysisRouteList.vue')['default']
     ElDialog: typeof import('element-plus/es')['ElDialog']
-    ElIcon: typeof import('element-plus/es')['ElIcon']
     EvidenceExcerptPanel: typeof import('./components/analysis/EvidenceExcerptPanel.vue')['default']
     EvidenceRowsPanel: typeof import('./components/analysis/EvidenceRowsPanel.vue')['default']
     ExtractActionFooter: typeof import('./components/extract/ExtractActionFooter.vue')['default']

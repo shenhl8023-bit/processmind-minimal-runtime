@@ -461,7 +461,7 @@ function goToFinalize() {
   align-items: center;
   gap: 10px;
   margin: 8px 0 10px;
-  padding: 8px 10px;
+  padding: 5px 10px;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   background: #ffffff;
@@ -474,7 +474,7 @@ function goToFinalize() {
   gap: 7px;
   width: 289px;
   flex-shrink: 0;
-  height: 32px;
+  height: 28px;
   padding: 0 10px;
   border: 1px solid #cbd5e1;
   border-radius: 7px;
@@ -512,7 +512,7 @@ function goToFinalize() {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 32px;
+  height: 28px;
   padding: 0 10px;
   border: 1px solid transparent;
   border-radius: 7px;
@@ -1377,7 +1377,7 @@ function goToFinalize() {
 }
 
 .btn-sm {
-  padding: 5px 12px;
+  padding: 3px 12px;
   font-size: 13px;
   border-radius: 7px;
   font-weight: 600;

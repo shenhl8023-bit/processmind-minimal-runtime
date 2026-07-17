@@ -9,8 +9,8 @@
           <rect x="3" y="16" width="7" height="5" rx="1" />
         </svg>
         <span class="project-card-title">上传任务资料</span>
+        <span class="project-card-desc">先创建工艺规程规则任务，再按任务上传文件。每个任务的文档、规则和生成结果独立保存。</span>
       </div>
-      <p class="project-card-desc">先创建工艺规程规则任务，再按任务上传文件。每个任务的文档、规则和生成结果独立保存。</p>
     </div>
     <div class="project-board">
       <button class="project-tile project-tile-new" :disabled="creatingProject" @click="$emit('create')">
@@ -116,13 +116,14 @@ defineEmits<{
   font-size: 14px;
   font-weight: 700;
   color: var(--text-primary);
+  flex-shrink: 0;
 }
 
 .project-card-desc {
-  margin: 4px 0 0 22px;
   font-size: 11.5px;
   color: var(--text-muted);
   line-height: 1.45;
+  margin: 0;
 }
 .project-board {
   display: grid;

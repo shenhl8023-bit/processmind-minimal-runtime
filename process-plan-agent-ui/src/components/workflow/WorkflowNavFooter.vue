@@ -64,12 +64,12 @@ defineEmits<{
 }
 
 .workflow-nav-inner {
-  /* 与 App.vue .main-area 同一最大宽度与左右内边距，保证按钮右缘对齐上方模块 */
+  /* 与 App.vue .main-area 同一最大宽度，并允许步骤页按右侧内容模块微调按钮组位置 */
   max-width: var(--page-max-width, 1280px);
   width: 100%;
   height: 48px;
   margin: 0 auto;
-  padding: 0 var(--page-padding-x, 24px);
+  padding: 0 calc(var(--page-padding-x, 24px) + var(--workflow-nav-right-inset, 0px)) 0 var(--page-padding-x, 24px);
   box-sizing: border-box;
   display: flex;
   align-items: center;
@@ -149,6 +149,7 @@ defineEmits<{
     height: auto;
     gap: 8px;
     padding: 10px 0;
+    --workflow-nav-right-inset: 0px;
   }
 
   .workflow-nav-actions {

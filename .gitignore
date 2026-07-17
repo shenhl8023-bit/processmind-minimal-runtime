@@ -1,0 +1,16 @@
+# Runtime state
+.runtime/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+
+# Logs and local OS files
+*.log
+.DS_Store

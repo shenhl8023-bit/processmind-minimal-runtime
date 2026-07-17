@@ -356,6 +356,7 @@ onDeactivated(() => {
 
 <style scoped>
 .finalize-view {
+  --workflow-nav-right-inset: 0px;
   padding: 0;
   min-height: calc(100vh - 128px);
   background: #f8fafc;
@@ -368,8 +369,8 @@ onDeactivated(() => {
   gap: 16px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 8px 12px;
+  border-radius: 8px;
+  padding: 5px 12px;
   box-shadow: 0 1.5px 5px rgba(15, 23, 42, 0.02);
   margin-bottom: 12px;
 }
@@ -435,7 +436,7 @@ onDeactivated(() => {
   background: #ffffff;
   border: 1px solid #cbd5e1;
   color: #475569;
-  padding: 5px 12px;
+  padding: 3px 12px;
   border-radius: 7px;
   font-size: 12.5px;
   font-weight: 600;
@@ -474,6 +475,10 @@ onDeactivated(() => {
 }
 
 @media (max-width: 900px) {
+  .finalize-view {
+    --workflow-nav-right-inset: 0px;
+  }
+
   .analysis-style-header {
     flex-direction: column;
     align-items: stretch;

@@ -321,8 +321,8 @@ onDeactivated(() => {
   gap: 16px;
   background: #ffffff;
   border: 1px solid var(--generate-line);
-  border-radius: 12px;
-  padding: 8px 12px;
+  border-radius: 8px;
+  padding: 5px 12px;
   box-shadow: var(--shadow-sm);
   margin-bottom: 12px;
 }

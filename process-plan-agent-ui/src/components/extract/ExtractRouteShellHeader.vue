@@ -115,18 +115,20 @@ const isWarningNotice = computed(() =>
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 5px;
-  border-radius: 5px;
-  color: #64748b;
+  padding: 3px 10px;
+  border-radius: 6px;
+  color: #4f46e5;
   font-size: 11.5px;
   font-weight: 600;
   background: transparent;
+  border: 1px solid #c7d2fe;
   transition: all .2s;
 }
 
 .route-shell-revert:hover {
-  color: #4f46e5;
+  color: #4338ca;
   background: #eef2ff;
+  border-color: #818cf8;
 }
 
 .route-shell-revert .icon-sm {

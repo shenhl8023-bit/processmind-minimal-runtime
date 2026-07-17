@@ -224,20 +224,21 @@ defineEmits<{
 }
 
 /* Batch action buttons */
-.merge-batch-actions { display: flex; gap: 2px; }
+.merge-batch-actions { display: flex; gap: 6px; }
 .merge-batch-actions .btn {
-  border: none;
+  border: 1px solid #c7d2fe;
   background: transparent;
-  color: #64748b;
+  color: #4f46e5;
   font-size: 11.5px;
   font-weight: 600;
-  padding: 4px 10px;
+  padding: 3px 10px;
   border-radius: 6px;
   transition: all 0.15s;
 }
 .merge-batch-actions .btn:hover:not(:disabled) {
-  color: #4f46e5;
+  color: #4338ca;
   background: #eef2ff;
+  border-color: #818cf8;
 }
 .merge-batch-actions .btn:disabled {
   opacity: 0.4;
