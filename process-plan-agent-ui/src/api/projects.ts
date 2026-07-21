@@ -2,6 +2,7 @@ import { api } from './client'
 import type { ProjectMode } from './types'
 import {
   clearWorkflowDataCache,
+  clearWorkflowProjectDataCache,
   getWorkflowDataCache,
   setWorkflowDataCache,
 } from '@/composables/workflowDataCache'
@@ -56,6 +57,7 @@ export async function createProject(
 export async function deleteProject(id: number) {
   const { data } = await api.delete(`/api/projects/${id}`)
   clearWorkflowDataCache(PROJECT_LIST_CACHE_KEY)
+  clearWorkflowProjectDataCache(id)
   return data
 }
 

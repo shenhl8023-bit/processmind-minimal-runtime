@@ -218,7 +218,7 @@ onMounted(async () => {
   await loadData()
 })
 
-async function loadData() {
+async function loadData(forceRefresh = false) {
   if (!selectedProjectId.value) {
     mainFiles.value = []
     refFiles.value = []
@@ -242,14 +242,14 @@ async function loadData() {
   }
 
   try {
-    mainFiles.value = await listDocuments(Number(selectedProjectId.value))
+    mainFiles.value = await listDocuments(Number(selectedProjectId.value), forceRefresh)
   } catch (e) {
     console.error('加载工艺规程文件失败', e)
     mainFiles.value = []
   }
 
   try {
-    refFiles.value = await listReferences(Number(selectedProjectId.value))
+    refFiles.value = await listReferences(Number(selectedProjectId.value), forceRefresh)
   } catch (e) {
     console.error('加载参考资料失败', e)
     refFiles.value = []
@@ -319,7 +319,7 @@ async function executeCreateProject() {
       console.error('创建后刷新任务列表失败，先沿用本地任务卡片', refreshError)
     }
     try {
-      await loadData()
+      await loadData(true)
     } catch (loadError) {
       console.error('创建后加载任务详情失败，稍后重试', loadError)
     }
@@ -336,7 +336,7 @@ async function executeCreateProject() {
 async function selectProject(projectId: number) {
   selectedProjectId.value = String(projectId)
   setStoredCurrentProjectId(selectedProjectId.value)
-  await loadData()
+  await loadData(true)
 }
 
 function removeProject(projectId: number) {

@@ -123,7 +123,18 @@ async def list_project_profiles(mode: str | None = None):
 async def create_project(body: ProjectCreate, db: AsyncSession = Depends(get_db)):
     mode = "route_rules"
     profile = normalize_profile(mode, body.profile)
-    project = Project(name=body.name, mode=mode, profile=profile, rule_engine="auto", status="CREATED")
+    sequence_result = await db.execute(
+        text("INSERT INTO project_id_sequence DEFAULT VALUES RETURNING id")
+    )
+    project_id = int(sequence_result.scalar_one())
+    project = Project(
+        id=project_id,
+        name=body.name,
+        mode=mode,
+        profile=profile,
+        rule_engine="auto",
+        status="CREATED",
+    )
     db.add(project)
     await db.commit()
     await db.refresh(project)

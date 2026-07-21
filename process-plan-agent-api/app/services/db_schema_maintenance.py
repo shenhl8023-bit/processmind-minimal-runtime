@@ -70,6 +70,26 @@ async def ensure_project_schema(conn):
         WHERE status IN ('BUILDING_RULE_ASSETS', 'RULE_ASSETS_READY', 'EXTRACTED')
     """))
 
+    # Older SQLite databases may reuse a deleted project's row id. Keep a
+    # monotonic allocator so project-scoped caches cannot collide after a
+    # project is deleted and recreated.
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS project_id_sequence (
+            id INTEGER PRIMARY KEY AUTOINCREMENT
+        )
+    """))
+    current_max_project_id = (
+        await conn.execute(text("SELECT COALESCE(MAX(id), 0) FROM projects"))
+    ).scalar_one()
+    sequence_max_id = (
+        await conn.execute(text("SELECT COALESCE(MAX(id), 0) FROM project_id_sequence"))
+    ).scalar_one()
+    if current_max_project_id > sequence_max_id:
+        await conn.execute(
+            text("INSERT INTO project_id_sequence (id) VALUES (:project_id)"),
+            {"project_id": current_max_project_id},
+        )
+
     await backfill_chain_columns(conn)
     await dedupe_operations(conn)
     await conn.execute(text("""
