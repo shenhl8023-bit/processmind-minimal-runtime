@@ -1,5 +1,9 @@
 # Runtime state
 .runtime/
+data/db/
+data/uploads/
+data/config/
+process-plan-agent-api/process_settings.json
 
 # Python
 __pycache__/
