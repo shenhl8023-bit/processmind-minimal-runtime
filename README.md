@@ -159,8 +159,6 @@ powershell -File scripts\prepare-offline-node.ps1
 powershell -File scripts\pack-offline-windows.ps1
 ```
 
-详细说明见 [OFFLINE-DEPLOY.md](./OFFLINE-DEPLOY.md)。
-
 ## 备注
 
 1. 前端开发模式下，默认会请求 `http://当前主机:8000`
