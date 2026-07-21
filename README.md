@@ -132,8 +132,38 @@ docker compose up -d --build
 
 第 4 步「导出规则包」走 V2 主路径；导出后会成为第 5 步可用的当前规则包。第 5 步会优先使用已导出的 V2 规则包执行 `plan_route`；如果当前任务还没有规则包，则继续提示回到第 4 步导出。
 
+导出的 ZIP 同时包含 `kmai-v1/` 目录，可直接用于 KmAI：
+
+1. 停止 KmAI Agent。
+2. 备份 `KmMpsMcpServer\skills\process-route-generator\references\v1` 中的同名文件。
+3. 将 `kmai-v1/` 中的 `factor_schema.json`、`factor_expansion_rules.json`、`route_catalog.json`、`route_rules.json` 复制到上述目录并覆盖。
+4. 保留 KmAI 原有的 `group_match_rules.json`，重新启动 Agent。
+
+ProcessMind 会在下载前校验 KmAI 因素引用、工序引用和条件操作符；不兼容时会阻止导出，不会生成无法生效的替换文件。
+
+## 内网离线部署（Windows）
+
+若目标机**无外网**，请使用已打好的分卷包：
+
+1. 打开目录 `dist-offline\offline-bundle\`
+2. 整夹拷到内网机，双击 `assemble-offline-windows.cmd`
+3. 进入生成的 `processmind-offline-ready\`，双击 `start-windows.cmd`
+
+包内已含便携 Python（后端依赖已装）与前端 `node_modules`。Node.js 20+ 需目标机预装，或组装后执行 `scripts\prepare-offline-node.ps1` 打入便携 Node。
+
+在 Windows 开发机上也可重新打单文件完整包：
+
+```bat
+bootstrap-windows.cmd
+powershell -File scripts\prepare-offline-node.ps1
+powershell -File scripts\pack-offline-windows.ps1
+```
+
+详细说明见 [OFFLINE-DEPLOY.md](./OFFLINE-DEPLOY.md)。
+
 ## 备注
 
 1. 前端开发模式下，默认会请求 `http://当前主机:8000`
 2. 后端默认会读取当前包内的 `data/` 目录
 3. 如果需要对外分享给下一位开发者，直接分发整个目录或同目录下生成的 zip 包即可
+4. 内网交付优先使用 `scripts\pack-offline-windows.ps1` 生成的离线包，而不是仅含源码的最小包

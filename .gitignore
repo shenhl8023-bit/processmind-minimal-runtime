@@ -15,6 +15,10 @@ node_modules/
 dist/
 dist-ssr/
 
+# Offline packaging output (large binary parts; keep scripts only if needed)
+# Comment out the next line if you want to version the offline bundle.
+# dist-offline/
+
 # Logs and local OS files
 *.log
 .DS_Store

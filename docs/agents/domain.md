@@ -8,7 +8,7 @@ How the engineering skills should consume this repo's domain documentation when 
 - **`docs/adr/`** — read ADRs that touch the area you're about to work in
 - **`docs/规则包V2-通用化实施方案.md`** — V2 product/architecture source of truth
 - **`docs/规则包V2-阶段3实施清单.md`** — stage-3 delivery checklist (may lag code; verify against source)
-- **`docs/项目深入分析报告.md`** — module map and operational overview
+- **`README.md`** — module map, startup and operational overview
 
 If a file doesn't exist, proceed without inventing parallel documentation. Prefer updating `CONTEXT.md` via `/grill-with-docs` when terms or decisions get resolved.
 

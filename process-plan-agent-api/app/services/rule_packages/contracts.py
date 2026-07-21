@@ -231,10 +231,20 @@ class RulePackageValidationReport(StrictModel):
     test_results: list[TestCaseResult] = Field(default_factory=list)
 
 
+class KmaiCompatibilityExport(StrictModel):
+    format: Literal["kmai-v1"] = "kmai-v1"
+    valid: bool
+    target_directory: str
+    errors: list[ValidationIssue] = Field(default_factory=list)
+    warnings: list[ValidationIssue] = Field(default_factory=list)
+    files: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
+
 class CompileRulePackageResponse(StrictModel):
     package: RulePackageV2
     content_hash: str
     validation: RulePackageValidationReport
+    kmai_compatibility: KmaiCompatibilityExport
 
 
 class ConditionTrace(StrictModel):

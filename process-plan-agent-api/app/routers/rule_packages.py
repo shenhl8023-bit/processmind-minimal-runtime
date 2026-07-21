@@ -18,6 +18,7 @@ from app.services.rule_packages.contracts import (
 )
 from app.services.rule_packages.planner import RoutePlanningError
 from app.services.rule_packages.input_validation import validate_inputs
+from app.services.rule_packages.kmai_export import build_kmai_compatibility_export
 
 
 router = APIRouter(prefix="/api/extract/finalized-rule-packages", tags=["规则包 V2"])
@@ -30,6 +31,7 @@ async def compile_v2_rule_package(body: CompileRulePackageRequest):
         package=package,
         content_hash=rule_package_content_hash(package),
         validation=validate_rule_package(package),
+        kmai_compatibility=build_kmai_compatibility_export(package),
     )
 
 
@@ -55,4 +57,3 @@ async def simulate_v2_rule_package(body: SimulateRulePackageRequest):
     except RoutePlanningError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return SimulateRulePackageResponse(content_hash=content_hash, validation=validation, plan=plan)
-

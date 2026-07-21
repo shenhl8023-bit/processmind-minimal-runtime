@@ -117,6 +117,14 @@ export type CompileRulePackageResponse = {
   package: RulePackageV2
   content_hash: string
   validation: RulePackageValidationReport
+  kmai_compatibility: {
+    format: 'kmai-v1'
+    valid: boolean
+    target_directory: string
+    errors: Array<{ code: string; path?: string; message: string }>
+    warnings: Array<{ code: string; path?: string; message: string }>
+    files: Record<string, Record<string, unknown>>
+  }
 }
 
 export type SimulateRulePackageDraftResponse = FinalizedRulePackageSimulationResult

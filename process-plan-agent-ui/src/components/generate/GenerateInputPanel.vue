@@ -129,8 +129,6 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-
 const props = defineProps<{
   projectId: number | null
   projectName: string
@@ -169,10 +167,6 @@ const emit = defineEmits<{
   (event: 'go-finalize'): void
 }>()
 
-const readinessPercent = computed(() => {
-  if (!props.inputFields.length) return 0
-  return Math.min(100, Math.round((props.filledFieldCount / props.inputFields.length) * 100))
-})
 </script>
 
 <style scoped>

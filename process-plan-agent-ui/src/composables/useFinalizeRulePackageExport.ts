@@ -113,6 +113,11 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
         window.alert(`规则包校验失败，暂不导出：\n\n${detail}`)
         return
       }
+      if (!compiled.kmai_compatibility?.valid) {
+        const detail = formatValidationErrors(compiled.kmai_compatibility) || 'KmAI 兼容文件校验未通过'
+        window.alert(`规则包无法转换为 KmAI 可用格式，暂不导出：\n\n${detail}`)
+        return
+      }
 
       const ruleReport = buildRuleReportFromV2Package({
         projectName: options.projectName.value || '未命名任务',
@@ -152,6 +157,25 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
         {
           name: 'validation_report.json',
           content: textFile(savedPackage.validation_report || compiled.validation),
+        },
+        ...Object.entries(compiled.kmai_compatibility.files).map(([name, content]) => ({
+          name: `kmai-v1/${name}`,
+          content: textFile(content),
+        })),
+        {
+          name: 'kmai-v1/README-替换说明.txt',
+          content: [
+            'KmAI 规则文件替换说明',
+            '',
+            `目标目录：${compiled.kmai_compatibility.target_directory}`,
+            '',
+            '1. 先停止 KmAI Agent。',
+            '2. 备份目标目录中同名的四个 JSON 文件。',
+            '3. 将本目录中的 factor_schema.json、factor_expansion_rules.json、route_catalog.json、route_rules.json 复制到目标目录并覆盖。',
+            '4. 不要删除或覆盖原有 group_match_rules.json。',
+            '5. 重新启动 KmAI Agent；后续工艺路线生成将使用本次导出的 ProcessMind 规则。',
+            '',
+          ].join('\n'),
         },
       ]
       downloadBlob(

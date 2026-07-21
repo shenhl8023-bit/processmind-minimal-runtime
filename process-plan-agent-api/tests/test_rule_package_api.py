@@ -29,6 +29,13 @@ def test_compile_validate_and_simulate_endpoints(rule_package_v2_payload):
     assert compiled_body["validation"]["valid"] is True
     assert compiled_body["package"]["manifest"]["schema_version"] == "2.0"
     assert len(compiled_body["content_hash"]) == 64
+    assert compiled_body["kmai_compatibility"]["valid"] is True
+    assert set(compiled_body["kmai_compatibility"]["files"]) == {
+        "factor_schema.json",
+        "factor_expansion_rules.json",
+        "route_catalog.json",
+        "route_rules.json",
+    }
 
     validated = client.post(
         "/api/extract/finalized-rule-packages/validate",

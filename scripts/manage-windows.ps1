@@ -16,6 +16,11 @@ $ApiDir = Join-Path $Root 'process-plan-agent-api'
 $UiDir = Join-Path $Root 'process-plan-agent-ui'
 
 function Find-Node {
+  $bundled = Join-Path $RuntimeDir 'node\node.exe'
+  if (Test-Path -LiteralPath $bundled) {
+    return $bundled
+  }
+
   $command = Get-Command 'node.exe' -ErrorAction SilentlyContinue
   if ($command) {
     return $command.Source
@@ -26,7 +31,14 @@ function Find-Node {
     return $fallback
   }
 
-  throw 'Node.js was not found. Install Node.js 20 or newer and try again.'
+  throw @'
+Node.js was not found.
+
+Options:
+1. Run: powershell -File scripts\prepare-offline-node.ps1
+2. Install Node.js 20+ system-wide
+3. Place a portable Node at .runtime\node\node.exe
+'@
 }
 
 function Get-PortOwner {

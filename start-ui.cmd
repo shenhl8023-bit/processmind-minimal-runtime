@@ -5,13 +5,19 @@ if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
 
 if not exist "%ROOT%\.runtime\logs" mkdir "%ROOT%\.runtime\logs"
 
-set "NODE_EXE=node.exe"
-where node.exe >nul 2>nul
-if errorlevel 1 (
-  if exist "%ProgramFiles%\nodejs\node.exe" (
+set "NODE_EXE="
+if exist "%ROOT%\.runtime\node\node.exe" (
+  set "NODE_EXE=%ROOT%\.runtime\node\node.exe"
+) else (
+  where node.exe >nul 2>nul
+  if not errorlevel 1 (
+    set "NODE_EXE=node.exe"
+  ) else if exist "%ProgramFiles%\nodejs\node.exe" (
     set "NODE_EXE=%ProgramFiles%\nodejs\node.exe"
   ) else (
-    echo Node.js was not found. Please install Node.js 20+ first.
+    echo Node.js was not found.
+    echo Run: powershell -File "%ROOT%\scripts\prepare-offline-node.ps1"
+    echo Or install Node.js 20+ / place portable Node at .runtime\node\node.exe
     pause
     exit /b 1
   )
