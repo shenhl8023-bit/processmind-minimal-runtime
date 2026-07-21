@@ -84,20 +84,49 @@
               <span class="route-kind" :class="{ branch: step.op_type !== 'MAIN' }">{{ step.op_type === 'MAIN' ? '主线工序' : '条件工序' }}</span>
             </div>
             <div v-if="normalizedProcessSteps(step).length" class="route-step-area">
-              <div class="route-step-summary">
-                <span class="route-step-caret">›</span>
+              <button
+                type="button"
+                class="route-step-summary"
+                :aria-expanded="isProcessStepsExpanded(step, index)"
+                :aria-controls="processStepRegionId(index)"
+                :title="isProcessStepsExpanded(step, index) ? '收起工步' : '展开工步'"
+                @click="toggleProcessSteps(step, index)"
+              >
+                <svg
+                  class="route-step-caret"
+                  :class="{ 'route-step-caret--open': isProcessStepsExpanded(step, index) }"
+                  viewBox="0 0 16 16"
+                  width="10"
+                  height="10"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M6 4l4 4-4 4"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
                 <span>工步</span>
                 <span class="route-step-count">{{ normalizedProcessSteps(step).length }}</span>
-              </div>
-              <div class="process-step-chips">
-                <span
-                  v-for="(processStep, stepIndex) in normalizedProcessSteps(step)"
-                  :key="`${step.name}-${stepIndex}`"
-                  class="process-step-chip"
+              </button>
+              <Transition name="process-steps-expand">
+                <div
+                  v-if="isProcessStepsExpanded(step, index)"
+                  :id="processStepRegionId(index)"
+                  class="process-step-chips"
                 >
-                  {{ processStep }}
-                </span>
-              </div>
+                  <span
+                    v-for="(processStep, stepIndex) in normalizedProcessSteps(step)"
+                    :key="`${step.name}-${stepIndex}`"
+                    class="process-step-chip"
+                  >
+                    {{ processStep }}
+                  </span>
+                </div>
+              </Transition>
             </div>
             <p v-else class="no-process-steps">该工序暂无下级工步</p>
           </article>
@@ -108,7 +137,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { GenerateRouteResult } from '@/api'
 import {
   displayStepSequence,
@@ -135,6 +164,34 @@ const branchStepCount = computed(() => props.result?.steps.filter(step => step.o
 const processStepCount = computed(() => (
   props.result?.steps.reduce((total, step) => total + normalizedProcessSteps(step).length, 0) || 0
 ))
+
+type GeneratedStep = NonNullable<GenerateRouteResult['steps']>[number]
+
+const collapsedProcessStepKeys = ref<Set<string>>(new Set())
+
+function processStepKey(step: GeneratedStep, index: number) {
+  return `${displayStepSequence(step, index)}:${step.name}:${index}`
+}
+
+function processStepRegionId(index: number) {
+  return `generated-process-steps-${index}`
+}
+
+function isProcessStepsExpanded(step: GeneratedStep, index: number) {
+  return !collapsedProcessStepKeys.value.has(processStepKey(step, index))
+}
+
+function toggleProcessSteps(step: GeneratedStep, index: number) {
+  const key = processStepKey(step, index)
+  const next = new Set(collapsedProcessStepKeys.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  collapsedProcessStepKeys.value = next
+}
+
+watch(() => props.result, () => {
+  collapsedProcessStepKeys.value = new Set()
+})
 </script>
 
 <style scoped>
@@ -579,20 +636,41 @@ const processStepCount = computed(() => (
 }
 
 .route-step-summary {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--muted);
+  cursor: pointer;
+  font-family: inherit;
   font-size: 11.5px;
   font-weight: 500;
-  margin-bottom: 6px;
+  line-height: 1.4;
+  text-align: left;
+  transition: color 0.15s ease;
+}
+
+.route-step-summary:hover {
+  color: var(--accent);
+}
+
+.route-step-summary:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid rgba(79, 70, 229, 0.35);
+  outline-offset: 3px;
 }
 
 .route-step-caret {
-  font-size: 13px;
-  font-weight: 700;
-  color: #94a3b8;
-  line-height: 1;
+  flex-shrink: 0;
+  color: currentColor;
+  transition: transform 0.2s ease;
+}
+
+.route-step-caret--open {
+  transform: rotate(90deg);
 }
 
 .route-step-count {
@@ -603,12 +681,20 @@ const processStepCount = computed(() => (
   font-size: 10px;
   font-weight: 700;
   border: 1px solid #e2e8f0;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.route-step-summary:hover .route-step-count {
+  border-color: rgba(79, 70, 229, 0.18);
+  background: rgba(79, 70, 229, 0.08);
+  color: var(--accent);
 }
 
 .process-step-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  margin-top: 6px;
 }
 
 .process-step-chip {
@@ -623,6 +709,19 @@ const processStepCount = computed(() => (
   font-size: 11px;
   font-weight: 600;
   line-height: 1.35;
+}
+
+.process-steps-expand-enter-active,
+.process-steps-expand-leave-active {
+  overflow: hidden;
+  max-height: 320px;
+  transition: opacity 0.2s ease, max-height 0.25s ease;
+}
+
+.process-steps-expand-enter-from,
+.process-steps-expand-leave-to {
+  opacity: 0;
+  max-height: 0;
 }
 
 .no-process-steps {
