@@ -1,5 +1,7 @@
 from copy import deepcopy
 
+import pytest
+
 from app.services.rule_packages.contracts import RulePackageV2
 from app.services.rule_packages.hashing import rule_package_content_hash
 from app.services.rule_packages.planner import plan_route
@@ -90,3 +92,91 @@ def test_validator_requires_main_process(rule_package_v2_payload):
 
     assert report.valid is False
     assert "missing_main_process" in {issue.code for issue in report.errors}
+
+
+def _relation(relation_type, source_ids, target_ids, *, source_match="any"):
+    return {
+        "relation_id": f"relation.{relation_type}",
+        "relation_type": relation_type,
+        "source_process_ids": source_ids,
+        "target_process_ids": target_ids,
+        "source_match": source_match,
+        "enabled": True,
+    }
+
+
+def test_trigger_after_includes_target_and_orders_it_after_source(rule_package_v2_payload):
+    payload = deepcopy(rule_package_v2_payload)
+    nitriding = next(item for item in payload["route_catalog"]["processes"] if item["process_id"] == "process_nitriding")
+    nitriding["constraints"]["conflicts_with"] = []
+    payload["route_rules"]["process_relations"] = [
+        _relation("trigger_after", ["process_quench"], ["process_nitriding"]),
+    ]
+    package = RulePackageV2.model_validate(payload)
+
+    plan = plan_route(package, {"material": {"grade": "9Cr18"}, "target_hardness_hrc": 58})
+
+    assert "process_nitriding" in plan.selected_process_ids
+    assert plan.selected_process_ids.index("process_quench") < plan.selected_process_ids.index("process_nitriding")
+
+
+def test_order_after_only_constrains_selected_processes(rule_package_v2_payload):
+    payload = deepcopy(rule_package_v2_payload)
+    mill_slot = next(item for item in payload["route_catalog"]["processes"] if item["process_id"] == "process_mill_slot")
+    mill_slot["constraints"]["must_run_before"] = []
+    payload["route_rules"]["process_relations"] = [
+        _relation("order_after", ["process_quench"], ["process_mill_slot"]),
+    ]
+    package = RulePackageV2.model_validate(payload)
+
+    plan = plan_route(
+        package,
+        {"material": {"grade": "9Cr18"}, "cad": {"features": ["槽类特征"]}, "target_hardness_hrc": 58},
+    )
+
+    assert plan.selected_process_ids.index("process_quench") < plan.selected_process_ids.index("process_mill_slot")
+
+
+def test_requires_adds_source_process_when_target_is_selected(rule_package_v2_payload):
+    payload = deepcopy(rule_package_v2_payload)
+    nitriding = next(item for item in payload["route_catalog"]["processes"] if item["process_id"] == "process_nitriding")
+    nitriding["constraints"]["conflicts_with"] = []
+    payload["route_rules"]["rules"].append(
+        {
+            "rule_id": "material.include.nitriding",
+            "priority": 110,
+            "when": {"field": "material.grade", "op": "eq", "value": "9Cr18"},
+            "then": {"include_process_ids": ["process_nitriding"], "exclude_process_ids": []},
+        },
+    )
+    payload["route_rules"]["process_relations"] = [
+        _relation("requires", ["process_quench"], ["process_nitriding"]),
+    ]
+    package = RulePackageV2.model_validate(payload)
+
+    plan = plan_route(package, {"material": {"grade": "9Cr18"}, "target_hardness_hrc": 40})
+
+    assert "process_nitriding" in plan.selected_process_ids
+    assert "process_quench" in plan.selected_process_ids
+    assert plan.selected_process_ids.index("process_quench") < plan.selected_process_ids.index("process_nitriding")
+
+
+def test_conflicts_stops_route_with_incompatible_processes(rule_package_v2_payload):
+    payload = deepcopy(rule_package_v2_payload)
+    nitriding = next(item for item in payload["route_catalog"]["processes"] if item["process_id"] == "process_nitriding")
+    nitriding["constraints"]["conflicts_with"] = []
+    payload["route_rules"]["rules"].append(
+        {
+            "rule_id": "material.include.nitriding",
+            "priority": 110,
+            "when": {"field": "material.grade", "op": "eq", "value": "9Cr18"},
+            "then": {"include_process_ids": ["process_nitriding"], "exclude_process_ids": []},
+        },
+    )
+    payload["route_rules"]["process_relations"] = [
+        _relation("conflicts", ["process_quench"], ["process_nitriding"]),
+    ]
+    package = RulePackageV2.model_validate(payload)
+
+    with pytest.raises(ValueError, match="不能同时进入路线"):
+        plan_route(package, {"material": {"grade": "9Cr18"}, "target_hardness_hrc": 58})

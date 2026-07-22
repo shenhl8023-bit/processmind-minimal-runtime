@@ -1,6 +1,9 @@
 """Rule package V2 compile, validate, and draft simulation APIs."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import get_db
 
 from app.services.rule_packages import (
     compile_rule_package,
@@ -19,9 +22,51 @@ from app.services.rule_packages.contracts import (
 from app.services.rule_packages.planner import RoutePlanningError
 from app.services.rule_packages.input_validation import validate_inputs
 from app.services.rule_packages.kmai_export import build_kmai_compatibility_export
+from app.services.rule_packages.condition_contracts import (
+    ConditionFieldRegistryResponse,
+    ConfirmRuleConditionRequest,
+    ParseRuleConditionRequest,
+    RuleConditionReviewResponse,
+    SaveRuleConditionDraftRequest,
+)
+from app.services.rule_packages.condition_registry import FIELD_REGISTRY_VERSION, condition_fields
+from app.services.rule_packages.condition_reviews import (
+    confirm_condition_review,
+    parse_condition_review,
+    save_condition_draft,
+)
 
 
 router = APIRouter(prefix="/api/extract/finalized-rule-packages", tags=["规则包 V2"])
+
+
+@router.get("/condition-fields", response_model=ConditionFieldRegistryResponse)
+async def get_condition_fields():
+    return ConditionFieldRegistryResponse(version=FIELD_REGISTRY_VERSION, fields=condition_fields())
+
+
+@router.post("/rule-conditions/draft", response_model=RuleConditionReviewResponse)
+async def save_rule_condition_draft(
+    body: SaveRuleConditionDraftRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return await save_condition_draft(body, db)
+
+
+@router.post("/rule-conditions/parse", response_model=RuleConditionReviewResponse)
+async def parse_user_rule_condition(
+    body: ParseRuleConditionRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return await parse_condition_review(body, db)
+
+
+@router.post("/rule-conditions/confirm", response_model=RuleConditionReviewResponse)
+async def confirm_user_rule_condition(
+    body: ConfirmRuleConditionRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return await confirm_condition_review(body, db)
 
 
 @router.post("/compile", response_model=CompileRulePackageResponse)

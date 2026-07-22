@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter, defaultdict
 
 from app.services.rule_packages.contracts import (
@@ -19,7 +20,7 @@ def _duplicates(values: list[str]) -> set[str]:
     return {value for value, count in Counter(values).items() if count > 1}
 
 
-def _dependency_cycle(processes) -> list[str]:
+def _dependency_cycle(processes, relations=()) -> list[str]:
     process_ids = {process.process_id for process in processes}
     edges: dict[str, set[str]] = {process_id: set() for process_id in process_ids}
     for process in processes:
@@ -29,6 +30,13 @@ def _dependency_cycle(processes) -> list[str]:
         for after_id in process.constraints.must_run_before:
             if after_id in process_ids:
                 edges[process.process_id].add(after_id)
+    for relation in relations:
+        if not relation.enabled or relation.relation_type == "conflicts":
+            continue
+        for source_id in relation.source_process_ids:
+            for target_id in relation.target_process_ids:
+                if source_id in process_ids and target_id in process_ids:
+                    edges[source_id].add(target_id)
 
     visiting: set[str] = set()
     visited: set[str] = set()
@@ -72,6 +80,7 @@ def validate_rule_package(package: RulePackageV2) -> RulePackageValidationReport
     field_keys = [field.key for field in package.input_schema.fields]
     process_ids = [process.process_id for process in package.route_catalog.processes]
     rule_ids = [rule.rule_id for rule in package.route_rules.rules]
+    relation_ids = [relation.relation_id for relation in package.route_rules.process_relations]
     case_ids = [case.case_id for case in package.test_cases]
     field_set = set(field_keys)
     process_set = set(process_ids)
@@ -83,6 +92,8 @@ def validate_rule_package(package: RulePackageV2) -> RulePackageValidationReport
         error("duplicate_process", f"工序 ID 重复：{process_id}", "route_catalog.processes")
     for rule_id in sorted(_duplicates(rule_ids)):
         error("duplicate_rule", f"规则 ID 重复：{rule_id}", "route_rules.rules")
+    for relation_id in sorted(_duplicates(relation_ids)):
+        error("duplicate_process_relation", f"工序关系 ID 重复：{relation_id}", "route_rules.process_relations")
     for case_id in sorted(_duplicates(case_ids)):
         error("duplicate_test_case", f"测试用例 ID 重复：{case_id}", "test_cases")
 
@@ -112,13 +123,18 @@ def validate_rule_package(package: RulePackageV2) -> RulePackageValidationReport
         for step_id in sorted(_duplicates(step_ids)):
             error("duplicate_step", f"工序 {process.process_id} 的工步 ID 重复：{step_id}", f"{path}.steps")
 
-    cycle = _dependency_cycle(package.route_catalog.processes)
+    cycle = _dependency_cycle(package.route_catalog.processes, package.route_rules.process_relations)
     if cycle:
         error("dependency_cycle", f"工序依赖存在环：{' -> '.join(cycle)}", "route_catalog.processes")
 
     opposing_actions: dict[tuple[int, str], dict[str, list[str]]] = defaultdict(lambda: {"include": [], "exclude": []})
     for index, rule in enumerate(package.route_rules.rules):
         path = f"route_rules.rules[{index}]"
+        if rule.source == "user_confirmed":
+            if not rule.source_segment_id or not rule.source_text:
+                error("missing_user_rule_audit", f"用户规则 {rule.rule_id} 缺少来源工序或原始条件", path)
+            if not rule.confirmed_by or not rule.confirmed_at:
+                error("missing_user_rule_confirmation", f"用户规则 {rule.rule_id} 缺少确认人或确认时间", path)
         for field_name in iter_condition_fields(rule.when):
             if field_name not in field_set:
                 error("unknown_input_field", f"规则 {rule.rule_id} 引用了未定义字段 {field_name}", f"{path}.when")
@@ -134,6 +150,26 @@ def validate_rule_package(package: RulePackageV2) -> RulePackageValidationReport
                 error("exclude_main_process", f"规则 {rule.rule_id} 不能排除主线工序 {process_id}", f"{path}.then")
             if rule.enabled:
                 opposing_actions[(rule.priority, process_id)]["exclude"].append(rule.rule_id)
+
+    for index, relation in enumerate(package.route_rules.process_relations):
+        path = f"route_rules.process_relations[{index}]"
+        if relation.source == "user_confirmed":
+            if not relation.source_segment_id or not relation.source_text:
+                error("missing_relation_audit", f"用户工序关系 {relation.relation_id} 缺少来源工序或原始条件", path)
+            if not relation.confirmed_by or not relation.confirmed_at:
+                error("missing_relation_confirmation", f"用户工序关系 {relation.relation_id} 缺少确认人或确认时间", path)
+        for process_id in [*relation.source_process_ids, *relation.target_process_ids]:
+            if process_id not in process_set:
+                error("unknown_relation_process", f"工序关系 {relation.relation_id} 引用了不存在的工序 {process_id}", path)
+        if relation.relation_type == "conflicts":
+            for source_id in relation.source_process_ids:
+                for target_id in relation.target_process_ids:
+                    if source_id in process_map and target_id in process_map and process_map[source_id].main and process_map[target_id].main:
+                        error("main_process_relation_conflict", f"两个主线工序不能互斥：{source_id} / {target_id}", path)
+        elif relation.relation_type == "trigger_after":
+            for target_id in relation.target_process_ids:
+                if target_id in process_map and process_map[target_id].main:
+                    warning("redundant_main_trigger", f"主线工序 {target_id} 无需再由工序关系触发", path)
 
     for index, case in enumerate(package.test_cases):
         for issue in validate_inputs(package.input_schema, case.input):
@@ -164,6 +200,26 @@ def validate_rule_package(package: RulePackageV2) -> RulePackageValidationReport
                 f"优先级 {priority} 对工序 {process_id} 同时存在 include 和 exclude 规则",
                 "route_rules.rules",
             )
+
+    user_rules = [rule for rule in package.route_rules.rules if rule.enabled and rule.source == "user_confirmed"]
+    system_rules = [rule for rule in package.route_rules.rules if rule.enabled and rule.source == "system_static"]
+    for user_rule in user_rules:
+        user_condition = json.dumps(user_rule.when.model_dump(mode="json", by_alias=True), sort_keys=True, ensure_ascii=False)
+        for system_rule in system_rules:
+            system_condition = json.dumps(system_rule.when.model_dump(mode="json", by_alias=True), sort_keys=True, ensure_ascii=False)
+            if user_condition != system_condition:
+                continue
+            conflicts = (
+                set(user_rule.then.include_process_ids) & set(system_rule.then.exclude_process_ids)
+            ) | (
+                set(user_rule.then.exclude_process_ids) & set(system_rule.then.include_process_ids)
+            )
+            if conflicts and user_rule.priority > system_rule.priority:
+                warning(
+                    "user_rule_overrides_system",
+                    f"用户规则 {user_rule.rule_id} 将覆盖系统规则 {system_rule.rule_id}：{', '.join(sorted(conflicts))}",
+                    "route_rules.rules",
+                )
 
     if not package.test_cases:
         warning("missing_test_cases", "规则包尚未定义可执行测试用例，后续不应允许发布", "test_cases")

@@ -58,12 +58,79 @@ export type RulePackageRule = {
   rule_id: string
   priority?: number
   enabled?: boolean
+  source?: 'system_static' | 'user_confirmed'
+  source_segment_id?: string
+  source_text?: string
+  confirmed_by?: string
+  confirmed_at?: string
   when: RulePackageCondition
   then: {
     include_process_ids?: string[]
     exclude_process_ids?: string[]
     reason?: string
   }
+}
+
+export type ProcessRelationType = 'trigger_after' | 'order_after' | 'requires' | 'conflicts'
+
+export type RulePackageProcessRelation = {
+  relation_id: string
+  relation_type: ProcessRelationType
+  source_process_ids: string[]
+  target_process_ids: string[]
+  source_match?: 'any' | 'all'
+  enabled?: boolean
+  source?: 'system_static' | 'user_confirmed'
+  source_segment_id?: string
+  source_text?: string
+  confirmed_by?: string
+  confirmed_at?: string
+  reason?: string
+}
+
+export type CanonicalConditionField = RulePackageInputField & {
+  category: string
+  operators: string[]
+  aliases: string[]
+}
+
+export type RuleConditionProcessOption = {
+  process_id: string
+  display_name: string
+}
+
+export type RuleConditionCandidate = {
+  kind?: 'condition' | 'process_relation'
+  when?: RulePackageCondition | null
+  then?: RulePackageRule['then'] | null
+  field_definitions?: CanonicalConditionField[]
+  relation?: {
+    relation_type: ProcessRelationType
+    source_process_ids: string[]
+    target_process_ids: string[]
+    source_match?: 'any' | 'all'
+  } | null
+  preview: string
+}
+
+export type RuleConditionReview = {
+  source_text: string
+  source_hash: string
+  status: 'draft' | 'parsing' | 'pending_confirmation' | 'confirmed' | 'invalid'
+  candidate?: RuleConditionCandidate | null
+  confirmed?: RuleConditionCandidate | null
+  confidence?: number | null
+  issues: string[]
+  field_registry_version: string
+  confirmed_by: string
+  confirmed_at: string
+}
+
+export type RuleConditionReviewResponse = {
+  project_id: number
+  route_id: number
+  segment_id: string
+  review: RuleConditionReview
 }
 
 export type RulePackageTestCase = {
@@ -86,6 +153,7 @@ export type CompileRulePackageRequest = {
   fields: RulePackageInputField[]
   processes: RulePackageProcess[]
   rules?: RulePackageRule[]
+  process_relations?: RulePackageProcessRelation[]
   test_cases?: RulePackageTestCase[]
 }
 
@@ -102,6 +170,7 @@ export type RulePackageV2 = {
   route_rules: {
     schema_version: '2.0'
     rules: RulePackageRule[]
+    process_relations?: RulePackageProcessRelation[]
   }
   test_cases: RulePackageTestCase[]
 }
@@ -132,6 +201,48 @@ export type SimulateRulePackageDraftResponse = FinalizedRulePackageSimulationRes
 export async function compileRulePackage(body: CompileRulePackageRequest) {
   const { data } = await api.post('/api/extract/finalized-rule-packages/compile', body)
   return data as CompileRulePackageResponse
+}
+
+export async function getConditionFieldRegistry() {
+  const { data } = await api.get('/api/extract/finalized-rule-packages/condition-fields')
+  return data as { version: string; fields: CanonicalConditionField[] }
+}
+
+export async function saveRuleConditionDraft(body: {
+  project_id: number
+  route_id: number
+  segment_id: string
+  source_text: string
+}) {
+  const { data } = await api.post('/api/extract/finalized-rule-packages/rule-conditions/draft', body)
+  return data as RuleConditionReviewResponse
+}
+
+export async function parseRuleCondition(body: {
+  project_id: number
+  route_id: number
+  segment_id: string
+  source_text: string
+  process_id: string
+  process_name: string
+  processes: RuleConditionProcessOption[]
+}) {
+  const { data } = await api.post('/api/extract/finalized-rule-packages/rule-conditions/parse', body)
+  return data as RuleConditionReviewResponse
+}
+
+export async function confirmRuleCondition(body: {
+  project_id: number
+  route_id: number
+  segment_id: string
+  source_text: string
+  source_hash: string
+  candidate: RuleConditionCandidate
+  processes: RuleConditionProcessOption[]
+  confirmed_by?: string
+}) {
+  const { data } = await api.post('/api/extract/finalized-rule-packages/rule-conditions/confirm', body)
+  return data as RuleConditionReviewResponse
 }
 
 export async function validateRulePackageV2(body: RulePackageV2) {

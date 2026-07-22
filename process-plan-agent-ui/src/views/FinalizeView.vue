@@ -8,23 +8,106 @@
         <div class="ash-meta-section">
           <span class="ash-meta-item">已保存版本 <strong>V{{ savedRoute?.version || '-' }}</strong></span>
           <span class="ash-meta-item" v-if="lastExportedRulePackageVersion">规则包 <strong>V{{ lastExportedRulePackageVersion }}</strong></span>
-          <span class="ash-meta-item">总工序段 <strong>{{ segmentCards.length }}</strong></span>
-          <span class="ash-meta-item" v-if="editedSegmentCount">本页已微调 <strong class="highlight-text">{{ editedSegmentCount }}</strong></span>
+          <span class="ash-meta-item">主线 <strong>{{ mainlineRuleCount }}</strong></span>
+          <span class="ash-meta-item">条件 <strong>{{ conditionalRuleCount }}</strong></span>
+          <span class="ash-meta-item" v-if="relationRuleCount">关联 <strong>{{ relationRuleCount }}</strong></span>
+          <span class="ash-meta-item" v-if="unresolvedRuleCount">待补充 <strong class="warning-text">{{ unresolvedRuleCount }}</strong></span>
+          <!-- Progress bar review indicator -->
+          <span class="ash-meta-item ash-meta-progress-item" v-if="reviewableRuleCount > 0">
+            <span>审核</span>
+            <div class="mini-progress-bar">
+              <div
+                class="mini-progress-fill"
+                :class="{ 'mini-progress-fill--done': confirmedRuleCount === reviewableRuleCount }"
+                :style="{ width: `${reviewProgressPercent}%` }"
+              ></div>
+            </div>
+            <strong :class="{ 'text-done': confirmedRuleCount === reviewableRuleCount }">
+              {{ confirmedRuleCount }}/{{ reviewableRuleCount }}
+            </strong>
+          </span>
         </div>
       </div>
 
       <div class="ash-actions">
-        <button class="ash-btn-outline" @click="downloadRuleDocument" :disabled="exportingRulePackage || !segmentCards.length">
+        <!-- 更新候选规则 (phase-highlighted when it's the active step) -->
+        <button
+          class="ash-btn-primary"
+          :class="{ 'ash-btn-phase-active': currentPhaseAction === 'parse' }"
+          @click="() => handleBatchParseConditions()"
+          :disabled="batchParsing || !batchEligibleCards.length"
+        >
+          {{ batchParsing ? `生成中 ${batchParseCompleted}/${batchParseTotal}` : `更新候选规则${batchEligibleCards.length ? ` (${batchEligibleCards.length})` : ''}` }}
+        </button>
+
+        <!-- 完成审核 (phase-highlighted when it's the active step) -->
+        <button
+          class="ash-btn-primary ash-btn-review"
+          :class="{ 'ash-btn-phase-active': currentPhaseAction === 'review' }"
+          @click="handleCompleteReview"
+          :disabled="batchReviewing || !pendingReviewCards.length"
+        >
+          {{ batchReviewing ? `审核中 ${batchReviewCompleted}/${batchReviewTotal}` : `完成审核${pendingReviewCards.length ? ` (${pendingReviewCards.length})` : ''}` }}
+        </button>
+
+        <!-- 导出规则包 (phase-highlighted when it's the final step) -->
+        <button
+          class="ash-btn-outline"
+          :class="{ 'ash-btn-phase-active': currentPhaseAction === 'export' }"
+          @click="downloadRuleDocument"
+          :disabled="exportingRulePackage || !segmentCards.length"
+        >
           {{ exportingRulePackage ? '正在导出...' : FINALIZE_VIEW_COPY.exportDocument }}
         </button>
-        <button class="ash-btn-outline" @click="toggleOnlyEdited" :disabled="!segmentCards.length">
-          {{ onlyEdited ? FINALIZE_VIEW_COPY.showAll : FINALIZE_VIEW_COPY.showEditedOnly }}
-        </button>
-        <button class="ash-btn-outline" @click="reloadWorkspace" :disabled="loading || !projectId">
-          {{ FINALIZE_VIEW_COPY.refresh }}
+
+        <!-- Toggle switch: only pending -->
+        <label class="toggle-filter-wrap" :class="{ 'toggle-filter-disabled': !segmentCards.length }">
+          <input
+            type="checkbox"
+            class="toggle-filter-input"
+            :checked="onlyPending"
+            :disabled="!segmentCards.length"
+            @change="toggleOnlyPending"
+          />
+          <span class="toggle-filter-track" :class="{ 'toggle-filter-track--on': onlyPending }">
+            <span class="toggle-filter-thumb"></span>
+          </span>
+          <span class="toggle-filter-text">审核重点</span>
+        </label>
+
+        <!-- Icon: refresh -->
+        <button
+          class="icon-refresh-btn"
+          :class="{ 'icon-refresh-btn--spinning': loading }"
+          @click="reloadWorkspace"
+          :disabled="loading || !projectId"
+          title="刷新结果"
+          aria-label="刷新结果"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M23 4v6h-6"/>
+            <path d="M1 20v-6h6"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
         </button>
       </div>
     </div>
+
+    <!-- All-done banner -->
+    <Transition name="banner-slide">
+      <div v-if="allReviewDone && !lastExportedRulePackageVersion" class="all-done-banner">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+          <path d="M22 4L12 14.01l-3-3"/>
+        </svg>
+        <span>所有规则已审核完成，可以导出规则包了</span>
+        <button class="banner-export-btn" @click="downloadRuleDocument" :disabled="exportingRulePackage">
+          {{ exportingRulePackage ? '导出中…' : '立即导出 →' }}
+        </button>
+      </div>
+    </Transition>
+
+    <div v-if="batchNotice" class="batch-notice">{{ batchNotice }}</div>
 
     <div v-if="!projectId" class="empty-state card">
       <div class="empty-mark">04</div>
@@ -53,9 +136,9 @@
 
     <div v-else-if="!visibleSegments.length" class="empty-state card">
       <div class="empty-mark">*</div>
-      <div class="empty-title">{{ FINALIZE_VIEW_COPY.emptyEditedTitle }}</div>
-      <div class="empty-text">{{ FINALIZE_VIEW_COPY.emptyEditedText }}</div>
-      <button class="btn btn-outline" @click="onlyEdited = false">{{ FINALIZE_VIEW_COPY.showAll }}</button>
+      <div class="empty-title">当前没有审核重点</div>
+      <div class="empty-text">没有关联规则、动态字段或待补充条件需要重点查看；可切换到全部规则浏览。</div>
+      <button class="btn btn-outline" @click="onlyPending = false">显示全部规则</button>
     </div>
 
     <div v-else class="finalize-layout">
@@ -69,8 +152,12 @@
         :primary-steps="finalizeSegmentPrimarySteps"
         :attached-steps="finalizeSegmentAttachedSteps"
         :is-steps-expanded="isFinalizeSegmentStepsExpanded"
+        :item-needs-pending="itemNeedsPending"
+        :only-pending="onlyPending"
+        :all-item-count="segmentCards.length"
         @focus="focusSegment"
         @toggle-steps="toggleFinalizeSegmentSteps"
+        @toggle-only-pending="toggleOnlyPending"
       />
 
       <section class="finalize-results">
@@ -88,11 +175,16 @@
           :edited-badge="FINALIZE_VIEW_COPY.editedBadge"
           :edit-label="FINALIZE_VIEW_COPY.edit"
           :condition-label="FINALIZE_VIEW_COPY.conditionLabel"
+          :condition-fields="conditionFields"
+          :process-options="conditionProcessOptions"
+          :condition-busy="conditionBusySegmentIds.has(item.segment.id)"
           :set-inline-textarea-ref="setInlineTextareaRef"
-          @reset="resetInlineEdit"
+          @reset="handleResetInlineEdit"
           @start-edit="startInlineEdit"
           @cancel="cancelInlineEdit"
-          @save="saveInlineEdit"
+          @save="handleSaveInlineEdit"
+          @parse-condition="handleParseCondition"
+          @confirm-condition="handleConfirmCondition"
           @update:inline-editing-text="inlineEditingText = $event"
         />
       </section>
@@ -108,11 +200,54 @@
       @next="goToGenerate"
     />
 
+    <div v-if="blockedExportCards.length" class="export-blocker-overlay" @click.self="closeBlockedExportDialog">
+      <section class="export-blocker-dialog" role="dialog" aria-modal="true" aria-labelledby="export-blocker-title">
+        <div class="export-blocker-header">
+          <div>
+            <span class="export-blocker-kicker">规则包导出</span>
+            <h2 id="export-blocker-title">还有 {{ blockedExportCards.length }} 道工序需要处理</h2>
+          </div>
+          <button class="export-blocker-close" aria-label="关闭提示" @click="closeBlockedExportDialog">关闭</button>
+        </div>
+        <p class="export-blocker-copy">请先完成候选规则审核，或为待补充项补全判断依据。完成后即可导出规则包。</p>
+        <ol class="export-blocker-list">
+          <li v-for="item in blockedExportCards.slice(0, 6)" :key="item.segment.id">
+            <span>{{ item.segment.sequence }}</span>
+            <strong>{{ finalizeSegmentDisplayName(item.segment) }}</strong>
+            <em>{{ finalizeRuleMode(item) === 'relation' ? '关联待审核' : finalizeRuleMode(item) === 'unresolved' ? '待补充条件' : '条件待审核' }}</em>
+          </li>
+        </ol>
+        <p v-if="blockedExportCards.length > 6" class="export-blocker-more">另有 {{ blockedExportCards.length - 6 }} 道工序待处理。</p>
+        <div class="export-blocker-actions">
+          <button class="ash-btn-outline" @click="closeBlockedExportDialog">暂不处理</button>
+          <button class="ash-btn-primary" @click="showBlockedExportCards">查看待处理</button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="exportIssue" class="export-issue-overlay" @click.self="closeExportIssue">
+      <section class="export-issue-dialog" role="dialog" aria-modal="true" aria-labelledby="export-issue-title">
+        <div class="export-issue-icon" aria-hidden="true">!</div>
+        <div class="export-issue-content">
+          <span class="export-issue-kicker">{{ exportIssue.context || '规则包导出' }}</span>
+          <h2 id="export-issue-title">{{ exportIssue.title }}</h2>
+          <p>{{ exportIssue.summary }}</p>
+          <details v-if="exportIssue.details" class="export-issue-details">
+            <summary>查看检查详情</summary>
+            <pre>{{ exportIssue.details }}</pre>
+          </details>
+          <div class="export-issue-actions">
+            <button class="ash-btn-primary" @click="closeExportIssue">知道了</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onActivated, onDeactivated, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onDeactivated, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import FinalizeRouteNav from '@/components/finalize/FinalizeRouteNav.vue'
 import FinalizeRuleCard from '@/components/finalize/FinalizeRuleCard.vue'
@@ -127,6 +262,16 @@ import {
   type SavedNormalizedRouteVersionResult,
 } from '@/api'
 import {
+  confirmRuleCondition,
+  getConditionFieldRegistry,
+  parseRuleCondition,
+  saveRuleConditionDraft,
+  type CanonicalConditionField,
+  type RuleConditionCandidate,
+  type RuleConditionProcessOption,
+  type RuleConditionReview,
+} from '@/api/rulePackages'
+import {
   segmentDisplayMetaLabel,
   segmentDisplayName,
 } from '@/composables/analysisWorkspaceHelpers'
@@ -134,12 +279,19 @@ import {
   buildFinalizeCards,
   resolveFinalizePhase,
 } from '@/composables/finalizeViewHelpers'
+import type { FinalizeCard } from '@/composables/finalizeViewHelpers'
 import { useFinalizeDrafts } from '@/composables/useFinalizeDrafts'
 import { useFinalizeRulePackageExport } from '@/composables/useFinalizeRulePackageExport'
 import { useRouteSegmentSteps } from '@/composables/useRouteSegmentSteps'
 import { buildProjectRouteQuery, resolveAvailableProjectId } from '@/composables/useCurrentProject'
 import { FINALIZE_VIEW_COPY } from '@/config/finalizeRulePresentation'
 import { getWorkflowDataRevision } from '@/composables/workflowDataCache'
+import {
+  exportProcessIdForItem,
+  finalizeRuleMode,
+  hasCurrentConfirmedUserRule,
+  normalizeExportProcessName,
+} from '@/utils/finalizeRulePackage'
 
 const route = useRoute()
 const router = useRouter()
@@ -154,9 +306,20 @@ const projectName = ref('')
 const savedRoute = ref<SavedNormalizedRouteVersionResult | null>(null)
 const operations = ref<OperationItem[]>([])
 const supersetOperations = ref<OperationItem[]>([])
-const onlyEdited = ref(false)
+const onlyPending = ref(true)
 const activeSegmentId = ref('')
 const lastExportedRulePackageVersion = ref<number | null>(null)
+const conditionFields = ref<CanonicalConditionField[]>([])
+const conditionBusySegmentIds = ref(new Set<string>())
+const batchParsing = ref(false)
+const batchParseCompleted = ref(0)
+const batchParseTotal = ref(0)
+const batchReviewing = ref(false)
+const batchReviewCompleted = ref(0)
+const batchReviewTotal = ref(0)
+const batchNotice = ref('')
+const blockedExportCards = ref<FinalizeCard[]>([])
+const exportIssue = ref<{ title: string; summary: string; details?: string; context?: string } | null>(null)
 const {
   segmentAttachedSteps: finalizeSegmentAttachedSteps,
   segmentPrimarySteps: finalizeSegmentPrimarySteps,
@@ -183,21 +346,92 @@ const segmentCards = computed(() => {
   return buildFinalizeCards(routeData.segments, operations.value, drafts.value)
 })
 
-const visibleSegments = computed(() =>
-  onlyEdited.value ? segmentCards.value.filter(item => item.edited) : segmentCards.value,
-)
-
-const editedSegmentCount = computed(() =>
-  segmentCards.value.filter(item => item.edited).length,
-)
+const mainlineRuleCount = computed(() => segmentCards.value.filter(item => finalizeRuleMode(item) === 'mainline').length)
+const conditionalCards = computed(() => segmentCards.value.filter(item => finalizeRuleMode(item) === 'conditional'))
+const relationCards = computed(() => segmentCards.value.filter(item => finalizeRuleMode(item) === 'relation'))
+const reviewableCards = computed(() => [...conditionalCards.value, ...relationCards.value])
+const conditionalRuleCount = computed(() => conditionalCards.value.length)
+const relationRuleCount = computed(() => relationCards.value.length)
+const reviewableRuleCount = computed(() => reviewableCards.value.length)
+const confirmedRuleCount = computed(() => reviewableCards.value.filter(hasCurrentConfirmedUserRule).length)
+const unresolvedRuleCount = computed(() => segmentCards.value.filter(item => finalizeRuleMode(item) === 'unresolved').length)
+const reviewFocusCards = computed(() => segmentCards.value.filter((item) => {
+  const mode = finalizeRuleMode(item)
+  const review = item.conditionReview
+  if (mode === 'unresolved' || mode === 'relation' || item.edited || review?.status === 'pending_confirmation') return true
+  return Boolean(
+    review?.source_text?.trim() === item.conditionText.trim()
+      && review.candidate
+      && (review.candidate.kind || 'condition') !== 'condition',
+  )
+}))
+const visibleSegments = computed(() => onlyPending.value ? reviewFocusCards.value : segmentCards.value)
+const batchEligibleCards = computed(() => reviewableCards.value.filter((item) => {
+  if (hasCurrentConfirmedUserRule(item)) return false
+  const review = item.conditionReview
+  const sourceMatches = review?.source_text?.trim() === item.conditionText.trim()
+  const expectedKind = finalizeRuleMode(item) === 'relation' ? 'process_relation' : 'condition'
+  const hasCurrentCandidate = sourceMatches
+    && review?.status === 'pending_confirmation'
+    && (review.candidate?.kind || 'condition') === expectedKind
+  return !hasCurrentCandidate
+}))
+const pendingReviewCards = computed(() => reviewableCards.value.filter((item) => {
+  const review = item.conditionReview
+  const expectedKind = finalizeRuleMode(item) === 'relation' ? 'process_relation' : 'condition'
+  return review?.status === 'pending_confirmation'
+    && review.source_text.trim() === item.conditionText.trim()
+    && (review.candidate?.kind || 'condition') === expectedKind
+}))
+const conditionProcessOptions = computed<RuleConditionProcessOption[]>(() => {
+  const options = new Map<string, RuleConditionProcessOption>()
+  segmentCards.value.forEach((item) => {
+    const processId = exportProcessIdForItem(item)
+    if (!processId || options.has(processId)) return
+    options.set(processId, {
+      process_id: processId,
+      display_name: normalizeExportProcessName(finalizeSegmentDisplayName(item.segment)),
+    })
+  })
+  return Array.from(options.values())
+})
 const finalizeNavSummary = computed(() => {
   if (!projectId.value) return '请先完成第三步规则分析，再进入规则定稿。'
   if (loading.value) return '正在装载第四步定稿结果。'
   if (error.value) return '当前没有可预览的定稿结果，请返回规则分析。'
   if (!segmentCards.value.length) return '当前没有可展示的工序，请先在第三步完成至少一版规则分析结果。'
+  if (unresolvedRuleCount.value) return `还有 ${unresolvedRuleCount.value} 道工序需要补充具体条件。`
+  if (confirmedRuleCount.value < reviewableRuleCount.value) {
+    return `规则已审核 ${confirmedRuleCount.value}/${reviewableRuleCount.value}，请完成剩余条件和关联工序审核。`
+  }
   if (!lastExportedRulePackageVersion.value) return '请先导出规则包，导出后即可进入路线生成。'
   return `规则包 V${lastExportedRulePackageVersion.value} 已就绪，可进入路线生成。`
 })
+
+/** Progress percent for the mini progress bar */
+const reviewProgressPercent = computed(() =>
+  reviewableRuleCount.value === 0 ? 0 : Math.round((confirmedRuleCount.value / reviewableRuleCount.value) * 100)
+)
+
+/** Which action is the current recommended phase */
+const currentPhaseAction = computed(() => {
+  if (batchEligibleCards.value.length > 0) return 'parse'
+  if (pendingReviewCards.value.length > 0) return 'review'
+  return 'export'
+})
+
+/** True when all reviewable rules have been confirmed */
+const allReviewDone = computed(() =>
+  reviewableRuleCount.value > 0 && confirmedRuleCount.value === reviewableRuleCount.value
+)
+
+/** Whether a given nav item needs attention */
+function itemNeedsPending(item: FinalizeCard): boolean {
+  const mode = finalizeRuleMode(item)
+  if (mode === 'unresolved') return true
+  if (mode === 'relation' || mode === 'conditional') return !hasCurrentConfirmedUserRule(item)
+  return false
+}
 
 function syncActiveSegment() {
   const currentExists = visibleSegments.value.some(item => item.segment.id === activeSegmentId.value)
@@ -215,8 +449,239 @@ function focusSegment(segmentId: string) {
 
 
 
-function toggleOnlyEdited() {
-  onlyEdited.value = !onlyEdited.value
+function toggleOnlyPending() {
+  onlyPending.value = !onlyPending.value
+}
+
+function closeBlockedExportDialog() {
+  blockedExportCards.value = []
+}
+
+function closeExportIssue() {
+  exportIssue.value = null
+}
+
+function showFinalizeNotice(title: string, summary: string, details = '') {
+  exportIssue.value = { title, summary, details, context: '规则定稿' }
+}
+
+async function showBlockedExportCards() {
+  const first = blockedExportCards.value[0]
+  onlyPending.value = false
+  blockedExportCards.value = []
+  await nextTick()
+  if (first) focusSegment(first.segment.id)
+}
+
+function setConditionBusy(segmentId: string, busy: boolean) {
+  const next = new Set(conditionBusySegmentIds.value)
+  if (busy) next.add(segmentId)
+  else next.delete(segmentId)
+  conditionBusySegmentIds.value = next
+}
+
+function applyConditionReview(segmentId: string, review: RuleConditionReview) {
+  const segment = savedRoute.value?.segments.find(item => item.id === segmentId)
+  if (!segment) return
+  if (!segment.rule_review) {
+    segment.rule_review = {
+      id: 0,
+      decision: 'accepted',
+      note: '',
+      summary_lines: [],
+      question_trail: [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+  }
+  segment.rule_review.condition_review = review
+}
+
+function conditionErrorMessage(err: any) {
+  const detail = err?.response?.data?.detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) return detail.map(item => item?.msg || item?.message || String(item)).join('\n')
+  if (detail?.issues) return [detail.message, ...detail.issues].filter(Boolean).join('\n')
+  return detail?.message || err?.message || '规则条件处理失败'
+}
+
+async function persistConditionDraft(item: ReturnType<typeof buildFinalizeCards>[number], sourceText: string) {
+  if (!projectId.value || !savedRoute.value) return
+  const response = await saveRuleConditionDraft({
+    project_id: projectId.value,
+    route_id: savedRoute.value.route_id,
+    segment_id: item.segment.id,
+    source_text: sourceText,
+  })
+  applyConditionReview(item.segment.id, response.review)
+}
+
+async function handleSaveInlineEdit(item: ReturnType<typeof buildFinalizeCards>[number]) {
+  const sourceText = inlineEditingText.value.trim()
+  saveInlineEdit(item)
+  setConditionBusy(item.segment.id, true)
+  try {
+    await persistConditionDraft(item, sourceText)
+    await nextTick()
+    await parseConditionItem(item, true, sourceText)
+  } catch (err: any) {
+    showFinalizeNotice('条件保存失败', '条件文字尚未保存，请检查后重试。', conditionErrorMessage(err))
+  } finally {
+    setConditionBusy(item.segment.id, false)
+  }
+}
+
+async function handleResetInlineEdit(item: ReturnType<typeof buildFinalizeCards>[number]) {
+  resetInlineEdit(item)
+  setConditionBusy(item.segment.id, true)
+  try {
+    await persistConditionDraft(item, item.defaultConditionText)
+    await nextTick()
+    await parseConditionItem(item, false, item.defaultConditionText)
+  } catch (err: any) {
+    showFinalizeNotice('条件重置失败', '默认条件尚未恢复，请检查后重试。', conditionErrorMessage(err))
+  } finally {
+    setConditionBusy(item.segment.id, false)
+  }
+}
+
+async function parseConditionItem(
+  item: ReturnType<typeof buildFinalizeCards>[number],
+  showError = false,
+  sourceText = item.conditionText,
+) {
+  if (!projectId.value || !savedRoute.value) return
+  setConditionBusy(item.segment.id, true)
+  try {
+    const response = await parseRuleCondition({
+      project_id: projectId.value,
+      route_id: savedRoute.value.route_id,
+      segment_id: item.segment.id,
+      source_text: sourceText,
+      process_id: exportProcessIdForItem(item),
+      process_name: normalizeExportProcessName(finalizeSegmentDisplayName(item.segment)),
+      processes: conditionProcessOptions.value,
+    })
+    applyConditionReview(item.segment.id, response.review)
+    return response.review.status !== 'invalid'
+  } catch (err: any) {
+    if (showError) {
+      console.error('条件候选规则生成失败', err)
+      showFinalizeNotice('暂时无法生成候选规则', '请补充明确的判断字段、比较关系或取值后重新解析。', conditionErrorMessage(err))
+    }
+    return false
+  } finally {
+    setConditionBusy(item.segment.id, false)
+  }
+}
+
+async function handleParseCondition(item: ReturnType<typeof buildFinalizeCards>[number]) {
+  await parseConditionItem(item, true)
+}
+
+async function handleBatchParseConditions(automatic = false) {
+  if (batchParsing.value || !batchEligibleCards.value.length) return
+  const queue = [...batchEligibleCards.value]
+  batchParsing.value = true
+  batchParseCompleted.value = 0
+  batchParseTotal.value = queue.length
+  batchNotice.value = ''
+  let cursor = 0
+  let successCount = 0
+
+  async function worker() {
+    while (cursor < queue.length) {
+      const item = queue[cursor++]
+      if (!item) continue
+      if (await parseConditionItem(item)) successCount += 1
+      batchParseCompleted.value += 1
+    }
+  }
+
+  try {
+    await Promise.all(Array.from({ length: Math.min(3, queue.length) }, () => worker()))
+    const failedCount = queue.length - successCount
+    batchNotice.value = failedCount
+      ? `${automatic ? '已自动生成' : '已生成'} ${successCount} 条候选规则；${failedCount} 条条件还需要补充后再生成。`
+      : `${automatic ? '已自动生成' : '已生成'} ${successCount} 条候选规则，请核对后完成本次审核。`
+    onlyPending.value = true
+  } finally {
+    batchParsing.value = false
+  }
+}
+
+async function handleCompleteReview() {
+  if (batchReviewing.value || !pendingReviewCards.value.length || !projectId.value || !savedRoute.value) return
+  const queue = [...pendingReviewCards.value]
+  batchReviewing.value = true
+  batchReviewCompleted.value = 0
+  batchReviewTotal.value = queue.length
+  batchNotice.value = ''
+  let cursor = 0
+  let successCount = 0
+
+  async function worker() {
+    while (cursor < queue.length) {
+      const item = queue[cursor++]
+      const review = item?.conditionReview
+      if (!item || !review?.candidate || !review.source_hash) continue
+      setConditionBusy(item.segment.id, true)
+      try {
+        const response = await confirmRuleCondition({
+          project_id: projectId.value!,
+          route_id: savedRoute.value!.route_id,
+          segment_id: item.segment.id,
+          source_text: item.conditionText,
+          source_hash: review.source_hash,
+          candidate: review.candidate,
+          processes: conditionProcessOptions.value,
+          confirmed_by: '审核通过',
+        })
+        applyConditionReview(item.segment.id, response.review)
+        successCount += 1
+      } catch (err: any) {
+        console.error(`规则审核失败：${item.segment.id}`, err)
+      } finally {
+        setConditionBusy(item.segment.id, false)
+        batchReviewCompleted.value += 1
+      }
+    }
+  }
+
+  try {
+    await Promise.all(Array.from({ length: Math.min(3, queue.length) }, () => worker()))
+    const failedCount = queue.length - successCount
+    batchNotice.value = failedCount
+      ? `已完成 ${successCount} 道工序审核；${failedCount} 道未完成，请检查后重试。`
+      : `已完成 ${successCount} 道工序审核。`
+  } finally {
+    batchReviewing.value = false
+  }
+}
+
+async function handleConfirmCondition(
+  item: ReturnType<typeof buildFinalizeCards>[number],
+  candidate: RuleConditionCandidate,
+) {
+  if (!projectId.value || !savedRoute.value || !item.conditionReview?.source_hash) return
+  setConditionBusy(item.segment.id, true)
+  try {
+    const response = await confirmRuleCondition({
+      project_id: projectId.value,
+      route_id: savedRoute.value.route_id,
+      segment_id: item.segment.id,
+      source_text: item.conditionText,
+      source_hash: item.conditionReview.source_hash,
+      candidate,
+      processes: conditionProcessOptions.value,
+      confirmed_by: '默认用户',
+    })
+    applyConditionReview(item.segment.id, response.review)
+  } catch (err: any) {
+    showFinalizeNotice('规则确认失败', '候选规则尚未确认，请检查条件和目标工序后重试。', conditionErrorMessage(err))
+  } finally {
+    setConditionBusy(item.segment.id, false)
+  }
 }
 
 function finalizeSegmentDisplayName(segment: SavedNormalizedRouteVersionResult['segments'][number]) {
@@ -240,6 +705,13 @@ const {
   phaseLabel: resolveFinalizePhase,
   primarySteps: finalizeSegmentPrimarySteps,
   attachedSteps: finalizeSegmentAttachedSteps,
+  conditionFields,
+  onBlockedCards: (cards) => {
+    blockedExportCards.value = cards
+  },
+  onExportIssue: (issue) => {
+    exportIssue.value = { ...issue, context: '规则包导出' }
+  },
   onExportedVersion: (version, meta) => {
     lastExportedRulePackageVersion.value = version
     console.info(`规则包 V${version} 已导出，可用于第 5 步。`, meta)
@@ -286,19 +758,25 @@ async function loadWorkspace(forceRefresh = false) {
       })
     }
     const currentProject = projectList.find(project => project.id === projectId.value)
-    const [routeResult, operationList, supersetResult, latestPackage] = await Promise.all([
+    const [routeResult, operationList, supersetResult, latestPackage, fieldRegistry] = await Promise.all([
       getSavedNormalizedRoute(projectId.value, forceRefresh),
       listOperations(projectId.value, forceRefresh),
       getSupersetRoute(projectId.value, forceRefresh),
       getLatestFinalizedRulePackage(projectId.value, forceRefresh).catch(() => null),
+      getConditionFieldRegistry(),
     ])
     savedRoute.value = routeResult
     operations.value = operationList
     supersetOperations.value = supersetResult.superset_route || []
     projectName.value = currentProject?.name || `任务 #${projectId.value}`
     lastExportedRulePackageVersion.value = latestPackage?.version || null
+    conditionFields.value = fieldRegistry.fields || []
     readDrafts()
     activeSegmentId.value = routeResult.segments[0]?.id || ''
+    await nextTick()
+    if (batchEligibleCards.value.length && !batchParsing.value) {
+      void handleBatchParseConditions(true)
+    }
   } catch (err: any) {
     console.error(err)
     projectId.value = null
@@ -326,7 +804,7 @@ watch(drafts, () => {
   persistDrafts()
 }, { deep: true })
 
-watch([visibleSegments, onlyEdited], () => {
+watch([visibleSegments, onlyPending], () => {
   syncActiveSegment()
 }, { deep: true })
 
@@ -446,9 +924,263 @@ onDeactivated(() => {
 .ash-btn-outline:hover { background: #f8fafc; border-color: #cbd5e1; color: #0f172a; }
 .ash-btn-outline:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.highlight-text {
-  color: #ea580c !important;
+.ash-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 12px;
+  border: 1px solid #405987;
+  border-radius: 7px;
+  background: #405987;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
 }
+.ash-btn-primary:hover { background: #334a75; border-color: #334a75; }
+.ash-btn-primary:disabled { opacity: .48; cursor: not-allowed; }
+
+.export-blocker-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.export-blocker-dialog {
+  width: min(540px, 100%);
+  max-height: min(680px, calc(100vh - 48px));
+  overflow: auto;
+  border: 1px solid #d8e1ec;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 20px 55px rgba(15, 23, 42, 0.22);
+}
+
+.export-blocker-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px 15px;
+  border-bottom: 1px solid #e7edf4;
+}
+
+.export-blocker-kicker {
+  display: block;
+  margin-bottom: 5px;
+  color: #667991;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.export-blocker-header h2 {
+  margin: 0;
+  color: #1e334c;
+  font-size: 19px;
+  line-height: 1.35;
+}
+
+.export-blocker-close {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: #697b90;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.export-blocker-close:hover { color: #263b54; }
+
+.export-blocker-copy {
+  margin: 0;
+  padding: 16px 24px 12px;
+  color: #566a82;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.export-blocker-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0 24px;
+  list-style: none;
+}
+
+.export-blocker-list li {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid #e3eaf2;
+  border-radius: 5px;
+  background: #f8fafc;
+}
+
+.export-blocker-list span {
+  color: #71839a;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.export-blocker-list strong {
+  overflow: hidden;
+  color: #2c4058;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.export-blocker-list em {
+  color: #a35436;
+  font-size: 11px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.export-blocker-more {
+  margin: 10px 24px 0;
+  color: #71839a;
+  font-size: 12px;
+}
+
+.export-blocker-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 14px 24px;
+  border-top: 1px solid #e7edf4;
+  background: #fbfcfe;
+}
+
+.warning-text { color: #b4532f !important; }
+.batch-notice {
+  margin: -4px 0 10px;
+  padding: 8px 12px;
+  border: 1px solid #cbd8e8;
+  border-radius: 8px;
+  background: #f4f7fb;
+  color: #4d607b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.highlight-text { color: #ea580c !important; }
+
+/* ===== Phase-active button highlight ===== */
+.ash-btn-primary.ash-btn-phase-active {
+  box-shadow: 0 0 0 2px rgba(64, 89, 135, 0.35), 0 4px 12px rgba(64, 89, 135, 0.22);
+  transform: translateY(-1px);
+}
+.ash-btn-outline.ash-btn-phase-active {
+  border-color: #4f46e5;
+  color: #4338ca;
+  background: #eef2ff;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.22), 0 4px 12px rgba(99, 102, 241, 0.12);
+  transform: translateY(-1px);
+}
+
+/* ===== Toggle filter (审核重点 switch) ===== */
+.toggle-filter-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  padding: 3px 0;
+}
+.toggle-filter-input { display: none; }
+.toggle-filter-track {
+  position: relative;
+  width: 32px; height: 18px;
+  background: #cbd5e1;
+  border-radius: 999px;
+  transition: background 0.22s ease;
+  flex-shrink: 0;
+}
+.toggle-filter-track--on { background: #6366f1; }
+.toggle-filter-thumb {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 14px; height: 14px;
+  background: #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+  transition: transform 0.22s ease;
+}
+.toggle-filter-track--on .toggle-filter-thumb { transform: translateX(14px); }
+.toggle-filter-text {
+  font-size: 12px; font-weight: 600; color: #64748b; white-space: nowrap;
+}
+.toggle-filter-track--on ~ .toggle-filter-text { color: #4f46e5; }
+.toggle-filter-disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ===== Icon refresh button ===== */
+.icon-refresh-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px;
+  border: 1px solid #e2e8f0; border-radius: 7px;
+  background: #ffffff; color: #64748b;
+  cursor: pointer; transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+.icon-refresh-btn:hover:not(:disabled) { background: #f8fafc; border-color: #94a3b8; color: #334155; }
+.icon-refresh-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.icon-refresh-btn--spinning svg { animation: spin 1s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* ===== Mini progress bar (in meta section) ===== */
+.ash-meta-progress-item { gap: 6px !important; align-items: center; }
+.mini-progress-bar {
+  width: 52px; height: 4px;
+  background: #e2e8f0; border-radius: 2px; overflow: hidden;
+  flex-shrink: 0;
+}
+.mini-progress-fill {
+  height: 100%; background: #6366f1; border-radius: 2px;
+  transition: width 0.45s ease;
+}
+.mini-progress-fill--done { background: #22c55e; }
+.text-done { color: #16a34a !important; }
+
+/* ===== All-done banner ===== */
+.all-done-banner {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 10px;
+  padding: 10px 16px;
+  border: 1px solid #bbf7d0;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
+  color: #15803d;
+  font-size: 13px; font-weight: 600;
+}
+.banner-export-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 5px 14px;
+  border: 1px solid #16a34a; border-radius: 7px;
+  background: #16a34a; color: #ffffff;
+  font-size: 12px; font-weight: 700; cursor: pointer;
+  transition: all 0.15s ease;
+}
+.banner-export-btn:hover:not(:disabled) { background: #15803d; border-color: #15803d; }
+.banner-export-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* banner transition */
+.banner-slide-enter-active { transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.banner-slide-leave-active { transition: all 0.2s ease-in; }
+.banner-slide-enter-from { opacity: 0; transform: translateY(-8px); }
+.banner-slide-leave-to   { opacity: 0; transform: translateY(-4px); }
 
 .finalize-layout {
   display: grid;
@@ -472,6 +1204,93 @@ onDeactivated(() => {
 
 .finalize-results {
   min-width: 0;
+}
+
+.export-issue-overlay {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.48);
+}
+
+.export-issue-dialog {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 14px;
+  width: min(560px, 100%);
+  padding: 22px;
+  border: 1px solid #d8e0eb;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 20px 46px rgba(15, 23, 42, 0.24);
+}
+
+.export-issue-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #fff0e7;
+  color: #b54708;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.export-issue-kicker {
+  display: block;
+  margin-bottom: 4px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.export-issue-dialog h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 18px;
+  line-height: 1.4;
+}
+
+.export-issue-dialog p {
+  margin: 8px 0 0;
+  color: #475569;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.export-issue-details {
+  margin-top: 14px;
+  border-top: 1px solid #e2e8f0;
+  color: #475569;
+  font-size: 12px;
+}
+
+.export-issue-details summary {
+  padding-top: 12px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.export-issue-details pre {
+  max-height: 130px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 10px;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #475569;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+}
+
+.export-issue-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
 }
 
 @media (max-width: 900px) {

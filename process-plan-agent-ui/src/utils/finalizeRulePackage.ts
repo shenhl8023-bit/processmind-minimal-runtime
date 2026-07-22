@@ -1,13 +1,12 @@
 import { FINALIZE_EXPORT_COPY } from '@/config/finalizeRulePresentation'
 import type {
+  CanonicalConditionField,
   CompileRulePackageRequest,
+  ProcessRelationType,
   RulePackageCondition,
+  RulePackageProcessRelation,
   RulePackageRule,
 } from '@/api/rulePackages'
-
-export function sanitizeMarkdownInline(text: string) {
-  return String(text || '').replace(/\|/g, '\\|').trim()
-}
 
 export function normalizeExportProcessName(name: string) {
   const text = String(name || '').trim()
@@ -22,374 +21,75 @@ export function isMainlineFinalizeCard(item: any) {
   return /全部样本中稳定出现|标准主线工序|主线工序保留/.test(String(item.conditionText || ''))
 }
 
-export function classifyExportRuleCategory(item: any, displayName: string) {
-  const text = [
-    displayName,
-    item.conditionText,
-    ...(item.factorNames || []),
-    ...(item.userAnswerLabels || []),
-    ...(item.userAnswerContextLabels || []),
-  ].join(' ')
-  if (isMainlineFinalizeCard(item)) return '主线规则'
-  if (/材料|9Cr18|4Cr14|6061|调质|正常化|淬火|热处理|渗氮|阳极化|镀铜|除铜|硬度/.test(text)) return '材料规则'
-  if (/IT\d|Ra|粗糙度|精度|公差|圆度|圆柱度|同轴度|跳动|位置度|平面度|垂直度|磨|研|珩/.test(text)) return '精度规则'
-  if (/标印|标记|裂纹|磁粉|荧光|烧伤|检查|去应力/.test(text)) return '人工补充规则'
-  return '特征规则'
+export function isExplicitMainlineInstruction(value: string) {
+  const text = String(value || '').trim()
+  if (!text || /(?:可选|视情况|按需|条件满足|不一定|可能)/.test(text)) return false
+  return /(?:主工序|主线工序|基础工序|固定工序|必经工序).{0,12}(?:保留|固定|不参与条件|始终|无条件|默认|必经)/.test(text)
+    || /(?:设为|设置为|设定为|指定为|作为|标记为|固定为|保留为|调整为|改为).{0,12}(?:主工序|主线工序|基础工序|固定工序|必经工序)/.test(text)
+    || /(?:该|此|本)?(?:工序|步骤).{0,10}(?:为|属于|作为).{0,10}(?:主工序|主线工序|基础工序|固定工序|必经工序)/.test(text)
+}
+
+export type FinalizeRuleMode = 'mainline' | 'conditional' | 'relation' | 'unresolved'
+
+export function isProcessRelationConditionText(value: string) {
+  const text = String(value || '').trim()
+  if (!text) return false
+  return /(?:后|之后|完成后).{0,80}(?:安排|设置|纳入|增加|出现|检查)/.test(text)
+    || /存在.{1,30}工序.{0,60}(?:安排|设置|纳入|增加|出现)/.test(text)
+    || /(?:前面|此前|之前).{0,30}(?:有|存在).{0,60}(?:安排|设置|纳入|增加|出现|检查)/.test(text)
+    || /(?:必须在|应在).{1,40}(?:后|之后)|不得早于/.test(text)
+    || /(?:前|之前).{0,20}(?:必须|需要).{0,20}(?:完成|存在|经过)|依赖于|以前置/.test(text)
+    || /不能同时|不得同时|互斥|二选一|不可共存/.test(text)
+}
+
+export function isActionableConditionText(value: string) {
+  const text = String(value || '').trim()
+  if (!text) return false
+  if (/追溯|编号|批次.{0,6}标识|标识需求/.test(text)) return true
+  if (/(?:防护|防腐蚀|绝缘|表面稳定性|表面处理)/.test(text) && /(?:当|如果|若).*(?:纳入|安排|设置|排除|不纳入)/.test(text)) return true
+  if (/^当(.{4,45})满足\1(?:时|，)/.test(text)) return false
+  const concretePatterns = [
+    /IT\s*\d+/i,
+    /(?:Ra|粗糙度)[^\d]{0,8}\d/i,
+    /(?:材料|材质|牌号)[为是：:\s]*[A-Za-z0-9]/,
+    /(?:HRC|硬度)[^\d]{0,8}\d/i,
+    /(?:圆度|圆柱度|同轴度|同心度|跳动|位置度|平面度|垂直度)[^\d]{0,12}\d/,
+    /存在(?:扁位|平面|槽|普通孔|辅助孔|铰孔|精孔|型孔|顶尖孔|内孔|通孔|中心孔|花键|键)/,
+    /(?:渗氮层|铬酸阳极化|硬质阳极化|追溯标印|磁粉检查|烧伤检查)(?:要求|需求)?/,
+  ]
+  if (concretePatterns.some(pattern => pattern.test(text))) return true
+  const vague = /不同结构类型|部分结构|根据.{0,8}决定|视情况|工艺安排存在差异|要求较高|会影响该工序|满足.{1,20}满足/
+  return !vague.test(text) && /(?:当|如果|若).*(?:纳入|安排|设置|排除|不纳入)/.test(text)
+}
+
+export function finalizeRuleMode(item: any): FinalizeRuleMode {
+  if (isExplicitMainlineInstruction(item.conditionText)) return 'mainline'
+  if (isMainlineFinalizeCard(item) && !item.edited) return 'mainline'
+  if (isProcessRelationConditionText(item.conditionText)) return 'relation'
+  return isActionableConditionText(item.conditionText) ? 'conditional' : 'unresolved'
+}
+
+export function isMainlineRule(item: any) {
+  return finalizeRuleMode(item) === 'mainline'
+}
+
+export function requiresConfirmedUserRule(item: any) {
+  return finalizeRuleMode(item) !== 'mainline'
+}
+
+export function hasCurrentConfirmedUserRule(item: any) {
+  const review = item.conditionReview
+  return Boolean(
+    review?.status === 'confirmed'
+    && review?.confirmed
+    && String(review.source_text || '').trim() === String(item.conditionText || '').trim(),
+  )
 }
 
 export function exportProcessIdForItem(item: any) {
   if (/真空淬火|淬火/.test(String(item.segment?.normalized_step_name || ''))) return 'process_quench'
   return item.segment?.id || ''
 }
-
-export function buildFactorDictionaryExport() {
-  return {
-    schema_version: '1.0',
-    model: '四槽输入因素模型',
-    material_grade: {
-      label: '材料牌号',
-      source: 'CAD/PLM',
-      input_type: 'single',
-      required: true,
-      values: ['9Cr18', '4Cr14Ni14W2Mo', '6061'],
-      note: '当前样本族已沉淀的材料牌号；后续项目应由样本材料自动汇总生成。',
-    },
-    cad_features: {
-      label: 'CAD特征集合',
-      source: 'CAD',
-      input_type: 'multi',
-      required: true,
-      values: ['扁位/平面', '槽类特征', '普通孔/辅助孔', '铰孔/精孔', '型孔/割扁', '顶尖孔'],
-      note: '由CAD特征类型归并得到，不直接要求用户填写内部布尔因素。',
-    },
-    precision_grades: {
-      label: '精度/表面要求',
-      source: 'CAD/工艺要求',
-      input_type: 'multi',
-      required: true,
-      values: ['孔精加工', '珩孔要求', '研孔要求', '外圆磨削', '端面磨削', '槽磨削', '研外圆'],
-      note: '由尺寸公差、形位公差、粗糙度和工艺要求映射得到。',
-    },
-    special_requirements: {
-      label: '特殊要求',
-      source: '人工补充/图样技术要求',
-      input_type: 'multi',
-      required: false,
-      values: ['渗氮层要求', '铬酸阳极化要求', '硬质阳极化要求', '追溯标印', '磁粉检查要求', '烧伤检查要求'],
-      note: '仅保留无法稳定从CAD直接获取、但会影响工序路线的少量补充项。',
-    },
-  }
-}
-
-export function buildInputSchemaExport() {
-  const factorDictionary = buildFactorDictionaryExport()
-  return {
-    schema_version: '1.0',
-    purpose: '第5步新零件路线生成输入结构',
-    model: '四槽输入因素模型',
-    factor_dictionary: factorDictionary,
-    required_inputs: [
-      {
-        key: 'material_grade',
-        name: '材料牌号',
-        source: 'CAD/PLM',
-        type: 'select',
-        allowed_values: factorDictionary.material_grade.values,
-        examples: factorDictionary.material_grade.values,
-      },
-      {
-        key: 'cad_features',
-        name: 'CAD特征集合',
-        source: 'CAD',
-        type: 'array',
-        allowed_values: factorDictionary.cad_features.values,
-      },
-      {
-        key: 'precision_grades',
-        name: '精度/表面要求',
-        source: 'CAD/工艺要求',
-        type: 'array',
-        allowed_values: factorDictionary.precision_grades.values,
-      },
-    ],
-    optional_inputs: [
-      {
-        key: 'special_requirements',
-        name: '特殊要求',
-        source: '人工补充/图样技术要求',
-        type: 'array',
-        allowed_values: factorDictionary.special_requirements.values,
-      },
-    ],
-    notes: [
-      '零件类型不作为必填输入，只能作为可选辅助信息。',
-      '内部因素由规则包自动映射，不要求用户填写25个因素。',
-      '第5步输入收敛为材料、CAD特征、精度/表面要求、特殊要求四类因素。',
-    ],
-  }
-}
-
-export function buildStaticRouteRules() {
-  return {
-    input_policy: {
-      user_inputs: ['material_grade', 'cad_features', 'precision_grades', 'special_requirements'],
-      required_user_inputs: ['material_grade', 'cad_features', 'precision_grades'],
-      optional_user_inputs: ['special_requirements'],
-      excluded_required_inputs: ['part_type', '25_internal_factors'],
-      note: '第5步按四槽输入因素模型接收材料、CAD特征、精度/表面要求和少量特殊要求；其余因素由本规则包内部映射。',
-    },
-    material_rules: [
-      { when: { material_grade: '9Cr18' }, then: ['调质', '淬火'], note: '当前样本族中9Cr18稳定触发调质和合并后的淬火候选。' },
-      { when: { material_grade: '4Cr14Ni14W2Mo' }, then: ['正常化'], note: '4Cr14Ni14W2Mo样本触发正常化。' },
-      { when: { material_grade: '4Cr14Ni14W2Mo', special_requirement: '渗氮层要求' }, then: ['镀铜', '渗氮', '除铜'], note: '渗氮层要求触发镀铜保护、渗氮和除铜链条。' },
-      { when: { material_grade: '6061', special_requirement: '铬酸阳极化要求' }, then: ['铬酸阳极化'], note: '6061按表面处理要求触发铬酸阳极化。' },
-      { when: { material_grade: '6061', special_requirement: '硬质阳极化要求' }, then: ['硬质阳极化'], note: '6061按表面处理要求触发硬质阳极化。' },
-    ],
-    feature_rules: [
-      { when: { cad_feature: '扁位/平面' }, then: ['铣扁', '割扁'] },
-      { when: { cad_feature: '槽类特征' }, then: ['铣槽', '磨槽'] },
-      { when: { cad_feature: '普通孔/辅助孔' }, then: ['钻孔', '打孔'] },
-      { when: { cad_feature: '铰孔/精孔' }, then: ['钻铰孔'] },
-      { when: { cad_feature: '型孔/割扁' }, then: ['割型孔', '打型孔'] },
-      { when: { cad_feature: '顶尖孔' }, then: ['研顶尖孔'] },
-    ],
-    precision_rules: [
-      { when: { precision_requirement: '孔精加工' }, then: ['磨孔'] },
-      { when: { precision_requirement: '珩孔要求' }, then: ['珩孔'] },
-      { when: { precision_requirement: '研孔要求' }, then: ['研孔'] },
-      { when: { precision_requirement: '外圆磨削' }, then: ['磨外圆'] },
-      { when: { precision_requirement: '端面磨削' }, then: ['磨端面'] },
-      { when: { precision_requirement: '槽磨削' }, then: ['磨槽'] },
-      { when: { precision_requirement: '研外圆' }, then: ['研外圆'] },
-    ],
-    special_requirement_rules: [
-      { when: { special_requirement: '追溯标印' }, then: ['标记'] },
-      { when: { special_requirement: '磁粉检查要求' }, then: ['磁粉检查', '荧光检查'] },
-      { when: { special_requirement: '烧伤检查要求' }, then: ['烧伤检查'] },
-    ],
-  }
-}
-
-export function buildFinalizeRuleMarkdown(args: {
-  projectName: string
-  routeVersion?: number | string | null
-  cards: any[]
-  displayName: (segment: any) => string
-  metaLabel: (segment: any) => string
-  phaseLabel: (segment: any) => string
-}) {
-  const lines: string[] = []
-  lines.push(`# ${FINALIZE_EXPORT_COPY.documentTitle}`)
-  lines.push('')
-  lines.push(`- 任务名称：${args.projectName || '未命名任务'}`)
-  lines.push(`- 已保存版本：V${args.routeVersion || '-'}`)
-  lines.push(`- 导出时间：${new Date().toLocaleString('zh-CN', { hour12: false })}`)
-  lines.push(`- 工序段数量：${args.cards.length}`)
-  lines.push('')
-  lines.push(`## ${FINALIZE_EXPORT_COPY.explanationHeading}`)
-  lines.push('')
-  FINALIZE_EXPORT_COPY.explanationLines.forEach((line) => {
-    lines.push(`- ${line}`)
-  })
-  lines.push('')
-  lines.push('## 路线规则明细')
-  lines.push('')
-
-  args.cards.forEach((item) => {
-    const displayName = args.displayName(item.segment)
-    lines.push(`### ${item.segment.sequence}. ${displayName}`)
-    lines.push('')
-    const metaLabel = args.metaLabel(item.segment)
-    if (metaLabel) {
-      lines.push(`- 显示说明：${metaLabel}`)
-    }
-    lines.push(`- 阶段：${args.phaseLabel(item.segment)}`)
-    lines.push(`- ${FINALIZE_EXPORT_COPY.fieldLabels.stepFamily}：${item.segment.step_family || '未标注'}`)
-    lines.push(`- ${FINALIZE_EXPORT_COPY.fieldLabels.edited}：${item.edited ? '是' : '否'}`)
-    lines.push(`- ${FINALIZE_EXPORT_COPY.fieldLabels.condition}：${item.conditionText}`)
-    if (item.userAnswerContextLabels.length) {
-      lines.push(`- ${FINALIZE_EXPORT_COPY.fieldLabels.context}：${item.userAnswerContextLabels.join('、')}`)
-    }
-    if (item.userAnswerLabels.length) {
-      lines.push(`- ${FINALIZE_EXPORT_COPY.fieldLabels.confirmedFactors}：${item.userAnswerLabels.join('、')}`)
-    }
-    if (item.systemFactorLabels.length) {
-      lines.push(`- ${FINALIZE_EXPORT_COPY.fieldLabels.candidateFactors}：${item.systemFactorLabels.join('、')}`)
-    }
-    if (item.rawRuleLines.length) {
-      lines.push(`- ${FINALIZE_EXPORT_COPY.fieldLabels.rawInfo}：`)
-      item.rawRuleLines.forEach((line: string) => {
-        lines.push(`  - ${line}`)
-      })
-    }
-    lines.push('')
-  })
-
-  lines.push(`## ${FINALIZE_EXPORT_COPY.summaryHeading}`)
-  lines.push('')
-  lines.push(`| ${FINALIZE_EXPORT_COPY.tableHeaders.join(' | ')} |`)
-  lines.push(`| ${FINALIZE_EXPORT_COPY.tableHeaders.map(() => '---').join(' | ')} |`)
-  args.cards.forEach((item) => {
-    lines.push(`| ${sanitizeMarkdownInline(args.phaseLabel(item.segment))} | ${item.segment.sequence} | ${sanitizeMarkdownInline(args.displayName(item.segment))} | ${sanitizeMarkdownInline(item.conditionText)} |`)
-  })
-  lines.push('')
-  return lines.join('\n')
-}
-
-export function buildRouteCatalogExport(args: {
-  projectId: number | null
-  projectName: string
-  routeVersion?: number | string | null
-  cards: any[]
-  displayName: (segment: any) => string
-  phaseLabel: (segment: any) => string
-  primarySteps: (segment: any) => string[]
-  attachedSteps: (segment: any) => string[]
-}) {
-  const segmentMap = new Map<string, any>()
-  args.cards.forEach((item) => {
-    const processId = exportProcessIdForItem(item)
-    const existing = segmentMap.get(processId)
-    const current = {
-      process_id: processId,
-      source_process_ids: [item.segment.id],
-      sequence: item.segment.sequence,
-      process_name: normalizeExportProcessName(item.segment.normalized_step_name),
-      source_process_names: [args.displayName(item.segment)],
-      phase: args.phaseLabel(item.segment),
-      main: isMainlineFinalizeCard(item),
-      step_family: item.segment.step_family || '',
-      primary_steps: args.primarySteps(item.segment),
-      attached_steps: args.attachedSteps(item.segment),
-      source_nodes: item.segment.source_nodes || [],
-      coverage: item.segment.doc_coverage || null,
-    }
-    if (!existing) {
-      segmentMap.set(processId, current)
-      return
-    }
-    existing.source_process_ids = Array.from(new Set([...existing.source_process_ids, ...current.source_process_ids]))
-    existing.source_process_names = Array.from(new Set([...existing.source_process_names, ...current.source_process_names]))
-    existing.sequence = Math.min(existing.sequence, current.sequence)
-    existing.main = existing.main && current.main
-    existing.primary_steps = Array.from(new Set([...existing.primary_steps, ...current.primary_steps]))
-    existing.attached_steps = Array.from(new Set([...existing.attached_steps, ...current.attached_steps]))
-    existing.source_nodes = Array.from(new Set([...existing.source_nodes, ...current.source_nodes]))
-  })
-  const segments = Array.from(segmentMap.values()).sort((a, b) => Number(a.sequence || 0) - Number(b.sequence || 0))
-  return {
-    schema_version: '1.0',
-    project_id: args.projectId,
-    project_name: args.projectName || '未命名任务',
-    route_version: args.routeVersion || null,
-    exported_at: new Date().toISOString(),
-    process_count: segments.length,
-    segments,
-    export_decisions: [
-      '淬火/真空淬火在输出层统一为“淬火”。',
-      '主线工序标记 main=true，不参与条件筛选。',
-    ],
-  }
-}
-
-export function buildRouteRulesExport(args: {
-  projectId: number | null
-  projectName: string
-  routeVersion?: number | string | null
-  cards: any[]
-  displayName: (segment: any) => string
-}) {
-  const factorDictionary = buildFactorDictionaryExport()
-  const triggerRules = args.cards.map((item) => {
-    const main = isMainlineFinalizeCard(item)
-    return {
-      rule_id: `RR-${String(item.segment.sequence).padStart(4, '0')}`,
-      process_id: exportProcessIdForItem(item),
-      source_process_id: item.segment.id,
-      process_name: normalizeExportProcessName(item.segment.normalized_step_name),
-      source_process_name: args.displayName(item.segment),
-      category: classifyExportRuleCategory(item, args.displayName(item.segment)),
-      main,
-      condition_text: item.conditionText,
-      internal_factors: item.factorNames,
-      confirmed_factor_labels: item.userAnswerLabels,
-      context_labels: item.userAnswerContextLabels,
-      candidate_factor_labels: item.systemFactorLabels,
-      output_policy: /真空淬火|淬火/.test(item.segment.normalized_step_name)
-        ? '输出路线统一命名为“淬火”'
-        : '',
-    }
-  })
-  return {
-    schema_version: '1.0',
-    project_id: args.projectId,
-    project_name: args.projectName || '未命名任务',
-    route_version: args.routeVersion || null,
-    exported_at: new Date().toISOString(),
-    factor_dictionary: factorDictionary,
-    ...buildStaticRouteRules(),
-    process_trigger_rules: triggerRules,
-  }
-}
-
-export function validateRulePackage(inputSchema: any, routeCatalog: any, routeRules: any, report: string) {
-  const errors: string[] = []
-  const warnings: string[] = []
-  const requiredFileChecks = [
-    ['input_schema.json', inputSchema],
-    ['route_catalog.json', routeCatalog],
-    ['route_rules.json', routeRules],
-    ['rule_report.md', report],
-  ]
-  requiredFileChecks.forEach(([name, value]) => {
-    if (!value) errors.push(`${name} 内容为空`)
-  })
-
-  const requiredKeys = new Set((inputSchema?.required_inputs || []).map((item: any) => item?.key))
-  ;['material_grade', 'cad_features', 'precision_grades'].forEach((key) => {
-    if (!requiredKeys.has(key)) errors.push(`input_schema.json 缺少必填输入：${key}`)
-  })
-  const optionalKeys = new Set((inputSchema?.optional_inputs || []).map((item: any) => item?.key))
-  if (!optionalKeys.has('special_requirements')) {
-    warnings.push('input_schema.json 建议加入可选输入：special_requirements')
-  }
-  if (requiredKeys.has('part_type')) {
-    warnings.push('part_type 不应作为必填输入，建议仅作为可选辅助字段')
-  }
-
-  const catalogSegments = Array.isArray(routeCatalog?.segments) ? routeCatalog.segments : []
-  if (!catalogSegments.length) errors.push('route_catalog.json 没有工序段')
-  const processIds = new Set<string>()
-  const processNames = new Map<string, number>()
-  catalogSegments.forEach((segment: any) => {
-    const processId = String(segment?.process_id || '').trim()
-    const processName = String(segment?.process_name || '').trim()
-    if (!processId) errors.push('route_catalog.json 存在缺少 process_id 的工序')
-    if (processIds.has(processId)) errors.push(`route_catalog.json 存在重复 process_id：${processId}`)
-    processIds.add(processId)
-    if (!processName) errors.push(`route_catalog.json 工序 ${processId || '(未知)'} 缺少 process_name`)
-    processNames.set(processName, (processNames.get(processName) || 0) + 1)
-  })
-  processNames.forEach((count, name) => {
-    if (name && count > 1) warnings.push(`route_catalog.json 存在重复工序名：${name}`)
-  })
-
-  const triggerRules = Array.isArray(routeRules?.process_trigger_rules) ? routeRules.process_trigger_rules : []
-  if (!triggerRules.length) errors.push('route_rules.json 没有 process_trigger_rules')
-  triggerRules.forEach((rule: any) => {
-    const targetId = String(rule?.process_id || '').trim()
-    if (!processIds.has(targetId)) errors.push(`route_rules.json 规则 ${rule?.rule_id || '(未知)'} 指向不存在工序：${targetId}`)
-    if (!rule?.main && !String(rule?.condition_text || '').trim()) {
-      warnings.push(`route_rules.json 条件规则 ${rule?.rule_id || targetId} 缺少 condition_text`)
-    }
-  })
-  if (catalogSegments.some((segment: any) => /真空淬火/.test(String(segment?.process_name || '')))) {
-    errors.push('route_catalog.json 输出层仍包含“真空淬火”，应统一为“淬火”')
-  }
-
-  return { errors, warnings }
-}
-
 
 function stableProcessId(rawId: string, displayName: string) {
   const text = String(rawId || '').trim()
@@ -415,15 +115,21 @@ function leafCondition(field: string, op: string, value: unknown): RulePackageCo
   return { field, op, value }
 }
 
+const PROCESS_CAPABILITY_ALIASES: Record<string, string[]> = {
+  无损检查: ['磁粉检查', '裂纹检查', '荧光检查', '磁粉探伤', '裂纹探伤'],
+  标记: ['标印', '标刻'],
+}
+
 function resolveProcessIdsByName(
   processName: string,
   processes: Array<{ process_id: string; display_name: string }>,
 ) {
-  const normalized = normalizeExportProcessName(processName)
+  const names = [processName, ...(PROCESS_CAPABILITY_ALIASES[processName] || [])]
+    .map(normalizeExportProcessName)
   return processes
     .filter((item) => {
       const display = normalizeExportProcessName(item.display_name)
-      return display === normalized || display.includes(normalized) || normalized.includes(display)
+      return names.some(name => display === name || display.includes(name) || name.includes(display))
     })
     .map((item) => item.process_id)
 }
@@ -446,6 +152,7 @@ function buildStaticV2Rules(processes: Array<{ process_id: string; display_name:
       rule_id: ruleId,
       priority,
       enabled: true,
+      source: 'system_static',
       when,
       then: {
         include_process_ids: includeIds,
@@ -512,6 +219,7 @@ function buildStaticV2Rules(processes: Array<{ process_id: string; display_name:
     ['铬酸阳极化要求', ['铬酸阳极化']],
     ['硬质阳极化要求', ['硬质阳极化']],
     ['追溯标印', ['标记']],
+    ['无损检测要求', ['无损检查', '磁粉检查', '裂纹检查', '荧光检查']],
     ['磁粉检查要求', ['磁粉检查', '荧光检查']],
     ['烧伤检查要求', ['烧伤检查']],
   ]
@@ -580,46 +288,109 @@ function buildDefaultV2TestCases(
   ]
 }
 
-export function buildV2InputFields() {
-  const dictionary = buildFactorDictionaryExport()
-  return [
-    {
-      key: 'material.grade',
-      label: dictionary.material_grade.label,
-      type: 'single_select' as const,
-      required: true,
-      source: dictionary.material_grade.source,
-      options: dictionary.material_grade.values.map((value: string) => ({ value, label: value })),
-      allow_custom: true,
-    },
-    {
-      key: 'cad.features',
-      label: dictionary.cad_features.label,
-      type: 'multi_select' as const,
-      required: true,
-      source: dictionary.cad_features.source,
-      options: dictionary.cad_features.values.map((value: string) => ({ value, label: value })),
-      allow_custom: true,
-    },
-    {
-      key: 'precision.grades',
-      label: dictionary.precision_grades.label,
-      type: 'multi_select' as const,
-      required: true,
-      source: dictionary.precision_grades.source,
-      options: dictionary.precision_grades.values.map((value: string) => ({ value, label: value })),
-      allow_custom: true,
-    },
-    {
-      key: 'special.requirements',
-      label: dictionary.special_requirements.label,
-      type: 'multi_select' as const,
-      required: false,
-      source: dictionary.special_requirements.source,
-      options: dictionary.special_requirements.values.map((value: string) => ({ value, label: value })),
-      allow_custom: true,
-    },
-  ]
+const BASE_INPUT_FIELD_KEYS = [
+  'material.grade',
+  'cad.features',
+  'precision.grades',
+  'special.requirements',
+]
+
+export function buildV2InputFields(conditionFields: CanonicalConditionField[]) {
+  const registry = new Map(conditionFields.map(field => [field.key, field] as const))
+  return BASE_INPUT_FIELD_KEYS
+    .map(key => registry.get(key))
+    .filter((field): field is CanonicalConditionField => Boolean(field))
+    .map(registryFieldToInputField)
+}
+
+function collectConditionFields(condition: RulePackageCondition, target: Set<string>) {
+  if ('field' in condition) {
+    target.add(condition.field)
+    return
+  }
+  if ('all' in condition) condition.all.forEach(child => collectConditionFields(child, target))
+  if ('any' in condition) condition.any.forEach(child => collectConditionFields(child, target))
+  if ('not' in condition) collectConditionFields(condition.not, target)
+}
+
+function registryFieldToInputField(field: CanonicalConditionField): CompileRulePackageRequest['fields'][number] {
+  return {
+    key: field.key,
+    label: field.label,
+    type: field.type,
+    required: field.required || false,
+    source: field.source || '',
+    options: field.options || [],
+    allow_custom: field.allow_custom ?? true,
+    unit: field.unit || null,
+    validation: field.validation || null,
+  }
+}
+
+function specialRequirementForLegacyBoolean(field: CanonicalConditionField) {
+  const text = [field.label, ...(field.aliases || [])].join(' ')
+  if (/追溯|编号|批次.{0,6}标识/.test(text)) return '追溯标印'
+  const label = String(field.label || '').replace(/^(?:是否需要|是否具备|是否)/, '').trim() || '特殊工艺'
+  return /要求$/.test(label) ? label : `${label}要求`
+}
+
+function normalizeLegacyBooleanCondition(
+  condition: RulePackageCondition,
+  definitions: Map<string, CanonicalConditionField>,
+): RulePackageCondition {
+  if ('field' in condition) {
+    const field = definitions.get(condition.field)
+    if (field?.type === 'boolean' && condition.field.startsWith('custom.requirements.')) {
+      return { field: 'special.requirements', op: 'contains', value: specialRequirementForLegacyBoolean(field) }
+    }
+    return condition
+  }
+  if ('all' in condition) return { all: condition.all.map(item => normalizeLegacyBooleanCondition(item, definitions)) }
+  if ('any' in condition) return { any: condition.any.map(item => normalizeLegacyBooleanCondition(item, definitions)) }
+  return { not: normalizeLegacyBooleanCondition(condition.not, definitions) }
+}
+
+function collectSpecialRequirementValues(condition: RulePackageCondition, target: Set<string>) {
+  if ('field' in condition) {
+    if (condition.field === 'special.requirements' && condition.op === 'contains' && typeof condition.value === 'string') {
+      target.add(condition.value)
+    }
+    return
+  }
+  if ('all' in condition) condition.all.forEach(item => collectSpecialRequirementValues(item, target))
+  if ('any' in condition) condition.any.forEach(item => collectSpecialRequirementValues(item, target))
+  if ('not' in condition) collectSpecialRequirementValues(condition.not, target)
+}
+
+function compactV2InputSchema(args: {
+  fields: CompileRulePackageRequest['fields']
+  specialRequirementValues: Set<string>
+}) {
+  const fields = args.fields.map(field => ({
+    ...field,
+    options: field.options ? [...field.options] : [],
+  }))
+  const specialRequirements = fields.find(field => field.key === 'special.requirements')
+  if (specialRequirements) {
+    const knownValues = new Set((specialRequirements.options || []).map(option => option.value))
+    args.specialRequirementValues.forEach((value) => {
+      if (!value || knownValues.has(value)) return
+      specialRequirements.options = [...(specialRequirements.options || []), { value, label: value }]
+      knownValues.add(value)
+    })
+  }
+
+  const hasSpecificDimensionIt = fields.some(field =>
+    field.key === 'precision.inner_diameter_it' || field.key === 'precision.outer_diameter_it',
+  )
+  if (hasSpecificDimensionIt) {
+    const genericDimensionIt = fields.find(field => field.key === 'precision.dimension_it')
+    if (genericDimensionIt) genericDimensionIt.label = '其他尺寸精度 IT'
+  }
+
+  return {
+    fields,
+  }
 }
 
 export function buildCompileRequestFromCards(args: {
@@ -631,6 +402,7 @@ export function buildCompileRequestFromCards(args: {
   phaseLabel: (segment: any) => string
   primarySteps: (segment: any) => string[]
   attachedSteps: (segment: any) => string[]
+  conditionFields?: CanonicalConditionField[]
 }): CompileRulePackageRequest {
   const processMap = new Map<string, any>()
   args.cards.forEach((item) => {
@@ -654,7 +426,7 @@ export function buildCompileRequestFromCards(args: {
         display_name: displayName,
         phase: args.phaseLabel(item.segment) || item.segment?.phase || '',
         default_sequence: Number(item.segment?.sequence || 0) * 10,
-        main: isMainlineFinalizeCard(item),
+        main: isMainlineRule(item),
         steps: [...primary, ...attached],
         constraints: {
           requires: [],
@@ -665,7 +437,7 @@ export function buildCompileRequestFromCards(args: {
       })
       return
     }
-    existing.main = existing.main || isMainlineFinalizeCard(item)
+    existing.main = existing.main || isMainlineRule(item)
     existing.default_sequence = Math.min(existing.default_sequence, Number(item.segment?.sequence || 0) * 10)
     const known = new Set(existing.steps.map((step: any) => step.name))
     ;[...primary, ...attached].forEach((step) => {
@@ -682,7 +454,71 @@ export function buildCompileRequestFromCards(args: {
   const staticRules = buildStaticV2Rules(
     processes.map((item) => ({ process_id: item.process_id, display_name: item.display_name })),
   )
-  const fields = buildV2InputFields()
+  const confirmedCards = args.cards.filter(hasCurrentConfirmedUserRule)
+  const confirmedFieldDefinitions = new Map<string, CanonicalConditionField>()
+  confirmedCards.forEach((item) => {
+    item.conditionReview.confirmed.field_definitions?.forEach((field: CanonicalConditionField) => {
+      confirmedFieldDefinitions.set(field.key, field)
+    })
+  })
+  const userRules: RulePackageRule[] = confirmedCards
+    .filter(item => (item.conditionReview.confirmed.kind || 'condition') === 'condition')
+    .map((item) => {
+      const confirmed = item.conditionReview.confirmed
+      return {
+        rule_id: `user.${String(item.segment.id || item.segment.sequence).replace(/[^a-zA-Z0-9_.-]+/g, '_')}`,
+        priority: 1000 + Math.max(0, 1000 - Number(item.segment.sequence || 0)),
+        enabled: true,
+        source: 'user_confirmed' as const,
+        source_segment_id: item.segment.id,
+        source_text: item.conditionText,
+        confirmed_by: item.conditionReview.confirmed_by || '默认用户',
+        confirmed_at: item.conditionReview.confirmed_at,
+        when: normalizeLegacyBooleanCondition(confirmed.when!, confirmedFieldDefinitions),
+        then: {
+          include_process_ids: confirmed.then?.include_process_ids || [],
+          exclude_process_ids: confirmed.then?.exclude_process_ids || [],
+          reason: confirmed.then?.reason || `用户确认条件：${item.conditionText}`,
+        },
+      }
+    })
+  const processRelations: RulePackageProcessRelation[] = confirmedCards
+    .filter(item => item.conditionReview.confirmed.kind === 'process_relation' && item.conditionReview.confirmed.relation)
+    .map((item) => {
+      const relation = item.conditionReview.confirmed.relation!
+      return {
+        relation_id: `relation.${String(item.segment.id || item.segment.sequence).replace(/[^a-zA-Z0-9_.-]+/g, '_')}`,
+        relation_type: relation.relation_type,
+        source_process_ids: relation.source_process_ids,
+        target_process_ids: relation.target_process_ids,
+        source_match: relation.source_match || 'any',
+        enabled: true,
+        source: 'user_confirmed',
+        source_segment_id: item.segment.id,
+        source_text: item.conditionText,
+        confirmed_by: item.conditionReview.confirmed_by || '默认用户',
+        confirmed_at: item.conditionReview.confirmed_at,
+        reason: item.conditionReview.confirmed.preview || `用户确认关联工序：${item.conditionText}`,
+      }
+    })
+  const referencedFieldKeys = new Set<string>()
+  userRules.forEach(rule => collectConditionFields(rule.when, referencedFieldKeys))
+  const fieldMap = new Map<string, CompileRulePackageRequest['fields'][number]>(
+    buildV2InputFields(args.conditionFields || []).map(field => [field.key, field] as const),
+  )
+  const registryMap = new Map((args.conditionFields || []).map(field => [field.key, field] as const))
+  referencedFieldKeys.forEach((key) => {
+    if (fieldMap.has(key)) return
+    const definition = registryMap.get(key) || confirmedFieldDefinitions.get(key)
+    if (definition) fieldMap.set(key, registryFieldToInputField(definition))
+  })
+  const specialRequirementValues = new Set<string>()
+  userRules.forEach(rule => collectSpecialRequirementValues(rule.when, specialRequirementValues))
+  const compacted = compactV2InputSchema({
+    fields: Array.from(fieldMap.values()),
+    specialRequirementValues,
+  })
+  const fields = compacted.fields
 
   return {
     project_id: args.projectId,
@@ -694,7 +530,8 @@ export function buildCompileRequestFromCards(args: {
     },
     fields,
     processes,
-    rules: staticRules,
+    rules: [...userRules, ...staticRules],
+    process_relations: processRelations,
     test_cases: buildDefaultV2TestCases(fields, processes),
   }
 }
@@ -705,6 +542,14 @@ export function buildRuleReportFromV2Package(args: {
   contentHash: string
   processes: Array<{ process_id: string; display_name: string; main?: boolean; default_sequence?: number }>
   rules: Array<{ rule_id: string; then?: { reason?: string; include_process_ids?: string[] } }>
+  processRelations?: Array<{
+    relation_id: string
+    relation_type: ProcessRelationType
+    source_process_ids: string[]
+    target_process_ids: string[]
+    source_match?: 'any' | 'all'
+    reason?: string
+  }>
   validation?: { valid?: boolean; errors?: Array<{ message?: string }>; warnings?: Array<{ message?: string }> }
 }) {
   const lines: string[] = []
@@ -717,6 +562,7 @@ export function buildRuleReportFromV2Package(args: {
   lines.push(`- 导出时间：${new Date().toLocaleString('zh-CN', { hour12: false })}`)
   lines.push(`- 工序数量：${args.processes.length}`)
   lines.push(`- 规则数量：${args.rules.length}`)
+  lines.push(`- 关联工序规则：${args.processRelations?.length || 0}`)
   lines.push(`- 校验：${args.validation?.valid === false ? '未通过' : '通过'}`)
   lines.push('')
   lines.push('## 工序目录')
@@ -734,6 +580,17 @@ export function buildRuleReportFromV2Package(args: {
     const includes = (rule.then?.include_process_ids || []).join(', ')
     lines.push(`- ${rule.rule_id}：${rule.then?.reason || ''} → ${includes}`)
   })
+  if (args.processRelations?.length) {
+    lines.push('')
+    lines.push('## 关联工序规则')
+    lines.push('')
+    args.processRelations.forEach((relation) => {
+      const source = relation.source_process_ids.join(', ')
+      const target = relation.target_process_ids.join(', ')
+      const mode = relation.source_match === 'all' ? '全部来源满足' : '任一来源满足'
+      lines.push(`- ${relation.relation_id}：${relation.relation_type} · ${source} → ${target} · ${mode}${relation.reason ? ` · ${relation.reason}` : ''}`)
+    })
+  }
   if (args.validation?.errors?.length) {
     lines.push('')
     lines.push('## 校验错误')

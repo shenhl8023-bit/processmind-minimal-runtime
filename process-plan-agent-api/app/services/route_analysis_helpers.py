@@ -18,6 +18,7 @@ from app.schemas.schemas import (
     SegmentRuleReviewOut,
 )
 from app.services.route_merge.workspace import sort_route_items_with_terminal_release
+from app.services.rule_packages.condition_reviews import serialize_condition_review
 
 
 def serialize_saved_normalized_route_version(version_row: NormalizedRouteVersion) -> SavedNormalizedRouteVersionOut:
@@ -88,6 +89,7 @@ def serialize_segment_rule_review(row: NormalizedRouteSegmentRuleReview) -> Segm
         note=row.note or "",
         summary_lines=list(summary_lines or []),
         question_trail=list(question_trail or []),
+        condition_review=serialize_condition_review(row),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )

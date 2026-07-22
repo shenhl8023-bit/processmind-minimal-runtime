@@ -3,19 +3,16 @@ import {
   compileRulePackage,
   saveFinalizedRulePackage,
   type SavedNormalizedRouteVersionResult,
+  type CanonicalConditionField,
 } from '@/api'
 import type { FinalizeCard } from '@/composables/finalizeViewHelpers'
 import { FINALIZE_EXPORT_COPY } from '@/config/finalizeRulePresentation'
 import { createZipBlob, downloadBlob, textFile } from '@/utils/exportArchive'
 import {
   buildCompileRequestFromCards,
-  buildFactorDictionaryExport,
-  buildFinalizeRuleMarkdown,
-  buildInputSchemaExport,
-  buildRouteCatalogExport,
-  buildRouteRulesExport,
   buildRuleReportFromV2Package,
-  validateRulePackage,
+  hasCurrentConfirmedUserRule,
+  requiresConfirmedUserRule,
 } from '@/utils/finalizeRulePackage'
 
 type Segment = SavedNormalizedRouteVersionResult['segments'][number]
@@ -30,6 +27,9 @@ type UseFinalizeRulePackageExportOptions = {
   phaseLabel: (segment: Pick<Segment, 'phase' | 'normalized_step_name' | 'sequence'>) => string
   primarySteps: (segment: any) => string[]
   attachedSteps: (segment: any) => string[]
+  conditionFields: Ref<CanonicalConditionField[]>
+  onBlockedCards?: (cards: FinalizeCard[]) => void | Promise<void>
+  onExportIssue?: (issue: { title: string; summary: string; details?: string }) => void
   onExportedVersion?: (version: number, meta?: { schemaVersion: string; status: string }) => void
 }
 
@@ -49,38 +49,8 @@ function formatValidationErrors(validation: {
 export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExportOptions) {
   const exportingRulePackage = ref(false)
 
-  function buildRuleReport() {
-    return buildFinalizeRuleMarkdown({
-      projectName: options.projectName.value || '未命名任务',
-      routeVersion: options.savedRoute.value?.version || null,
-      cards: options.segmentCards.value,
-      displayName: options.displayName,
-      metaLabel: options.metaLabel,
-      phaseLabel: options.phaseLabel,
-    })
-  }
-
-  function buildRouteCatalog() {
-    return buildRouteCatalogExport({
-      projectId: options.projectId.value,
-      projectName: options.projectName.value || '未命名任务',
-      routeVersion: options.savedRoute.value?.version || null,
-      cards: options.segmentCards.value,
-      displayName: options.displayName,
-      phaseLabel: options.phaseLabel,
-      primarySteps: options.primarySteps,
-      attachedSteps: options.attachedSteps,
-    })
-  }
-
-  function buildRouteRules() {
-    return buildRouteRulesExport({
-      projectId: options.projectId.value,
-      projectName: options.projectName.value || '未命名任务',
-      routeVersion: options.savedRoute.value?.version || null,
-      cards: options.segmentCards.value,
-      displayName: options.displayName,
-    })
+  function reportExportIssue(title: string, summary: string, details = '') {
+    options.onExportIssue?.({ title, summary, details })
   }
 
   /** V2 主路径：后端 compile → 保存并发布 → 下载与库一致的快照 ZIP */
@@ -89,6 +59,17 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
 
     const safeProjectName = safeFilenamePart(options.projectName.value || `任务_${options.projectId.value || 'unknown'}`)
     const packageName = `${safeProjectName}_${FINALIZE_EXPORT_COPY.documentNameSuffix}`
+    const unconfirmedCards = options.segmentCards.value.filter(
+      item => requiresConfirmedUserRule(item) && !hasCurrentConfirmedUserRule(item),
+    )
+    if (unconfirmedCards.length) {
+      await options.onBlockedCards?.(unconfirmedCards)
+      return
+    }
+    if (!options.conditionFields.value.length) {
+      reportExportIssue('字段库尚未加载', '请稍后刷新页面，待标准字段库加载完成后再导出规则包。')
+      return
+    }
     const compileRequest = buildCompileRequestFromCards({
       projectId: options.projectId.value,
       packageName,
@@ -98,10 +79,11 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
       phaseLabel: options.phaseLabel,
       primarySteps: options.primarySteps,
       attachedSteps: options.attachedSteps,
+      conditionFields: options.conditionFields.value,
     })
 
     if (!compileRequest.processes.length) {
-      window.alert('当前没有可导出的工序卡片。')
+      reportExportIssue('没有可导出的工序', '请先返回规则分析，确认路线中至少包含一道工序。')
       return
     }
 
@@ -110,12 +92,12 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
       const compiled = await compileRulePackage(compileRequest)
       if (!compiled.validation?.valid) {
         const detail = formatValidationErrors(compiled.validation) || '规则包校验未通过'
-        window.alert(`规则包校验失败，暂不导出：\n\n${detail}`)
+        reportExportIssue('规则包还不能导出', '请先修正未通过校验的规则，再重新导出。', detail)
         return
       }
       if (!compiled.kmai_compatibility?.valid) {
         const detail = formatValidationErrors(compiled.kmai_compatibility) || 'KmAI 兼容文件校验未通过'
-        window.alert(`规则包无法转换为 KmAI 可用格式，暂不导出：\n\n${detail}`)
+        reportExportIssue('规则包暂不兼容 KmAI', '当前规则中有 KmAI 尚不支持的表达，请根据检查详情调整后再导出。', detail)
         return
       }
 
@@ -125,6 +107,7 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
         contentHash: compiled.content_hash,
         processes: compiled.package.route_catalog.processes,
         rules: compiled.package.route_rules.rules,
+        processRelations: compiled.package.route_rules.process_relations || [],
         validation: compiled.validation,
       })
 
@@ -188,66 +171,7 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
       const message = typeof detail === 'string'
         ? detail
         : detail?.message || err?.message || '未知错误'
-      window.alert(`规则包保存失败，暂不下载：\n\n${message}`)
-    } finally {
-      exportingRulePackage.value = false
-    }
-  }
-
-  /** 兼容路径：继续导出 V1 并自动发布（迁移期） */
-  async function downloadRuleDocumentV1Compat() {
-    if (!options.projectId.value || exportingRulePackage.value) return
-
-    const safeProjectName = safeFilenamePart(options.projectName.value || `任务_${options.projectId.value || 'unknown'}`)
-    const inputSchema = buildInputSchemaExport()
-    const factorDictionary = buildFactorDictionaryExport()
-    const routeCatalog = buildRouteCatalog()
-    const routeRules = buildRouteRules()
-    const ruleReport = buildRuleReport()
-    const validation = validateRulePackage(inputSchema, routeCatalog, routeRules, ruleReport)
-
-    if (validation.errors.length) {
-      window.alert(`规则包校验失败，暂不导出：\n\n${validation.errors.join('\n')}`)
-      return
-    }
-
-    const files = [
-      { name: 'input_schema.json', content: textFile(inputSchema) },
-      { name: 'factor_dictionary.json', content: textFile(factorDictionary) },
-      { name: 'route_catalog.json', content: textFile(routeCatalog) },
-      { name: 'route_rules.json', content: textFile(routeRules) },
-      { name: 'rule_report.md', content: ruleReport },
-    ]
-
-    exportingRulePackage.value = true
-    try {
-      const savedPackage = await saveFinalizedRulePackage({
-        project_id: options.projectId.value,
-        route_version_id: options.savedRoute.value?.route_id || null,
-        package_name: `${safeProjectName}_${FINALIZE_EXPORT_COPY.documentNameSuffix}`,
-        schema_version: '1.0',
-        input_schema: inputSchema,
-        route_catalog: routeCatalog,
-        route_rules: routeRules,
-        rule_report_md: ruleReport,
-        validation_report: {
-          errors: validation.errors,
-          warnings: validation.warnings,
-          file_count: files.length,
-        },
-      })
-      options.onExportedVersion?.(savedPackage.version, {
-        schemaVersion: '1.0',
-        status: savedPackage.status,
-      })
-      downloadBlob(
-        createZipBlob(files),
-        `${safeProjectName}_${FINALIZE_EXPORT_COPY.documentNameSuffix}_v${savedPackage.version}.zip`,
-      )
-    } catch (err: any) {
-      console.error('保存 V1 规则包失败', err)
-      const message = err?.response?.data?.detail || err?.message || '未知错误'
-      window.alert(`规则包保存失败，暂不下载：\n\n${message}`)
+      reportExportIssue('规则包保存失败', '规则包尚未发布，请检查服务状态后重新导出。', message)
     } finally {
       exportingRulePackage.value = false
     }
@@ -256,6 +180,5 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
   return {
     exportingRulePackage,
     downloadRuleDocument,
-    downloadRuleDocumentV1Compat,
   }
 }

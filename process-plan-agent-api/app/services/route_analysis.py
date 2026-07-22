@@ -25,6 +25,10 @@ from app.services.route_analysis_helpers import (
     serialize_segment_rule_review,
     sort_and_resequence_saved_route,
 )
+from app.services.rule_packages.condition_reviews import (
+    invalidate_legacy_nondestructive_relation_reviews,
+    migrate_legacy_boolean_requirement_reviews,
+)
 from app.services.route_merge.workspace import (
     build_route_item_source_lookup,
     build_saved_route_version_segments,
@@ -260,6 +264,8 @@ async def build_saved_normalized_route_response(
     version_row: NormalizedRouteVersion,
     db: AsyncSession,
 ) -> SavedNormalizedRouteVersionOut:
+    await migrate_legacy_boolean_requirement_reviews(version_row, db)
+    await invalidate_legacy_nondestructive_relation_reviews(version_row, db)
     response = serialize_saved_normalized_route_version(version_row)
     reviews_by_segment = await load_route_factor_reviews(version_row.id, db)
     rule_reviews_by_segment = await load_route_rule_reviews(version_row.id, db)

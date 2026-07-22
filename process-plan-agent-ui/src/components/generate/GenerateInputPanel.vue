@@ -1,13 +1,35 @@
 <template>
   <aside class="input-panel">
+    <!-- Header with progress bar -->
     <div class="input-panel-head">
       <div class="panel-head-left">
         <span class="panel-title">输入条件</span>
         <span class="panel-subtitle">描述新零件</span>
       </div>
+      <div v-if="inputFields.length" class="panel-head-right">
+        <span class="progress-label" :class="{ 'progress-label--done': canGenerate }">
+          {{ filledFieldCount }}/{{ inputFields.length }}
+        </span>
+        <div class="head-progress-track">
+          <div
+            class="head-progress-fill"
+            :class="{ 'head-progress-fill--done': canGenerate }"
+            :style="{ width: inputFields.length ? `${Math.round(filledFieldCount / inputFields.length * 100)}%` : '0%' }"
+          ></div>
+        </div>
+      </div>
     </div>
 
-
+    <!-- Onboarding banner: shown when all fields are empty -->
+    <Transition name="banner-fade">
+      <div v-if="filledFieldCount === 0 && inputFields.length > 0 && !generating" class="onboarding-banner">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>
+        </svg>
+        <span>首次使用？快速填入示例数据，查看生成效果</span>
+        <button class="banner-fill-btn" type="button" @click="fillExampleValues">填入示例 →</button>
+      </div>
+    </Transition>
 
     <div v-if="inputFields.length" class="field-list">
       <div
@@ -18,8 +40,17 @@
       >
         <div class="field-label-row">
           <div class="field-title-stack">
-            <span class="field-label">{{ field.name || field.key }}</span>
-            <span class="field-source">{{ field.source || '规则包输入' }}</span>
+            <div class="field-name-line">
+              <span class="field-label">{{ field.name || field.key }}</span>
+              <!-- Checkmark for completed fields -->
+              <svg v-if="Boolean(fieldPreviewValue(field.key))" class="field-complete-icon" width="13" height="13" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="7" fill="#22c55e" opacity="0.15"/>
+                <path d="M5 8l2.5 2.5L11 5.5" stroke="#16a34a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <span class="field-source" :class="`field-source-${fieldSourceKind(field.source)}`" :title="field.source || '规则包输入'">
+              {{ fieldSourceLabel(field.source) }}
+            </span>
           </div>
           <span class="field-meta">
             <span class="field-type">{{ fieldTypeLabel(field) }}</span>
@@ -103,8 +134,6 @@
           :placeholder="fieldPlaceholder(field)"
           @input="setFieldText(field.key, inputValue($event))"
         />
-
-
       </div>
     </div>
 
@@ -117,19 +146,26 @@
     <div class="generate-submit">
       <div class="submit-actions">
         <button class="secondary-action" type="button" @click="clearAllFields" :disabled="generating || !inputFields.length">清空</button>
-        <button class="secondary-action" type="button" @click="fillExampleValues" :disabled="generating || !inputFields.length">填入示例</button>
+        <button class="secondary-action secondary-action-example" type="button" @click="fillExampleValues" :disabled="generating || !inputFields.length">填入示例</button>
       </div>
       <button class="generate-cta" type="button" @click="emit('generate')" :disabled="generating || !canGenerate">
         <span>{{ generating ? '正在生成路线' : '生成工艺路线' }}</span>
-        <span aria-hidden="true">→</span>
+        <span aria-hidden="true">{{ generating ? '···' : '→' }}</span>
       </button>
-      <p v-if="!canGenerate">{{ generateHintText }}</p>
+
+      <!-- Enhanced hint when cannot generate -->
+      <div v-if="!canGenerate && hasRulePackage && inputFields.length" class="generate-hint-callout">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+        </svg>
+        <span>{{ generateHintText }}</span>
+      </div>
     </div>
   </aside>
 </template>
 
 <script setup lang="ts">
-const props = defineProps<{
+defineProps<{
   projectId: number | null
   projectName: string
   inputFields: any[]
@@ -167,6 +203,21 @@ const emit = defineEmits<{
   (event: 'go-finalize'): void
 }>()
 
+function fieldSourceKind(source: string | undefined) {
+  const text = String(source || '')
+  if (/人工|手工/.test(text)) return 'manual'
+  if (/CAD|PLM/i.test(text)) return 'cad'
+  if (/图样|图纸/.test(text)) return 'drawing'
+  return 'package'
+}
+
+function fieldSourceLabel(source: string | undefined) {
+  const kind = fieldSourceKind(source)
+  if (kind === 'manual') return '人工补充 / 图样技术要求'
+  if (kind === 'cad') return 'CAD / PLM 自动带入'
+  if (kind === 'drawing') return '图样技术要求'
+  return '规则包输入'
+}
 </script>
 
 <style scoped>
@@ -187,26 +238,12 @@ const emit = defineEmits<{
   box-shadow: var(--shadow-sm);
 }
 
-.input-panel::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
+.input-panel::-webkit-scrollbar { width: 6px; height: 6px; }
+.input-panel::-webkit-scrollbar-track { background: #f8fafc; border-radius: 6px; }
+.input-panel::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 6px; }
+.input-panel::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
-.input-panel::-webkit-scrollbar-track {
-  background: #f8fafc;
-  border-radius: 6px;
-}
-
-.input-panel::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 6px;
-}
-
-.input-panel::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
-}
-
-/* 与右侧 .output-head 共用同一标题栏尺寸，保证底部分割线水平对齐 */
+/* ===== Header ===== */
 .input-panel-head {
   display: flex;
   align-items: center;
@@ -224,14 +261,12 @@ const emit = defineEmits<{
   min-width: 0;
   min-height: 28px;
 }
-
 .panel-title {
   font-size: 15px;
   font-weight: 700;
   line-height: 28px;
   color: var(--ink);
 }
-
 .panel-subtitle {
   font-size: 13px;
   line-height: 28px;
@@ -240,52 +275,66 @@ const emit = defineEmits<{
   font-weight: 500;
 }
 
+/* ===== Header progress ===== */
 .panel-head-right {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-left: auto;
+  gap: 7px;
+  flex-shrink: 0;
 }
-
-.mini-progress-label {
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.mini-progress-label strong {
-  color: var(--ink);
+.progress-label {
+  font-size: 11.5px;
   font-weight: 700;
+  color: var(--muted);
+  white-space: nowrap;
+  transition: color 0.25s ease;
 }
-
-.mini-progress-track {
-  width: 60px;
-  height: 6px;
-  background: #e2e8f0;
-  border-radius: 999px;
-  overflow: hidden;
+.progress-label--done { color: #16a34a; }
+.head-progress-track {
+  width: 56px; height: 5px;
+  background: #e2e8f0; border-radius: 999px; overflow: hidden;
 }
-
-.mini-progress-fill {
-  height: 100%;
-  background: #cbd5e1;
-  border-radius: 999px;
-  transition: width 0.2s ease;
+.head-progress-fill {
+  height: 100%; background: #6366f1; border-radius: 999px;
+  transition: width 0.4s ease, background 0.3s ease;
 }
+.head-progress-fill--done { background: #22c55e; }
 
-.mini-progress-fill.ready {
-  background: linear-gradient(90deg, #6366f1, #4f46e5);
-}
-
-.field-label-row,
-.field-subrow,
-.submit-actions,
-.generate-cta {
+/* ===== Onboarding banner ===== */
+.onboarding-banner {
   display: flex;
   align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 9px 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #eff6ff, #eef2ff);
+  color: #3730a3;
+  font-size: 12px;
+  font-weight: 500;
 }
+.banner-fill-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border: 1px solid #6366f1;
+  border-radius: 6px;
+  background: #6366f1;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.banner-fill-btn:hover { background: #4f46e5; border-color: #4f46e5; }
 
+.banner-fade-enter-active { transition: all 0.3s ease; }
+.banner-fade-leave-active { transition: all 0.2s ease; }
+.banner-fade-enter-from { opacity: 0; transform: translateY(-6px); }
+.banner-fade-leave-to   { opacity: 0; transform: translateY(-4px); }
 
-
+/* ===== Field list ===== */
 .field-list {
   display: flex;
   flex-direction: column;
@@ -294,46 +343,58 @@ const emit = defineEmits<{
 }
 
 .field-block {
-  padding: 11px;
+  padding: 11px 11px 11px 13px;
   border: 1px solid var(--line);
+  border-left: 3px solid transparent;
   border-radius: 8px;
   background: #fbfcfc;
-  transition: border-color 0.16s ease, background 0.16s ease;
+  transition: border-color 0.16s ease, background 0.16s ease, border-left-color 0.25s ease;
 }
-
 .field-block:focus-within {
   border-color: var(--accent);
   background: #ffffff;
 }
-
 .field-block.complete {
-  border-color: #c7d2fe;
-  background: #fafaff;
+  border-color: #d1fae5;
+  border-left-color: #22c55e;
+  background: #f8fffd;
 }
 
 .field-label-row {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 8px;
 }
-
-.field-title-stack {
-  min-width: 0;
+.field-title-stack { min-width: 0; }
+.field-name-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
-
 .field-label {
-  display: block;
+  display: inline;
   color: var(--ink);
   font-size: 13px;
   font-weight: 750;
 }
+.field-complete-icon { flex-shrink: 0; }
 
 .field-source {
-  display: block;
+  display: inline-flex;
+  align-items: center;
   margin-top: 2px;
-  color: #84918f;
+  width: fit-content;
+  border-radius: 3px;
+  padding: 1px 5px;
   font-size: 11px;
+  line-height: 1.35;
 }
+.field-source-manual  { background: #fff2e8; color: #a6542e; }
+.field-source-cad     { background: #ebf3fb; color: #3b6689; }
+.field-source-drawing { background: #f1edf9; color: #665080; }
+.field-source-package { background: #edf1f5; color: #677588; }
 
 .field-meta {
   display: inline-flex;
@@ -341,7 +402,6 @@ const emit = defineEmits<{
   gap: 5px;
   flex-shrink: 0;
 }
-
 .field-type,
 .field-required,
 .field-optional {
@@ -353,38 +413,25 @@ const emit = defineEmits<{
   font-size: 10px;
   font-weight: 800;
 }
+.field-type     { border: 1px solid #e2e8f0; color: var(--muted); }
+.field-required { background: #fdf0e7; color: #b54708; }
+.field-optional { color: #84918f; }
 
-.field-type {
-  border: 1px solid #e2e8f0;
-  color: var(--muted);
-}
-
-.field-required {
-  background: #fdf0e7;
-  color: #b54708;
-}
-
-.field-optional {
-  color: #84918f;
-}
-
+/* ===== Inputs ===== */
 .text-input {
-  width: 100%;
-  height: 36px;
+  width: 100%; height: 36px;
   padding: 0 10px;
   border: 1px solid #d0d5dd;
   border-radius: 6px;
   background: #ffffff;
   color: var(--ink);
-  font: inherit;
-  font-size: 13px;
+  font: inherit; font-size: 13px;
   outline: none;
   transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
-
 .text-input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
 }
 
 .chip-grid {
@@ -392,12 +439,7 @@ const emit = defineEmits<{
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
 }
-
-.chip-grid.compact {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-
+.chip-grid.compact { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 
 .select-chip {
   min-height: 33px;
@@ -406,17 +448,11 @@ const emit = defineEmits<{
   border-radius: 6px;
   background: #ffffff;
   color: #334155;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
+  font: inherit; font-size: 12px; font-weight: 600;
   cursor: pointer;
   transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
 }
-
-.select-chip:hover {
-  border-color: var(--accent);
-}
-
+.select-chip:hover { border-color: var(--accent); }
 .select-chip.active {
   border-color: var(--accent);
   background: var(--accent-soft);
@@ -424,46 +460,21 @@ const emit = defineEmits<{
 }
 
 .field-subrow {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
   margin-top: 10px;
   color: var(--muted);
   font-size: 11px;
 }
-
-.field-subrow span:first-child {
-  color: #0f172a;
-  font-weight: 700;
-}
+.field-subrow span:first-child { color: #0f172a; font-weight: 700; }
 
 .custom-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 58px;
   gap: 7px;
   margin-top: 7px;
-}
-
-.mini-btn,
-.secondary-action {
-  border: 1px solid #d0d5dd;
-  border-radius: 6px;
-  background: #ffffff;
-  color: #334155;
-  font: inherit;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.mini-btn {
-  height: 36px;
-  padding: 0 9px;
-}
-
-.mini-btn:hover,
-.secondary-action:hover {
-  border-color: var(--accent);
-  color: #4338ca;
 }
 
 .check-row {
@@ -475,15 +486,9 @@ const emit = defineEmits<{
   font-size: 13px;
   font-weight: 600;
 }
+.check-row input { width: 16px; height: 16px; accent-color: var(--accent); }
 
-.check-row input {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--accent);
-}
-
-
-
+/* ===== Schema empty ===== */
 .schema-empty {
   display: flex;
   flex-direction: column;
@@ -498,29 +503,46 @@ const emit = defineEmits<{
   font-size: 12px;
   line-height: 1.55;
 }
+.schema-action { height: 30px; margin-top: 2px; }
 
-.schema-action {
-  height: 30px;
-  margin-top: 2px;
-}
-
+/* ===== Generate submit area ===== */
 .generate-submit {
   margin-top: 16px;
   padding-top: 12px;
   border-top: 1px solid var(--line);
 }
-
 .submit-actions {
+  display: flex;
+  align-items: center;
   gap: 7px;
   margin-bottom: 8px;
 }
 
+.mini-btn,
 .secondary-action {
-  flex: 1;
-  height: 34px;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #334155;
+  font: inherit; font-size: 11px; font-weight: 600;
+  cursor: pointer;
 }
+.mini-btn { height: 36px; padding: 0 9px; }
+.secondary-action { flex: 1; height: 34px; }
+.mini-btn:hover,
+.secondary-action:hover { border-color: var(--accent); color: #4338ca; }
+
+/* Example button: slightly more prominent */
+.secondary-action-example {
+  border-color: #c7d2fe;
+  color: #4f46e5;
+  background: #f5f3ff;
+}
+.secondary-action-example:hover { background: var(--accent-soft); border-color: #818cf8; }
 
 .generate-cta {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
   width: 100%;
   min-height: 42px;
@@ -529,42 +551,37 @@ const emit = defineEmits<{
   border-radius: 8px;
   background: linear-gradient(135deg, #4f46e5, #6366f1);
   color: #ffffff;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 700;
+  font: inherit; font-size: 13px; font-weight: 700;
   cursor: pointer;
   transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
 }
-
 .generate-cta:hover:not(:disabled) {
   border-color: #4338ca;
   background: linear-gradient(135deg, #4338ca, #4f46e5);
   transform: translateY(-1px);
 }
-
 .generate-cta:disabled,
 .secondary-action:disabled,
-.mini-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.46;
-}
+.mini-btn:disabled { cursor: not-allowed; opacity: 0.46; }
 
-.generate-submit p {
-  margin: 8px 0 0;
-  color: #84918f;
-  font-size: 11px;
-  line-height: 1.45;
+/* ===== Enhanced hint callout ===== */
+.generate-hint-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 9px;
+  padding: 8px 11px;
+  border: 1px solid #fed7aa;
+  border-radius: 7px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 12px;
+  line-height: 1.5;
 }
+.generate-hint-callout svg { flex-shrink: 0; margin-top: 1px; color: #f97316; }
 
 @media (max-width: 900px) {
-  .input-panel {
-    position: static;
-  }
-
-  .field-subrow {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 2px;
-  }
+  .input-panel { position: static; }
+  .field-subrow { align-items: flex-start; flex-direction: column; gap: 2px; }
 }
 </style>

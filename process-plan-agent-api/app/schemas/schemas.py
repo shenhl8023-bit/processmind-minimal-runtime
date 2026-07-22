@@ -2,6 +2,8 @@
 Pydantic 响应与请求模型
 """
 from pydantic import BaseModel, Field
+
+from app.services.rule_packages.condition_contracts import RuleConditionReview
 from typing import Optional, List, Any, Dict
 from datetime import datetime
 
@@ -262,6 +264,7 @@ class SegmentRuleReviewOut(BaseModel):
     note: str = ""
     summary_lines: List[str] = []
     question_trail: List[Dict[str, str]] = []
+    condition_review: Optional[RuleConditionReview] = None
     created_at: datetime
     updated_at: datetime
 

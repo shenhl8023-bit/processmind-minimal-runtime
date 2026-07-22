@@ -31,6 +31,7 @@ declare module 'vue' {
     RouteProgressCard: typeof import('./components/extract/RouteProgressCard.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    RuleConditionNodeEditor: typeof import('./components/finalize/RuleConditionNodeEditor.vue')['default']
     SampleComparePanel: typeof import('./components/analysis/SampleComparePanel.vue')['default']
     SourceRoutePanel: typeof import('./components/extract/SourceRoutePanel.vue')['default']
     UploadMainFileCard: typeof import('./components/upload/UploadMainFileCard.vue')['default']

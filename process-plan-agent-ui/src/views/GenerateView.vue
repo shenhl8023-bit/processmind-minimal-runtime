@@ -119,6 +119,8 @@
         :can-generate="canGenerate"
         :generating="generating"
         @download="downloadOutputJson"
+        @go-finalize="goFinalize"
+        @fill-example="fillExampleValues"
       />
     </div>
 

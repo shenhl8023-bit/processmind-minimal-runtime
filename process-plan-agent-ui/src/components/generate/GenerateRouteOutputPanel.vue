@@ -23,51 +23,79 @@
       <p class="placeholder-copy">完成左侧条件输入后，这里将呈现可审查的工艺路线、工序工步树与导出结果。</p>
 
       <div class="readiness-list">
+        <!-- Step 1: Rule Package -->
         <div class="readiness-item" :class="{ ready: hasRulePackage }">
-          <span class="readiness-index">01</span>
+          <span class="readiness-index">
+            <svg v-if="hasRulePackage" width="12" height="12" viewBox="0 0 16 16" fill="none">
+              <path d="M3 8l4 4 6-7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span v-else>01</span>
+          </span>
           <div>
             <strong>规则包</strong>
             <span>{{ hasRulePackage ? '已加载最终定稿规则' : '等待第4步导出规则包' }}</span>
           </div>
-          <span class="readiness-state">{{ hasRulePackage ? '就绪' : '待处理' }}</span>
+          <div class="readiness-action-cell">
+            <span class="readiness-state">{{ hasRulePackage ? '就绪' : '待处理' }}</span>
+            <button v-if="!hasRulePackage" class="readiness-link-btn" type="button" @click="emit('go-finalize')">去导出 →</button>
+          </div>
         </div>
+
+        <!-- Step 2: Part Conditions -->
         <div class="readiness-item" :class="{ ready: canGenerate }">
-          <span class="readiness-index">02</span>
+          <span class="readiness-index">
+            <svg v-if="canGenerate" width="12" height="12" viewBox="0 0 16 16" fill="none">
+              <path d="M3 8l4 4 6-7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span v-else>02</span>
+          </span>
           <div>
             <strong>零件条件</strong>
             <span>已填写 {{ filledFieldCount }} / {{ inputFieldCount }} 个输入字段</span>
           </div>
-          <span class="readiness-state">{{ canGenerate ? '就绪' : '待补全' }}</span>
+          <div class="readiness-action-cell">
+            <span class="readiness-state">{{ canGenerate ? '就绪' : '待补全' }}</span>
+            <button v-if="!canGenerate && hasRulePackage" class="readiness-link-btn" type="button" @click="emit('fill-example')">填示例 →</button>
+          </div>
         </div>
-        <div class="readiness-item">
+
+        <!-- Step 3: Route Generation -->
+        <div class="readiness-item" :class="{ ready: false }">
           <span class="readiness-index">03</span>
           <div>
             <strong>生成路线</strong>
             <span>系统将输出工序顺序与下级工步</span>
           </div>
-          <span class="readiness-state">等待</span>
+          <div class="readiness-action-cell">
+            <span class="readiness-state">等待</span>
+          </div>
         </div>
       </div>
     </section>
 
     <section v-else class="route-output">
+      <!-- Result Summary Banner -->
+      <div class="result-summary-banner">
+        <div class="banner-left">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+            <path d="M22 4L12 14.01l-3-3"/>
+          </svg>
+          <span>工艺路线生成成功！包含 <strong>{{ result.steps.length }}</strong> 道工序（主线 <strong>{{ mainStepCount }}</strong> / 条件 <strong>{{ branchStepCount }}</strong>），工步累计 <strong>{{ processStepCount }}</strong> 项。</span>
+        </div>
+      </div>
+
       <div class="output-head">
         <div class="output-head-left">
           <span class="output-title">工序工步树</span>
-          <div class="output-stats-inline">
-            <span class="stat-inline-item">工序 <strong>{{ result.steps.length }}</strong></span>
-            <span class="stat-inline-sep">/</span>
-            <span class="stat-inline-item">主线 <strong>{{ mainStepCount }}</strong></span>
-            <span class="stat-inline-sep">/</span>
-            <span class="stat-inline-item">条件 <strong>{{ branchStepCount }}</strong></span>
-            <span class="stat-inline-sep">/</span>
-            <span class="stat-inline-item">工步 <strong>{{ processStepCount }}</strong></span>
-          </div>
         </div>
-        <button class="export-button" type="button" @click="emit('download')" :disabled="!result.output_json_text">导出 JSON</button>
+        <div class="output-actions">
+          <button class="copy-button" type="button" @click="copyJson" :disabled="!result.output_json_text">
+            {{ copied ? '已复制 ✓' : '复制 JSON' }}
+          </button>
+          <button class="export-button" type="button" @click="emit('download')" :disabled="!result.output_json_text">导出 JSON</button>
+        </div>
       </div>
-
-
 
       <div class="route-tree">
         <div v-for="(step, index) in result.steps" :key="`${step.name}-${index}`" class="route-node">
@@ -81,7 +109,9 @@
                 <span class="route-seq" :class="{ 'route-seq--active': step.op_type === 'MAIN' }">{{ displayStepSequence(step, index) }}</span>
                 <h3>{{ step.name }}</h3>
               </div>
-              <span class="route-kind" :class="{ branch: step.op_type !== 'MAIN' }">{{ step.op_type === 'MAIN' ? '主线工序' : '条件工序' }}</span>
+              <span class="route-kind" :class="{ branch: step.op_type !== 'MAIN' }">
+                {{ step.op_type === 'MAIN' ? '主线工序' : '条件工序' }}
+              </span>
             </div>
             <div v-if="normalizedProcessSteps(step).length" class="route-step-area">
               <button
@@ -157,6 +187,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (event: 'download'): void
+  (event: 'go-finalize'): void
+  (event: 'fill-example'): void
 }>()
 
 const mainStepCount = computed(() => props.result?.steps.filter(step => step.op_type === 'MAIN').length || 0)
@@ -168,6 +200,7 @@ const processStepCount = computed(() => (
 type GeneratedStep = NonNullable<GenerateRouteResult['steps']>[number]
 
 const collapsedProcessStepKeys = ref<Set<string>>(new Set())
+const copied = ref(false)
 
 function processStepKey(step: GeneratedStep, index: number) {
   return `${displayStepSequence(step, index)}:${step.name}:${index}`
@@ -189,8 +222,20 @@ function toggleProcessSteps(step: GeneratedStep, index: number) {
   collapsedProcessStepKeys.value = next
 }
 
+async function copyJson() {
+  if (!props.result?.output_json_text) return
+  try {
+    await navigator.clipboard.writeText(props.result.output_json_text)
+    copied.value = true
+    setTimeout(() => { copied.value = false }, 2000)
+  } catch (e) {
+    console.error('Failed to copy json', e)
+  }
+}
+
 watch(() => props.result, () => {
   collapsedProcessStepKeys.value = new Set()
+  copied.value = false
 })
 </script>
 
@@ -210,24 +255,10 @@ watch(() => props.result, () => {
   box-shadow: var(--shadow-sm);
 }
 
-.result-panel::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-.result-panel::-webkit-scrollbar-track {
-  background: #f8fafc;
-  border-radius: 6px;
-}
-
-.result-panel::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 6px;
-}
-
-.result-panel::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
-}
+.result-panel::-webkit-scrollbar { width: 6px; height: 6px; }
+.result-panel::-webkit-scrollbar-track { background: #f8fafc; border-radius: 6px; }
+.result-panel::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 6px; }
+.result-panel::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
 .route-placeholder {
   min-height: 604px;
@@ -300,11 +331,12 @@ watch(() => props.result, () => {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 10px;
   font-weight: 700;
+  transition: all 0.2s ease;
 }
 
 .readiness-item.ready .readiness-index {
-  border-color: #6366f1;
-  background: #6366f1;
+  border-color: #22c55e;
+  background: #22c55e;
   color: #ffffff;
 }
 
@@ -330,6 +362,12 @@ watch(() => props.result, () => {
   line-height: 1.45;
 }
 
+.readiness-action-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .readiness-state {
   color: var(--muted);
   font-size: 12px;
@@ -337,7 +375,23 @@ watch(() => props.result, () => {
 }
 
 .readiness-item.ready .readiness-state {
-  color: var(--accent);
+  color: #16a34a;
+}
+
+.readiness-link-btn {
+  padding: 2px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #4f46e5;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.readiness-link-btn:hover {
+  background: #eef2ff;
+  border-color: #6366f1;
 }
 
 .generating-state {
@@ -394,23 +448,31 @@ watch(() => props.result, () => {
   font-weight: 800;
 }
 
-.error-panel strong {
-  display: block;
-  font-size: 12px;
-}
+.error-panel strong { display: block; font-size: 12px; }
+.error-panel p { margin: 2px 0 0; font-size: 12px; line-height: 1.5; }
 
-.error-panel p {
-  margin: 2px 0 0;
-  font-size: 12px;
-  line-height: 1.5;
-}
+.route-output { padding: 16px; }
 
-.route-output {
-  /* 与左侧 .input-panel 内边距一致，标题底线才能水平对齐 */
-  padding: 16px;
+/* Result Summary Banner */
+.result-summary-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
+  color: #166534;
+  font-size: 12.5px;
 }
+.banner-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.banner-left svg { flex-shrink: 0; color: #16a34a; }
 
-/* 以左侧「输入条件」标题栏为基准：同高度、同底边距、同分割线 */
 .output-head {
   display: flex;
   align-items: center;
@@ -451,13 +513,33 @@ watch(() => props.result, () => {
   color: var(--muted);
 }
 
-.stat-inline-item strong {
-  color: var(--ink);
-  font-weight: 700;
+.stat-inline-item strong { color: var(--ink); font-weight: 700; }
+.stat-inline-sep { color: #cbd5e1; }
+
+.output-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.stat-inline-sep {
-  color: #cbd5e1;
+.copy-button {
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 11px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #475569;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.copy-button:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  color: #0f172a;
 }
 
 .export-button {
@@ -473,30 +555,16 @@ watch(() => props.result, () => {
   font-weight: 750;
   line-height: 1;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
-
 .export-button:hover:not(:disabled) {
   border-color: #6366f1;
   background: var(--accent-soft);
 }
-
-.export-button:disabled {
+.export-button:disabled, .copy-button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }
-
-.route-summary {
-  margin: 16px 0 0;
-  padding: 10px 12px;
-  border-left: 3px solid #6366f1;
-  border-radius: 6px;
-  background: var(--panel);
-  color: #334155;
-  font-size: 12px;
-  line-height: 1.65;
-}
-
-
 
 .route-tree {
   display: flex;
@@ -555,6 +623,7 @@ watch(() => props.result, () => {
 
 .route-card.branch {
   border-left-color: #8b5cf6;
+  background: #faf8ff;
 }
 
 .route-card:hover {
@@ -736,30 +805,10 @@ watch(() => props.result, () => {
 }
 
 @media (max-width: 700px) {
-  .route-placeholder {
-    padding: 24px 16px;
-  }
-
-  .route-output {
-    padding: 16px;
-  }
-
-  .route-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .output-head {
-    align-items: center;
-    flex-wrap: wrap;
-  }
-
-  .route-name-row {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .route-kind {
-    align-self: flex-start;
-  }
+  .route-placeholder { padding: 24px 16px; }
+  .route-output { padding: 16px; }
+  .output-head { align-items: center; flex-wrap: wrap; }
+  .route-name-row { align-items: flex-start; flex-direction: column; }
+  .route-kind { align-self: flex-start; }
 }
 </style>

@@ -3,6 +3,7 @@ import { answersFromTrail, normalizeQuestionNodeId } from '@/composables/analysi
 import { buildResultSummary } from '@/composables/analysisQuestionTreeNodes'
 import type { FactorCandidate } from '@/components/analysis/types'
 import type { OperationItem, SavedNormalizedRouteSegment } from '@/api'
+import type { RuleConditionReview } from '@/api/rulePackages'
 import {
   buildFinalizeMainlineSentence,
   buildFinalizeTriggerSentence,
@@ -25,6 +26,8 @@ export type FinalizeCard = {
   userAnswerContextLabels: string[]
   systemFactorLabels: string[]
   conditionText: string
+  defaultConditionText: string
+  conditionReview: RuleConditionReview | null
   edited: boolean
   rawRuleLines: string[]
   availableFactors: FactorCandidate[]
@@ -257,6 +260,8 @@ export function buildFinalizeCards(
     const userAnswerLabels = draft ? draft.userAnswerLabels : detailLabels
     const userAnswerContextLabels = draft ? draft.userAnswerContextLabels : contextLabels
     const systemFactorLabels = factorLabels.filter(label => !userAnswerLabels.includes(label))
+    const defaultConditionText = buildUserFirstCondition(segment.normalized_step_name, userAnswerLabels, userAnswerContextLabels, factorNames, segment)
+    const conditionReview = segment.rule_review?.condition_review || null
     return {
       segment,
       factorNames,
@@ -264,7 +269,9 @@ export function buildFinalizeCards(
       userAnswerLabels,
       userAnswerContextLabels,
       systemFactorLabels,
-      conditionText: (draft?.conditionText || '').trim() || buildUserFirstCondition(segment.normalized_step_name, userAnswerLabels, userAnswerContextLabels, factorNames, segment),
+      conditionText: (draft?.conditionText || '').trim() || conditionReview?.source_text?.trim() || defaultConditionText,
+      defaultConditionText,
+      conditionReview,
       edited: !!draft,
       rawRuleLines: buildRawRuleLines(segment, factorNames, userAnswerLabels, userAnswerContextLabels),
       availableFactors,

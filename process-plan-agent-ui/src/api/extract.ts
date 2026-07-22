@@ -190,6 +190,7 @@ export interface SegmentRuleReview {
     value: string
     label: string
   }>
+  condition_review?: import('./rulePackages').RuleConditionReview | null
   created_at: string
   updated_at: string
 }

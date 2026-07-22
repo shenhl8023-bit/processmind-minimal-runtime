@@ -1,7 +1,7 @@
 """
 ORM 数据模型 —— 对应 database_schema.md 中设计的核心表
 """
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.database import Base
@@ -256,6 +256,16 @@ class NormalizedRouteSegmentRuleReview(Base):
     note = Column(Text)
     summary_json = Column(Text)
     question_trail_json = Column(Text)
+    condition_source_text = Column(Text)
+    condition_source_hash = Column(String(64))
+    condition_status = Column(String(30), default="draft")
+    condition_candidate_json = Column(Text)
+    condition_confirmed_json = Column(Text)
+    condition_confidence = Column(Float)
+    condition_issues_json = Column(Text)
+    condition_field_registry_version = Column(String(20))
+    condition_confirmed_by = Column(String(100))
+    condition_confirmed_at = Column(DateTime)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 

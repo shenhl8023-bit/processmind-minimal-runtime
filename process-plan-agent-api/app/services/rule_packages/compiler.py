@@ -24,6 +24,6 @@ def compile_rule_package(request: CompileRulePackageRequest) -> RulePackageV2:
         ),
         input_schema=InputSchemaV2(fields=request.fields),
         route_catalog=RouteCatalogV2(processes=request.processes),
-        route_rules=RouteRulesV2(rules=request.rules),
+        route_rules=RouteRulesV2(rules=request.rules, process_relations=request.process_relations),
         test_cases=request.test_cases,
     )

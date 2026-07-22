@@ -53,3 +53,86 @@ def test_kmai_export_rejects_not_condition(rule_package_v2_payload):
 
     assert exported.valid is False
     assert exported.errors[0].code == "kmai_condition_unsupported"
+
+
+def test_kmai_export_preserves_trigger_after_relation(rule_package_v2_payload):
+    payload = deepcopy(rule_package_v2_payload)
+    payload["route_rules"]["process_relations"] = [{
+        "relation_id": "relation.quench.inspect",
+        "relation_type": "trigger_after",
+        "source_process_ids": ["process_quench"],
+        "target_process_ids": ["process_nitriding"],
+        "enabled": True,
+    }]
+    package = RulePackageV2.model_validate(payload)
+
+    exported = build_kmai_compatibility_export(package)
+
+    catalog = exported.files["route_catalog.json"]
+    assert catalog["process_relations"][0]["relation_type"] == "trigger_after"
+    assert catalog["post_stage_bundles"] == [{
+        "bundle_id": "relation.quench.inspect",
+        "trigger_mode": "any",
+        "trigger_process_keys": ["process_quench"],
+        "include_process_keys": ["process_nitriding"],
+        "must_run_after_process_keys": ["process_quench"],
+        "enabled": True,
+        "note": "",
+    }]
+
+
+def test_kmai_export_keeps_custom_special_requirement_as_manual_boolean_factor(rule_package_v2_payload):
+    payload = deepcopy(rule_package_v2_payload)
+    payload["input_schema"]["fields"].append({
+        "key": "special.requirements",
+        "label": "特殊要求",
+        "type": "multi_select",
+        "required": False,
+        "source": "人工补充/图样技术要求",
+        "options": [{"value": "镀铜要求", "label": "镀铜要求"}],
+        "allow_custom": True,
+    })
+    payload["route_rules"]["rules"].append({
+        "rule_id": "user.copper",
+        "priority": 1000,
+        "enabled": True,
+        "source": "user_confirmed",
+        "when": {"field": "special.requirements", "op": "contains", "value": "镀铜要求"},
+        "then": {"include_process_ids": ["process_nitriding"], "exclude_process_ids": []},
+    })
+    package = RulePackageV2.model_validate(payload)
+
+    exported = build_kmai_compatibility_export(package)
+
+    assert exported.valid is True
+    dynamic_factor = next(
+        factor for factor in exported.files["factor_schema.json"]["factors"]
+        if factor["name"] == "特殊要求：镀铜要求"
+    )
+    assert dynamic_factor["value_type"] == "boolean"
+    assert dynamic_factor["source_mode"] == "manual_override"
+    rule = next(rule for rule in exported.files["route_rules.json"]["rules"] if rule["rule_id"] == "user.copper")
+    assert rule["when"]["all"] == [{"factor_key": dynamic_factor["factor_key"], "op": "=", "value": True}]
+
+
+def test_kmai_export_maps_nondestructive_testing_to_its_fixed_factor(rule_package_v2_payload):
+    payload = deepcopy(rule_package_v2_payload)
+    payload["route_rules"]["rules"].append({
+        "rule_id": "special.ndt",
+        "priority": 70,
+        "enabled": True,
+        "source": "system_static",
+        "when": {"field": "special.requirements", "op": "contains", "value": "无损检测要求"},
+        "then": {"include_process_ids": ["process_nitriding"], "exclude_process_ids": []},
+    })
+    package = RulePackageV2.model_validate(payload)
+
+    exported = build_kmai_compatibility_export(package)
+
+    assert exported.valid is True
+    assert any(
+        factor["factor_key"] == "needs_ndt_inspection"
+        for factor in exported.files["factor_schema.json"]["factors"]
+    )
+    rule = next(rule for rule in exported.files["route_rules.json"]["rules"] if rule["rule_id"] == "special.ndt")
+    assert rule["when"]["all"] == [{"factor_key": "needs_ndt_inspection", "op": "=", "value": True}]

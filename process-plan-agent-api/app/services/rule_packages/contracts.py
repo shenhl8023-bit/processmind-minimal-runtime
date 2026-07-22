@@ -148,13 +148,44 @@ class RuleV2(StrictModel):
     rule_id: str = Field(min_length=1)
     priority: int = 0
     enabled: bool = True
+    source: Literal["system_static", "user_confirmed"] = "system_static"
+    source_segment_id: str = ""
+    source_text: str = ""
+    confirmed_by: str = ""
+    confirmed_at: str = ""
     when: ConditionNode
     then: RuleAction
+
+
+ProcessRelationType = Literal["trigger_after", "order_after", "requires", "conflicts"]
+
+
+class ProcessRelationV2(StrictModel):
+    relation_id: str = Field(min_length=1)
+    relation_type: ProcessRelationType
+    source_process_ids: list[str] = Field(min_length=1)
+    target_process_ids: list[str] = Field(min_length=1)
+    source_match: Literal["any", "all"] = "any"
+    enabled: bool = True
+    source: Literal["system_static", "user_confirmed"] = "system_static"
+    source_segment_id: str = ""
+    source_text: str = ""
+    confirmed_by: str = ""
+    confirmed_at: str = ""
+    reason: str = ""
+
+    @model_validator(mode="after")
+    def validate_relation(self):
+        overlap = set(self.source_process_ids) & set(self.target_process_ids)
+        if overlap:
+            raise ValueError(f"process relation cannot reference itself: {', '.join(sorted(overlap))}")
+        return self
 
 
 class RouteRulesV2(StrictModel):
     schema_version: Literal["2.0"] = "2.0"
     rules: list[RuleV2] = Field(default_factory=list)
+    process_relations: list[ProcessRelationV2] = Field(default_factory=list)
 
 
 class Applicability(StrictModel):
@@ -209,6 +240,7 @@ class CompileRulePackageRequest(StrictModel):
     fields: list[InputField]
     processes: list[ProcessV2]
     rules: list[RuleV2] = Field(default_factory=list)
+    process_relations: list[ProcessRelationV2] = Field(default_factory=list)
     test_cases: list[RulePackageTestCase] = Field(default_factory=list)
 
 

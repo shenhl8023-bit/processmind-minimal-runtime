@@ -43,12 +43,13 @@ def _expand_required_processes(
     decisions: dict[str, _Decision],
     process_map: dict[str, Any],
     reasons: dict[str, str],
+    relation_requires: dict[str, set[str]],
 ) -> None:
     pending = list(selected)
     while pending:
         process_id = pending.pop()
         process = process_map[process_id]
-        for required_id in process.constraints.requires:
+        for required_id in [*process.constraints.requires, *sorted(relation_requires.get(process_id, set()))]:
             required_decision = decisions.get(required_id)
             if required_decision and required_decision.action == "exclude":
                 raise RoutePlanningError(
@@ -60,15 +61,26 @@ def _expand_required_processes(
                 pending.append(required_id)
 
 
-def _assert_no_selected_conflicts(selected: set[str], process_map: dict[str, Any]) -> None:
+def _assert_no_selected_conflicts(
+    selected: set[str],
+    process_map: dict[str, Any],
+    relation_conflicts: dict[str, set[str]],
+) -> None:
     for process_id in sorted(selected):
-        conflicts = selected & set(process_map[process_id].constraints.conflicts_with)
+        conflicts = selected & (
+            set(process_map[process_id].constraints.conflicts_with)
+            | relation_conflicts.get(process_id, set())
+        )
         if conflicts:
             other = sorted(conflicts)[0]
             raise RoutePlanningError(f"工序 {process_id} 与 {other} 不能同时进入路线")
 
 
-def _topological_process_order(selected: set[str], process_map: dict[str, Any]) -> list[str]:
+def _topological_process_order(
+    selected: set[str],
+    process_map: dict[str, Any],
+    relation_after: dict[str, set[str]],
+) -> list[str]:
     edges: dict[str, set[str]] = {process_id: set() for process_id in selected}
     indegree = {process_id: 0 for process_id in selected}
 
@@ -87,6 +99,8 @@ def _topological_process_order(selected: set[str], process_map: dict[str, Any]) 
             add_edge(before_id, process_id)
         for after_id in constraints.must_run_before:
             add_edge(process_id, after_id)
+        for before_id in relation_after.get(process_id, set()):
+            add_edge(before_id, process_id)
 
     ready: list[tuple[int, str]] = []
     for process_id, degree in indegree.items():
@@ -116,6 +130,27 @@ def plan_route(package: RulePackageV2, inputs: dict[str, Any]) -> RoutePlan:
     reasons = {process_id: "主线工序" for process_id in selected}
     decisions: dict[str, _Decision] = {}
     traces: list[RuleExecutionTrace] = []
+    relation_requires: dict[str, set[str]] = {}
+    relation_after: dict[str, set[str]] = {}
+    relation_conflicts: dict[str, set[str]] = {}
+
+    def add_relation(mapping: dict[str, set[str]], target_id: str, source_ids: list[str]) -> None:
+        mapping.setdefault(target_id, set()).update(source_ids)
+
+    for relation in package.route_rules.process_relations:
+        if not relation.enabled:
+            continue
+        if relation.relation_type in {"trigger_after", "order_after", "requires"}:
+            for target_id in relation.target_process_ids:
+                add_relation(relation_after, target_id, relation.source_process_ids)
+        if relation.relation_type == "requires":
+            for target_id in relation.target_process_ids:
+                add_relation(relation_requires, target_id, relation.source_process_ids)
+        if relation.relation_type == "conflicts":
+            for source_id in relation.source_process_ids:
+                for target_id in relation.target_process_ids:
+                    relation_conflicts.setdefault(source_id, set()).add(target_id)
+                    relation_conflicts.setdefault(target_id, set()).add(source_id)
 
     for rule in sorted(package.route_rules.rules, key=lambda item: (-item.priority, item.rule_id)):
         if not rule.enabled:
@@ -145,9 +180,33 @@ def plan_route(package: RulePackageV2, inputs: dict[str, Any]) -> RoutePlan:
             selected.discard(process_id)
             reasons.pop(process_id, None)
 
-    _expand_required_processes(selected, decisions, process_map, reasons)
-    _assert_no_selected_conflicts(selected, process_map)
-    ordered_ids = _topological_process_order(selected, process_map)
+    changed = True
+    while changed:
+        changed = False
+        for relation in package.route_rules.process_relations:
+            if not relation.enabled or relation.relation_type != "trigger_after":
+                continue
+            source_selected = (
+                all(process_id in selected for process_id in relation.source_process_ids)
+                if relation.source_match == "all"
+                else any(process_id in selected for process_id in relation.source_process_ids)
+            )
+            if not source_selected:
+                continue
+            for target_id in relation.target_process_ids:
+                excluded = decisions.get(target_id)
+                if excluded and excluded.action == "exclude":
+                    raise RoutePlanningError(
+                        f"工序关系 {relation.relation_id} 需要纳入 {target_id}，但规则 {excluded.rule_id} 将其排除"
+                    )
+                if target_id not in selected:
+                    selected.add(target_id)
+                    reasons[target_id] = relation.reason or f"由关联工序 {relation.relation_id} 触发"
+                    changed = True
+
+    _expand_required_processes(selected, decisions, process_map, reasons, relation_requires)
+    _assert_no_selected_conflicts(selected, process_map, relation_conflicts)
+    ordered_ids = _topological_process_order(selected, process_map, relation_after)
 
     steps = []
     for index, process_id in enumerate(ordered_ids, start=1):

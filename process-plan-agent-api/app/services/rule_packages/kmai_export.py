@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from itertools import product
 from typing import Any
@@ -44,6 +45,7 @@ _FACTOR_SPECS: tuple[tuple[str, str, str, str, str], ...] = (
     ("F023", "needs_marking", "标印/标刻", "inspection_marking", "boolean"),
     ("F024", "needs_crack_inspection", "裂纹检测", "inspection_marking", "boolean"),
     ("F025", "needs_burn_inspection", "烧伤检查", "inspection_marking", "boolean"),
+    ("F026", "needs_ndt_inspection", "无损检测", "inspection_marking", "boolean"),
 )
 
 
@@ -65,6 +67,7 @@ _VALUE_FACTOR_MAP: dict[tuple[str, str], str] = {
     ("special.requirements", "铬酸阳极化要求"): "needs_chromic_acid_anodizing",
     ("special.requirements", "硬质阳极化要求"): "needs_hard_anodizing",
     ("special.requirements", "追溯标印"): "needs_marking",
+    ("special.requirements", "无损检测要求"): "needs_ndt_inspection",
     ("special.requirements", "磁粉检查要求"): "needs_crack_inspection",
     ("special.requirements", "烧伤检查要求"): "needs_burn_inspection",
 }
@@ -217,6 +220,10 @@ def _factor_expansion_rules(package: RulePackageV2) -> dict[str, Any]:
         ("PM-MAN-011", "inspection_items", "contains", "裂纹检测", "needs_crack_inspection"),
         ("PM-MAN-012", "inspection_items", "contains", "磁粉检查", "needs_crack_inspection"),
         ("PM-MAN-013", "inspection_items", "contains", "烧伤检查", "needs_burn_inspection"),
+        ("PM-MAN-014", "inspection_items", "contains", "无损检测", "needs_ndt_inspection"),
+        ("PM-MAN-015", "inspection_items", "contains", "磁粉检查", "needs_ndt_inspection"),
+        ("PM-MAN-016", "inspection_items", "contains", "裂纹检查", "needs_ndt_inspection"),
+        ("PM-MAN-017", "inspection_items", "contains", "荧光检查", "needs_ndt_inspection"),
     )
     for rule_id, field, op, value, factor_key in manual_rules:
         rules.append(
@@ -271,6 +278,22 @@ def _fallback_steps(name: str) -> list[str]:
 def _route_catalog(package: RulePackageV2) -> tuple[dict[str, Any], dict[str, str]]:
     processes: list[dict[str, Any]] = []
     process_keys: dict[str, str] = {}
+    relation_requires: dict[str, set[str]] = {}
+    relation_after: dict[str, set[str]] = {}
+    relation_conflicts: dict[str, set[str]] = {}
+    for relation in package.route_rules.process_relations:
+        if not relation.enabled:
+            continue
+        for target_id in relation.target_process_ids:
+            if relation.relation_type in {"trigger_after", "order_after", "requires"}:
+                relation_after.setdefault(target_id, set()).update(relation.source_process_ids)
+            if relation.relation_type == "requires":
+                relation_requires.setdefault(target_id, set()).update(relation.source_process_ids)
+        if relation.relation_type == "conflicts":
+            for source_id in relation.source_process_ids:
+                for target_id in relation.target_process_ids:
+                    relation_conflicts.setdefault(source_id, set()).add(target_id)
+                    relation_conflicts.setdefault(target_id, set()).add(source_id)
     for index, process in enumerate(package.route_catalog.processes, start=1):
         process_key = process.process_id
         process_keys[process.process_id] = process_key
@@ -285,6 +308,10 @@ def _route_catalog(package: RulePackageV2) -> tuple[dict[str, Any], dict[str, st
                 "sequence": process.default_sequence,
                 "enabled": True,
                 "default_included": process.main,
+                "requires_process_keys": sorted(set(process.constraints.requires) | relation_requires.get(process.process_id, set())),
+                "must_run_after_process_keys": sorted(set(process.constraints.must_run_after) | relation_after.get(process.process_id, set())),
+                "must_run_before_process_keys": sorted(process.constraints.must_run_before),
+                "conflicts_with_process_keys": sorted(set(process.constraints.conflicts_with) | relation_conflicts.get(process.process_id, set())),
                 "steps": [
                     {
                         "step_key": f"{process_key}_s{step_index:02d}",
@@ -295,13 +322,39 @@ def _route_catalog(package: RulePackageV2) -> tuple[dict[str, Any], dict[str, st
                 ],
             }
         )
+    relation_payload = [
+        {
+            "relation_id": relation.relation_id,
+            "relation_type": relation.relation_type,
+            "source_match": relation.source_match,
+            "source_process_keys": relation.source_process_ids,
+            "target_process_keys": relation.target_process_ids,
+            "enabled": relation.enabled,
+            "note": relation.reason,
+        }
+        for relation in package.route_rules.process_relations
+    ]
+    post_stage_bundles = [
+        {
+            "bundle_id": relation.relation_id,
+            "trigger_mode": relation.source_match,
+            "trigger_process_keys": relation.source_process_ids,
+            "include_process_keys": relation.target_process_ids,
+            "must_run_after_process_keys": relation.source_process_ids,
+            "enabled": relation.enabled,
+            "note": relation.reason,
+        }
+        for relation in package.route_rules.process_relations
+        if relation.enabled and relation.relation_type == "trigger_after"
+    ]
     return (
         {
             "schema_version": "1.0",
             "dataset_id": f"processmind_project_{package.manifest.project_id}_route_catalog",
             "dataset_name": f"{package.manifest.package_name} - KmAI 工序目录",
             "description": "由 ProcessMind V2 route_catalog.json 自动转换。",
-            "post_stage_bundles": [],
+            "post_stage_bundles": post_stage_bundles,
+            "process_relations": relation_payload,
             "processes": processes,
         },
         process_keys,
@@ -349,6 +402,30 @@ def _dynamic_factor(
     return factor_key
 
 
+def _dynamic_special_requirement_factor(
+    value: str,
+    dynamic_factors: dict[str, dict[str, Any]],
+) -> str:
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+    factor_key = f"processmind_special_{digest}"
+    if factor_key in dynamic_factors:
+        return factor_key
+    dynamic_factors[factor_key] = {
+        "factor_key": factor_key,
+        "factor_id": f"F{900 + len(dynamic_factors):03d}",
+        "name": f"特殊要求：{value}",
+        "category": "processmind_special_requirement",
+        "value_type": "boolean",
+        "multiple": False,
+        "required": False,
+        "source_mode": "manual_override",
+        "default_value": False,
+        "options": [],
+        "description": f"由 ProcessMind 特殊要求“{value}”自动生成；KmAI 需通过 manual.factor_overrides 提供 true/false。",
+    }
+    return factor_key
+
+
 def _leaf_condition(
     package: RulePackageV2,
     node: ConditionNode,
@@ -365,10 +442,21 @@ def _leaf_condition(
 
     if field in {"cad.features", "precision.grades", "special.requirements"}:
         values = node.value if isinstance(node.value, list) else [node.value]
-        factor_keys = [_VALUE_FACTOR_MAP.get((field, str(value))) for value in values]
-        if not all(factor_keys):
-            missing = [str(value) for value, factor_key in zip(values, factor_keys) if not factor_key]
-            raise ValueError(f"字段 {field} 存在 KmAI 未映射值：{', '.join(missing)}")
+        factor_keys: list[str] = []
+        for value in values:
+            factor_key = _VALUE_FACTOR_MAP.get((field, str(value)))
+            if not factor_key and field == "special.requirements":
+                factor_key = _dynamic_special_requirement_factor(str(value), dynamic_factors)
+                warnings.append(
+                    _issue(
+                        "kmai_manual_override_required",
+                        f"特殊要求“{value}”将作为 KmAI 手工布尔因子 {factor_key} 输入。",
+                        path,
+                    )
+                )
+            if not factor_key:
+                raise ValueError(f"字段 {field} 存在 KmAI 未映射值：{value}")
+            factor_keys.append(factor_key)
         leaves = [{"factor_key": factor_key, "op": "=", "value": True} for factor_key in factor_keys]
         if op in {"contains", "eq", "contains_all"}:
             return [leaves]
