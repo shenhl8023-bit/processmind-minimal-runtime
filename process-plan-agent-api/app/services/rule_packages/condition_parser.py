@@ -28,10 +28,6 @@ def _normalized_process_name(value: str) -> str:
     return re.sub(r"[\s“”\"'、，,。；;（）()]", "", str(value or "")).casefold()
 
 
-def _is_nondestructive_inspection_process(value: str) -> bool:
-    return bool(re.search(r"无损|磁粉|裂纹|荧光|探伤", str(value or "")))
-
-
 def _resolve_process_ids(text: str, current_process_id: str, processes: list[RuleConditionProcessOption]) -> list[str]:
     normalized_text = _normalized_process_name(text)
     matched = [
@@ -230,8 +226,6 @@ def _leaf_from_clause(clause: str) -> ConditionNode | None:
 
 
 def _known_special_requirement(text: str, current_process_name: str) -> str | None:
-    if _is_nondestructive_inspection_process(current_process_name):
-        return "无损检测要求"
     if re.search(r"无损|磁粉|裂纹|荧光|探伤", text):
         return "无损检测要求"
     if re.search(r"追溯|编号|批次.{0,6}标识|标识需求", text):
@@ -402,7 +396,10 @@ async def parse_rule_condition(
     current_process_name: str,
     processes: list[RuleConditionProcessOption],
 ) -> tuple[RuleConditionCandidate | None, float | None, list[str]]:
-    local_relation_candidate = None if _is_nondestructive_inspection_process(current_process_name) else _parse_process_relation(
+    # Explicit relationship words in the user's text take precedence over the
+    # target process category. A process can be conditionally included in one
+    # sentence and ordered after another process in a different sentence.
+    local_relation_candidate = _parse_process_relation(
         source_text,
         current_process_id,
         processes,
@@ -422,7 +419,9 @@ async def parse_rule_condition(
     if candidate:
         candidate = _convert_boolean_fields_to_special_requirements(candidate)
         validation_issues = validate_candidate(candidate, processes)
-        expected_special_requirement = _known_special_requirement(source_text, current_process_name)
+        expected_special_requirement = (
+            None if local_relation_candidate else _known_special_requirement(source_text, current_process_name)
+        )
         model_uses_expected_special_requirement = (
             candidate.kind == "condition"
             and candidate.when is not None

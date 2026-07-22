@@ -100,11 +100,11 @@
         <!-- Pending: no candidate yet -->
         <div v-if="!editableCandidate || !candidateMatchesCardMode" class="rule-summary-strip rule-summary-pending">
           <div>
-            <span class="summary-status">{{ conditionBusy ? '正在生成' : editableCandidate ? '待更新候选规则' : '待生成候选规则' }}</span>
-            <p>{{ cardRuleMode === 'relation' ? '工序关系已经明确，可生成关联规则并核对触发与先后关系。' : '条件已经明确，可通过页面顶部批量生成，也可以只生成当前工序。' }}</p>
+            <span class="summary-status" :class="{ 'summary-status-attention': sourceTextChanged }">{{ pendingStatusLabel }}</span>
+            <p>{{ pendingStatusDetail }}</p>
           </div>
           <button class="summary-action" :disabled="conditionBusy" @click="$emit('parse-condition', item)">
-            {{ conditionBusy ? '生成中…' : editableCandidate ? '更新当前候选' : '生成当前候选' }}
+            {{ pendingActionLabel }}
           </button>
         </div>
 
@@ -116,6 +116,12 @@
                 {{ effectiveStatus === 'confirmed' ? '已审核' : '待审核' }}
               </span>
               <strong>{{ candidateSummary }}</strong>
+              <div class="candidate-recognition" aria-label="规则识别依据">
+                <span class="candidate-recognition-label">识别结果</span>
+                <span class="candidate-type-chip" :class="`candidate-type-${candidateRecognition.kind}`">{{ candidateRecognition.label }}</span>
+                <span class="candidate-recognition-divider">依据</span>
+                <span>{{ candidateRecognition.reason }}</span>
+              </div>
             </div>
             <div class="candidate-summary-actions">
               <!-- One-click confirm (no need to expand) -->
@@ -436,6 +442,10 @@ const effectiveStatus = computed(() => {
   if (!review || review.source_text.trim() !== props.item.conditionText.trim()) return 'draft'
   return review.status
 })
+const sourceTextChanged = computed(() => {
+  const review = props.item.conditionReview
+  return Boolean(review?.source_text?.trim() && review.source_text.trim() !== props.item.conditionText.trim())
+})
 const cardRuleMode = computed(() => finalizeRuleMode(props.item))
 const modeLabel = computed(() => ({
   mainline: '主线工序',
@@ -450,6 +460,23 @@ const candidateMatchesCardMode = computed(() => {
   return cardRuleMode.value === 'relation'
     ? candidateKind.value === 'process_relation'
     : candidateKind.value === 'condition'
+})
+const pendingStatusLabel = computed(() => {
+  if (props.conditionBusy) return '正在生成候选规则'
+  if (sourceTextChanged.value) return '原文已修改，需要重新生成'
+  if (editableCandidate.value) return '候选类型需要更新'
+  return '待生成候选规则'
+})
+const pendingStatusDetail = computed(() => {
+  if (sourceTextChanged.value) return '已保存的候选规则对应旧文本，重新生成后会按当前文字重新判断规则类型。'
+  if (editableCandidate.value) return '当前候选与原文识别出的规则类型不一致，请重新生成后再审核。'
+  return cardRuleMode.value === 'relation'
+    ? '原文包含工序关系线索，可生成候选后核对触发和先后关系。'
+    : '原文包含可执行条件，可生成候选后核对字段、取值和目标工序。'
+})
+const pendingActionLabel = computed(() => {
+  if (props.conditionBusy) return '生成中…'
+  return sourceTextChanged.value || editableCandidate.value ? '重新生成候选' : '生成候选'
 })
 const hasRuleAction = computed(() => {
   const candidate = editableCandidate.value
@@ -480,12 +507,53 @@ const candidateSummary = computed(() => {
   ].filter(Boolean).join('；')
   return `${candidate.preview || '已调整结构化条件'} → ${actions}`
 })
+const candidateRecognition = computed(() => {
+  const candidate = editableCandidate.value
+  const text = props.item.conditionText
+  if ((candidate?.kind || 'condition') === 'process_relation') {
+    const type = candidate?.relation?.relation_type || 'trigger_after'
+    const label = ({
+      trigger_after: '工序关系 · 触发并排序',
+      order_after: '工序关系 · 先后约束',
+      requires: '工序关系 · 前置依赖',
+      conflicts: '工序关系 · 互斥',
+    } as const)[type]
+    const reason = /互斥|不得同时|不能同时/.test(text)
+      ? '原文包含互斥表达。'
+      : /前置|依赖|必须.*完成/.test(text)
+        ? '原文包含前置或依赖表达。'
+        : /之后|完成后|前面|此前|之前|后/.test(text)
+          ? '原文包含工序先后表达。'
+          : '原文表达了工序之间的关联。'
+    return { kind: 'relation', label, reason }
+  }
+
+  const field = firstConditionField(candidate?.when || null)
+  const reason = field === 'special.requirements'
+    ? '原文包含需求或特殊要求表达。'
+    : field?.startsWith('material.')
+      ? '原文包含材料牌号条件。'
+      : field?.startsWith('precision.') || field?.startsWith('tolerance.') || field?.startsWith('surface.')
+        ? '原文包含精度、公差或表面要求。'
+        : field?.startsWith('cad.')
+          ? '原文包含结构特征条件。'
+          : '原文包含可执行的参数条件。'
+  return { kind: 'condition', label: '条件规则', reason }
+})
 const filteredPickerOptions = computed(() => {
   const search = processPickerSearch.value.trim().toLowerCase()
   return props.processOptions.filter(p => !search || p.display_name.toLowerCase().includes(search))
 })
 
 // ---- Helpers ----
+function firstConditionField(condition: RulePackageCondition | null | undefined): string | null {
+  if (!condition) return null
+  if ('field' in condition) return condition.field
+  if ('all' in condition) return firstConditionField(condition.all[0])
+  if ('any' in condition) return firstConditionField(condition.any[0])
+  return firstConditionField(condition.not)
+}
+
 function processDisplayName(processId: string) {
   return props.processOptions.find(p => p.process_id === processId)?.display_name || processId
 }
@@ -856,6 +924,7 @@ function formatConfirmedAt(value: string) {
 .rule-summary-unresolved { border-color: #f0c8b9; background: #fff8f4; }
 .summary-status { display: inline-flex; margin-bottom: 3px; color: #52647e; font-size: 10px; font-weight: 750; letter-spacing: .02em; }
 .summary-status.confirmed { color: #2f7554; }
+.summary-status-attention { color: #9a5b2d; }
 .rule-summary-unresolved .summary-status { color: #a04b2e; }
 .rule-summary-strip p { margin: 0; color: #748095; font-size: 11px; line-height: 1.5; }
 
@@ -889,6 +958,18 @@ function formatConfirmedAt(value: string) {
 .candidate-summary-copy { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .candidate-summary-copy strong { overflow: hidden; color: #2d3a4f; font-size: 12px; font-weight: 650; line-height: 1.45; text-overflow: ellipsis; }
 .candidate-summary-actions { display: flex; flex-shrink: 0; gap: 7px; align-items: center; }
+.candidate-recognition {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 5px;
+  margin-top: 5px; color: #718097; font-size: 10px; line-height: 1.45;
+}
+.candidate-recognition-label { color: #52647e; font-weight: 750; }
+.candidate-type-chip {
+  display: inline-flex; align-items: center; min-height: 18px; padding: 0 6px;
+  border: 1px solid #cbd8ed; border-radius: 4px; background: #f1f5fc;
+  color: #42618d; font-size: 10px; font-weight: 700;
+}
+.candidate-type-relation { border-color: #bddbd0; background: #eff9f4; color: #2c7656; }
+.candidate-recognition-divider { color: #a0acbc; }
 
 /* ===== Candidate editor ===== */
 .candidate-editor { display: grid; gap: 11px; margin-top: 11px; }

@@ -173,13 +173,32 @@ async def test_parses_generic_surface_requirement_as_special_requirement():
 
 
 @pytest.mark.asyncio
-async def test_nondestructive_inspection_is_parsed_as_special_requirement_not_process_relation():
+async def test_explicit_process_order_takes_priority_over_nondestructive_inspection_category():
     processes = [
-        RuleConditionProcessOption(process_id="process_inspect", display_name="检验"),
+        RuleConditionProcessOption(process_id="process_quench", display_name="淬火"),
         RuleConditionProcessOption(process_id="process_ndt", display_name="无损检查"),
     ]
     candidate, _, issues = await condition_parser.parse_rule_condition(
-        "当车削后或周边加工后过程检验点满足时，设置无损检查作为质量确认节点",
+        "淬火工序之后设置该工序",
+        "process_ndt",
+        "无损检查",
+        processes,
+    )
+
+    assert candidate is not None
+    assert candidate.kind == "process_relation"
+    assert candidate.relation is not None
+    assert candidate.relation.relation_type == "trigger_after"
+    assert candidate.relation.source_process_ids == ["process_quench"]
+    assert candidate.relation.target_process_ids == ["process_ndt"]
+    assert issues == []
+
+
+@pytest.mark.asyncio
+async def test_nondestructive_requirement_is_parsed_as_special_requirement():
+    processes = [RuleConditionProcessOption(process_id="process_ndt", display_name="无损检查")]
+    candidate, _, issues = await condition_parser.parse_rule_condition(
+        "当零件存在无损检测要求时，纳入无损检查工序",
         "process_ndt",
         "无损检查",
         processes,

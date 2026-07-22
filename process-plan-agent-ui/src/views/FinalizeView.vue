@@ -355,16 +355,7 @@ const relationRuleCount = computed(() => relationCards.value.length)
 const reviewableRuleCount = computed(() => reviewableCards.value.length)
 const confirmedRuleCount = computed(() => reviewableCards.value.filter(hasCurrentConfirmedUserRule).length)
 const unresolvedRuleCount = computed(() => segmentCards.value.filter(item => finalizeRuleMode(item) === 'unresolved').length)
-const reviewFocusCards = computed(() => segmentCards.value.filter((item) => {
-  const mode = finalizeRuleMode(item)
-  const review = item.conditionReview
-  if (mode === 'unresolved' || mode === 'relation' || item.edited || review?.status === 'pending_confirmation') return true
-  return Boolean(
-    review?.source_text?.trim() === item.conditionText.trim()
-      && review.candidate
-      && (review.candidate.kind || 'condition') !== 'condition',
-  )
-}))
+const reviewFocusCards = computed(() => segmentCards.value.filter(itemNeedsPending))
 const visibleSegments = computed(() => onlyPending.value ? reviewFocusCards.value : segmentCards.value)
 const batchEligibleCards = computed(() => reviewableCards.value.filter((item) => {
   if (hasCurrentConfirmedUserRule(item)) return false

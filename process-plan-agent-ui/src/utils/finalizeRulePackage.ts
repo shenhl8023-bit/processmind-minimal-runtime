@@ -79,10 +79,12 @@ export function requiresConfirmedUserRule(item: any) {
 
 export function hasCurrentConfirmedUserRule(item: any) {
   const review = item.conditionReview
+  const expectedKind = finalizeRuleMode(item) === 'relation' ? 'process_relation' : 'condition'
   return Boolean(
     review?.status === 'confirmed'
     && review?.confirmed
-    && String(review.source_text || '').trim() === String(item.conditionText || '').trim(),
+    && String(review.source_text || '').trim() === String(item.conditionText || '').trim()
+    && (review.confirmed.kind || 'condition') === expectedKind,
   )
 }
 

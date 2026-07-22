@@ -4,6 +4,7 @@ import {
   buildCompileRequestFromCards,
   buildV2InputFields,
   finalizeRuleMode,
+  hasCurrentConfirmedUserRule,
   isActionableConditionText,
 } from './finalizeRulePackage'
 import { nestFactorValues } from '@/composables/useGenerateInputFields'
@@ -39,6 +40,37 @@ function baseConditionFields() {
 
 
 describe('V2 compile DTO from finalize cards', () => {
+  it('requires re-review when the confirmed rule kind no longer matches the user text', () => {
+    const relationCard: any = {
+      ...finalizeItem({ id: 'process_ndt', normalized_step_name: '无损检查', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: '淬火工序之后设置该工序',
+      factorNames: [],
+      conditionReview: {
+        source_text: '淬火工序之后设置该工序',
+        status: 'confirmed',
+        confirmed: {
+          kind: 'condition',
+          when: { field: 'special.requirements', op: 'contains', value: '无损检测要求' },
+          then: { include_process_ids: ['process_ndt'], exclude_process_ids: [] },
+          preview: '特殊要求 包含 无损检测要求',
+        },
+      },
+    }
+
+    expect(finalizeRuleMode(relationCard)).toBe('relation')
+    expect(hasCurrentConfirmedUserRule(relationCard)).toBe(false)
+
+    relationCard.conditionReview.confirmed.kind = 'process_relation'
+    relationCard.conditionReview.confirmed.when = null
+    relationCard.conditionReview.confirmed.then = null
+    relationCard.conditionReview.confirmed.relation = {
+      relation_type: 'trigger_after',
+      source_process_ids: ['process_quench'],
+      target_process_ids: ['process_ndt'],
+    }
+    expect(hasCurrentConfirmedUserRule(relationCard)).toBe(true)
+  })
+
   it('classifies mainline, actionable, and unresolved cards before parsing', () => {
     const mainline = finalizeItem()
     ;(mainline as any).conditionReview = {
