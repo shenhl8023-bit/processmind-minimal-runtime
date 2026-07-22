@@ -311,6 +311,7 @@ const activeSegmentId = ref('')
 const lastExportedRulePackageVersion = ref<number | null>(null)
 const conditionFields = ref<CanonicalConditionField[]>([])
 const conditionBusySegmentIds = ref(new Set<string>())
+const conditionBusyCounts = new Map<string, number>()
 const batchParsing = ref(false)
 const batchParseCompleted = ref(0)
 const batchParseTotal = ref(0)
@@ -382,6 +383,7 @@ const conditionProcessOptions = computed<RuleConditionProcessOption[]>(() => {
     options.set(processId, {
       process_id: processId,
       display_name: normalizeExportProcessName(finalizeSegmentDisplayName(item.segment)),
+      main: finalizeRuleMode(item) === 'mainline',
     })
   })
   return Array.from(options.values())
@@ -465,10 +467,16 @@ async function showBlockedExportCards() {
 }
 
 function setConditionBusy(segmentId: string, busy: boolean) {
-  const next = new Set(conditionBusySegmentIds.value)
-  if (busy) next.add(segmentId)
-  else next.delete(segmentId)
-  conditionBusySegmentIds.value = next
+  const current = conditionBusyCounts.get(segmentId) || 0
+  const nextCount = busy ? current + 1 : Math.max(0, current - 1)
+  if (nextCount) conditionBusyCounts.set(segmentId, nextCount)
+  else conditionBusyCounts.delete(segmentId)
+  conditionBusySegmentIds.value = new Set(conditionBusyCounts.keys())
+}
+
+function hasCurrentConditionText(segmentId: string, sourceText: string) {
+  const current = segmentCards.value.find(item => item.segment.id === segmentId)
+  return current?.conditionText.trim() === sourceText.trim()
 }
 
 function applyConditionReview(segmentId: string, review: RuleConditionReview) {
@@ -553,6 +561,7 @@ async function parseConditionItem(
       process_name: normalizeExportProcessName(finalizeSegmentDisplayName(item.segment)),
       processes: conditionProcessOptions.value,
     })
+    if (!hasCurrentConditionText(item.segment.id, sourceText)) return false
     applyConditionReview(item.segment.id, response.review)
     return response.review.status !== 'invalid'
   } catch (err: any) {
@@ -570,7 +579,7 @@ async function handleParseCondition(item: ReturnType<typeof buildFinalizeCards>[
   await parseConditionItem(item, true)
 }
 
-async function handleBatchParseConditions(automatic = false) {
+async function handleBatchParseConditions() {
   if (batchParsing.value || !batchEligibleCards.value.length) return
   const queue = [...batchEligibleCards.value]
   batchParsing.value = true
@@ -593,8 +602,8 @@ async function handleBatchParseConditions(automatic = false) {
     await Promise.all(Array.from({ length: Math.min(3, queue.length) }, () => worker()))
     const failedCount = queue.length - successCount
     batchNotice.value = failedCount
-      ? `${automatic ? '已自动生成' : '已生成'} ${successCount} 条候选规则；${failedCount} 条条件还需要补充后再生成。`
-      : `${automatic ? '已自动生成' : '已生成'} ${successCount} 条候选规则，请核对后完成本次审核。`
+      ? `已生成 ${successCount} 条候选规则；${failedCount} 条条件还需要补充后再生成。`
+      : `已生成 ${successCount} 条候选规则，请核对后完成本次审核。`
     onlyPending.value = true
   } finally {
     batchParsing.value = false
@@ -764,10 +773,6 @@ async function loadWorkspace(forceRefresh = false) {
     conditionFields.value = fieldRegistry.fields || []
     readDrafts()
     activeSegmentId.value = routeResult.segments[0]?.id || ''
-    await nextTick()
-    if (batchEligibleCards.value.length && !batchParsing.value) {
-      void handleBatchParseConditions(true)
-    }
   } catch (err: any) {
     console.error(err)
     projectId.value = null

@@ -12,10 +12,11 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 from collections.abc import Awaitable, Callable
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Document, Project
@@ -193,7 +194,29 @@ async def queue_extraction_job(
         }
 
     project_status = project.status
-    await db.rollback()
+    now = datetime.now(timezone.utc)
+    stale_before = now - timedelta(minutes=10)
+    # The running set is useful for in-process progress, but this conditional
+    # update is the actual cross-process lease. A second worker cannot launch a
+    # destructive re-extraction while the first lease is fresh.
+    claim = await db.execute(
+        update(Project)
+        .where(
+            Project.id == project_id,
+            (Project.status != "EXTRACTING") | (Project.updated_at < stale_before),
+        )
+        .values(status="EXTRACTING", updated_at=now)
+    )
+    if not claim.rowcount:
+        await db.rollback()
+        return {
+            "ok": True,
+            "project_id": project_id,
+            "task_status": "running",
+            "stage": "extracting_operations",
+            "message": "当前任务正在由后台服务提炼，请稍候。",
+        }
+    await db.commit()
 
     EXTRACTION_RUNNING.add(project_id)
     set_extraction_task_state(
@@ -233,6 +256,19 @@ async def resolve_extraction_task_status(
 
     normalized_status = (project.status or "").strip().upper()
     if normalized_status == "EXTRACTING" and project_id not in EXTRACTION_RUNNING:
+        updated_at = project.updated_at
+        timestamp = updated_at.replace(tzinfo=timezone.utc) if updated_at and updated_at.tzinfo is None else updated_at
+        now = datetime.now(timestamp.tzinfo or timezone.utc) if timestamp else datetime.now(timezone.utc)
+        age = now - timestamp if timestamp else timedelta.max
+        if age <= timedelta(minutes=10):
+            return {
+                "project_id": project_id,
+                "task_status": "running",
+                "stage": "extracting_operations",
+                "message": "后台提炼任务仍在运行或等待恢复。",
+                "progress": 10,
+                "project_status": project.status,
+            }
         docs = (await db.execute(select(Document.id).where(Document.project_id == project_id))).all()
         fallback_status = "UPLOADED" if docs else "CREATED"
         await try_commit_project_status(db, project, fallback_status)

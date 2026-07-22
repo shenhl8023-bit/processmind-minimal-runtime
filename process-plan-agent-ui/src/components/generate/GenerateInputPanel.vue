@@ -104,11 +104,11 @@
               {{ item }}
             </button>
           </div>
-          <div class="field-subrow">
+          <div v-if="field.allow_custom" class="field-subrow">
             <span>补充输入</span>
             <span>添加规则包之外的值</span>
           </div>
-          <div class="custom-row">
+          <div v-if="field.allow_custom" class="custom-row">
             <input
               class="text-input"
               type="text"
@@ -121,10 +121,10 @@
           </div>
         </div>
 
-        <label v-else-if="isBooleanField(field)" class="check-row">
-          <input type="checkbox" :checked="Boolean(fieldValues[field.key])" @change="setFieldBoolean(field.key, checkedValue($event))" />
-          <span>启用该条件</span>
-        </label>
+        <div v-else-if="isBooleanField(field)" class="boolean-choice" role="radiogroup" :aria-label="field.name">
+          <button type="button" class="select-chip" :class="{ active: fieldValues[field.key] === true }" @click="setFieldBoolean(field.key, true)">是</button>
+          <button type="button" class="select-chip" :class="{ active: fieldValues[field.key] === false }" @click="setFieldBoolean(field.key, false)">否</button>
+        </div>
 
         <input
           v-else

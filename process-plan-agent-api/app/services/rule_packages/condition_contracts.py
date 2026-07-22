@@ -27,6 +27,7 @@ class CanonicalConditionField(StrictModel):
 class RuleConditionProcessOption(StrictModel):
     process_id: str = Field(min_length=1)
     display_name: str = Field(min_length=1)
+    main: bool = False
 
 
 class ProcessRelationCandidate(StrictModel):

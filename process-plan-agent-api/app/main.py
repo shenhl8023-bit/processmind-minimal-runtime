@@ -2,6 +2,7 @@
 ProcessMind 后端入口
 """
 from contextlib import asynccontextmanager
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -26,11 +27,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# 允许前端跨域访问
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "PROCESSMIND_CORS_ORIGINS",
+        "http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:8080,http://localhost:8080",
+    ).split(",")
+    if origin.strip()
+]
+
+# The packaged deployment is same-origin. Development origins are explicit so
+# arbitrary websites cannot read or mutate the local API.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=allowed_origins,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

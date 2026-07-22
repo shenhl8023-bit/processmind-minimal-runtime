@@ -23,6 +23,7 @@ from app.services.rule_packages.condition_reviews import (
     parse_condition_review,
     save_condition_draft,
 )
+from app.services.rule_packages import condition_reviews
 
 
 PROCESSES = [
@@ -308,6 +309,17 @@ def test_registry_rejects_unknown_field():
     assert issues == ["条件字段不在标准字段库中：custom.free_text"]
 
 
+def test_registry_rejects_out_of_range_and_reversed_numeric_conditions():
+    from app.services.rule_packages.contracts import ConditionNode
+
+    assert validate_condition_tree(
+        ConditionNode(field="precision.outer_diameter_it", op="lte", value=99)
+    ) == ["字段“外圆尺寸精度 IT”不能大于 18"]
+    assert validate_condition_tree(
+        ConditionNode(field="mechanical.hardness_hrc", op="between", value=[70, 20])
+    ) == ["字段“目标硬度 HRC”的区间下限不能大于上限"]
+
+
 @pytest.mark.asyncio
 async def test_confirmed_rule_is_invalidated_when_source_text_changes():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
@@ -368,6 +380,57 @@ async def test_confirmed_rule_is_invalidated_when_source_text_changes():
         )
         assert changed.review.status == "draft"
         assert changed.review.confirmed is None
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_parse_result_does_not_overwrite_a_newer_condition_draft(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with session_factory() as session:
+        route = NormalizedRouteVersion(
+            id=1,
+            project_id=7,
+            version=1,
+            route_json='[{"id":"process_grind_outer"}]',
+        )
+        session.add(route)
+        await session.commit()
+
+        async def superseded_parse(*args, **kwargs):
+            review = (await session.execute(
+                select(NormalizedRouteSegmentRuleReview).where(
+                    NormalizedRouteSegmentRuleReview.route_version_id == 1,
+                    NormalizedRouteSegmentRuleReview.segment_id == "process_grind_outer",
+                )
+            )).scalars().one()
+            review.condition_source_text = "新的条件文字"
+            review.condition_source_hash = condition_source_hash("新的条件文字")
+            review.condition_status = "draft"
+            await session.commit()
+            return None, None, []
+
+        monkeypatch.setattr(condition_reviews, "parse_rule_condition", superseded_parse)
+        response = await condition_reviews.parse_condition_review(
+            ParseRuleConditionRequest(
+                project_id=7,
+                route_id=1,
+                segment_id="process_grind_outer",
+                source_text="当外圆尺寸精度达到 IT8 时，纳入磨外圆工序",
+                process_id="process_grind_outer",
+                process_name="磨外圆",
+                processes=[RuleConditionProcessOption(process_id="process_grind_outer", display_name="磨外圆")],
+            ),
+            session,
+        )
+
+        assert response.review.source_text == "新的条件文字"
+        assert response.review.status == "draft"
+        assert response.review.candidate is None
 
     await engine.dispose()
 

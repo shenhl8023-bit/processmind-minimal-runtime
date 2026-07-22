@@ -542,7 +542,10 @@ const candidateRecognition = computed(() => {
 })
 const filteredPickerOptions = computed(() => {
   const search = processPickerSearch.value.trim().toLowerCase()
-  return props.processOptions.filter(p => !search || p.display_name.toLowerCase().includes(search))
+  return props.processOptions.filter((p) => {
+    if (processPickerOpen.value === 'exclude' && p.main) return false
+    return !search || p.display_name.toLowerCase().includes(search)
+  })
 })
 
 // ---- Helpers ----

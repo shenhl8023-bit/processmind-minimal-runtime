@@ -68,7 +68,7 @@ class ReferenceCreate(BaseModel):
     content: Optional[str] = None
     ref_type: str = "written"
     document_id: Optional[int] = None
-    project_id: Optional[int] = None
+    project_id: int
 
 
 class ReferenceOut(BaseModel):

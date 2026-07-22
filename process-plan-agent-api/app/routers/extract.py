@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from typing import Callable, List
 
@@ -16,6 +17,7 @@ from app.models.models import (
     Document,
     DocumentOperationDetail,
     FinalizedRulePackage,
+    NormalizedRouteVersion,
     Operation,
     Project,
 )
@@ -97,10 +99,11 @@ from app.services.operation_review_meta import get_project_sample_count
 router = APIRouter(prefix="/api/extract", tags=["规则提炼"])
 
 
-async def _ensure_project_exists(project_id: int, db: AsyncSession) -> None:
-    project = (await db.execute(select(Project.id).where(Project.id == project_id))).scalar_one_or_none()
+async def _ensure_project_exists(project_id: int, db: AsyncSession) -> Project:
+    project = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
     if not project:
         raise HTTPException(404, "任务不存在")
+    return project
 
 async def _save_ops(db: AsyncSession, project_id: int, ops_data: list) -> None:
     await save_route_rules_ops(
@@ -379,7 +382,9 @@ async def save_finalized_rule_package(
     body: FinalizedRulePackageSaveRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    await _ensure_project_exists(body.project_id, db)
+    project = await _ensure_project_exists(body.project_id, db)
+    if project.status != "ROUTE_SET_READY":
+        raise HTTPException(409, "当前资料已变更或尚未完成路线提炼，请重新完成第二至四步后再导出规则包。")
     if not body.input_schema:
         raise HTTPException(400, "input_schema.json 内容不能为空")
     if not body.route_catalog:
@@ -432,35 +437,54 @@ async def save_finalized_rule_package(
             rule_report_md=body.rule_report_md,
         )
 
-    latest_version = (
-        await db.execute(
-            select(func.max(FinalizedRulePackage.version)).where(
-                FinalizedRulePackage.project_id == body.project_id
+    if body.route_version_id is not None:
+        route_exists = (
+            await db.execute(
+                select(NormalizedRouteVersion.id).where(
+                    NormalizedRouteVersion.id == body.route_version_id,
+                    NormalizedRouteVersion.project_id == body.project_id,
+                )
             )
+        ).scalar_one_or_none()
+        if not route_exists:
+            raise HTTPException(422, "规则包关联的路线版本不属于当前任务")
+
+    # The database owns the final uniqueness guarantee. Retry after a competing
+    # export instead of leaking a raw unique-index error to the user.
+    for _ in range(3):
+        latest_version = (
+            await db.execute(
+                select(func.max(FinalizedRulePackage.version)).where(
+                    FinalizedRulePackage.project_id == body.project_id
+                )
+            )
+        ).scalar_one_or_none()
+        row = FinalizedRulePackage(
+            project_id=body.project_id,
+            route_version_id=body.route_version_id,
+            version=int(latest_version or 0) + 1,
+            package_name=package_name,
+            schema_version=schema_version,
+            status="draft",
+            manifest_json=json_dumps(manifest),
+            input_schema_json=json_dumps(body.input_schema),
+            route_catalog_json=json_dumps(body.route_catalog),
+            route_rules_json=json_dumps(body.route_rules),
+            test_cases_json=json_dumps_list(test_cases),
+            rule_report_md=body.rule_report_md,
+            validation_report_json=json_dumps(server_validation),
+            content_hash=content_hash,
+            created_by=(body.created_by or "默认用户").strip() or "默认用户",
         )
-    ).scalar_one_or_none()
-    version = int(latest_version or 0) + 1
-    row = FinalizedRulePackage(
-        project_id=body.project_id,
-        route_version_id=body.route_version_id,
-        version=version,
-        package_name=package_name,
-        schema_version=schema_version,
-        status="draft",
-        manifest_json=json_dumps(manifest),
-        input_schema_json=json_dumps(body.input_schema),
-        route_catalog_json=json_dumps(body.route_catalog),
-        route_rules_json=json_dumps(body.route_rules),
-        test_cases_json=json_dumps_list(test_cases),
-        rule_report_md=body.rule_report_md,
-        validation_report_json=json_dumps(server_validation),
-        content_hash=content_hash,
-        created_by=(body.created_by or "默认用户").strip() or "默认用户",
-    )
-    db.add(row)
-    await db.flush()
-    await publish_rule_package(row, db, actor=row.created_by)
-    return serialize_finalized_rule_package(row)
+        db.add(row)
+        try:
+            await db.flush()
+            await publish_rule_package(row, db, actor=row.created_by)
+            return serialize_finalized_rule_package(row)
+        except IntegrityError:
+            await db.rollback()
+
+    raise HTTPException(409, "规则包版本正在由其他请求导出，请稍后重试。")
 
 
 @router.get("/finalized-rule-packages/latest", response_model=FinalizedRulePackageOut)

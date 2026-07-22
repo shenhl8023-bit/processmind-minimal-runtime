@@ -304,9 +304,10 @@ async def parse_condition_review(
     source_text = body.source_text.strip()
     if not source_text:
         raise HTTPException(422, "请先填写需要解析的工序条件。")
+    source_hash = condition_source_hash(source_text)
 
     review.condition_source_text = source_text
-    review.condition_source_hash = condition_source_hash(source_text)
+    review.condition_source_hash = source_hash
     review.condition_status = "parsing"
     review.condition_candidate_json = None
     review.condition_confirmed_json = None
@@ -323,6 +324,10 @@ async def parse_condition_review(
         body.process_name,
         body.processes,
     )
+    await db.refresh(review)
+    if review.condition_source_hash != source_hash:
+        # A newer draft or parse request superseded this request while the model ran.
+        return _response(body, review)
     review.condition_confidence = confidence
     review.condition_issues_json = json.dumps(issues, ensure_ascii=False)
     if candidate:

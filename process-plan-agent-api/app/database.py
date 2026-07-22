@@ -3,7 +3,7 @@
 """
 import os
 
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 
@@ -18,6 +18,14 @@ engine = create_async_engine(
     echo=False,
     connect_args={"timeout": 30},
 )
+
+
+@event.listens_for(engine.sync_engine, "connect")
+def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record):
+    # SQLite does not enforce declared foreign keys unless enabled per connection.
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 

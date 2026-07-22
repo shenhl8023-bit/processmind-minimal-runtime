@@ -35,4 +35,7 @@ services:
       api:
         condition: service_healthy
     ports:
-      - "${PROCESSMIND_WEB_PORT:-8080}:80"
+      # This desktop-style deployment has no account system. Keep it local by
+      # default; an intranet deployment must deliberately add an authenticated
+      # gateway and its own port binding.
+      - "127.0.0.1:${PROCESSMIND_WEB_PORT:-8080}:80"

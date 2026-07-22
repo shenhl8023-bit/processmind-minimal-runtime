@@ -2,12 +2,14 @@
 文件上传与参考资料管理 API
 """
 import uuid
+import zipfile
 from io import BytesIO
 from urllib.parse import quote
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from pathlib import Path
 from typing import List
 
 from app.core.paths import UPLOAD_DIR
@@ -15,9 +17,13 @@ from app.database import get_db
 from app.models.models import Document, Reference, Project
 from app.schemas.schemas import DocumentOut, DocumentPreviewOut, ReferenceCreate, ReferenceOut
 from app.services.file_parser import extract_text
+from app.services.project_rule_lifecycle import invalidate_project_rule_assets
 
 router = APIRouter(prefix="/api/documents", tags=["文件与资料管理"])
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+DOCUMENT_EXTENSIONS = {"pdf", "doc", "docx", "xls", "xlsx", "json"}
+REFERENCE_EXTENSIONS = {*DOCUMENT_EXTENSIONS, "txt", "md"}
 
 
 def _content_disposition(filename: str, disposition: str) -> str:
@@ -25,6 +31,55 @@ def _content_disposition(filename: str, disposition: str) -> str:
     ascii_fallback = safe_name.encode("ascii", "ignore").decode("ascii").strip() or "document"
     encoded_name = quote(safe_name)
     return f"{disposition}; filename=\"{ascii_fallback}\"; filename*=UTF-8''{encoded_name}"
+
+
+def _upload_extension(filename: str | None, allowed_extensions: set[str]) -> str:
+    extension = Path(filename or "").suffix.lower().lstrip(".")
+    if not extension or extension not in allowed_extensions:
+        allowed = "、".join(sorted(allowed_extensions))
+        raise HTTPException(415, f"不支持的文件类型，仅支持：{allowed}")
+    return extension
+
+
+def _validate_office_archive(path: Path, extension: str) -> None:
+    if extension not in {"docx", "xlsx"}:
+        return
+    try:
+        with zipfile.ZipFile(path) as archive:
+            entries = archive.infolist()
+            total_uncompressed = sum(entry.file_size for entry in entries)
+            total_compressed = sum(entry.compress_size for entry in entries)
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(422, "Office 文件结构无效") from exc
+    if total_uncompressed > 300 * 1024 * 1024:
+        raise HTTPException(413, "Office 文件解压后不能超过 300 MB")
+    if total_compressed and total_uncompressed / total_compressed > 100:
+        raise HTTPException(422, "Office 文件压缩比异常，无法处理")
+
+
+async def _store_upload(file: UploadFile, allowed_extensions: set[str]) -> tuple[str, str, int]:
+    extension = _upload_extension(file.filename, allowed_extensions)
+    safe_name = f"{uuid.uuid4().hex}.{extension}"
+    path = UPLOAD_DIR / safe_name
+    size = 0
+    try:
+        with path.open("wb") as handle:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > MAX_UPLOAD_BYTES:
+                    raise HTTPException(413, "单个文件不能超过 100 MB")
+                handle.write(chunk)
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+    finally:
+        await file.close()
+    try:
+        _validate_office_archive(path, extension)
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+    return safe_name, extension, size
 
 
 @router.post("/upload", response_model=List[DocumentOut])
@@ -40,26 +95,20 @@ async def upload_documents(
 
     results = []
     for f in files:
-        ext = f.filename.split(".")[-1].lower() if f.filename else "bin"
-        safe_name = f"{uuid.uuid4().hex}.{ext}"
-        path = UPLOAD_DIR / safe_name
-
-        content = await f.read()
-        with path.open("wb") as fp:
-            fp.write(content)
+        safe_name, ext, size = await _store_upload(f, DOCUMENT_EXTENSIONS)
 
         doc = Document(
             project_id=project_id,
             filename=safe_name,
             original_name=f.filename or "unknown",
             file_type=ext,
-            file_size=len(content),
+            file_size=size,
         )
         db.add(doc)
         await db.flush()
         results.append(doc)
 
-    project.status = "UPLOADED"
+    await invalidate_project_rule_assets(db, project, has_documents=True)
     await db.commit()
     return results
 
@@ -84,14 +133,18 @@ async def delete_document(doc_id: int, db: AsyncSession = Depends(get_db)):
     path = UPLOAD_DIR / doc.filename
     if path.exists():
         path.unlink()
+    linked_references = (
+        await db.execute(select(Reference).where(Reference.document_id == doc.id))
+    ).scalars().all()
+    for reference in linked_references:
+        reference.document_id = None
     await db.delete(doc)
     remaining = (
         await db.execute(select(Document).where(Document.project_id == doc.project_id))
     ).scalars().all()
-    if not remaining:
-        project = (await db.execute(select(Project).where(Project.id == doc.project_id))).scalar_one_or_none()
-        if project and project.status == "UPLOADED":
-            project.status = "CREATED"
+    project = (await db.execute(select(Project).where(Project.id == doc.project_id))).scalar_one_or_none()
+    if project:
+        await invalidate_project_rule_assets(db, project, has_documents=bool(remaining))
     await db.commit()
     return {"ok": True}
 
@@ -216,6 +269,17 @@ async def create_reference(
     db: AsyncSession = Depends(get_db)
 ):
     """创建手写参考资料"""
+    project = (await db.execute(select(Project).where(Project.id == body.project_id))).scalar_one_or_none()
+    if not project:
+        raise HTTPException(404, "任务不存在")
+    if body.ref_type != "written":
+        raise HTTPException(422, "手写参考资料的 ref_type 必须为 written")
+    if body.document_id is not None:
+        document = (await db.execute(select(Document).where(Document.id == body.document_id))).scalar_one_or_none()
+        if not document:
+            raise HTTPException(404, "关联文档不存在")
+        if document.project_id != body.project_id:
+            raise HTTPException(422, "关联文档不属于当前任务")
     ref = Reference(
         project_id=body.project_id,
         title=body.title,
@@ -224,6 +288,11 @@ async def create_reference(
         document_id=body.document_id,
     )
     db.add(ref)
+    await invalidate_project_rule_assets(
+        db,
+        project,
+        has_documents=bool((await db.execute(select(Document.id).where(Document.project_id == project.id))).first()),
+    )
     await db.commit()
     await db.refresh(ref)
     return ref
@@ -242,13 +311,7 @@ async def upload_references(
 
     results = []
     for f in files:
-        ext = f.filename.split(".")[-1].lower() if f.filename else "bin"
-        safe_name = f"{uuid.uuid4().hex}.{ext}"
-        path = UPLOAD_DIR / safe_name
-
-        content = await f.read()
-        with path.open("wb") as fp:
-            fp.write(content)
+        safe_name, _, _ = await _store_upload(f, REFERENCE_EXTENSIONS)
 
         ref = Reference(
             project_id=project_id,
@@ -260,6 +323,11 @@ async def upload_references(
         await db.flush()
         results.append(ref)
 
+    await invalidate_project_rule_assets(
+        db,
+        project,
+        has_documents=bool((await db.execute(select(Document.id).where(Document.project_id == project.id))).first()),
+    )
     await db.commit()
     return results
 
@@ -285,5 +353,12 @@ async def delete_reference(ref_id: int, db: AsyncSession = Depends(get_db)):
         if path.exists():
             path.unlink()
     await db.delete(ref)
+    project = (await db.execute(select(Project).where(Project.id == ref.project_id))).scalar_one_or_none()
+    if project:
+        await invalidate_project_rule_assets(
+            db,
+            project,
+            has_documents=bool((await db.execute(select(Document.id).where(Document.project_id == project.id))).first()),
+        )
     await db.commit()
     return {"ok": True}

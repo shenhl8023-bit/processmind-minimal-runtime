@@ -142,6 +142,16 @@ def validate_condition_tree(
                 values = value if isinstance(value, list) else [value]
                 if any(isinstance(item, bool) or not isinstance(item, (int, float)) for item in values):
                     issues.append(f"字段“{definition.label}”必须使用数值")
+                else:
+                    validation = definition.validation or {}
+                    minimum = validation.get("min")
+                    maximum = validation.get("max")
+                    if minimum is not None and any(item < minimum for item in values):
+                        issues.append(f"字段“{definition.label}”不能小于 {minimum}")
+                    if maximum is not None and any(item > maximum for item in values):
+                        issues.append(f"字段“{definition.label}”不能大于 {maximum}")
+                    if current.op == "between" and len(values) == 2 and values[0] > values[1]:
+                        issues.append(f"字段“{definition.label}”的区间下限不能大于上限")
             if definition.type == "boolean" and current.op not in {"exists", "not_exists"} and not isinstance(value, bool):
                 issues.append(f"字段“{definition.label}”必须使用布尔值")
             return

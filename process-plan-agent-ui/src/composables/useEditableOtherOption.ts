@@ -17,6 +17,7 @@ export function isEditableOtherOption(option: QuestionTreeOption) {
 }
 
 function otherOptionPlaceholder(question: QuestionTreeQuestion | null, option: QuestionTreeOption) {
+  const confirmationHint = '，输入完成后按回车确认'
   const label = String(option.label || '').trim()
   const questionId = question?.id || ''
   const questionPrompt = String(question?.prompt || '')
@@ -31,20 +32,20 @@ function otherOptionPlaceholder(question: QuestionTreeQuestion | null, option: Q
     label.includes('工序') ||
     label.includes('名称')
   ) {
-    return '请输入具体名称，回车或点击空白确认'
+    return `请输入具体名称${confirmationHint}`
   }
 
   if (label.includes('特征') || questionPrompt.includes('特征') || questionTitle.includes('特征')) {
-    return '请输入特征描述，回车或点击空白确认'
+    return `请输入特征描述${confirmationHint}`
   }
   if (label.includes('要求') || questionPrompt.includes('要求') || questionTitle.includes('要求')) {
-    return '请输入具体要求，回车或点击空白确认'
+    return `请输入具体要求${confirmationHint}`
   }
   if (label.includes('原因') || questionPrompt.includes('原因') || questionTitle.includes('原因')) {
-    return '请输入具体原因，回车或点击空白确认'
+    return `请输入具体原因${confirmationHint}`
   }
   if (label.includes('尺寸') || questionPrompt.includes('尺寸') || questionTitle.includes('尺寸')) {
-    return '请输入具体尺寸，回车或点击空白确认'
+    return `请输入具体尺寸${confirmationHint}`
   }
   if (
     label.includes('来料') ||
@@ -54,12 +55,12 @@ function otherOptionPlaceholder(question: QuestionTreeQuestion | null, option: Q
     questionTitle.includes('来料') ||
     questionTitle.includes('毛坯')
   ) {
-    return '请输入具体来料/毛坯状态，回车或点击空白确认'
+    return `请输入具体来料/毛坯状态${confirmationHint}`
   }
 
   const cleaned = label.replace(/其他|其它|（需补充说明）|\(需补充说明\)|（请补充）|\(请补充\)/g, '').trim()
-  if (cleaned) return `请输入具体${cleaned}，回车或点击空白确认`
-  return '请输入具体内容，回车或点击空白确认'
+  if (cleaned) return `请输入具体${cleaned}${confirmationHint}`
+  return `请输入具体内容${confirmationHint}`
 }
 
 export function useEditableOtherOption(args: {
@@ -126,15 +127,6 @@ export function useEditableOtherOption(args: {
       : ''
   }
 
-  function handleBlur() {
-    if (!showInput.value || submitting) return
-    if (draft.value.trim()) {
-      submit()
-    } else {
-      cancel()
-    }
-  }
-
   watch(
     () => args.currentQuestion.value,
     (question) => {
@@ -171,7 +163,6 @@ export function useEditableOtherOption(args: {
     updateDraft,
     submit,
     cancel,
-    handleBlur,
     reset,
   }
 }

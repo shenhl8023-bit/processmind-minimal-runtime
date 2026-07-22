@@ -97,6 +97,7 @@ export type CanonicalConditionField = RulePackageInputField & {
 export type RuleConditionProcessOption = {
   process_id: string
   display_name: string
+  main?: boolean
 }
 
 export type RuleConditionCandidate = {

@@ -190,7 +190,8 @@ export function useGenerateInputFields(args: {
       if (Array.isArray(value)) {
         values[field.key] = value.filter(Boolean)
       } else if (typeof value === 'string') {
-        values[field.key] = value.trim()
+        const trimmed = value.trim()
+        values[field.key] = isNumberField(field) && trimmed ? Number(trimmed) : trimmed
       } else if (value !== undefined && value !== null) {
         values[field.key] = value
       }
@@ -206,7 +207,8 @@ export function useGenerateInputFields(args: {
       args.projectId.value
       && args.hasRulePackage.value
       && inputFields.value.length
-      && requiredFields.value.every(field => hasFieldValue(field.key)),
+      && requiredFields.value.every(field => hasFieldValue(field.key))
+      && inputFields.value.every(field => isFieldValueValid(field)),
     ),
   )
 
@@ -221,7 +223,7 @@ export function useGenerateInputFields(args: {
       if (isArrayField(field)) {
         nextValues[field.key] = []
       } else if (isBooleanField(field)) {
-        nextValues[field.key] = false
+        nextValues[field.key] = undefined
       } else {
         nextValues[field.key] = field.examples?.[0] || ''
       }
@@ -233,7 +235,26 @@ export function useGenerateInputFields(args: {
     const value = fieldValues.value[key]
     if (Array.isArray(value)) return value.length > 0
     if (typeof value === 'string') return value.trim().length > 0
-    return Boolean(value)
+    return typeof value === 'boolean' ? true : Boolean(value)
+  }
+
+  function isFieldValueValid(field: GenerateInputField) {
+    const value = fieldValues.value[field.key]
+    if (!hasFieldValue(field.key)) return !field.required
+    if (isBooleanField(field)) return typeof value === 'boolean'
+    if (isNumberField(field)) {
+      const numericValue = Number(value)
+      if (!Number.isFinite(numericValue)) return false
+      if (field.validation?.min != null && numericValue < field.validation.min) return false
+      if (field.validation?.max != null && numericValue > field.validation.max) return false
+      return true
+    }
+    const allowed = field.allowed_values || []
+    if (allowed.length && !field.allow_custom) {
+      const values = Array.isArray(value) ? value : [value]
+      return values.every(item => allowed.includes(String(item)))
+    }
+    return true
   }
 
   function fieldTextValue(key: string) {

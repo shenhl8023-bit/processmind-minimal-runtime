@@ -97,6 +97,19 @@ def test_generate_uses_published_v2_plan_route():
     assert [step["name"] for step in body["steps"]][-1] in {"淬火", "真空淬火（新名称）", "执行淬火"} or body["steps"]
 
 
+def test_generate_rejects_missing_required_v2_input():
+    project_id, _ = asyncio.run(_seed_published_v2("v2-input-validation"))
+    response = client.post(
+        "/api/generate/",
+        json={
+            "project_id": project_id,
+            "factor_values": {"cad": {"features": ["槽类特征"]}},
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert any(item["code"] == "required_input_missing" for item in response.json()["detail"])
+
+
 def test_draft_v2_is_not_used_for_generate():
     payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
 
@@ -140,14 +153,8 @@ def test_draft_v2_is_not_used_for_generate():
             },
         },
     )
-    assert response.status_code == 200, response.text
-    body = response.json()
-    # No published package → must not claim V2 production mode
-    assert body["output_mode"] != "finalized_rule_package_v2"
-    assert body.get("schema_version") in (None, "", "1.0") or body["output_mode"] in {
-        "route_rules",
-        "finalized_rule_package",
-    }
+    assert response.status_code == 409, response.text
+    assert "尚未导出有效规则包" in response.json()["detail"]
 
 
 def test_project_rule_engine_v1_forces_legacy_path_with_published_v2():

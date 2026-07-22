@@ -109,10 +109,12 @@
         </div>
 
         <div v-else class="tree-option-list">
-          <button
+          <div
             v-for="option in currentQuestion.options"
             :key="`${currentQuestion.id}-${option.value}`"
-            type="button"
+            :role="currentQuestion.multiple ? 'checkbox' : 'radio'"
+            :aria-checked="isSelected(option)"
+            tabindex="0"
             class="tree-option-btn"
             :class="{
               active: isSelected(option),
@@ -120,6 +122,8 @@
               'tree-option-btn-editing': isEditableOtherOption(option) && showMergeNameOtherInput,
             }"
             @click="handleOptionClick(option)"
+            @keydown.enter.prevent="handleOptionClick(option)"
+            @keydown.space.prevent="handleOptionClick(option)"
           >
             <template v-if="isEditableOtherOption(option) && showMergeNameOtherInput">
               <div class="tree-option-editing-inline" @click.stop>
@@ -131,9 +135,7 @@
                   class="tree-option-inline-input-flat"
                   :placeholder="getPlaceholderForOption(option)"
                   @input="updateMergeNameOtherDraft(($event.target as HTMLInputElement).value)"
-                  @keydown.enter.prevent.stop="submitMergeNameOther"
-                  @keydown.esc.prevent.stop="cancelMergeNameOther"
-                  @blur="handleBlurMergeNameOther"
+                  @keydown="handleMergeNameOtherKeydown"
                 />
               </div>
             </template>
@@ -142,7 +144,7 @@
               <span class="tree-option-label">{{ option.label }}</span>
               <span v-if="isRecommendedOption(option)" class="tree-option-badge">系统推荐</span>
             </template>
-          </button>
+          </div>
         </div>
 
         <!-- 推荐面板 -->
@@ -298,7 +300,6 @@ const {
   updateDraft: updateMergeNameOtherDraft,
   submit: submitMergeNameOther,
   cancel: cancelMergeNameOther,
-  handleBlur: handleBlurMergeNameOther,
   reset: resetMergeNameOther,
 } = useEditableOtherOption({
   currentQuestion: computed(() => props.currentQuestion),
@@ -308,6 +309,19 @@ const {
 
 function setOtherInputRef(el: Element | ComponentPublicInstance | null) {
   otherInputRef.value = el instanceof HTMLInputElement ? el : null
+}
+
+function handleMergeNameOtherKeydown(event: KeyboardEvent) {
+  event.stopPropagation()
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    cancelMergeNameOther()
+    return
+  }
+  // Enter confirms Chinese IME candidates too; only submit after composition ends.
+  if (event.key !== 'Enter' || event.isComposing || event.keyCode === 229) return
+  event.preventDefault()
+  submitMergeNameOther()
 }
 
 const {

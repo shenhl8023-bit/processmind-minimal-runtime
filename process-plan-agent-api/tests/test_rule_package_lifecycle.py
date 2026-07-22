@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.database import Base, get_db
 from app.main import app
-from app.models.models import Project
+from app.models.models import NormalizedRouteVersion, Project
 from app.services.db_schema_maintenance import ensure_project_schema
 
 
@@ -22,7 +22,13 @@ def lifecycle_client(tmp_path):
             await conn.run_sync(Base.metadata.create_all)
             await ensure_project_schema(conn)
         async with session_factory() as session:
-            session.add(Project(id=12, name="规则包生命周期测试"))
+            session.add(Project(id=12, name="规则包生命周期测试", status="ROUTE_SET_READY"))
+            session.add(NormalizedRouteVersion(
+                id=31,
+                project_id=12,
+                version=1,
+                route_json="[]",
+            ))
             await session.commit()
 
     asyncio.run(setup())

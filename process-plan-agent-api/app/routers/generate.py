@@ -59,6 +59,7 @@ from app.services.rule_packages.loader import load_published_rule_package
 from app.services.rule_packages.lifecycle import RulePackageLifecycleError, v2_package_from_row
 from app.services.rule_packages.planner import RoutePlanningError, plan_route
 from app.services.rule_packages.validator import validate_rule_package
+from app.services.rule_packages.input_validation import validate_inputs
 from app.services.legacy_operation_route_selector import (
     collapse_redundant_quality_gates as _collapse_redundant_quality_gates,
     select_best_operations as _select_best_operations,
@@ -1001,6 +1002,8 @@ async def generate_route(
     operations = result.scalars().all()
     inputs = _normalize_input_values(body)
     finalized_package = await _latest_finalized_rule_package(body.project_id, db)
+    if not finalized_package:
+        raise HTTPException(409, "当前资料尚未导出有效规则包。请重新完成提炼、审核并导出后再生成。")
     rule_engine = str(getattr(project, "rule_engine", None) or "auto").strip().lower()
     if rule_engine not in {"auto", "v1", "v2"}:
         rule_engine = "auto"
@@ -1020,6 +1023,12 @@ async def generate_route(
                         "validation": validation.model_dump(mode="json"),
                     }
                     raise HTTPException(status_code=422, detail=detail)
+                input_errors = validate_inputs(package_v2.input_schema, inputs)
+                if input_errors:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=[issue.model_dump(mode="json") for issue in input_errors],
+                    )
                 plan = plan_route(package_v2, inputs)
                 steps = [
                     RouteStep(
@@ -1066,6 +1075,10 @@ async def generate_route(
                 f"已发布 V2 规则包 V{finalized_package.version} 本次未参与正式生成"
             )
 
+    if not steps and schema_version == "2.0" and rule_engine != "v1":
+        # A validated V2 package may legitimately select no optional process,
+        # but it must never silently fall back to stale extraction output.
+        raise HTTPException(422, "规则包未生成可执行路线，请检查主线工序和规则条件。")
     if not steps and operations:
         steps = _select_best_operations(operations, inputs)
     elif not steps:
