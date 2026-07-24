@@ -319,6 +319,9 @@ async def get_normalized_superset_route(project_id: int, db: AsyncSession = Depe
 
 @router.get("/saved-normalized-route", response_model=SavedNormalizedRouteVersionOut)
 async def get_saved_normalized_route(project_id: int, db: AsyncSession = Depends(get_db)):
+    # Check the parent first.  Otherwise a stale browser project_id reaches the
+    # snapshot writer and SQLite reports a misleading foreign-key 500.
+    await _ensure_project_exists(project_id, db)
     await _ensure_project_route_merge_snapshot(project_id, db)
     version_row = await ensure_saved_normalized_route_version(
         project_id,
@@ -383,7 +386,10 @@ async def save_finalized_rule_package(
     db: AsyncSession = Depends(get_db),
 ):
     project = await _ensure_project_exists(body.project_id, db)
-    if project.status != "ROUTE_SET_READY":
+    # A project remains based on the same reviewed route after step 5 has run.
+    # Allow publishing a corrected package in that state; the route-version
+    # ownership check below still prevents cross-project or stale-route saves.
+    if project.status not in {"ROUTE_SET_READY", "GENERATED"}:
         raise HTTPException(409, "当前资料已变更或尚未完成路线提炼，请重新完成第二至四步后再导出规则包。")
     if not body.input_schema:
         raise HTTPException(400, "input_schema.json 内容不能为空")

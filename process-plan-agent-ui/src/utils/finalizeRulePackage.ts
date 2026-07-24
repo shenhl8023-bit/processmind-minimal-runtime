@@ -34,9 +34,9 @@ export type FinalizeRuleMode = 'mainline' | 'conditional' | 'relation' | 'unreso
 export function isProcessRelationConditionText(value: string) {
   const text = String(value || '').trim()
   if (!text) return false
-  return /(?:后|之后|完成后).{0,80}(?:安排|设置|纳入|增加|出现|检查)/.test(text)
-    || /存在.{1,30}工序.{0,60}(?:安排|设置|纳入|增加|出现)/.test(text)
-    || /(?:前面|此前|之前).{0,30}(?:有|存在).{0,60}(?:安排|设置|纳入|增加|出现|检查)/.test(text)
+  return /(?:后|之后|完成后).{0,80}(?:安排|设置|纳入|加入|添加|增加|出现|检查|释放|进行|执行|实施|处理)/.test(text)
+    || /(?:存在|出现).{1,30}工序.{0,60}(?:安排|设置|纳入|加入|添加|增加|出现|检查|释放|进行|执行|实施|处理)/.test(text)
+    || /(?:前面|此前|之前).{0,30}(?:有|存在|出现).{0,60}(?:安排|设置|纳入|加入|添加|增加|出现|检查|释放|进行|执行|实施|处理)/.test(text)
     || /(?:必须在|应在).{1,40}(?:后|之后)|不得早于/.test(text)
     || /(?:前|之前).{0,20}(?:必须|需要).{0,20}(?:完成|存在|经过)|依赖于|以前置/.test(text)
     || /不能同时|不得同时|互斥|二选一|不可共存/.test(text)
@@ -290,21 +290,6 @@ function buildDefaultV2TestCases(
   ]
 }
 
-const BASE_INPUT_FIELD_KEYS = [
-  'material.grade',
-  'cad.features',
-  'precision.grades',
-  'special.requirements',
-]
-
-export function buildV2InputFields(conditionFields: CanonicalConditionField[]) {
-  const registry = new Map(conditionFields.map(field => [field.key, field] as const))
-  return BASE_INPUT_FIELD_KEYS
-    .map(key => registry.get(key))
-    .filter((field): field is CanonicalConditionField => Boolean(field))
-    .map(registryFieldToInputField)
-}
-
 function collectConditionFields(condition: RulePackageCondition, target: Set<string>) {
   if ('field' in condition) {
     target.add(condition.field)
@@ -352,35 +337,47 @@ function normalizeLegacyBooleanCondition(
   return { not: normalizeLegacyBooleanCondition(condition.not, definitions) }
 }
 
-function collectSpecialRequirementValues(condition: RulePackageCondition, target: Set<string>) {
+function collectCustomTagValues(
+  condition: RulePackageCondition,
+  target: Map<string, Set<string>>,
+) {
   if ('field' in condition) {
-    if (condition.field === 'special.requirements' && condition.op === 'contains' && typeof condition.value === 'string') {
-      target.add(condition.value)
+    if (
+      ['eq', 'in', 'contains', 'contains_any', 'contains_all'].includes(condition.op)
+    ) {
+      const values = Array.isArray(condition.value) ? condition.value : [condition.value]
+      const fieldValues = target.get(condition.field) || new Set<string>()
+      values.forEach((value) => {
+        if (typeof value === 'string' && value.trim()) fieldValues.add(value.trim())
+      })
+      target.set(condition.field, fieldValues)
     }
     return
   }
-  if ('all' in condition) condition.all.forEach(item => collectSpecialRequirementValues(item, target))
-  if ('any' in condition) condition.any.forEach(item => collectSpecialRequirementValues(item, target))
-  if ('not' in condition) collectSpecialRequirementValues(condition.not, target)
+  if ('all' in condition) condition.all.forEach(item => collectCustomTagValues(item, target))
+  if ('any' in condition) condition.any.forEach(item => collectCustomTagValues(item, target))
+  if ('not' in condition) collectCustomTagValues(condition.not, target)
 }
 
 function compactV2InputSchema(args: {
   fields: CompileRulePackageRequest['fields']
-  specialRequirementValues: Set<string>
+  customTagValues: Map<string, Set<string>>
 }) {
   const fields = args.fields.map(field => ({
     ...field,
     options: field.options ? [...field.options] : [],
   }))
-  const specialRequirements = fields.find(field => field.key === 'special.requirements')
-  if (specialRequirements) {
-    const knownValues = new Set((specialRequirements.options || []).map(option => option.value))
-    args.specialRequirementValues.forEach((value) => {
-      if (!value || knownValues.has(value)) return
-      specialRequirements.options = [...(specialRequirements.options || []), { value, label: value }]
+  args.customTagValues.forEach((values, fieldKey) => {
+    const field = fields.find(item => item.key === fieldKey)
+    if (!field || !['single_select', 'multi_select'].includes(field.type)) return
+    const knownValues = new Set((field.options || []).map(option => option.value))
+    field.options = (field.options || []).filter(option => values.has(option.value))
+    values.forEach((value) => {
+      if (knownValues.has(value)) return
+      field.options = [...(field.options || []), { value, label: value }]
       knownValues.add(value)
     })
-  }
+  })
 
   const hasSpecificDimensionIt = fields.some(field =>
     field.key === 'precision.inner_diameter_it' || field.key === 'precision.outer_diameter_it',
@@ -460,7 +457,21 @@ export function buildCompileRequestFromCards(args: {
   const confirmedFieldDefinitions = new Map<string, CanonicalConditionField>()
   confirmedCards.forEach((item) => {
     item.conditionReview.confirmed.field_definitions?.forEach((field: CanonicalConditionField) => {
-      confirmedFieldDefinitions.set(field.key, field)
+      const existing = confirmedFieldDefinitions.get(field.key)
+      if (!existing) {
+        confirmedFieldDefinitions.set(field.key, field)
+        return
+      }
+      const optionMap = new Map(
+        [...(existing.options || []), ...(field.options || [])]
+          .map(option => [option.value, option] as const),
+      )
+      confirmedFieldDefinitions.set(field.key, {
+        ...existing,
+        aliases: Array.from(new Set([...(existing.aliases || []), ...(field.aliases || [])])),
+        operators: Array.from(new Set([...(existing.operators || []), ...(field.operators || [])])),
+        options: Array.from(optionMap.values()),
+      })
     })
   })
   const userRules: RulePackageRule[] = confirmedCards
@@ -503,22 +514,34 @@ export function buildCompileRequestFromCards(args: {
         reason: item.conditionReview.confirmed.preview || `用户确认关联工序：${item.conditionText}`,
       }
     })
+  const protectedProcessIds = new Set<string>([
+    ...processes.filter(item => item.main).map(item => item.process_id),
+    ...userRules.flatMap(rule => [
+      ...(rule.then.include_process_ids || []),
+      ...(rule.then.exclude_process_ids || []),
+    ]),
+  ])
+  const filteredStaticRules = staticRules.flatMap((rule) => {
+    const includeProcessIds = (rule.then.include_process_ids || [])
+      .filter(processId => !protectedProcessIds.has(processId))
+    return includeProcessIds.length
+      ? [{ ...rule, then: { ...rule.then, include_process_ids: includeProcessIds } }]
+      : []
+  })
+  const finalRules = [...userRules, ...filteredStaticRules]
   const referencedFieldKeys = new Set<string>()
-  userRules.forEach(rule => collectConditionFields(rule.when, referencedFieldKeys))
-  const fieldMap = new Map<string, CompileRulePackageRequest['fields'][number]>(
-    buildV2InputFields(args.conditionFields || []).map(field => [field.key, field] as const),
-  )
+  finalRules.forEach(rule => collectConditionFields(rule.when, referencedFieldKeys))
   const registryMap = new Map((args.conditionFields || []).map(field => [field.key, field] as const))
+  const fieldMap = new Map<string, CompileRulePackageRequest['fields'][number]>()
   referencedFieldKeys.forEach((key) => {
-    if (fieldMap.has(key)) return
     const definition = registryMap.get(key) || confirmedFieldDefinitions.get(key)
     if (definition) fieldMap.set(key, registryFieldToInputField(definition))
   })
-  const specialRequirementValues = new Set<string>()
-  userRules.forEach(rule => collectSpecialRequirementValues(rule.when, specialRequirementValues))
+  const customTagValues = new Map<string, Set<string>>()
+  finalRules.forEach(rule => collectCustomTagValues(rule.when, customTagValues))
   const compacted = compactV2InputSchema({
     fields: Array.from(fieldMap.values()),
-    specialRequirementValues,
+    customTagValues,
   })
   const fields = compacted.fields
 
@@ -532,7 +555,7 @@ export function buildCompileRequestFromCards(args: {
     },
     fields,
     processes,
-    rules: [...userRules, ...staticRules],
+    rules: finalRules,
     process_relations: processRelations,
     test_cases: buildDefaultV2TestCases(fields, processes),
   }

@@ -8,7 +8,7 @@ from app.services.rule_packages.condition_contracts import CanonicalConditionFie
 from app.services.rule_packages.contracts import ConditionNode, InputField, InputOption, InputValidation
 
 
-FIELD_REGISTRY_VERSION = "2026.09"
+FIELD_REGISTRY_VERSION = "2026.10"
 
 
 _FIELDS = [

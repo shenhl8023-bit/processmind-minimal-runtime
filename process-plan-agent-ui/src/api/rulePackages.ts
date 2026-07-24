@@ -199,6 +199,31 @@ export type CompileRulePackageResponse = {
 
 export type SimulateRulePackageDraftResponse = FinalizedRulePackageSimulationResult
 
+export type KmaiCompatibilityTestResult = {
+  project_id: number
+  package_id: number
+  package_version: number
+  compatible: boolean
+  v2_process_ids: string[]
+  v2_matched_rule_ids: string[]
+  kmai_process_ids: string[]
+  kmai_matched_rule_ids: string[]
+  only_v2_process_ids: string[]
+  only_kmai_process_ids: string[]
+  warnings: Array<{ code: string; path?: string; message: string }>
+  errors: Array<{ code: string; path?: string; message: string }>
+  manual_factors: Record<string, unknown>
+  semantic_gaps: string[]
+}
+
+export async function testKmaiCompatibility(projectId: number, inputs: Record<string, unknown>) {
+  const { data } = await api.post('/api/extract/finalized-rule-packages/compatibility-test', {
+    project_id: projectId,
+    inputs,
+  })
+  return data as KmaiCompatibilityTestResult
+}
+
 export async function compileRulePackage(body: CompileRulePackageRequest) {
   const { data } = await api.post('/api/extract/finalized-rule-packages/compile', body)
   return data as CompileRulePackageResponse

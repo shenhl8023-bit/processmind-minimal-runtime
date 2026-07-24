@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import {
   buildCompileRequestFromCards,
-  buildV2InputFields,
   finalizeRuleMode,
   hasCurrentConfirmedUserRule,
   isActionableConditionText,
@@ -96,6 +95,21 @@ describe('V2 compile DTO from finalize cards', () => {
       factorNames: [],
     })).toBe('relation')
     expect(finalizeRuleMode({
+      ...finalizeItem({ id: 'process_stress_relief', normalized_step_name: '去应力', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: '当粗加工后释放应力，避免后续精加工变形',
+      factorNames: [],
+    })).toBe('relation')
+    expect(finalizeRuleMode({
+      ...finalizeItem({ id: 'process_copper_remove', normalized_step_name: '除铜', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: '前面出现镀铜这个工序时，需要安排此工序',
+      factorNames: [],
+    })).toBe('relation')
+    expect(finalizeRuleMode({
+      ...finalizeItem({ id: 'process_burn_inspect', normalized_step_name: '烧伤检查', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: '淬火之后，需要加入该工序',
+      factorNames: [],
+    })).toBe('relation')
+    expect(finalizeRuleMode({
       ...finalizeItem({ id: 'process_mark', normalized_step_name: '标记', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
       conditionText: '当零件需要追溯、编号或批次标识时，安排标记工序',
       factorNames: [],
@@ -132,7 +146,7 @@ describe('V2 compile DTO from finalize cards', () => {
     })).not.toBe('mainline')
   })
 
-  it('builds four-slot V2 fields and stable process catalog', () => {
+  it('builds a stable process catalog without unreferenced condition fields', () => {
     const cards = [
       finalizeItem(),
       finalizeItem({ id: 'process_mill_slot', sequence: 20, normalized_step_name: '铣槽' }),
@@ -150,33 +164,43 @@ describe('V2 compile DTO from finalize cards', () => {
       conditionFields: baseConditionFields(),
     })
 
-    expect(request.fields.map(field => field.key)).toEqual([
-      'material.grade',
-      'cad.features',
-      'precision.grades',
-      'special.requirements',
-    ])
+    expect(request.fields.map(field => field.key)).toEqual([])
     expect(request.processes.some(item => item.process_id === 'process_quench')).toBe(true)
     expect(request.processes.some(item => item.main)).toBe(true)
-    expect(request.rules!.length).toBeGreaterThan(0)
+    expect(request.rules).toEqual([])
     expect(request.test_cases).toHaveLength(1)
     expect(request.test_cases![0]!.case_id).toBe('default-smoke')
     expect(request.test_cases![0]!.expect.included_process_ids!.length).toBeGreaterThan(0)
-    expect(request.test_cases![0]!.input).toEqual({
-      material: { grade: '9Cr18' },
-      cad: { features: ['扁位/平面'] },
-      precision: { grades: ['孔精加工'] },
-      special: { requirements: ['渗氮层要求'] },
-    })
-    expect(buildV2InputFields(baseConditionFields())[0]!.type).toBe('single_select')
+    expect(request.test_cases![0]!.input).toEqual({})
   })
 
   it('includes nondestructive testing as a special requirement and maps it to the normalized process', () => {
+    const sourceText = '当零件有无损检测要求时，安排无损检查工序'
     const request = buildCompileRequestFromCards({
       projectId: 12,
       packageName: 'ndt_rules',
       routeVersionId: 3,
-      cards: [finalizeItem({ id: 'process_ndt', sequence: 30, normalized_step_name: '无损检查' })],
+      cards: [{
+        ...finalizeItem({ id: 'process_ndt', sequence: 30, normalized_step_name: '无损检查', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+        conditionText: sourceText,
+        edited: true,
+        conditionReview: {
+          source_text: sourceText,
+          source_hash: 'a'.repeat(64),
+          status: 'confirmed',
+          confirmed: {
+            kind: 'condition',
+            when: { field: 'special.requirements', op: 'contains', value: '无损检测要求' },
+            then: { include_process_ids: ['process_ndt'], exclude_process_ids: [], reason: '用户审核' },
+            preview: '特殊要求 包含 无损检测要求',
+          },
+          confidence: 0.9,
+          issues: [],
+          field_registry_version: '2026.09',
+          confirmed_by: '规则包整体审核',
+          confirmed_at: '2026-07-23T02:00:00Z',
+        },
+      }],
       displayName: segment => segment.normalized_step_name,
       phaseLabel: () => 'inspection',
       primarySteps: () => [],
@@ -188,7 +212,7 @@ describe('V2 compile DTO from finalize cards', () => {
       value: '无损检测要求', label: '无损检测要求',
     })
     expect(request.rules).toContainEqual(expect.objectContaining({
-      rule_id: 'special.无损检测要求',
+      rule_id: 'user.process_ndt',
       when: { field: 'special.requirements', op: 'contains', value: '无损检测要求' },
       then: expect.objectContaining({ include_process_ids: ['process_ndt'] }),
     }))
@@ -383,11 +407,8 @@ describe('V2 compile DTO from finalize cards', () => {
     expect(request.fields.some(field => field.key === 'custom.requirements.traceability_marking_required')).toBe(false)
     const specialRequirements = request.fields.find(field => field.key === 'special.requirements')
     expect(specialRequirements?.options?.map(option => option.value)).toContain('追溯标印')
-    expect(specialRequirements?.options?.map(option => option.value)).toEqual(expect.arrayContaining([
-      '渗氮层要求',
-      '磁粉检查要求',
-    ]))
-    expect(request.rules?.some(rule => rule.rule_id === 'special.追溯标印')).toBe(true)
+    expect(specialRequirements?.options?.map(option => option.value)).toEqual(['追溯标印'])
+    expect(request.rules?.some(rule => rule.rule_id === 'special.追溯标印')).toBe(false)
     expect(request.rules?.find(rule => rule.source === 'user_confirmed')?.when).toEqual({
       field: 'special.requirements', op: 'contains', value: '追溯标印',
     })
@@ -466,5 +487,167 @@ describe('V2 compile DTO from finalize cards', () => {
     expect(request.rules?.find(rule => rule.source === 'user_confirmed' && 'field' in rule.when)?.when).toEqual({
       field: 'precision.dimension_it', op: 'lte', value: 7,
     })
+  })
+
+  it('adds user-authored feature tags to the exported input options', () => {
+    const sourceText = '当零件存在异形凸台结构时，安排铣凸台工序'
+    const card = {
+      ...finalizeItem({ id: 'process_mill_boss', sequence: 30, normalized_step_name: '铣凸台', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: sourceText,
+      edited: true,
+      conditionReview: {
+        source_text: sourceText,
+        source_hash: 'f'.repeat(64),
+        status: 'confirmed',
+        confirmed: {
+          kind: 'condition',
+          when: { field: 'cad.features', op: 'contains', value: '异形凸台' },
+          then: { include_process_ids: ['process_mill_boss'], exclude_process_ids: [], reason: '用户审核' },
+          preview: 'CAD 特征集合 包含 异形凸台',
+        },
+        confidence: 0.65,
+        issues: [],
+        field_registry_version: '2026.09',
+        confirmed_by: '规则包整体审核',
+        confirmed_at: '2026-07-23T02:00:00Z',
+      },
+    }
+    const request = buildCompileRequestFromCards({
+      projectId: 12,
+      packageName: 'custom_feature_tag',
+      routeVersionId: 3,
+      cards: [finalizeItem(), card],
+      displayName: segment => segment.normalized_step_name,
+      phaseLabel: () => 'machining',
+      primarySteps: () => ['主工步'],
+      attachedSteps: () => [],
+      conditionFields: baseConditionFields(),
+    })
+
+    expect(request.fields.find(field => field.key === 'cad.features')?.options).toContainEqual({
+      value: '异形凸台', label: '异形凸台',
+    })
+  })
+
+  it('derives material options from final rules and suppresses covered static rules', () => {
+    const materialCondition = '当材料牌号为9Cr18时，纳入当前工序。'
+    const confirmedRule = (segmentId: string, processId: string) => ({
+      source_text: materialCondition,
+      source_hash: '1'.repeat(64),
+      status: 'confirmed',
+      confirmed: {
+        kind: 'condition',
+        when: { field: 'material.grade', op: 'eq', value: '9Cr18' },
+        then: { include_process_ids: [processId], exclude_process_ids: [], reason: '用户审核' },
+        preview: '材料牌号 等于 9Cr18',
+      },
+      confidence: 0.9,
+      issues: [],
+      field_registry_version: '2026.09',
+      confirmed_by: '规则包整体审核',
+      confirmed_at: '2026-07-23T02:00:00Z',
+      segmentId,
+    })
+    const temperCard = {
+      ...finalizeItem({ id: 'process_temper', sequence: 20, normalized_step_name: '调质', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: materialCondition,
+      edited: true,
+      conditionReview: confirmedRule('process_temper', 'process_temper'),
+    }
+    const quenchCard = {
+      ...finalizeItem({ id: 'process_quench', sequence: 30, normalized_step_name: '淬火', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: materialCondition,
+      edited: true,
+      conditionReview: confirmedRule('process_quench', 'process_quench'),
+    }
+    const request = buildCompileRequestFromCards({
+      projectId: 12,
+      packageName: 'dynamic_material_inputs',
+      routeVersionId: 3,
+      cards: [finalizeItem(), temperCard, quenchCard],
+      displayName: segment => segment.normalized_step_name,
+      phaseLabel: () => 'heat_treatment',
+      primarySteps: () => ['主工步'],
+      attachedSteps: () => [],
+      conditionFields: baseConditionFields().map((field: any) => field.key === 'material.grade'
+        ? {
+            ...field,
+            options: [
+              { value: '9Cr18', label: '9Cr18' },
+              { value: '95Cr18', label: '95Cr18' },
+              { value: '4Cr14Ni14W2Mo', label: '4Cr14Ni14W2Mo' },
+              { value: '6061', label: '6061' },
+            ],
+          }
+        : field),
+    })
+
+    const materialField = request.fields.find(field => field.key === 'material.grade')
+    expect(materialField?.options?.map(option => option.value)).toEqual(['9Cr18'])
+    expect(request.rules?.some(rule => rule.rule_id === 'material.9Cr18.heat')).toBe(false)
+  })
+
+  it('merges all user-authored values for the same project factor', () => {
+    const fieldKey = 'project_factor.material_category'
+    const dynamicCard = (processId: string, processName: string, value: string, sequence: number) => {
+      const sourceText = `当材料类别为${value}时，纳入${processName}工序`
+      return {
+        ...finalizeItem({ id: processId, sequence, normalized_step_name: processName, doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+        conditionText: sourceText,
+        edited: true,
+        conditionReview: {
+          source_text: sourceText,
+          source_hash: String(sequence).repeat(64).slice(0, 64),
+          status: 'confirmed',
+          confirmed: {
+            kind: 'condition',
+            when: { field: fieldKey, op: 'eq', value },
+            then: { include_process_ids: [processId], exclude_process_ids: [], reason: '用户审核' },
+            field_definitions: [{
+              key: fieldKey,
+              label: '材料类别',
+              category: '材料',
+              type: 'single_select',
+              operators: ['eq', 'neq', 'in'],
+              aliases: [],
+              source: '用户条件',
+              options: [{ value, label: value }],
+              allow_custom: true,
+            }],
+            preview: `材料类别 等于 ${value}`,
+          },
+          confidence: 0.9,
+          issues: [],
+          field_registry_version: '2026.09',
+          confirmed_by: '规则包整体审核',
+          confirmed_at: '2026-07-24T02:00:00Z',
+        },
+      }
+    }
+    const request = buildCompileRequestFromCards({
+      projectId: 12,
+      packageName: 'dynamic_material_categories',
+      routeVersionId: 3,
+      cards: [
+        finalizeItem(),
+        dynamicCard('process_nitriding', '渗氮', '不锈钢', 20),
+        dynamicCard('process_solution', '固溶处理', '高温合金', 30),
+      ],
+      displayName: segment => segment.normalized_step_name,
+      phaseLabel: () => 'heat_treatment',
+      primarySteps: () => ['主工步'],
+      attachedSteps: () => [],
+      conditionFields: baseConditionFields(),
+    })
+
+    expect(request.fields.find(field => field.key === fieldKey)).toEqual(expect.objectContaining({
+      label: '材料类别',
+      type: 'single_select',
+      allow_custom: true,
+      options: [
+        { value: '不锈钢', label: '不锈钢' },
+        { value: '高温合金', label: '高温合金' },
+      ],
+    }))
   })
 })

@@ -1,0 +1,820 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KmAI 工艺路线界面模拟</title>
+  <style>
+    :root {
+      --bg: #eef1f4;
+      --surface: #ffffff;
+      --surface-soft: #f7f8fa;
+      --line: #d9dee5;
+      --line-strong: #c2c9d2;
+      --text: #1f2933;
+      --text-soft: #66717f;
+      --text-muted: #8a94a2;
+      --blue: #1769e0;
+      --blue-dark: #0f4fae;
+      --blue-soft: #eaf2ff;
+      --green: #14855d;
+      --green-soft: #eaf7f1;
+      --amber: #a96614;
+      --amber-soft: #fff5e4;
+      --red: #ba3b44;
+      --red-soft: #fff0f1;
+      --shadow: 0 18px 46px rgba(26, 39, 53, 0.16);
+      --font: "IBM Plex Sans SC", "Source Han Sans SC", "PingFang SC", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      color: var(--text);
+      background: var(--bg);
+      font-family: var(--font);
+      font-size: 14px;
+      letter-spacing: 0;
+    }
+
+    button, select, input { font: inherit; letter-spacing: 0; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: 0.48; }
+
+    .app-header {
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 22px;
+      color: #f8fbff;
+      background: #202a36;
+      border-bottom: 1px solid #364352;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      font-weight: 700;
+      font-size: 16px;
+    }
+
+    .brand-mark {
+      width: 29px;
+      height: 29px;
+      display: grid;
+      place-items: center;
+      border-radius: 6px;
+      color: #fff;
+      background: var(--blue);
+      font-weight: 800;
+    }
+
+    .header-actions { display: flex; align-items: center; gap: 14px; }
+    .demo-flag { color: #b9c4d0; font-size: 12px; }
+
+    .connection {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: #d7f5e7;
+      font-size: 12px;
+    }
+
+    .connection::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #36c78a;
+      box-shadow: 0 0 0 3px rgba(54, 199, 138, 0.16);
+    }
+
+    .workflow {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1px;
+      background: var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .workflow-step {
+      min-height: 64px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 18px;
+      background: var(--surface);
+      color: var(--text-soft);
+    }
+
+    .workflow-step.done { color: var(--green); }
+    .workflow-step.active { color: var(--blue-dark); background: var(--blue-soft); }
+
+    .workflow-index {
+      width: 27px;
+      height: 27px;
+      flex: 0 0 27px;
+      display: grid;
+      place-items: center;
+      border: 1px solid currentColor;
+      border-radius: 50%;
+      font-weight: 700;
+      font-size: 12px;
+    }
+
+    .workflow-copy strong { display: block; color: currentColor; font-size: 13px; }
+    .workflow-copy span { display: block; margin-top: 2px; font-size: 11px; color: var(--text-muted); }
+
+    .stage {
+      padding: 22px;
+    }
+
+    .process-panel {
+      width: min(1080px, 100%);
+      height: calc(100vh - 164px);
+      min-height: 620px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--surface);
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .panel-head {
+      min-height: 63px;
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) auto auto;
+      align-items: center;
+      gap: 16px;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-title { display: flex; align-items: center; gap: 11px; }
+    .panel-title-mark {
+      width: 31px;
+      height: 31px;
+      display: grid;
+      place-items: center;
+      border-radius: 6px;
+      background: var(--blue);
+      color: white;
+      font-weight: 800;
+    }
+
+    .panel-title strong { display: block; font-size: 16px; }
+    .panel-title span { display: block; margin-top: 2px; color: var(--text-muted); font-size: 11px; }
+
+    .head-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 31px;
+      padding: 5px 10px;
+      border: 1px solid #b8dfcf;
+      border-radius: 6px;
+      color: var(--green);
+      background: var(--green-soft);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .head-status::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .head-status.warn { color: var(--amber); border-color: #ead0a5; background: var(--amber-soft); }
+    .head-status.error { color: var(--red); border-color: #efc0c4; background: var(--red-soft); }
+
+    .head-tools { display: flex; align-items: center; gap: 6px; }
+    .icon-button {
+      width: 31px;
+      height: 31px;
+      display: grid;
+      place-items: center;
+      border: 1px solid transparent;
+      border-radius: 5px;
+      color: var(--text-soft);
+      background: transparent;
+      font-size: 18px;
+    }
+    .icon-button:hover { border-color: var(--line); background: var(--surface-soft); color: var(--text); }
+
+    .panel-body {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 330px minmax(0, 1fr);
+      overflow: hidden;
+    }
+
+    .params-pane {
+      overflow-y: auto;
+      padding: 17px;
+      border-right: 1px solid var(--line);
+      background: #fafbfc;
+    }
+
+    .pane-kicker {
+      margin-bottom: 12px;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .input-summary {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .summary-chip {
+      min-width: 0;
+      padding: 8px 9px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface);
+    }
+    .summary-chip span { display: block; color: var(--text-muted); font-size: 10px; }
+    .summary-chip strong { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+
+    .field-group { padding: 14px 0; border-top: 1px solid var(--line); }
+    .field-group:first-of-type { border-top: 0; padding-top: 0; }
+    .group-title { margin-bottom: 11px; font-size: 12px; font-weight: 750; }
+    .required { color: var(--red); margin-left: 3px; }
+
+    .field { margin-bottom: 12px; }
+    .field:last-child { margin-bottom: 0; }
+    .field label.field-label { display: block; margin-bottom: 6px; color: var(--text-soft); font-size: 11px; font-weight: 650; }
+
+    select {
+      width: 100%;
+      height: 35px;
+      padding: 0 31px 0 9px;
+      border: 1px solid var(--line-strong);
+      border-radius: 5px;
+      color: var(--text);
+      background: var(--surface);
+      outline: none;
+    }
+    select:focus { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(23, 105, 224, 0.12); }
+
+    .check-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .check-option {
+      min-height: 34px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 8px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--surface);
+      color: var(--text-soft);
+      font-size: 11px;
+    }
+    .check-option:has(input:checked) { border-color: #91b9f2; background: var(--blue-soft); color: var(--blue-dark); }
+    .check-option input { accent-color: var(--blue); }
+
+    .generate-button {
+      width: 100%;
+      min-height: 39px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 4px;
+      border: 1px solid var(--blue-dark);
+      border-radius: 5px;
+      color: white;
+      background: var(--blue);
+      font-weight: 750;
+    }
+    .generate-button:not(:disabled):hover { background: var(--blue-dark); }
+
+    .results-pane {
+      min-width: 0;
+      overflow-y: auto;
+      padding: 17px 18px 22px;
+      background: var(--surface);
+    }
+
+    .result-summary {
+      display: grid;
+      grid-template-columns: minmax(170px, 1fr) repeat(4, 72px);
+      align-items: stretch;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      overflow: hidden;
+      margin-bottom: 14px;
+    }
+    .summary-main, .metric { padding: 10px 12px; background: var(--surface-soft); }
+    .summary-main { display: flex; flex-direction: column; justify-content: center; }
+    .summary-main strong { font-size: 14px; }
+    .summary-main span { margin-top: 3px; color: var(--text-muted); font-size: 10px; }
+    .metric { text-align: center; border-left: 1px solid var(--line); }
+    .metric strong { display: block; font-size: 17px; color: var(--blue-dark); }
+    .metric span { display: block; margin-top: 2px; color: var(--text-muted); font-size: 10px; }
+
+    .route-status {
+      min-height: 34px;
+      display: flex;
+      align-items: center;
+      padding: 7px 10px;
+      margin-bottom: 11px;
+      border-left: 3px solid var(--green);
+      color: #356555;
+      background: var(--green-soft);
+      font-size: 12px;
+    }
+    .route-status.warn { border-color: var(--amber); color: #77511d; background: var(--amber-soft); }
+    .route-status.error { border-color: var(--red); color: #7c3338; background: var(--red-soft); }
+
+    .table-wrap { width: 100%; overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; }
+    table { width: 100%; min-width: 690px; border-collapse: collapse; table-layout: fixed; }
+    th {
+      height: 37px;
+      padding: 7px 9px;
+      color: var(--text-soft);
+      background: #f1f3f6;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      font-size: 11px;
+      font-weight: 750;
+    }
+    td {
+      padding: 10px 9px;
+      border-bottom: 1px solid #e7eaee;
+      vertical-align: top;
+      line-height: 1.45;
+      font-size: 12px;
+    }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: #fafcff; }
+
+    .index-badge {
+      width: 23px;
+      height: 23px;
+      display: grid;
+      place-items: center;
+      border-radius: 4px;
+      color: var(--blue-dark);
+      background: var(--blue-soft);
+      font-size: 10px;
+      font-weight: 750;
+    }
+    .process-name { font-weight: 750; }
+    .type-tag { display: inline-block; padding: 2px 6px; border: 1px solid var(--line); border-radius: 4px; color: var(--text-soft); background: var(--surface-soft); font-size: 10px; }
+    .feature-line { margin-bottom: 3px; color: #3e586f; }
+    .feature-line:last-child { margin-bottom: 0; }
+    .feature-group { color: var(--text-muted); margin-right: 4px; }
+    .requirement-list { margin: 0; padding-left: 17px; color: var(--text-soft); }
+    .empty-text { color: var(--text-muted); }
+
+    .empty-result {
+      min-height: 360px;
+      display: grid;
+      place-items: center;
+      border: 1px dashed var(--line-strong);
+      border-radius: 6px;
+      color: var(--text-muted);
+      background: var(--surface-soft);
+      text-align: center;
+    }
+    .empty-result strong { display: block; color: var(--text-soft); font-size: 14px; }
+    .empty-result span { display: block; margin-top: 5px; font-size: 11px; }
+
+    .panel-footer {
+      min-height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 10px 18px;
+      border-top: 1px solid var(--line);
+      background: #fafbfc;
+    }
+    .footer-state { color: var(--text-soft); font-size: 11px; }
+    .footer-state strong { color: var(--text); }
+    .action-row { display: flex; gap: 8px; }
+    .action-button {
+      min-height: 36px;
+      padding: 0 13px;
+      border: 1px solid var(--line-strong);
+      border-radius: 5px;
+      color: var(--text);
+      background: var(--surface);
+      font-weight: 700;
+      font-size: 12px;
+    }
+    .action-button:not(:disabled):hover { background: var(--surface-soft); }
+    .action-button.primary { border-color: var(--blue-dark); color: white; background: var(--blue); }
+    .action-button.primary:not(:disabled):hover { background: var(--blue-dark); }
+    .action-button.success { border-color: #11714f; color: white; background: var(--green); }
+
+    @media (max-width: 820px) {
+      .workflow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .stage { padding: 12px; }
+      .process-panel { height: auto; min-height: calc(100vh - 160px); }
+      .panel-body { grid-template-columns: 1fr; overflow: visible; }
+      .params-pane { border-right: 0; border-bottom: 1px solid var(--line); }
+      .results-pane { min-height: 500px; }
+      .result-summary { grid-template-columns: repeat(4, 1fr); }
+      .summary-main { grid-column: 1 / -1; }
+      .metric:first-of-type { border-left: 0; }
+    }
+
+    @media (max-width: 560px) {
+      .app-header { padding: 0 13px; }
+      .demo-flag { display: none; }
+      .workflow-copy span { display: none; }
+      .workflow-step { min-height: 51px; padding: 8px 10px; }
+      .panel-head { grid-template-columns: 1fr auto; }
+      .head-status { grid-column: 1 / -1; grid-row: 2; justify-content: center; }
+      .input-summary, .check-grid { grid-template-columns: 1fr; }
+      .panel-footer { align-items: stretch; flex-direction: column; }
+      .action-row { display: grid; grid-template-columns: 1fr 1fr; }
+      .action-row button:last-child { grid-column: 1 / -1; }
+    }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand"><span class="brand-mark">K</span><span>AI小沐</span></div>
+    <div class="header-actions"><span class="demo-flag">工艺界面模拟</span><span class="connection">3DMPS 已连接</span></div>
+  </header>
+
+  <nav class="workflow" aria-label="工艺工作流">
+    <div class="workflow-step done"><span class="workflow-index">1</span><span class="workflow-copy"><strong>模型准备</strong><span>零件与环境检查完成</span></span></div>
+    <div class="workflow-step done"><span class="workflow-index">2</span><span class="workflow-copy"><strong>特征识别</strong><span>已获得 CAD 分组特征</span></span></div>
+    <div class="workflow-step done"><span class="workflow-index">3</span><span class="workflow-copy"><strong>分组模板</strong><span>特征分组已确认</span></span></div>
+    <div class="workflow-step active"><span class="workflow-index">4</span><span class="workflow-copy"><strong>AI 工艺推理</strong><span>等待生成并提交工艺路线</span></span></div>
+  </nav>
+
+  <main class="stage">
+    <section class="process-panel" aria-label="工艺路线生成">
+      <header class="panel-head">
+        <div class="panel-title">
+          <span class="panel-title-mark">≡</span>
+          <div><strong>工艺路线生成</strong><span id="traceText">输入批次 BOF-20260723-0086</span></div>
+        </div>
+        <div id="headStatus" class="head-status">已接收 6 个 CAD 分组</div>
+        <div class="head-tools">
+          <button class="icon-button" type="button" title="更多信息" aria-label="更多信息">⋯</button>
+          <button class="icon-button" type="button" title="关闭" aria-label="关闭">×</button>
+        </div>
+      </header>
+
+      <div class="panel-body">
+        <aside class="params-pane">
+          <div class="pane-kicker">输入参数</div>
+          <div class="input-summary">
+            <div class="summary-chip"><span>材料</span><strong id="chipMaterial">9Cr18</strong></div>
+            <div class="summary-chip"><span>类型</span><strong id="chipPart">衬套</strong></div>
+            <div class="summary-chip"><span>热处理</span><strong id="chipHeat">淬火</strong></div>
+            <div class="summary-chip"><span>附加选项</span><strong id="chipOptions">型孔 / 割扁</strong></div>
+          </div>
+
+          <div class="field-group">
+            <div class="group-title">基本信息</div>
+            <div class="field">
+              <label class="field-label" for="material">材料牌号<span class="required">*</span></label>
+              <select id="material">
+                <option value="">请选择</option>
+                <option value="9Cr18" selected>9Cr18</option>
+                <option value="4Cr14Ni14W2Mo">4Cr14Ni14W2Mo</option>
+                <option value="6061">6061</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="field-label" for="partType">零件类型<span class="required">*</span></label>
+              <select id="partType">
+                <option value="">请选择</option>
+                <option value="衬套" selected>衬套</option>
+                <option value="活门">活门</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="field-label">附加选项</label>
+              <div class="check-grid">
+                <label class="check-option"><input id="shapedHole" type="checkbox" checked />型孔 / 割扁</label>
+                <label class="check-option"><input id="postHole" type="checkbox" />后段补充孔</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <div class="group-title">后处理要求</div>
+            <div class="field">
+              <label class="field-label" for="heat">热处理</label>
+              <select id="heat">
+                <option value="">无</option>
+                <option value="淬火" selected>淬火</option>
+                <option value="去应力">去应力</option>
+                <option value="真空淬火">真空淬火</option>
+                <option value="渗氮层">渗氮层</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="field-label">表面处理</label>
+              <div class="check-grid">
+                <label class="check-option"><input id="chromic" type="checkbox" />铬酸阳极化</label>
+                <label class="check-option"><input id="hardAnodize" type="checkbox" />硬质阳极化</label>
+              </div>
+            </div>
+            <div class="field">
+              <label class="field-label" for="inspection">检测项目</label>
+              <select id="inspection">
+                <option value="">无</option>
+                <option value="裂纹检测" selected>裂纹检测</option>
+                <option value="烧伤检查">烧伤检查</option>
+                <option value="尺寸检测">尺寸检测</option>
+                <option value="裂纹检测,烧伤检查">裂纹检测 + 烧伤检查</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="field-label" for="marking">标识方式</label>
+              <select id="marking">
+                <option value="">无</option>
+                <option value="标印" selected>标印</option>
+                <option value="标刻">标刻</option>
+                <option value="标印,标刻">标印 + 标刻</option>
+              </select>
+            </div>
+          </div>
+
+          <button id="generateButton" class="generate-button" type="button">生成工艺路线</button>
+        </aside>
+
+        <section class="results-pane">
+          <div id="resultSummary" class="result-summary">
+            <div class="summary-main"><strong>工艺路线</strong><span id="summaryState">当前结果由 KmAI V1 规则生成</span></div>
+            <div class="metric"><strong>6</strong><span>分组</span></div>
+            <div class="metric"><strong>18</strong><span>特征</span></div>
+            <div class="metric"><strong id="processCount">0</strong><span>工序</span></div>
+            <div class="metric"><strong id="stepCount">0</strong><span>工步</span></div>
+          </div>
+          <div id="routeStatus" class="route-status warn">正在载入示例工艺路线...</div>
+          <div id="resultArea" class="empty-result"><div><strong>尚未生成工艺路线</strong><span>CAD 输入已就绪</span></div></div>
+        </section>
+      </div>
+
+      <footer class="panel-footer">
+        <div id="footerState" class="footer-state"><strong>CAD 输入已就绪</strong> · 等待路线生成</div>
+        <div class="action-row">
+          <button id="resetButton" class="action-button" type="button">恢复示例</button>
+          <button id="technicalButton" class="action-button" type="button" disabled>生成技术要求</button>
+          <button id="submitButton" class="action-button primary" type="button" disabled>提交工艺数据</button>
+        </div>
+      </footer>
+    </section>
+  </main>
+
+  <script>
+    (() => {
+      const $ = (id) => document.getElementById(id)
+      const controls = ['material', 'partType', 'heat', 'inspection', 'marking', 'shapedHole', 'postHole', 'chromic', 'hardAnodize'].map($)
+      const state = { route: [], technicalReady: false, submitted: false, busy: false }
+
+      const baseProcesses = [
+        { name: '下料/备料', type: '毛坯准备', feature: '毛坯：棒料', steps: 1 },
+        { name: '车削加工（A侧）', type: '车削加工', feature: '外圆：基准外圆\n端面：A侧端面', steps: 4 },
+        { name: '车削加工（B侧）', type: '车削加工', feature: '内孔：中间通孔\n端面：B侧端面', steps: 4 },
+        { name: '去毛刺', type: '辅助工序', feature: '全局：锐边', steps: 1 },
+        { name: '清洗', type: '辅助工序', feature: '全局：加工表面', steps: 1 },
+        { name: '检验', type: '检验工序', feature: '尺寸：关键尺寸', steps: 2 },
+        { name: '包装', type: '放行工序', feature: '成品：防护包装', steps: 1 },
+      ]
+
+      function escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char])
+      }
+
+      function currentInputs() {
+        return {
+          material: $('material').value,
+          partType: $('partType').value,
+          heat: $('heat').value,
+          inspection: $('inspection').value,
+          marking: $('marking').value,
+          shapedHole: $('shapedHole').checked,
+          postHole: $('postHole').checked,
+          chromic: $('chromic').checked,
+          hardAnodize: $('hardAnodize').checked,
+        }
+      }
+
+      function updateChips() {
+        const input = currentInputs()
+        $('chipMaterial').textContent = input.material || '—'
+        $('chipPart').textContent = input.partType || '—'
+        $('chipHeat').textContent = input.heat || '—'
+        const options = []
+        if (input.shapedHole) options.push('型孔 / 割扁')
+        if (input.postHole) options.push('后段补充孔')
+        if (input.chromic) options.push('铬酸阳极化')
+        if (input.hardAnodize) options.push('硬质阳极化')
+        $('chipOptions').textContent = options.join('，') || '—'
+        $('generateButton').disabled = !input.material || !input.partType || state.busy
+      }
+
+      function buildRoute() {
+        const input = currentInputs()
+        const route = baseProcesses.map((item) => ({ ...item }))
+        const insertBefore = (target, item) => {
+          const index = route.findIndex((process) => process.name === target)
+          route.splice(index < 0 ? route.length : index, 0, item)
+        }
+        if (input.material === '9Cr18') insertBefore('车削加工（A侧）', { name: '调质', type: '热处理', feature: '材料：9Cr18', steps: 1 })
+        if (input.material === '4Cr14Ni14W2Mo') insertBefore('车削加工（A侧）', { name: '正常化', type: '热处理', feature: '材料：4Cr14Ni14W2Mo', steps: 1 })
+        if (input.shapedHole) insertBefore('去毛刺', { name: '割扁', type: '特征加工', feature: '型孔组：割扁特征', steps: 2 })
+        if (input.postHole) insertBefore('去毛刺', { name: '打孔', type: '孔加工', feature: '补充孔组：后段孔', steps: 2 })
+        if (input.heat) insertBefore('清洗', { name: input.heat, type: '热处理', feature: `人工要求：${input.heat}`, steps: 1 })
+        if (input.chromic) insertBefore('检验', { name: '铬酸阳极化', type: '表面处理', feature: '表面：阳极化区域', steps: 1 })
+        if (input.hardAnodize) insertBefore('检验', { name: '硬质阳极化', type: '表面处理', feature: '表面：硬质阳极化区域', steps: 1 })
+        input.inspection.split(',').filter(Boolean).forEach((name) => insertBefore('检验', { name, type: '专项检查', feature: `检测要求：${name}`, steps: 1 }))
+        if (input.marking) insertBefore('包装', { name: '标记', type: '标识工序', feature: `标识：${input.marking.replace(',', '、')}`, steps: 1 })
+        return route.filter((item, index, all) => all.findIndex((candidate) => candidate.name === item.name) === index)
+      }
+
+      function requirementsFor(process) {
+        if (!state.technicalReady) return []
+        const map = {
+          '下料/备料': ['核对材料牌号及炉批号，保证可追溯。'],
+          '调质': ['按热处理规范执行，记录炉次和硬度检测结果。'],
+          '淬火': ['控制升温、保温及冷却过程，避免变形和裂纹。'],
+          '车削加工（A侧）': ['以 A 侧端面建立定位基准。', '加工后去除锐边。'],
+          '车削加工（B侧）': ['保证内孔与基准外圆的同轴要求。'],
+          '检验': ['检验关键尺寸、形位公差及表面质量。'],
+          '包装': ['清洁、防锈后采用防磕碰包装。'],
+        }
+        return map[process.name] || [`按“${process.name}”工序规范执行并记录结果。`]
+      }
+
+      function renderRoute() {
+        const rows = state.route.map((process, index) => {
+          const features = process.feature.split('\n').map((line) => {
+            const parts = line.split('：')
+            return `<div class="feature-line">${parts.length > 1 ? `<span class="feature-group">${escapeHtml(parts.shift())}</span>` : ''}${escapeHtml(parts.join('：') || line)}</div>`
+          }).join('')
+          const requirements = requirementsFor(process)
+          return `<tr>
+            <td><span class="index-badge">${index + 1}</span></td>
+            <td><span class="process-name">${escapeHtml(process.name)}</span></td>
+            <td><span class="type-tag">${escapeHtml(process.type)}</span></td>
+            <td>${features}</td>
+            <td>${requirements.length ? `<ol class="requirement-list">${requirements.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ol>` : '<span class="empty-text">暂无要求</span>'}</td>
+          </tr>`
+        }).join('')
+        $('resultArea').className = 'table-wrap'
+        $('resultArea').innerHTML = `<table>
+          <thead><tr><th style="width:48px">序号</th><th style="width:126px">工序</th><th style="width:88px">类型</th><th style="width:188px">特征</th><th>技术要求</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`
+        $('processCount').textContent = String(state.route.length)
+        $('stepCount').textContent = String(state.route.reduce((sum, item) => sum + item.steps, 0))
+      }
+
+      function setStatus(kind, text) {
+        $('routeStatus').className = `route-status${kind ? ` ${kind}` : ''}`
+        $('routeStatus').textContent = text
+      }
+
+      function invalidateResult() {
+        updateChips()
+        if (!state.route.length || state.busy) return
+        state.route = []
+        state.technicalReady = false
+        state.submitted = false
+        $('resultArea').className = 'empty-result'
+        $('resultArea').innerHTML = '<div><strong>参数已修改</strong><span>请重新生成工艺路线</span></div>'
+        $('processCount').textContent = '0'
+        $('stepCount').textContent = '0'
+        $('technicalButton').disabled = true
+        $('submitButton').disabled = true
+        $('submitButton').className = 'action-button primary'
+        $('submitButton').textContent = '提交工艺数据'
+        $('summaryState').textContent = '参数发生变化，当前结果已失效'
+        $('headStatus').className = 'head-status warn'
+        $('headStatus').textContent = '参数已修改'
+        $('footerState').innerHTML = '<strong>结果已失效</strong> · 等待重新生成'
+        setStatus('warn', '参数已修改，请重新生成工艺路线。')
+      }
+
+      function generateRoute() {
+        const input = currentInputs()
+        if (!input.material || !input.partType || state.busy) return
+        state.busy = true
+        updateChips()
+        $('generateButton').textContent = '正在生成...'
+        $('technicalButton').disabled = true
+        $('submitButton').disabled = true
+        $('headStatus').className = 'head-status warn'
+        $('headStatus').textContent = '正在执行 KmAI V1 规则'
+        setStatus('warn', '正在展开因素并生成标准工艺路线...')
+        window.setTimeout(() => {
+          state.route = buildRoute()
+          state.technicalReady = false
+          state.submitted = false
+          state.busy = false
+          renderRoute()
+          updateChips()
+          $('generateButton').textContent = '重新生成工艺路线'
+          $('technicalButton').disabled = false
+          $('submitButton').disabled = true
+          $('summaryState').textContent = '当前结果由 KmAI V1 规则生成'
+          $('headStatus').className = 'head-status'
+          $('headStatus').textContent = `已生成 ${state.route.length} 道工序`
+          $('footerState').innerHTML = `<strong>路线已生成</strong> · ${state.route.length} 道工序，待生成技术要求`
+          setStatus('', `工艺路线生成完成，共 ${state.route.length} 道工序。`)
+        }, 520)
+      }
+
+      function generateTechnical() {
+        if (!state.route.length || state.busy) return
+        state.busy = true
+        $('technicalButton').disabled = true
+        $('technicalButton').textContent = '正在生成...'
+        $('headStatus').className = 'head-status warn'
+        $('headStatus').textContent = '正在生成技术要求'
+        setStatus('warn', '正在为每道工序补充技术要求...')
+        window.setTimeout(() => {
+          state.technicalReady = true
+          state.busy = false
+          renderRoute()
+          $('technicalButton').textContent = '重新生成技术要求'
+          $('technicalButton').disabled = false
+          $('submitButton').disabled = false
+          $('summaryState').textContent = '路线和技术要求已生成，等待确认提交'
+          $('headStatus').className = 'head-status'
+          $('headStatus').textContent = '技术要求已生成'
+          $('footerState').innerHTML = '<strong>数据已就绪</strong> · 请确认后提交到 3DMPS'
+          setStatus('', '技术要求生成完成，可以提交工艺数据。')
+        }, 560)
+      }
+
+      function submitRoute() {
+        if (!state.technicalReady || state.busy) return
+        state.busy = true
+        $('submitButton').disabled = true
+        $('submitButton').textContent = '正在提交...'
+        $('headStatus').className = 'head-status warn'
+        $('headStatus').textContent = '正在回传 3DMPS'
+        setStatus('warn', '正在提交本次工艺路线与技术要求...')
+        window.setTimeout(() => {
+          state.busy = false
+          state.submitted = true
+          $('submitButton').className = 'action-button success'
+          $('submitButton').textContent = '已提交'
+          $('technicalButton').disabled = false
+          $('summaryState').textContent = '本次路线已回传 3DMPS'
+          $('headStatus').className = 'head-status'
+          $('headStatus').textContent = '已回传 3DMPS'
+          $('footerState').innerHTML = `<strong>提交成功</strong> · ${state.route.length} 道工序已回传`
+          setStatus('', `已回传到 3DMPS，共 ${state.route.length} 道工序。`)
+        }, 620)
+      }
+
+      function resetDemo() {
+        $('material').value = '9Cr18'
+        $('partType').value = '衬套'
+        $('heat').value = '淬火'
+        $('inspection').value = '裂纹检测'
+        $('marking').value = '标印'
+        $('shapedHole').checked = true
+        $('postHole').checked = false
+        $('chromic').checked = false
+        $('hardAnodize').checked = false
+        state.route = []
+        state.technicalReady = false
+        state.submitted = false
+        state.busy = false
+        updateChips()
+        generateRoute()
+      }
+
+      controls.forEach((control) => control.addEventListener('change', invalidateResult))
+      $('generateButton').addEventListener('click', generateRoute)
+      $('technicalButton').addEventListener('click', generateTechnical)
+      $('submitButton').addEventListener('click', submitRoute)
+      $('resetButton').addEventListener('click', resetDemo)
+
+      updateChips()
+      window.setTimeout(generateRoute, 260)
+    })()
+  </script>
+</body>
+</html>

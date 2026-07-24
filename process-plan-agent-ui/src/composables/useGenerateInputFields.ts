@@ -158,6 +158,16 @@ export function fieldTypeLabel(field: GenerateInputField) {
   return '文本'
 }
 
+function exampleValueForField(field: GenerateInputField) {
+  if (field.examples?.length) return isArrayField(field) ? [field.examples[0]] : field.examples[0]
+  if (field.allowed_values?.length) return isArrayField(field) ? [field.allowed_values[0]] : field.allowed_values[0]
+  if (isBooleanField(field)) return true
+  if (isNumberField(field)) return field.validation?.min ?? 0
+  if (/material(?:\.grade)?|材料|牌号/i.test(field.key) || /材料|牌号/.test(field.name || '')) return '9Cr18'
+  if (isArrayField(field)) return ['示例特征']
+  return '示例值'
+}
+
 export function useGenerateInputFields(args: {
   inputSchema: Ref<Record<string, any> | null>
   hasRulePackage: Ref<boolean>
@@ -270,6 +280,8 @@ export function useGenerateInputFields(args: {
 
   function fieldPlaceholder(field: GenerateInputField) {
     if (field.examples?.length) return `例如 ${field.examples[0]}`
+    const fallback = exampleValueForField(field)
+    if (typeof fallback === 'string' && fallback) return `例如 ${fallback}`
     return field.source ? `来源：${field.source}` : '请输入'
   }
 
@@ -340,7 +352,7 @@ export function useGenerateInputFields(args: {
     inputFields.value.forEach((field) => {
       if (isArrayField(field)) {
         const preferred = (field.allowed_values || []).slice(0, Math.min(2, (field.allowed_values || []).length))
-        nextValues[field.key] = preferred.length ? preferred : (field.examples?.[0] ? [field.examples[0]] : [])
+        nextValues[field.key] = preferred.length ? preferred : exampleValueForField(field)
         return
       }
       if (isBooleanField(field)) {
@@ -351,7 +363,7 @@ export function useGenerateInputFields(args: {
         nextValues[field.key] = field.allowed_values?.[0] || field.examples?.[0] || ''
         return
       }
-      nextValues[field.key] = field.examples?.[0] || field.allowed_values?.[0] || ''
+      nextValues[field.key] = exampleValueForField(field)
     })
     fieldValues.value = nextValues
   }

@@ -136,3 +136,49 @@ def test_kmai_export_maps_nondestructive_testing_to_its_fixed_factor(rule_packag
     )
     rule = next(rule for rule in exported.files["route_rules.json"]["rules"] if rule["rule_id"] == "special.ndt")
     assert rule["when"]["all"] == [{"factor_key": "needs_ndt_inspection", "op": "=", "value": True}]
+
+
+def test_kmai_export_keeps_project_categorical_factor_as_manual_enum(rule_package_v2_payload):
+    payload = deepcopy(rule_package_v2_payload)
+    field_key = "project_factor.0123456789ab"
+    payload["input_schema"]["fields"].append({
+        "key": field_key,
+        "label": "材料类别",
+        "type": "single_select",
+        "required": False,
+        "source": "用户条件",
+        "options": [
+            {"value": "不锈钢", "label": "不锈钢"},
+            {"value": "高温合金", "label": "高温合金"},
+        ],
+        "allow_custom": True,
+    })
+    payload["route_rules"]["rules"].append({
+        "rule_id": "user.material-category.nitriding",
+        "priority": 1000,
+        "enabled": True,
+        "source": "user_confirmed",
+        "when": {"field": field_key, "op": "eq", "value": "不锈钢"},
+        "then": {"include_process_ids": ["process_nitriding"], "exclude_process_ids": []},
+    })
+    package = RulePackageV2.model_validate(payload)
+
+    exported = build_kmai_compatibility_export(package)
+
+    assert exported.valid is True
+    factor = next(
+        item for item in exported.files["factor_schema.json"]["factors"]
+        if item["name"] == "材料类别"
+    )
+    assert factor["value_type"] == "enum"
+    assert factor["options"] == ["不锈钢", "高温合金"]
+    assert factor["source_mode"] == "manual_override"
+    rule = next(
+        item for item in exported.files["route_rules.json"]["rules"]
+        if item["rule_id"] == "user.material-category.nitriding"
+    )
+    assert rule["when"]["all"] == [{
+        "factor_key": factor["factor_key"],
+        "op": "=",
+        "value": "不锈钢",
+    }]

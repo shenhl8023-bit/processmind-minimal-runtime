@@ -323,5 +323,27 @@ class SimulateRulePackageResponse(StrictModel):
     plan: RoutePlan | None = None
 
 
+class KmaiCompatibilityTestRequest(StrictModel):
+    project_id: int = Field(gt=0)
+    inputs: dict[str, Any] = Field(default_factory=dict)
+
+
+class KmaiCompatibilityTestResponse(StrictModel):
+    project_id: int
+    package_id: int
+    package_version: int
+    compatible: bool
+    v2_process_ids: list[str] = Field(default_factory=list)
+    v2_matched_rule_ids: list[str] = Field(default_factory=list)
+    kmai_process_ids: list[str] = Field(default_factory=list)
+    kmai_matched_rule_ids: list[str] = Field(default_factory=list)
+    only_v2_process_ids: list[str] = Field(default_factory=list)
+    only_kmai_process_ids: list[str] = Field(default_factory=list)
+    warnings: list[ValidationIssue] = Field(default_factory=list)
+    errors: list[ValidationIssue] = Field(default_factory=list)
+    manual_factors: dict[str, Any] = Field(default_factory=dict)
+    semantic_gaps: list[str] = Field(default_factory=list)
+
+
 ConditionNode.model_rebuild()
 ConditionTrace.model_rebuild()

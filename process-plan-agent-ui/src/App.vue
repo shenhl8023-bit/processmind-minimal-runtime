@@ -21,7 +21,7 @@ const workflowSteps = [
 
 const currentStepIndex = computed(() => {
   const index = workflowSteps.findIndex(step => activeIndex.value.startsWith(step.path))
-  return index >= 0 ? index : 0
+  return index >= 0 ? index : null
 })
 
 const hasProjectContext = computed(() => {
@@ -30,8 +30,10 @@ const hasProjectContext = computed(() => {
 
 const stepStatus = (stepNumber: number) => {
   const index = stepNumber - 1
-  if (index === currentStepIndex.value) return 'active'
-  if (index < currentStepIndex.value) return 'completed'
+  if (currentStepIndex.value !== null) {
+    if (index === currentStepIndex.value) return 'active'
+    if (index < currentStepIndex.value) return 'completed'
+  }
   if (!hasProjectContext.value) return 'locked'
   return 'available'
 }

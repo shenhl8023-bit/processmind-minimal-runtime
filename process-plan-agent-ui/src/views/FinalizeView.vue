@@ -8,56 +8,35 @@
         <div class="ash-meta-section">
           <span class="ash-meta-item">已保存版本 <strong>V{{ savedRoute?.version || '-' }}</strong></span>
           <span class="ash-meta-item" v-if="lastExportedRulePackageVersion">规则包 <strong>V{{ lastExportedRulePackageVersion }}</strong></span>
+          <span class="ash-meta-item ash-meta-stale" v-else-if="outdatedRulePackageVersion">规则包 V{{ outdatedRulePackageVersion }} <strong>已过期</strong></span>
           <span class="ash-meta-item">主线 <strong>{{ mainlineRuleCount }}</strong></span>
           <span class="ash-meta-item">条件 <strong>{{ conditionalRuleCount }}</strong></span>
           <span class="ash-meta-item" v-if="relationRuleCount">关联 <strong>{{ relationRuleCount }}</strong></span>
           <span class="ash-meta-item" v-if="unresolvedRuleCount">待补充 <strong class="warning-text">{{ unresolvedRuleCount }}</strong></span>
-          <!-- Progress bar review indicator -->
+          <!-- Recognition progress: confirmation is completed once at export time. -->
           <span class="ash-meta-item ash-meta-progress-item" v-if="reviewableRuleCount > 0">
-            <span>审核</span>
+            <span>已识别</span>
             <div class="mini-progress-bar">
               <div
                 class="mini-progress-fill"
-                :class="{ 'mini-progress-fill--done': confirmedRuleCount === reviewableRuleCount }"
+                :class="{ 'mini-progress-fill--done': readyRuleCount === reviewableRuleCount }"
                 :style="{ width: `${reviewProgressPercent}%` }"
               ></div>
             </div>
-            <strong :class="{ 'text-done': confirmedRuleCount === reviewableRuleCount }">
-              {{ confirmedRuleCount }}/{{ reviewableRuleCount }}
+            <strong :class="{ 'text-done': readyRuleCount === reviewableRuleCount }">
+              {{ readyRuleCount }}/{{ reviewableRuleCount }}
             </strong>
           </span>
         </div>
       </div>
 
       <div class="ash-actions">
-        <!-- 更新候选规则 (phase-highlighted when it's the active step) -->
         <button
-          class="ash-btn-primary"
-          :class="{ 'ash-btn-phase-active': currentPhaseAction === 'parse' }"
-          @click="() => handleBatchParseConditions()"
-          :disabled="batchParsing || !batchEligibleCards.length"
+          class="ash-btn-primary ash-btn-phase-active"
+          @click="handleReviewAndExport"
+          :disabled="reviewAndExporting || batchParsing || batchReviewing || exportingRulePackage || !segmentCards.length"
         >
-          {{ batchParsing ? `生成中 ${batchParseCompleted}/${batchParseTotal}` : `更新候选规则${batchEligibleCards.length ? ` (${batchEligibleCards.length})` : ''}` }}
-        </button>
-
-        <!-- 完成审核 (phase-highlighted when it's the active step) -->
-        <button
-          class="ash-btn-primary ash-btn-review"
-          :class="{ 'ash-btn-phase-active': currentPhaseAction === 'review' }"
-          @click="handleCompleteReview"
-          :disabled="batchReviewing || !pendingReviewCards.length"
-        >
-          {{ batchReviewing ? `审核中 ${batchReviewCompleted}/${batchReviewTotal}` : `完成审核${pendingReviewCards.length ? ` (${pendingReviewCards.length})` : ''}` }}
-        </button>
-
-        <!-- 导出规则包 (phase-highlighted when it's the final step) -->
-        <button
-          class="ash-btn-outline"
-          :class="{ 'ash-btn-phase-active': currentPhaseAction === 'export' }"
-          @click="downloadRuleDocument"
-          :disabled="exportingRulePackage || !segmentCards.length"
-        >
-          {{ exportingRulePackage ? '正在导出...' : FINALIZE_VIEW_COPY.exportDocument }}
+          {{ reviewAndExportButtonLabel }}
         </button>
 
         <!-- Toggle switch: only pending -->
@@ -72,7 +51,7 @@
           <span class="toggle-filter-track" :class="{ 'toggle-filter-track--on': onlyPending }">
             <span class="toggle-filter-thumb"></span>
           </span>
-          <span class="toggle-filter-text">审核重点</span>
+          <span class="toggle-filter-text">仅看需处理</span>
         </label>
 
         <!-- Icon: refresh -->
@@ -93,20 +72,6 @@
       </div>
     </div>
 
-    <!-- All-done banner -->
-    <Transition name="banner-slide">
-      <div v-if="allReviewDone && !lastExportedRulePackageVersion" class="all-done-banner">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-          <path d="M22 4L12 14.01l-3-3"/>
-        </svg>
-        <span>所有规则已审核完成，可以导出规则包了</span>
-        <button class="banner-export-btn" @click="downloadRuleDocument" :disabled="exportingRulePackage">
-          {{ exportingRulePackage ? '导出中…' : '立即导出 →' }}
-        </button>
-      </div>
-    </Transition>
-
     <div v-if="batchNotice" class="batch-notice">{{ batchNotice }}</div>
 
     <div v-if="!projectId" class="empty-state card">
@@ -123,7 +88,7 @@
 
     <div v-else-if="error" class="empty-state card empty-state-error">
       <div class="empty-mark">!</div>
-      <div class="empty-title">{{ FINALIZE_VIEW_COPY.errorTitle }}</div>
+      <div class="empty-title">{{ workspaceErrorTitle }}</div>
       <div class="empty-text">{{ error }}</div>
       <button class="btn btn-primary" @click="goBackToAnalysis">{{ FINALIZE_VIEW_COPY.errorBack }}</button>
     </div>
@@ -136,8 +101,8 @@
 
     <div v-else-if="!visibleSegments.length" class="empty-state card">
       <div class="empty-mark">*</div>
-      <div class="empty-title">当前没有审核重点</div>
-      <div class="empty-text">没有关联规则、动态字段或待补充条件需要重点查看；可切换到全部规则浏览。</div>
+      <div class="empty-title">当前没有需要处理的规则</div>
+      <div class="empty-text">系统已识别全部条件；可直接审核并导出，或切换到全部规则浏览。</div>
       <button class="btn btn-outline" @click="onlyPending = false">显示全部规则</button>
     </div>
 
@@ -195,7 +160,7 @@
       previous-label="← 返回规则分析"
       next-label="进入路线生成 →"
       :previous-disabled="!projectId"
-      :next-disabled="!projectId || !lastExportedRulePackageVersion"
+      :next-disabled="!projectId || !lastExportedRulePackageVersion || !allCurrentRulesConfirmed"
       @previous="goBackToAnalysis"
       @next="goToGenerate"
     />
@@ -209,12 +174,12 @@
           </div>
           <button class="export-blocker-close" aria-label="关闭提示" @click="closeBlockedExportDialog">关闭</button>
         </div>
-        <p class="export-blocker-copy">请先完成候选规则审核，或为待补充项补全判断依据。完成后即可导出规则包。</p>
+        <p class="export-blocker-copy">系统已自动处理可识别规则；请只补充以下异常项，完成后即可再次审核并导出。</p>
         <ol class="export-blocker-list">
           <li v-for="item in blockedExportCards.slice(0, 6)" :key="item.segment.id">
             <span>{{ item.segment.sequence }}</span>
             <strong>{{ finalizeSegmentDisplayName(item.segment) }}</strong>
-            <em>{{ finalizeRuleMode(item) === 'relation' ? '关联待审核' : finalizeRuleMode(item) === 'unresolved' ? '待补充条件' : '条件待审核' }}</em>
+            <em>{{ finalizeRuleMode(item) === 'unresolved' ? '待补充条件' : item.conditionReview?.status === 'invalid' ? '未能识别' : '需要重新识别' }}</em>
           </li>
         </ol>
         <p v-if="blockedExportCards.length > 6" class="export-blocker-more">另有 {{ blockedExportCards.length - 6 }} 道工序待处理。</p>
@@ -264,8 +229,8 @@ import {
 import {
   confirmRuleCondition,
   getConditionFieldRegistry,
+  compileRulePackage,
   parseRuleCondition,
-  saveRuleConditionDraft,
   type CanonicalConditionField,
   type RuleConditionCandidate,
   type RuleConditionProcessOption,
@@ -288,6 +253,7 @@ import { FINALIZE_VIEW_COPY } from '@/config/finalizeRulePresentation'
 import { getWorkflowDataRevision } from '@/composables/workflowDataCache'
 import {
   exportProcessIdForItem,
+  buildCompileRequestFromCards,
   finalizeRuleMode,
   hasCurrentConfirmedUserRule,
   normalizeExportProcessName,
@@ -298,9 +264,11 @@ const router = useRouter()
 let finalizeViewActive = false
 let initialLoadFinished = false
 let loadedDataRevision = -1
+const autoParsedConditionKeys = new Set<string>()
 
 const loading = ref(false)
 const error = ref('')
+const workspaceErrorTitle = ref<string>(FINALIZE_VIEW_COPY.errorTitle)
 const projectId = ref<number | null>(null)
 const projectName = ref('')
 const savedRoute = ref<SavedNormalizedRouteVersionResult | null>(null)
@@ -309,6 +277,7 @@ const supersetOperations = ref<OperationItem[]>([])
 const onlyPending = ref(true)
 const activeSegmentId = ref('')
 const lastExportedRulePackageVersion = ref<number | null>(null)
+const outdatedRulePackageVersion = ref<number | null>(null)
 const conditionFields = ref<CanonicalConditionField[]>([])
 const conditionBusySegmentIds = ref(new Set<string>())
 const conditionBusyCounts = new Map<string, number>()
@@ -318,6 +287,7 @@ const batchParseTotal = ref(0)
 const batchReviewing = ref(false)
 const batchReviewCompleted = ref(0)
 const batchReviewTotal = ref(0)
+const reviewAndExporting = ref(false)
 const batchNotice = ref('')
 const blockedExportCards = ref<FinalizeCard[]>([])
 const exportIssue = ref<{ title: string; summary: string; details?: string; context?: string } | null>(null)
@@ -354,7 +324,6 @@ const reviewableCards = computed(() => [...conditionalCards.value, ...relationCa
 const conditionalRuleCount = computed(() => conditionalCards.value.length)
 const relationRuleCount = computed(() => relationCards.value.length)
 const reviewableRuleCount = computed(() => reviewableCards.value.length)
-const confirmedRuleCount = computed(() => reviewableCards.value.filter(hasCurrentConfirmedUserRule).length)
 const unresolvedRuleCount = computed(() => segmentCards.value.filter(item => finalizeRuleMode(item) === 'unresolved').length)
 const reviewFocusCards = computed(() => segmentCards.value.filter(itemNeedsPending))
 const visibleSegments = computed(() => onlyPending.value ? reviewFocusCards.value : segmentCards.value)
@@ -375,6 +344,17 @@ const pendingReviewCards = computed(() => reviewableCards.value.filter((item) =>
     && review.source_text.trim() === item.conditionText.trim()
     && (review.candidate?.kind || 'condition') === expectedKind
 }))
+const readyRuleCount = computed(() => reviewableCards.value.filter((item) => {
+  if (hasCurrentConfirmedUserRule(item)) return true
+  const review = item.conditionReview
+  const expectedKind = finalizeRuleMode(item) === 'relation' ? 'process_relation' : 'condition'
+  return review?.status === 'pending_confirmation'
+    && review.source_text.trim() === item.conditionText.trim()
+    && (review.candidate?.kind || 'condition') === expectedKind
+}).length)
+const allCurrentRulesConfirmed = computed(() =>
+  reviewableCards.value.every(item => hasCurrentConfirmedUserRule(item)),
+)
 const conditionProcessOptions = computed<RuleConditionProcessOption[]>(() => {
   const options = new Map<string, RuleConditionProcessOption>()
   segmentCards.value.forEach((item) => {
@@ -394,35 +374,32 @@ const finalizeNavSummary = computed(() => {
   if (error.value) return '当前没有可预览的定稿结果，请返回规则分析。'
   if (!segmentCards.value.length) return '当前没有可展示的工序，请先在第三步完成至少一版规则分析结果。'
   if (unresolvedRuleCount.value) return `还有 ${unresolvedRuleCount.value} 道工序需要补充具体条件。`
-  if (confirmedRuleCount.value < reviewableRuleCount.value) {
-    return `规则已审核 ${confirmedRuleCount.value}/${reviewableRuleCount.value}，请完成剩余条件和关联工序审核。`
+  if (readyRuleCount.value < reviewableRuleCount.value) {
+    return `系统正在识别规则；当前 ${readyRuleCount.value}/${reviewableRuleCount.value} 条已就绪。`
   }
-  if (!lastExportedRulePackageVersion.value) return '请先导出规则包，导出后即可进入路线生成。'
+  if (!allCurrentRulesConfirmed.value) return '规则已识别，请审核并导出最新规则包。'
+  if (outdatedRulePackageVersion.value) return `规则内容已有变化，原规则包 V${outdatedRulePackageVersion.value} 已过期，请重新审核并导出。`
+  if (!lastExportedRulePackageVersion.value) return '规则已识别，可直接审核并导出规则包。'
   return `规则包 V${lastExportedRulePackageVersion.value} 已就绪，可进入路线生成。`
 })
 
 /** Progress percent for the mini progress bar */
 const reviewProgressPercent = computed(() =>
-  reviewableRuleCount.value === 0 ? 0 : Math.round((confirmedRuleCount.value / reviewableRuleCount.value) * 100)
+  reviewableRuleCount.value === 0 ? 0 : Math.round((readyRuleCount.value / reviewableRuleCount.value) * 100)
 )
-
-/** Which action is the current recommended phase */
-const currentPhaseAction = computed(() => {
-  if (batchEligibleCards.value.length > 0) return 'parse'
-  if (pendingReviewCards.value.length > 0) return 'review'
-  return 'export'
-})
-
-/** True when all reviewable rules have been confirmed */
-const allReviewDone = computed(() =>
-  reviewableRuleCount.value > 0 && confirmedRuleCount.value === reviewableRuleCount.value
-)
-
 /** Whether a given nav item needs attention */
 function itemNeedsPending(item: FinalizeCard): boolean {
   const mode = finalizeRuleMode(item)
   if (mode === 'unresolved') return true
-  if (mode === 'relation' || mode === 'conditional') return !hasCurrentConfirmedUserRule(item)
+  if (mode === 'relation' || mode === 'conditional') {
+    if (hasCurrentConfirmedUserRule(item)) return false
+    const review = item.conditionReview
+    const sourceMatches = review?.source_text?.trim() === item.conditionText.trim()
+    const expectedKind = mode === 'relation' ? 'process_relation' : 'condition'
+    return !(sourceMatches
+      && review?.status === 'pending_confirmation'
+      && (review.candidate?.kind || 'condition') === expectedKind)
+  }
   return false
 }
 
@@ -504,27 +481,28 @@ function conditionErrorMessage(err: any) {
   return detail?.message || err?.message || '规则条件处理失败'
 }
 
-async function persistConditionDraft(item: ReturnType<typeof buildFinalizeCards>[number], sourceText: string) {
-  if (!projectId.value || !savedRoute.value) return
-  const response = await saveRuleConditionDraft({
-    project_id: projectId.value,
-    route_id: savedRoute.value.route_id,
-    segment_id: item.segment.id,
-    source_text: sourceText,
-  })
-  applyConditionReview(item.segment.id, response.review)
+function isConditionSourceConflict(err: any) {
+  return Number(err?.response?.status) === 409
+    && /条件文字已经发生变化|重新解析后再确认/.test(conditionErrorMessage(err))
+}
+
+function markExportedRulePackageOutdated() {
+  if (lastExportedRulePackageVersion.value) {
+    outdatedRulePackageVersion.value = lastExportedRulePackageVersion.value
+  }
+  lastExportedRulePackageVersion.value = null
 }
 
 async function handleSaveInlineEdit(item: ReturnType<typeof buildFinalizeCards>[number]) {
   const sourceText = inlineEditingText.value.trim()
   saveInlineEdit(item)
+  markExportedRulePackageOutdated()
   setConditionBusy(item.segment.id, true)
   try {
-    await persistConditionDraft(item, sourceText)
     await nextTick()
     await parseConditionItem(item, true, sourceText)
   } catch (err: any) {
-    showFinalizeNotice('条件保存失败', '条件文字尚未保存，请检查后重试。', conditionErrorMessage(err))
+    showFinalizeNotice('规则识别失败', '修改内容已保存在本机草稿，请稍后重试识别。', conditionErrorMessage(err))
   } finally {
     setConditionBusy(item.segment.id, false)
   }
@@ -532,13 +510,13 @@ async function handleSaveInlineEdit(item: ReturnType<typeof buildFinalizeCards>[
 
 async function handleResetInlineEdit(item: ReturnType<typeof buildFinalizeCards>[number]) {
   resetInlineEdit(item)
+  markExportedRulePackageOutdated()
   setConditionBusy(item.segment.id, true)
   try {
-    await persistConditionDraft(item, item.defaultConditionText)
     await nextTick()
     await parseConditionItem(item, false, item.defaultConditionText)
   } catch (err: any) {
-    showFinalizeNotice('条件重置失败', '默认条件尚未恢复，请检查后重试。', conditionErrorMessage(err))
+    showFinalizeNotice('规则识别失败', '默认条件已恢复，请稍后重试识别。', conditionErrorMessage(err))
   } finally {
     setConditionBusy(item.segment.id, false)
   }
@@ -567,7 +545,7 @@ async function parseConditionItem(
   } catch (err: any) {
     if (showError) {
       console.error('条件候选规则生成失败', err)
-      showFinalizeNotice('暂时无法生成候选规则', '请补充明确的判断字段、比较关系或取值后重新解析。', conditionErrorMessage(err))
+      showFinalizeNotice('暂时无法识别规则', '请补充明确的判断条件、比较关系或取值后重试。', conditionErrorMessage(err))
     }
     return false
   } finally {
@@ -579,9 +557,11 @@ async function handleParseCondition(item: ReturnType<typeof buildFinalizeCards>[
   await parseConditionItem(item, true)
 }
 
-async function handleBatchParseConditions() {
-  if (batchParsing.value || !batchEligibleCards.value.length) return
-  const queue = [...batchEligibleCards.value]
+async function handleBatchParseConditions(
+  queue = [...batchEligibleCards.value],
+  automatic = false,
+) {
+  if (batchParsing.value || !queue.length) return
   batchParsing.value = true
   batchParseCompleted.value = 0
   batchParseTotal.value = queue.length
@@ -602,12 +582,24 @@ async function handleBatchParseConditions() {
     await Promise.all(Array.from({ length: Math.min(3, queue.length) }, () => worker()))
     const failedCount = queue.length - successCount
     batchNotice.value = failedCount
-      ? `已生成 ${successCount} 条候选规则；${failedCount} 条条件还需要补充后再生成。`
-      : `已生成 ${successCount} 条候选规则，请核对后完成本次审核。`
+      ? `已识别 ${successCount} 条规则；${failedCount} 条还需要补充。`
+      : automatic ? '' : `已识别 ${successCount} 条规则。`
     onlyPending.value = true
   } finally {
     batchParsing.value = false
   }
+}
+
+function autoParseReviewableRules() {
+  const queue = batchEligibleCards.value.filter((item) => {
+    const key = `${savedRoute.value?.route_id || ''}:${item.segment.id}:${item.conditionText}`
+    return !autoParsedConditionKeys.has(key)
+  })
+  queue.forEach((item) => {
+    const key = `${savedRoute.value?.route_id || ''}:${item.segment.id}:${item.conditionText}`
+    autoParsedConditionKeys.add(key)
+  })
+  if (queue.length) void handleBatchParseConditions(queue, true)
 }
 
 async function handleCompleteReview() {
@@ -635,7 +627,7 @@ async function handleCompleteReview() {
           source_hash: review.source_hash,
           candidate: review.candidate,
           processes: conditionProcessOptions.value,
-          confirmed_by: '审核通过',
+          confirmed_by: '规则包整体审核',
         })
         applyConditionReview(item.segment.id, response.review)
         successCount += 1
@@ -652,8 +644,8 @@ async function handleCompleteReview() {
     await Promise.all(Array.from({ length: Math.min(3, queue.length) }, () => worker()))
     const failedCount = queue.length - successCount
     batchNotice.value = failedCount
-      ? `已完成 ${successCount} 道工序审核；${failedCount} 道未完成，请检查后重试。`
-      : `已完成 ${successCount} 道工序审核。`
+      ? `已自动审核 ${successCount} 条规则；${failedCount} 条需要检查。`
+      : ''
   } finally {
     batchReviewing.value = false
   }
@@ -664,6 +656,10 @@ async function handleConfirmCondition(
   candidate: RuleConditionCandidate,
 ) {
   if (!projectId.value || !savedRoute.value || !item.conditionReview?.source_hash) return
+  // A quick confirm and a background candidate refresh must not submit two
+  // versions of the same card at once.
+  if (conditionBusySegmentIds.value.has(item.segment.id)) return
+  markExportedRulePackageOutdated()
   setConditionBusy(item.segment.id, true)
   try {
     const response = await confirmRuleCondition({
@@ -678,6 +674,13 @@ async function handleConfirmCondition(
     })
     applyConditionReview(item.segment.id, response.review)
   } catch (err: any) {
+    if (isConditionSourceConflict(err)) {
+      const refreshed = await parseConditionItem(item, false)
+      batchNotice.value = refreshed
+        ? `“${finalizeSegmentDisplayName(item.segment)}”的候选已按最新条件更新，请核对后再审核。`
+        : `“${finalizeSegmentDisplayName(item.segment)}”的条件已更新，请先补充条件后重新生成候选。`
+      return
+    }
     showFinalizeNotice('规则确认失败', '候选规则尚未确认，请检查条件和目标工序后重试。', conditionErrorMessage(err))
   } finally {
     setConditionBusy(item.segment.id, false)
@@ -714,9 +717,45 @@ const {
   },
   onExportedVersion: (version, meta) => {
     lastExportedRulePackageVersion.value = version
+    outdatedRulePackageVersion.value = null
     console.info(`规则包 V${version} 已导出，可用于第 5 步。`, meta)
   },
 })
+
+const reviewAndExportButtonLabel = computed(() => {
+  if (batchParsing.value) return `正在识别 ${batchParseCompleted.value}/${batchParseTotal.value}`
+  if (batchReviewing.value) return `正在审核 ${batchReviewCompleted.value}/${batchReviewTotal.value}`
+  if (exportingRulePackage.value) return '正在导出规则包...'
+  return '审核并导出规则包'
+})
+
+async function handleReviewAndExport() {
+  if (reviewAndExporting.value || batchParsing.value || batchReviewing.value || exportingRulePackage.value) return
+  reviewAndExporting.value = true
+  batchNotice.value = ''
+  try {
+    if (batchEligibleCards.value.length) {
+      await handleBatchParseConditions([...batchEligibleCards.value])
+      await nextTick()
+    }
+    if (pendingReviewCards.value.length) {
+      await handleCompleteReview()
+      await nextTick()
+    }
+    const remaining = segmentCards.value.filter(item =>
+      finalizeRuleMode(item) !== 'mainline' && !hasCurrentConfirmedUserRule(item),
+    )
+    if (remaining.length) {
+      blockedExportCards.value = remaining
+      onlyPending.value = true
+      batchNotice.value = `系统已自动处理可识别规则；还有 ${remaining.length} 道工序需要补充。`
+      return
+    }
+    await downloadRuleDocument()
+  } finally {
+    reviewAndExporting.value = false
+  }
+}
 
 function goBackToAnalysis() {
   router.push({
@@ -735,6 +774,8 @@ function goToGenerate() {
 async function loadWorkspace(forceRefresh = false) {
   loading.value = true
   error.value = ''
+  workspaceErrorTitle.value = FINALIZE_VIEW_COPY.errorTitle
+  if (forceRefresh) autoParsedConditionKeys.clear()
 
   try {
     const projectList = await listProjects(forceRefresh)
@@ -746,6 +787,7 @@ async function loadWorkspace(forceRefresh = false) {
       operations.value = []
       supersetOperations.value = []
       lastExportedRulePackageVersion.value = null
+      outdatedRulePackageVersion.value = null
       error.value = ''
       return
     }
@@ -758,6 +800,7 @@ async function loadWorkspace(forceRefresh = false) {
       })
     }
     const currentProject = projectList.find(project => project.id === projectId.value)
+    projectName.value = currentProject?.name || `任务 #${projectId.value}`
     const [routeResult, operationList, supersetResult, latestPackage, fieldRegistry] = await Promise.all([
       getSavedNormalizedRoute(projectId.value, forceRefresh),
       listOperations(projectId.value, forceRefresh),
@@ -768,18 +811,52 @@ async function loadWorkspace(forceRefresh = false) {
     savedRoute.value = routeResult
     operations.value = operationList
     supersetOperations.value = supersetResult.superset_route || []
-    projectName.value = currentProject?.name || `任务 #${projectId.value}`
-    lastExportedRulePackageVersion.value = latestPackage?.version || null
     conditionFields.value = fieldRegistry.fields || []
     readDrafts()
     activeSegmentId.value = routeResult.segments[0]?.id || ''
+    await nextTick()
+    lastExportedRulePackageVersion.value = null
+    outdatedRulePackageVersion.value = null
+    if (latestPackage) {
+      const routeMatches = latestPackage.schema_version === '2.0'
+        && latestPackage.route_version_id === routeResult.route_id
+      if (!routeMatches || !allCurrentRulesConfirmed.value || !latestPackage.content_hash) {
+        outdatedRulePackageVersion.value = latestPackage.version
+      } else {
+        try {
+          const currentPackage = await compileRulePackage(buildCompileRequestFromCards({
+            projectId: projectId.value,
+            packageName: latestPackage.package_name,
+            routeVersionId: routeResult.route_id,
+            cards: segmentCards.value,
+            displayName: finalizeSegmentDisplayName,
+            phaseLabel: resolveFinalizePhase,
+            primarySteps: finalizeSegmentPrimarySteps,
+            attachedSteps: finalizeSegmentAttachedSteps,
+            conditionFields: conditionFields.value,
+          }))
+          if (currentPackage.content_hash === latestPackage.content_hash) {
+            lastExportedRulePackageVersion.value = latestPackage.version
+          } else {
+            outdatedRulePackageVersion.value = latestPackage.version
+          }
+        } catch (hashCheckError) {
+          console.warn('无法校验现有规则包是否为最新版本', hashCheckError)
+          outdatedRulePackageVersion.value = latestPackage.version
+        }
+      }
+    }
+    autoParseReviewableRules()
   } catch (err: any) {
-    console.error(err)
-    projectId.value = null
+    if (Number(err?.response?.status) !== 404) console.error(err)
     savedRoute.value = null
     operations.value = []
     supersetOperations.value = []
     lastExportedRulePackageVersion.value = null
+    outdatedRulePackageVersion.value = null
+    workspaceErrorTitle.value = Number(err?.response?.status) === 404
+      ? '当前任务尚未完成第三步保存'
+      : FINALIZE_VIEW_COPY.errorTitle
     error.value = err?.response?.data?.detail || '当前任务还没有第三步可预览的已保存结果，请先回到第三步完成分析。'
   } finally {
     loading.value = false
@@ -847,6 +924,12 @@ onDeactivated(() => {
   padding: 5px 12px;
   box-shadow: 0 1.5px 5px rgba(15, 23, 42, 0.02);
   margin-bottom: 12px;
+}
+
+.ash-meta-stale {
+  color: #9a3412;
+  background: #fff7ed;
+  border-color: #fed7aa;
 }
 
 .ash-left-content {
@@ -1148,35 +1231,6 @@ onDeactivated(() => {
 }
 .mini-progress-fill--done { background: #22c55e; }
 .text-done { color: #16a34a !important; }
-
-/* ===== All-done banner ===== */
-.all-done-banner {
-  display: flex; align-items: center; gap: 10px;
-  margin-bottom: 10px;
-  padding: 10px 16px;
-  border: 1px solid #bbf7d0;
-  border-radius: 9px;
-  background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
-  color: #15803d;
-  font-size: 13px; font-weight: 600;
-}
-.banner-export-btn {
-  margin-left: auto;
-  flex-shrink: 0;
-  padding: 5px 14px;
-  border: 1px solid #16a34a; border-radius: 7px;
-  background: #16a34a; color: #ffffff;
-  font-size: 12px; font-weight: 700; cursor: pointer;
-  transition: all 0.15s ease;
-}
-.banner-export-btn:hover:not(:disabled) { background: #15803d; border-color: #15803d; }
-.banner-export-btn:disabled { opacity: 0.55; cursor: not-allowed; }
-
-/* banner transition */
-.banner-slide-enter-active { transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
-.banner-slide-leave-active { transition: all 0.2s ease-in; }
-.banner-slide-enter-from { opacity: 0; transform: translateY(-8px); }
-.banner-slide-leave-to   { opacity: 0; transform: translateY(-4px); }
 
 .finalize-layout {
   display: grid;

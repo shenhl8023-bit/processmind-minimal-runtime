@@ -38,6 +38,13 @@ RELATION_PROCESSES = [
     RuleConditionProcessOption(process_id="process_burn_inspect", display_name="烧伤检查"),
 ]
 
+NATURAL_RELATION_PROCESSES = [
+    RuleConditionProcessOption(process_id="process_rough", display_name="车削加工（A侧）"),
+    RuleConditionProcessOption(process_id="process_stress_relief", display_name="去应力"),
+    RuleConditionProcessOption(process_id="process_copper_plate", display_name="镀铜"),
+    RuleConditionProcessOption(process_id="process_strip_copper", display_name="除铜"),
+]
+
 
 def test_parse_request_only_accepts_the_controlled_field_registry():
     with pytest.raises(ValidationError, match="known_dynamic_fields"):
@@ -94,6 +101,58 @@ async def test_parses_compound_and_condition():
 
 
 @pytest.mark.asyncio
+async def test_creates_project_factor_for_unregistered_categorical_field():
+    candidate, confidence, issues = await condition_parser.parse_rule_condition(
+        "当材料类别为不锈钢时，纳入渗氮工序",
+        "process_nitriding",
+        "渗氮",
+        [RuleConditionProcessOption(process_id="process_nitriding", display_name="渗氮")],
+    )
+
+    assert candidate is not None
+    assert candidate.kind == "condition"
+    assert candidate.when is not None
+    assert candidate.when.op == "eq"
+    assert candidate.when.value == "不锈钢"
+    assert candidate.when.field.startswith("project_factor.")
+    assert candidate.then is not None
+    assert candidate.then.include_process_ids == ["process_nitriding"]
+    assert len(candidate.field_definitions) == 1
+    definition = candidate.field_definitions[0]
+    assert definition.key == candidate.when.field
+    assert definition.label == "材料类别"
+    assert definition.type == "single_select"
+    assert definition.operators == ["eq", "neq", "in"]
+    assert definition.options == [{"value": "不锈钢", "label": "不锈钢"}]
+    assert definition.allow_custom is True
+    assert "材料类别" in candidate.preview
+    assert "不锈钢" in candidate.preview
+    assert confidence == 0.9
+    assert issues == []
+
+
+@pytest.mark.asyncio
+async def test_creates_one_project_factor_with_multiple_user_authored_categories():
+    candidate, confidence, issues = await condition_parser.parse_rule_condition(
+        "当材料类别为不锈钢或高温合金时，纳入渗氮工序",
+        "process_nitriding",
+        "渗氮",
+        [RuleConditionProcessOption(process_id="process_nitriding", display_name="渗氮")],
+    )
+
+    assert candidate is not None
+    assert candidate.when is not None
+    assert candidate.when.op == "in"
+    assert candidate.when.value == ["不锈钢", "高温合金"]
+    assert candidate.field_definitions[0].options == [
+        {"value": "不锈钢", "label": "不锈钢"},
+        {"value": "高温合金", "label": "高温合金"},
+    ]
+    assert confidence == 0.9
+    assert issues == []
+
+
+@pytest.mark.asyncio
 async def test_parses_process_relation_before_parameter_condition():
     candidate, confidence, issues = await condition_parser.parse_rule_condition(
         "前面存在淬火工序，就出现烧伤检查",
@@ -128,6 +187,80 @@ async def test_parses_front_has_process_as_trigger_after_relation():
     assert candidate.relation.relation_type == "trigger_after"
     assert candidate.relation.source_process_ids == ["process_quench"]
     assert candidate.relation.target_process_ids == ["process_burn_inspect"]
+    assert issues == []
+
+
+@pytest.mark.asyncio
+async def test_parses_join_process_after_explicit_predecessor():
+    candidate, confidence, issues = await condition_parser.parse_rule_condition(
+        "淬火之后，需要加入该工序",
+        "process_burn_inspect",
+        "烧伤检查",
+        RELATION_PROCESSES,
+    )
+
+    assert candidate is not None
+    assert candidate.kind == "process_relation"
+    assert candidate.relation is not None
+    assert candidate.relation.source_process_ids == ["process_quench"]
+    assert candidate.relation.target_process_ids == ["process_burn_inspect"]
+    assert confidence == 0.9
+    assert issues == []
+
+
+@pytest.mark.asyncio
+async def test_process_check_point_does_not_turn_into_a_generic_inspection_dependency():
+    processes = [
+        RuleConditionProcessOption(process_id="process_turn", display_name="车削加工"),
+        RuleConditionProcessOption(process_id="process_mill", display_name="铣槽"),
+        RuleConditionProcessOption(process_id="process_inspect", display_name="检验"),
+        RuleConditionProcessOption(process_id="process_burn_inspect", display_name="烧伤检查"),
+    ]
+    candidate, confidence, issues = await condition_parser.parse_rule_condition(
+        "当车削后或周边加工后过程检验点满足时，设置烧伤检查作为质量确认节点。",
+        "process_burn_inspect",
+        "烧伤检查",
+        processes,
+    )
+
+    assert candidate is not None
+    assert candidate.kind == "process_relation"
+    assert candidate.relation is not None
+    assert candidate.relation.source_process_ids == ["process_turn", "process_mill"]
+    assert "process_inspect" not in candidate.relation.source_process_ids
+    assert confidence == 0.9
+    assert issues == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source_text", "target_id", "target_name", "source_id"),
+    [
+        ("当粗加工后释放应力，避免后续精加工变形", "process_stress_relief", "去应力", "process_rough"),
+        ("前面出现镀铜这个工序时，需要安排此工序", "process_strip_copper", "除铜", "process_copper_plate"),
+    ],
+)
+async def test_parses_clear_natural_language_process_relations_locally(
+    source_text, target_id, target_name, source_id, monkeypatch,
+):
+    async def llm_must_not_run(*args, **kwargs):
+        raise AssertionError("明确的工序关系不应等待大模型")
+
+    monkeypatch.setattr(condition_parser, "call_llm", llm_must_not_run)
+    candidate, confidence, issues = await condition_parser.parse_rule_condition(
+        source_text,
+        target_id,
+        target_name,
+        NATURAL_RELATION_PROCESSES,
+    )
+
+    assert candidate is not None
+    assert candidate.kind == "process_relation"
+    assert candidate.relation is not None
+    assert candidate.relation.relation_type == "trigger_after"
+    assert candidate.relation.source_process_ids == [source_id]
+    assert candidate.relation.target_process_ids == [target_id]
+    assert confidence == 0.9
     assert issues == []
 
 
@@ -170,6 +303,80 @@ async def test_parses_generic_surface_requirement_as_special_requirement():
     assert candidate.when.op == "contains"
     assert candidate.when.value == "镀铜要求"
     assert candidate.field_definitions == []
+    assert issues == []
+
+
+@pytest.mark.asyncio
+async def test_maps_unseen_structural_feature_to_extensible_cad_tag():
+    processes = [RuleConditionProcessOption(process_id="process_mill_boss", display_name="铣凸台")]
+    candidate, confidence, issues = await condition_parser.parse_rule_condition(
+        "当零件存在异形凸台结构时，安排铣凸台工序",
+        "process_mill_boss",
+        "铣凸台",
+        processes,
+    )
+
+    assert candidate is not None
+    assert candidate.when is not None
+    assert candidate.when.field == "cad.features"
+    assert candidate.when.op == "contains"
+    assert candidate.when.value == "异形凸台"
+    assert candidate.then is not None
+    assert candidate.then.include_process_ids == ["process_mill_boss"]
+    assert confidence == 0.65
+    assert issues == []
+
+
+@pytest.mark.asyncio
+async def test_maps_unseen_process_requirement_to_extensible_special_tag():
+    processes = [RuleConditionProcessOption(process_id="process_vacuum_clean", display_name="真空清洗")]
+    candidate, _, issues = await condition_parser.parse_rule_condition(
+        "当零件需要真空清洗时，安排真空清洗工序",
+        "process_vacuum_clean",
+        "真空清洗",
+        processes,
+    )
+
+    assert candidate is not None
+    assert candidate.when is not None
+    assert candidate.when.field == "special.requirements"
+    assert candidate.when.op == "contains"
+    assert candidate.when.value == "真空清洗要求"
+    assert issues == []
+
+
+@pytest.mark.asyncio
+async def test_does_not_invent_a_tag_for_vague_condition_text():
+    processes = [RuleConditionProcessOption(process_id="process_optional", display_name="辅助加工")]
+    candidate, _, issues = await condition_parser.parse_rule_condition(
+        "根据不同结构类型决定是否安排该工序",
+        "process_optional",
+        "辅助加工",
+        processes,
+    )
+
+    assert candidate is None
+    assert any("无法可靠映射" in issue for issue in issues)
+
+
+@pytest.mark.asyncio
+async def test_creates_project_factor_for_unknown_part_category_instead_of_special_requirement():
+    processes = [RuleConditionProcessOption(process_id="process_optional", display_name="辅助加工")]
+    candidate, _, issues = await condition_parser.parse_rule_condition(
+        "当零件属于A类时，安排辅助加工工序",
+        "process_optional",
+        "辅助加工",
+        processes,
+    )
+
+    assert candidate is not None
+    assert candidate.when is not None
+    assert candidate.when.field.startswith("project_factor.")
+    assert candidate.when.op == "eq"
+    assert candidate.when.value == "A类"
+    assert candidate.when.field != "special.requirements"
+    assert candidate.field_definitions[0].label == "零件类型"
+    assert candidate.field_definitions[0].options == [{"value": "A类", "label": "A类"}]
     assert issues == []
 
 
@@ -245,7 +452,9 @@ async def test_llm_candidate_takes_priority_when_it_passes_validation(monkeypatc
 
     assert candidate is not None
     assert candidate.kind == "process_relation"
-    assert confidence == 0.98
+    # Explicit, route-resolvable dependencies are deterministic and therefore
+    # do not wait for a model response.
+    assert confidence == 0.9
     assert issues == []
 
 
@@ -274,7 +483,7 @@ async def test_explicit_process_relation_overrides_wrong_llm_condition(monkeypat
 
     assert candidate is not None
     assert candidate.kind == "process_relation"
-    assert any("工序关系语义不一致" in issue for issue in issues)
+    assert issues == []
 
 
 @pytest.mark.asyncio

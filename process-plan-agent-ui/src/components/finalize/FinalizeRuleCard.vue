@@ -113,7 +113,7 @@
           <div class="candidate-summary-row">
             <div class="candidate-summary-copy">
               <span class="summary-status" :class="{ confirmed: effectiveStatus === 'confirmed' }">
-                {{ effectiveStatus === 'confirmed' ? '已审核' : '待审核' }}
+                {{ effectiveStatus === 'confirmed' ? '已审核' : '已识别' }}
               </span>
               <strong>{{ candidateSummary }}</strong>
               <div class="candidate-recognition" aria-label="规则识别依据">
@@ -124,19 +124,6 @@
               </div>
             </div>
             <div class="candidate-summary-actions">
-              <!-- One-click confirm (no need to expand) -->
-              <button
-                v-if="effectiveStatus !== 'confirmed'"
-                class="quick-confirm-btn"
-                :disabled="conditionBusy || !hasRuleAction"
-                @click="confirmCandidate"
-                title="直接审核通过，无需展开"
-              >
-                <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
-                  <path d="M3 8.5l3.5 4 6.5-7" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                审核通过
-              </button>
               <button class="summary-action secondary" @click="ruleEditorExpanded = !ruleEditorExpanded">
                 {{ ruleEditorExpanded ? '收起规则' : '修改规则' }}
               </button>
@@ -462,21 +449,23 @@ const candidateMatchesCardMode = computed(() => {
     : candidateKind.value === 'condition'
 })
 const pendingStatusLabel = computed(() => {
-  if (props.conditionBusy) return '正在生成候选规则'
-  if (sourceTextChanged.value) return '原文已修改，需要重新生成'
-  if (editableCandidate.value) return '候选类型需要更新'
-  return '待生成候选规则'
+  if (props.conditionBusy) return '正在识别规则'
+  if (sourceTextChanged.value) return '原文已修改，正在更新'
+  if (editableCandidate.value) return '规则类型需要更新'
+  if (effectiveStatus.value === 'invalid') return '暂未识别'
+  return '等待自动识别'
 })
 const pendingStatusDetail = computed(() => {
-  if (sourceTextChanged.value) return '已保存的候选规则对应旧文本，重新生成后会按当前文字重新判断规则类型。'
-  if (editableCandidate.value) return '当前候选与原文识别出的规则类型不一致，请重新生成后再审核。'
+  if (sourceTextChanged.value) return '系统会按当前文字重新判断条件和目标工序。'
+  if (editableCandidate.value) return '当前识别结果与原文类型不一致，请重新识别。'
+  if (effectiveStatus.value === 'invalid') return props.item.conditionReview?.issues?.[0] || '请补充更明确的判断条件、比较关系或取值。'
   return cardRuleMode.value === 'relation'
-    ? '原文包含工序关系线索，可生成候选后核对触发和先后关系。'
-    : '原文包含可执行条件，可生成候选后核对字段、取值和目标工序。'
+    ? '系统正在识别触发、依赖或先后关系。'
+    : '系统正在识别判断条件和目标工序。'
 })
 const pendingActionLabel = computed(() => {
-  if (props.conditionBusy) return '生成中…'
-  return sourceTextChanged.value || editableCandidate.value ? '重新生成候选' : '生成候选'
+  if (props.conditionBusy) return '识别中…'
+  return '重试识别'
 })
 const hasRuleAction = computed(() => {
   const candidate = editableCandidate.value
@@ -941,22 +930,6 @@ function formatConfirmedAt(value: string) {
 .summary-action:disabled, .confirm-rule-btn:disabled { cursor: not-allowed; opacity: .5; }
 .summary-action.secondary { border-color: #d5dde9; color: #64748b; }
 .confirm-rule-btn { background: #405987; border-color: #405987; color: #fff; }
-
-/* ===== One-click confirm ===== */
-.quick-confirm-btn {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 5px 12px;
-  border: 1px solid #28a666; border-radius: 7px;
-  background: #f0fbf6; color: #1a7a4a;
-  font-size: 11px; font-weight: 700; cursor: pointer;
-  transition: all 0.16s ease;
-  flex-shrink: 0;
-}
-.quick-confirm-btn:hover:not(:disabled) {
-  background: #1a7a4a; color: #ffffff; border-color: #1a7a4a;
-  box-shadow: 0 2px 8px rgba(26, 122, 74, 0.22);
-}
-.quick-confirm-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .candidate-summary-copy { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .candidate-summary-copy strong { overflow: hidden; color: #2d3a4f; font-size: 12px; font-weight: 650; line-height: 1.45; text-overflow: ellipsis; }

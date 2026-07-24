@@ -14,6 +14,8 @@ from app.services.rule_packages import (
 from app.services.rule_packages.contracts import (
     CompileRulePackageRequest,
     CompileRulePackageResponse,
+    KmaiCompatibilityTestRequest,
+    KmaiCompatibilityTestResponse,
     RulePackageV2,
     RulePackageValidationReport,
     SimulateRulePackageRequest,
@@ -21,6 +23,9 @@ from app.services.rule_packages.contracts import (
 )
 from app.services.rule_packages.planner import RoutePlanningError
 from app.services.rule_packages.input_validation import validate_inputs
+from app.services.rule_packages.loader import load_published_rule_package
+from app.services.rule_packages.lifecycle import v2_package_from_row
+from app.services.rule_packages.kmai_compatibility_runner import compare_kmai_v1
 from app.services.rule_packages.kmai_export import build_kmai_compatibility_export
 from app.services.rule_packages.condition_contracts import (
     ConditionFieldRegistryResponse,
@@ -102,3 +107,29 @@ async def simulate_v2_rule_package(body: SimulateRulePackageRequest):
     except RoutePlanningError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return SimulateRulePackageResponse(content_hash=content_hash, validation=validation, plan=plan)
+
+
+@router.post("/compatibility-test", response_model=KmaiCompatibilityTestResponse)
+async def test_kmai_compatibility(
+    body: KmaiCompatibilityTestRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    package_row = await load_published_rule_package(body.project_id, db)
+    if not package_row:
+        raise HTTPException(404, "当前任务没有已发布的规则包。")
+    if str(package_row.schema_version or "") != "2.0":
+        raise HTTPException(422, "KmAI 可视化兼容测试仅支持 V2 规则包。")
+    package = v2_package_from_row(package_row)
+    validation = validate_rule_package(package)
+    if not validation.valid:
+        raise HTTPException(422, detail=validation.model_dump(mode="json"))
+    input_errors = validate_inputs(package.input_schema, body.inputs)
+    if input_errors:
+        raise HTTPException(422, detail=[issue.model_dump(mode="json") for issue in input_errors])
+    comparison = compare_kmai_v1(package, body.inputs)
+    return KmaiCompatibilityTestResponse(
+        project_id=body.project_id,
+        package_id=package_row.id,
+        package_version=package_row.version,
+        **comparison,
+    )

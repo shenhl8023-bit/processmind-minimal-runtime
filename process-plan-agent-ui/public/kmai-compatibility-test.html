@@ -1,0 +1,822 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>规则包兼容性测试台</title>
+  <style>
+    :root {
+      --ink: #17252a;
+      --muted: #687579;
+      --paper: #f5f1e8;
+      --surface: #fffdf8;
+      --line: #d7cfc2;
+      --teal: #176d67;
+      --teal-soft: #e5f1ee;
+      --amber: #b16a2a;
+      --amber-soft: #f5ead8;
+      --red: #b64f3b;
+      --red-soft: #f8e6e1;
+      --green: #2f7455;
+      --green-soft: #e5f1e9;
+      --shadow: 0 18px 45px rgba(31, 42, 43, 0.1);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--ink); background: #e9edf0; font-family: "PingFang SC", "Microsoft YaHei", sans-serif; letter-spacing: 0; }
+    button, input, select { font: inherit; letter-spacing: 0; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: 0.45; }
+    .shell { width: min(1440px, calc(100% - 32px)); min-height: calc(100vh - 32px); margin: 16px auto; background: var(--paper); box-shadow: var(--shadow); }
+    .topbar { min-height: 54px; padding: 0 32px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 24px; background: var(--surface); }
+    .brand { display: flex; align-items: center; gap: 11px; font-weight: 800; }
+    .brand-mark { width: 26px; height: 26px; display: grid; place-items: center; background: var(--ink); color: white; font: 700 14px Georgia, serif; }
+    .privacy { color: var(--muted); font-size: 12px; }
+    .hero { padding: 36px 36px 30px; border-bottom: 1px solid var(--ink); display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 32px; }
+    .eyebrow { margin: 0 0 10px; color: var(--teal); font-size: 11px; font-weight: 900; text-transform: uppercase; }
+    h1 { margin: 0; font: 600 42px Georgia, "Songti SC", serif; }
+    .hero-copy { margin: 12px 0 0; max-width: 760px; color: var(--muted); line-height: 1.75; }
+    .package-stamp { min-width: 148px; padding: 13px 16px; border: 1px solid #b9afa0; text-align: right; background: #eee8dc; }
+    .package-stamp span { display: block; color: var(--muted); font-size: 11px; }
+    .package-stamp strong { display: block; margin-top: 2px; color: var(--teal); font: 700 27px Georgia, serif; }
+    .import-band { padding: 28px 36px; border-bottom: 1px solid var(--line); background: #f0ece3; }
+    .drop-zone { min-height: 126px; border: 1px dashed #9d927f; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 18px; padding: 24px; background: var(--surface); transition: border-color 150ms ease, background 150ms ease; }
+    .drop-zone.dragging { border-color: var(--teal); background: var(--teal-soft); }
+    .drop-icon { width: 48px; height: 48px; display: grid; place-items: center; border: 1px solid var(--ink); color: var(--ink); font-size: 25px; }
+    .drop-copy strong { display: block; margin-bottom: 6px; font-size: 17px; }
+    .drop-copy span { color: var(--muted); font-size: 13px; line-height: 1.6; }
+    .file-button, .primary-button, .secondary-button, .text-button { min-height: 40px; border: 1px solid var(--ink); padding: 0 15px; font-weight: 800; }
+    .file-button, .primary-button { background: var(--ink); color: white; }
+    .secondary-button { background: transparent; color: var(--ink); }
+    .text-button { border-color: transparent; background: transparent; color: var(--teal); padding-inline: 6px; }
+    .file-button input { display: none; }
+    .message { display: none; margin-top: 12px; padding: 11px 14px; border-left: 4px solid; font-size: 13px; line-height: 1.55; }
+    .message.show { display: block; }
+    .message.error { background: var(--red-soft); border-color: var(--red); color: #873829; }
+    .message.success { background: var(--green-soft); border-color: var(--green); color: #275d46; }
+    .package-meta { display: none; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--line); margin-top: 18px; }
+    .package-meta.show { display: grid; }
+    .meta-cell { padding: 13px 16px; border-right: 1px solid var(--line); background: #f8f4eb; }
+    .meta-cell:last-child { border-right: 0; }
+    .meta-cell span { display: block; color: var(--muted); font-size: 11px; }
+    .meta-cell strong { display: block; margin-top: 5px; font-size: 14px; overflow-wrap: anywhere; }
+    .workspace { display: none; grid-template-columns: minmax(300px, 390px) minmax(0, 1fr); min-height: 620px; }
+    .workspace.show { display: grid; }
+    .input-pane { padding: 28px; border-right: 1px solid var(--line); background: var(--surface); }
+    .result-pane { padding: 28px; }
+    .section-label { display: flex; align-items: center; gap: 10px; color: var(--teal); font-size: 11px; font-weight: 900; }
+    .section-label b { width: 27px; height: 27px; display: grid; place-items: center; border: 1px solid var(--teal); }
+    h2 { margin: 12px 0 7px; font: 600 24px Georgia, "Songti SC", serif; }
+    .muted { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+    .field-list { display: grid; gap: 18px; margin-top: 24px; }
+    .field-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 7px; }
+    .field-head label { font-size: 13px; font-weight: 800; }
+    .field-head span { color: var(--amber); font-size: 11px; }
+    .field input, .field select { width: 100%; height: 39px; border: 1px solid #c9c0b3; background: white; color: var(--ink); padding: 0 10px; outline: none; }
+    .field input:focus, .field select:focus { border-color: var(--teal); box-shadow: 0 0 0 2px rgba(23, 109, 103, 0.12); }
+    .choice-row, .option-list { display: flex; flex-wrap: wrap; gap: 7px; }
+    .choice-button, .option-button { min-height: 34px; border: 1px solid #c9c0b3; padding: 0 10px; background: #faf7f0; color: #4e595a; }
+    .choice-button.active, .option-button.active { border-color: var(--teal); background: var(--teal); color: white; }
+    .custom-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; margin-top: 8px; }
+    .custom-entry button { border: 1px solid var(--ink); background: transparent; padding: 0 12px; }
+    .selected-values { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .selected-value { padding: 4px 8px; background: var(--teal-soft); color: #205d58; font-size: 12px; }
+    .input-actions { display: grid; grid-template-columns: auto 1fr; gap: 9px; margin-top: 28px; }
+    .validation-hint { min-height: 20px; margin: 10px 0 0; color: var(--amber); font-size: 12px; }
+    .empty-result { min-height: 520px; display: grid; place-content: center; text-align: center; color: var(--muted); }
+    .empty-mark { width: 72px; height: 72px; margin: 0 auto 15px; border: 1px solid var(--amber); display: grid; place-items: center; color: var(--amber); font: 600 32px Georgia, serif; }
+    .empty-result strong { color: var(--ink); font-size: 18px; }
+    .empty-result p { max-width: 410px; line-height: 1.65; }
+    .results { display: none; }
+    .results.show { display: block; }
+    .verdict { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 15px; padding: 16px 18px; border-left: 5px solid; }
+    .verdict.pass { background: var(--green-soft); border-color: var(--green); }
+    .verdict.warn { background: var(--red-soft); border-color: var(--red); }
+    .verdict-mark { width: 36px; height: 36px; display: grid; place-items: center; background: var(--ink); color: white; font-weight: 900; }
+    .verdict span { color: var(--muted); font-size: 12px; }
+    .verdict strong { display: block; margin-top: 3px; font-size: 18px; }
+    .engine-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }
+    .engine-card { border: 1px solid var(--line); border-top: 4px solid; background: var(--surface); }
+    .engine-card.v2 { border-top-color: var(--teal); }
+    .engine-card.v1 { border-top-color: var(--amber); }
+    .engine-card header { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+    .engine-card header span { font-size: 11px; font-weight: 900; }
+    .engine-card header strong { font: 700 20px Georgia, serif; }
+    .engine-card .engine-meta { padding: 10px 16px; color: var(--muted); font-size: 12px; }
+    .process-list { min-height: 170px; margin: 0; padding: 0 16px 16px 37px; }
+    .process-list li { padding: 5px 0; font-size: 13px; }
+    .difference-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+    .difference { padding: 13px; border: 1px dashed #bdb3a4; background: #f2ede4; }
+    .difference span { color: var(--muted); font-size: 11px; }
+    .difference strong { display: block; margin: 4px 0; color: var(--amber); font: 700 26px Georgia, serif; }
+    .difference p { margin: 0; color: #515c5d; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+    .notice-list { display: grid; gap: 8px; margin-top: 14px; }
+    .notice { padding: 10px 12px; border-left: 3px solid var(--amber); background: var(--amber-soft); color: #705126; font-size: 12px; line-height: 1.55; }
+    .report-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+    @media (max-width: 860px) {
+      .shell { width: 100%; min-height: 100vh; margin: 0; }
+      .topbar, .hero, .import-band { padding-inline: 18px; }
+      .hero { grid-template-columns: 1fr; }
+      h1 { font-size: 32px; }
+      .package-stamp { width: 150px; }
+      .drop-zone { grid-template-columns: auto 1fr; }
+      .drop-zone .file-button { grid-column: 1 / -1; width: 100%; display: grid; place-items: center; }
+      .package-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .meta-cell:nth-child(2) { border-right: 0; }
+      .workspace.show { display: block; }
+      .input-pane { border-right: 0; border-bottom: 1px solid var(--line); }
+      .engine-grid, .difference-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">K</span><span>KmAI / ProcessMind</span></div>
+      <span class="privacy">本地解析 · 不上传规则包</span>
+    </header>
+
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Execution parity / standalone</p>
+        <h1>规则包兼容性测试台</h1>
+        <p class="hero-copy">导入第四步导出的规则包 ZIP，在本地使用同一组参数执行 ProcessMind V2 与 KmAI V1 兼容规则，检查替换后的工序结果是否一致。</p>
+      </div>
+      <div class="package-stamp"><span>当前规则包</span><strong id="stamp">未导入</strong></div>
+    </section>
+
+    <section class="import-band">
+      <div id="dropZone" class="drop-zone">
+        <div class="drop-icon" aria-hidden="true">↓</div>
+        <div class="drop-copy">
+          <strong id="dropTitle">拖入规则包 ZIP</strong>
+          <span>支持当前 V2 规则包及旧版四槽规则包；所有解析均在当前浏览器内完成。</span>
+        </div>
+        <label class="file-button">选择 ZIP<input id="fileInput" type="file" accept=".zip,application/zip" /></label>
+      </div>
+      <div id="importMessage" class="message" role="status"></div>
+      <div id="packageMeta" class="package-meta"></div>
+    </section>
+
+    <section id="workspace" class="workspace">
+      <aside class="input-pane">
+        <div class="section-label"><b>01</b><span>测试输入</span></div>
+        <h2>设置一次工艺条件</h2>
+        <p class="muted">这组参数会同时送入两个本地执行器。必填项完整后即可运行。</p>
+        <div id="fieldList" class="field-list"></div>
+        <div class="input-actions">
+          <button id="fillExamples" type="button" class="secondary-button">填入示例</button>
+          <button id="runTest" type="button" class="primary-button" disabled>执行兼容性测试</button>
+        </div>
+        <p id="validationHint" class="validation-hint"></p>
+      </aside>
+
+      <section class="result-pane">
+        <div id="emptyResult" class="empty-result">
+          <div class="empty-mark">⇄</div>
+          <strong>等待一次本地对照</strong>
+          <p>结果会列出两个执行器各自选中的工序、命中规则以及不能安全替换的语义。</p>
+        </div>
+        <div id="results" class="results">
+          <div id="verdict" class="verdict"></div>
+          <div class="engine-grid">
+            <article class="engine-card v2">
+              <header><span id="sourceEngineName">PROCESSMIND</span><strong id="sourceEngineVersion">V2</strong></header>
+              <div id="v2Meta" class="engine-meta"></div>
+              <ol id="v2Processes" class="process-list"></ol>
+            </article>
+            <article class="engine-card v1">
+              <header><span>KMAI</span><strong>V1</strong></header>
+              <div id="v1Meta" class="engine-meta"></div>
+              <ol id="v1Processes" class="process-list"></ol>
+            </article>
+          </div>
+          <div id="differenceGrid" class="difference-grid"></div>
+          <div id="noticeList" class="notice-list"></div>
+          <div class="report-actions"><button id="downloadReport" type="button" class="secondary-button">下载测试结果</button></div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    (() => {
+      'use strict'
+
+      const v2CoreFiles = ['manifest.json', 'input_schema.json', 'route_catalog.json', 'route_rules.json']
+      const kmaiFiles = ['kmai-v1/factor_schema.json', 'kmai-v1/route_catalog.json', 'kmai-v1/route_rules.json']
+      const legacyCoreFiles = ['input_schema.json', 'route_catalog.json', 'route_rules.json']
+      const valueFactorMap = {
+        'cad.features\u0000扁位/平面': 'has_flat_or_plane',
+        'cad.features\u0000槽类特征': 'has_slot_feature',
+        'cad.features\u0000普通孔/辅助孔': 'has_standard_or_aux_hole',
+        'cad.features\u0000铰孔/精孔': 'has_reamed_or_precision_hole',
+        'cad.features\u0000型孔/割扁': 'has_shaped_hole_or_cut_flat',
+        'cad.features\u0000顶尖孔': 'uses_center_hole_location',
+        'precision.grades\u0000孔精加工': 'has_hole_finish_machining',
+        'precision.grades\u0000珩孔要求': 'requires_honing',
+        'precision.grades\u0000研孔要求': 'requires_hole_lapping',
+        'precision.grades\u0000外圆磨削': 'requires_outer_diameter_grinding',
+        'precision.grades\u0000端面磨削': 'requires_end_face_grinding',
+        'precision.grades\u0000槽磨削': 'requires_slot_grinding',
+        'precision.grades\u0000研外圆': 'requires_outer_diameter_lapping',
+        'special.requirements\u0000渗氮层要求': 'has_nitrided_layer',
+        'special.requirements\u0000铬酸阳极化要求': 'needs_chromic_acid_anodizing',
+        'special.requirements\u0000硬质阳极化要求': 'needs_hard_anodizing',
+        'special.requirements\u0000追溯标印': 'needs_marking',
+        'special.requirements\u0000无损检测要求': 'needs_ndt_inspection',
+        'special.requirements\u0000磁粉检查要求': 'needs_crack_inspection',
+        'special.requirements\u0000烧伤检查要求': 'needs_burn_inspection',
+      }
+
+      const dom = Object.fromEntries([
+        'dropZone', 'dropTitle', 'fileInput', 'importMessage', 'packageMeta', 'workspace', 'fieldList',
+        'fillExamples', 'runTest', 'validationHint', 'emptyResult', 'results', 'verdict', 'v2Meta',
+        'v1Meta', 'v2Processes', 'v1Processes', 'differenceGrid', 'noticeList', 'downloadReport', 'stamp',
+        'sourceEngineName', 'sourceEngineVersion',
+      ].map((id) => [id, document.getElementById(id)]))
+
+      let loaded = null
+      let values = {}
+      let lastReport = null
+
+      dom.fileInput.addEventListener('change', (event) => importZip(event.target.files && event.target.files[0]))
+      ;['dragenter', 'dragover'].forEach((name) => dom.dropZone.addEventListener(name, (event) => {
+        event.preventDefault()
+        dom.dropZone.classList.add('dragging')
+      }))
+      ;['dragleave', 'drop'].forEach((name) => dom.dropZone.addEventListener(name, (event) => {
+        event.preventDefault()
+        dom.dropZone.classList.remove('dragging')
+      }))
+      dom.dropZone.addEventListener('drop', (event) => importZip(event.dataTransfer.files && event.dataTransfer.files[0]))
+      dom.fillExamples.addEventListener('click', fillExamples)
+      dom.runTest.addEventListener('click', executeComparison)
+      dom.downloadReport.addEventListener('click', downloadReport)
+
+      async function importZip(file) {
+        resetTool()
+        if (!file) return
+        if (!/\.zip$/i.test(file.name)) return showImportError('请选择第四步导出的 ZIP 规则包。')
+        dom.dropTitle.textContent = `正在读取 ${file.name}`
+        try {
+          const files = normalizeZipPaths(await readZip(await file.arrayBuffer()))
+          const parsed = parsePackageFiles(files)
+          if (isCurrentV2Package(files)) {
+            const missing = [...v2CoreFiles, ...kmaiFiles].filter((name) => !files[name])
+            if (missing.length) throw new Error(`当前 V2 规则包缺少 KmAI 兼容文件：${missing.join('、')}。请从最新第四步重新导出。`)
+            loaded = {
+              filename: file.name,
+              mode: 'v2',
+              manifest: parsed['manifest.json'],
+              inputSchema: parsed['input_schema.json'],
+              v2Catalog: parsed['route_catalog.json'],
+              v2Rules: parsed['route_rules.json'],
+              factorSchema: parsed['kmai-v1/factor_schema.json'],
+              v1Catalog: parsed['kmai-v1/route_catalog.json'],
+              v1Rules: parsed['kmai-v1/route_rules.json'],
+              notices: [],
+            }
+          } else {
+            const missing = legacyCoreFiles.filter((name) => !files[name])
+            if (missing.length) throw new Error(`规则包缺少文件：${missing.join('、')}`)
+            loaded = adaptLegacyPackage(file.name, parsed)
+          }
+          validatePackage(loaded)
+          initializeValues()
+          renderPackage()
+          renderFields()
+          refreshValidation()
+          dom.workspace.classList.add('show')
+          showImportSuccess(`已在本地载入 ${file.name}${loaded.mode === 'legacy' ? '（旧版适配模式）' : ''}，可以开始对照。`)
+        } catch (error) {
+          showImportError(error && error.message ? error.message : '无法读取该规则包。')
+        }
+      }
+
+      function validatePackage(pkg) {
+        if (!Array.isArray(pkg.inputSchema.fields)) throw new Error('input_schema.json 缺少 fields。')
+        if (!Array.isArray(pkg.v2Catalog.processes)) throw new Error('route_catalog.json 缺少 processes。')
+        if (!Array.isArray(pkg.v2Rules.rules)) throw new Error('route_rules.json 缺少 rules。')
+        if (!Array.isArray(pkg.v1Catalog.processes) || !Array.isArray(pkg.v1Rules.rules)) throw new Error('kmai-v1 兼容文件结构不完整。')
+      }
+
+      function isCurrentV2Package(files) {
+        try {
+          const schema = files['input_schema.json'] && JSON.parse(files['input_schema.json'])
+          return String(schema && schema.schema_version) === '2.0' && Array.isArray(schema && schema.fields)
+        } catch (_) {
+          return false
+        }
+      }
+
+      function parsePackageFiles(files) {
+        const parsed = {}
+        Object.entries(files).forEach(([name, content]) => {
+          if (/\.json$/i.test(name)) {
+            try { parsed[name] = JSON.parse(content) } catch (_) { throw new Error(`文件 ${name} 不是有效 JSON。`) }
+          }
+        })
+        return parsed
+      }
+
+      function normalizeZipPaths(files) {
+        const normalized = {}
+        Object.entries(files).forEach(([rawName, content]) => {
+          const name = rawName.replace(/^(\.\/)+/, '')
+          const kmaiIndex = name.indexOf('kmai-v1/')
+          if (kmaiIndex >= 0) normalized[name.slice(kmaiIndex)] = content
+          else {
+            const basename = name.split('/').pop()
+            if (['manifest.json', 'input_schema.json', 'route_catalog.json', 'route_rules.json', 'factor_dictionary.json', 'test_cases.json', 'validation_report.json'].includes(basename)) normalized[basename] = content
+            else normalized[name] = content
+          }
+        })
+        return normalized
+      }
+
+      function adaptLegacyPackage(filename, parsed) {
+        const inputSchema = parsed['input_schema.json'] || {}
+        const catalog = parsed['route_catalog.json'] || {}
+        const sourceRules = parsed['route_rules.json'] || {}
+        if (String(inputSchema.schema_version || '') !== '1.0' || !Array.isArray(inputSchema.required_inputs)) {
+          throw new Error('无法识别规则包版本。请导入第四步导出的 ZIP。')
+        }
+        if (!Array.isArray(catalog.segments)) throw new Error('旧版 route_catalog.json 缺少 segments。')
+        const notices = []
+        const v2Catalog = { processes: catalog.segments.map((item) => ({
+          process_id: item.process_id,
+          display_name: item.process_name,
+          default_sequence: item.sequence || 0,
+          main: Boolean(item.main),
+          enabled: item.enabled !== false,
+          constraints: {},
+        })) }
+        const indexByName = new Map(catalog.segments.map((item) => [String(item.process_name || ''), String(item.process_id || '')]))
+        const resolveTargets = (names, ruleName) => (names || []).map((name) => {
+          const id = indexByName.get(String(name))
+          if (!id) notices.push(`旧版规则“${ruleName}”引用了路线中不存在的工序“${name}”，该动作未纳入本次对照。`)
+          return id
+        }).filter(Boolean)
+        const v2Rules = []
+        const legacyFactorDefinitions = []
+        const v1Rules = []
+        const addRule = (kind, index, source, conditions, factorConditions) => {
+          const targetIds = resolveTargets(source.then, `${kind}-${index + 1}`)
+          if (!targetIds.length) return
+          const ruleId = `LEGACY-${kind}-${String(index + 1).padStart(3, '0')}`
+          v2Rules.push({ rule_id: ruleId, enabled: true, priority: 100 - index, when: conditions.length === 1 ? conditions[0] : { all: conditions }, then: { include_process_ids: targetIds } })
+          v1Rules.push({ rule_id: ruleId, enabled: true, priority: 100 - index, when: { all: factorConditions }, then: { include_process_keys: targetIds, exclude_process_keys: [] } })
+        }
+        ;(sourceRules.material_rules || []).forEach((source, index) => {
+          const when = source.when || {}
+          const conditions = [{ field: 'material.grade', op: 'eq', value: when.material_grade }]
+          const factors = [{ factor_key: 'material_grade', op: '=', value: when.material_grade }]
+          if (when.special_requirement) {
+            const factorKey = legacySpecialFactor(when.special_requirement, legacyFactorDefinitions)
+            conditions.push({ field: 'special.requirements', op: 'contains', value: when.special_requirement })
+            factors.push({ factor_key: factorKey, op: '=', value: true })
+          }
+          addRule('MAT', index, source, conditions, factors)
+        })
+        const addMappedRules = (list, kind, inputField, conditionKey) => (list || []).forEach((source, index) => {
+          const value = source.when && source.when[conditionKey]
+          const factorKey = valueFactorMap[`${inputField}\u0000${value}`] || legacySpecialFactor(value, legacyFactorDefinitions, `${kind.toLowerCase()}_`)
+          addRule(kind, index, source, [{ field: inputField, op: 'contains', value }], [{ factor_key: factorKey, op: '=', value: true }])
+        })
+        addMappedRules(sourceRules.feature_rules, 'FEATURE', 'cad.features', 'cad_feature')
+        addMappedRules(sourceRules.precision_rules, 'PRECISION', 'precision.grades', 'precision_requirement')
+        addMappedRules(sourceRules.special_requirement_rules, 'SPECIAL', 'special.requirements', 'special_requirement')
+
+        const fields = [...(inputSchema.required_inputs || []), ...(inputSchema.optional_inputs || [])].map((item) => ({
+          key: legacyInputKey(item.key), label: item.name || item.key, required: (inputSchema.required_inputs || []).some((required) => required.key === item.key),
+          type: item.type === 'array' ? 'array' : item.type === 'select' ? 'select' : item.type || 'text',
+          options: (item.allowed_values || item.examples || []).map((value) => ({ value, label: value })), allow_custom: true,
+        }))
+        const builtInFactors = Array.from(new Set(Object.values(valueFactorMap))).map((factor_key) => ({ factor_key, value_type: 'boolean', default_value: false }))
+        if (Array.isArray(sourceRules.process_trigger_rules) && sourceRules.process_trigger_rules.length) {
+          notices.unshift('旧版 process_trigger_rules 只保留自然语言描述；本次对照使用其中可结构化的材料、特征、精度和特殊要求规则，无法从文字恢复的条件不会被虚构执行。')
+        }
+        return {
+          filename,
+          mode: 'legacy',
+          manifest: { package_name: catalog.project_name || filename, schema_version: '1.0' },
+          inputSchema: { schema_version: '2.0', fields },
+          v2Catalog,
+          v2Rules: { rules: v2Rules, process_relations: [] },
+          factorSchema: { factors: [{ factor_key: 'material_grade', value_type: 'enum', default_value: null }, ...builtInFactors, ...legacyFactorDefinitions] },
+          v1Catalog: { processes: catalog.segments.map((item) => ({ process_key: item.process_id, process_name: item.process_name, sequence: item.sequence || 0, enabled: item.enabled !== false, default_included: Boolean(item.main) })) },
+          v1Rules: { rules: v1Rules },
+          notices: ['当前 ZIP 为旧版四槽规则包；测试台已在浏览器中生成对应的 KmAI V1 因素和路线规则。', ...notices],
+        }
+      }
+
+      function legacyInputKey(key) {
+        return ({ material_grade: 'material.grade', cad_features: 'cad.features', precision_grades: 'precision.grades', special_requirements: 'special.requirements' })[key] || String(key || '').replace(/_/g, '.')
+      }
+
+      function legacySpecialFactor(value, definitions, prefix = 'special_') {
+        const label = String(value || '未命名条件')
+        const existing = definitions.find((item) => item.name === `特殊要求：${label}`)
+        if (existing) return existing.factor_key
+        const factor_key = `${prefix}${label.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]+/g, '_').replace(/^_+|_+$/g, '')}`
+        definitions.push({ factor_key, name: `特殊要求：${label}`, value_type: 'boolean', default_value: false })
+        return factor_key
+      }
+
+      function resetTool() {
+        loaded = null
+        values = {}
+        lastReport = null
+        dom.workspace.classList.remove('show')
+        dom.packageMeta.classList.remove('show')
+        dom.results.classList.remove('show')
+        dom.emptyResult.style.display = ''
+        dom.importMessage.className = 'message'
+        dom.importMessage.textContent = ''
+        dom.stamp.textContent = '未导入'
+      }
+
+      function renderPackage() {
+        const processCount = loaded.v2Catalog.processes.length
+        const ruleCount = loaded.v2Rules.rules.length
+        const relationCount = (loaded.v2Rules.process_relations || []).filter((item) => item.enabled !== false).length
+        const packageName = loaded.manifest.package_name || loaded.filename
+        dom.stamp.textContent = loaded.mode === 'legacy' ? '旧版适配' : `V${loaded.manifest.schema_version || '2.0'}`
+        dom.sourceEngineName.textContent = loaded.mode === 'legacy' ? '旧版规则' : 'PROCESSMIND'
+        dom.sourceEngineVersion.textContent = loaded.mode === 'legacy' ? '1.0' : 'V2'
+        dom.dropTitle.textContent = loaded.filename
+        dom.packageMeta.innerHTML = [
+          ['规则包', packageName], ['工序', `${processCount} 道`], ['条件规则', `${ruleCount} 条`], [loaded.mode === 'legacy' ? '执行模式' : '工序关系', loaded.mode === 'legacy' ? '旧版四槽适配' : `${relationCount} 条`],
+        ].map(([label, value]) => `<div class="meta-cell"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('')
+        dom.packageMeta.classList.add('show')
+      }
+
+      function initializeValues() {
+        values = {}
+        loaded.inputSchema.fields.forEach((field) => {
+          values[field.key] = isArrayField(field) ? [] : field.type === 'boolean' ? undefined : ''
+        })
+      }
+
+      function renderFields() {
+        dom.fieldList.innerHTML = ''
+        loaded.inputSchema.fields.forEach((field) => dom.fieldList.appendChild(buildField(field)))
+      }
+
+      function buildField(field) {
+        const wrapper = element('div', 'field')
+        const head = element('div', 'field-head')
+        head.append(element('label', '', field.label || field.key), element('span', '', field.required ? '必填' : '可选'))
+        wrapper.appendChild(head)
+        const options = (field.options || []).map((item) => String(item.value ?? item.label ?? '')).filter(Boolean)
+        if (field.type === 'boolean') {
+          const row = element('div', 'choice-row')
+          ;[[true, '是'], [false, '否']].forEach(([value, label]) => {
+            const button = element('button', 'choice-button', label)
+            button.type = 'button'
+            button.addEventListener('click', () => { values[field.key] = value; renderFields(); refreshValidation() })
+            if (values[field.key] === value) button.classList.add('active')
+            row.appendChild(button)
+          })
+          wrapper.appendChild(row)
+        } else if (isArrayField(field)) {
+          const optionList = element('div', 'option-list')
+          options.forEach((option) => {
+            const button = element('button', 'option-button', option)
+            button.type = 'button'
+            if ((values[field.key] || []).includes(option)) button.classList.add('active')
+            button.addEventListener('click', () => {
+              const selected = values[field.key] || []
+              values[field.key] = selected.includes(option) ? selected.filter((item) => item !== option) : [...selected, option]
+              renderFields(); refreshValidation()
+            })
+            optionList.appendChild(button)
+          })
+          wrapper.appendChild(optionList)
+          if (field.allow_custom !== false) wrapper.appendChild(customArrayInput(field))
+          if ((values[field.key] || []).length) {
+            const selected = element('div', 'selected-values')
+            ;(values[field.key] || []).forEach((value) => selected.appendChild(element('span', 'selected-value', value)))
+            wrapper.appendChild(selected)
+          }
+        } else if (['single_select', 'select', 'enum'].includes(field.type) && options.length) {
+          const select = document.createElement('select')
+          select.innerHTML = `<option value="">请选择</option>${options.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('')}`
+          select.value = values[field.key] || ''
+          select.addEventListener('change', () => { values[field.key] = select.value; refreshValidation() })
+          wrapper.appendChild(select)
+        } else {
+          const input = document.createElement('input')
+          input.type = field.type === 'number' || field.type === 'integer' ? 'number' : 'text'
+          input.placeholder = exampleText(field)
+          input.value = values[field.key] ?? ''
+          if (field.validation && field.validation.min != null) input.min = field.validation.min
+          if (field.validation && field.validation.max != null) input.max = field.validation.max
+          input.addEventListener('input', () => { values[field.key] = input.value; refreshValidation() })
+          wrapper.appendChild(input)
+        }
+        return wrapper
+      }
+
+      function customArrayInput(field) {
+        const row = element('div', 'custom-entry')
+        const input = document.createElement('input')
+        input.placeholder = '补充自定义值'
+        const button = element('button', '', '添加')
+        button.type = 'button'
+        const add = () => {
+          const value = input.value.trim()
+          if (!value) return
+          values[field.key] = Array.from(new Set([...(values[field.key] || []), value]))
+          renderFields(); refreshValidation()
+        }
+        button.addEventListener('click', add)
+        input.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); add() } })
+        row.append(input, button)
+        return row
+      }
+
+      function fillExamples() {
+        loaded.inputSchema.fields.forEach((field) => {
+          const options = (field.options || []).map((item) => item.value ?? item.label).filter(Boolean)
+          if (isArrayField(field)) values[field.key] = options.length ? options.slice(0, 2) : [field.key === 'cad.features' ? '槽类特征' : '示例值']
+          else if (field.type === 'boolean') values[field.key] = true
+          else if (field.type === 'number' || field.type === 'integer') values[field.key] = field.validation && field.validation.min != null ? field.validation.min : 0
+          else values[field.key] = options[0] || (field.key === 'material.grade' ? '9Cr18' : '示例值')
+        })
+        renderFields()
+        refreshValidation()
+      }
+
+      function refreshValidation() {
+        const missing = loaded.inputSchema.fields.filter((field) => field.required && !hasValue(values[field.key]))
+        dom.runTest.disabled = missing.length > 0
+        dom.validationHint.textContent = missing.length ? `请补全：${missing.map((field) => field.label || field.key).join('、')}` : '输入完整，可以执行对照。'
+      }
+
+      function executeComparison() {
+        try {
+          const nestedInputs = nestValues(values)
+          const v2 = runV2(nestedInputs)
+          const factors = buildV1Factors(nestedInputs)
+          const v1 = runV1(factors)
+          const onlyV2 = v2.processes.filter((id) => !v1.processes.includes(id))
+          const onlyV1 = v1.processes.filter((id) => !v2.processes.includes(id))
+          const notices = [...(loaded.notices || [])]
+          if ((loaded.v2Rules.process_relations || []).some((item) => item.enabled !== false)) notices.push('KmAI V1 不执行 ProcessMind 的 process_relations 触发、依赖、互斥和排序语义；因此相关规则可能产生差异。')
+          if (v2.conflicts.length) notices.push(...v2.conflicts)
+          lastReport = {
+            tested_at: new Date().toISOString(), package_name: loaded.manifest.package_name || loaded.filename,
+            inputs: nestedInputs, compatible: !onlyV2.length && !onlyV1.length,
+            processmind_v2: v2, kmai_v1: v1, only_v2_process_ids: onlyV2, only_kmai_process_ids: onlyV1,
+            manual_factors: factors, notices,
+          }
+          renderResults(lastReport)
+        } catch (error) {
+          showImportError(error && error.message ? error.message : '执行兼容性测试失败。')
+        }
+      }
+
+      function runV2(inputs) {
+        const included = new Set(loaded.v2Catalog.processes.filter((item) => item.main).map((item) => item.process_id))
+        const excluded = new Set()
+        const matchedRules = []
+        ;[...loaded.v2Rules.rules].filter((item) => item.enabled !== false).sort((a, b) => (b.priority || 0) - (a.priority || 0)).forEach((rule) => {
+          if (!evaluateCondition(rule.when, inputs)) return
+          matchedRules.push(rule.rule_id)
+          ;(rule.then && rule.then.include_process_ids || []).forEach((id) => included.add(id))
+          ;(rule.then && rule.then.exclude_process_ids || []).forEach((id) => excluded.add(id))
+        })
+        excluded.forEach((id) => included.delete(id))
+        const conflicts = []
+        const relations = (loaded.v2Rules.process_relations || []).filter((item) => item.enabled !== false)
+        for (let pass = 0; pass < 12; pass += 1) {
+          let changed = false
+          relations.forEach((relation) => {
+            const sources = relation.source_process_ids || []
+            const targets = relation.target_process_ids || []
+            const sourceMatched = relation.source_match === 'all' ? sources.every((id) => included.has(id)) : sources.some((id) => included.has(id))
+            if (relation.relation_type === 'trigger_after' && sourceMatched) targets.forEach((id) => { if (!excluded.has(id) && !included.has(id)) { included.add(id); changed = true } })
+            if (relation.relation_type === 'requires' && targets.some((id) => included.has(id))) sources.forEach((id) => { if (!excluded.has(id) && !included.has(id)) { included.add(id); changed = true } })
+          })
+          if (!changed) break
+        }
+        relations.filter((item) => item.relation_type === 'conflicts').forEach((relation) => {
+          if ((relation.source_process_ids || []).some((id) => included.has(id)) && (relation.target_process_ids || []).some((id) => included.has(id))) conflicts.push(`存在互斥工序：${[...(relation.source_process_ids || []), ...(relation.target_process_ids || [])].map(processName).join('、')}`)
+        })
+        return { processes: orderV2Processes([...included], relations), matched_rules: matchedRules, conflicts }
+      }
+
+      function orderV2Processes(ids, relations) {
+        const selected = new Set(ids)
+        const catalog = new Map(loaded.v2Catalog.processes.map((item) => [item.process_id, item]))
+        const edges = new Map(ids.map((id) => [id, new Set()]))
+        loaded.v2Catalog.processes.forEach((process) => {
+          if (!selected.has(process.process_id)) return
+          const constraints = process.constraints || {}
+          ;(constraints.must_run_after || []).forEach((source) => { if (selected.has(source)) edges.get(source).add(process.process_id) })
+          ;(constraints.must_run_before || []).forEach((target) => { if (selected.has(target)) edges.get(process.process_id).add(target) })
+        })
+        relations.filter((item) => ['trigger_after', 'order_after', 'requires'].includes(item.relation_type)).forEach((relation) => {
+          ;(relation.source_process_ids || []).forEach((source) => (relation.target_process_ids || []).forEach((target) => {
+            if (selected.has(source) && selected.has(target)) edges.get(source).add(target)
+          }))
+        })
+        const indegree = new Map(ids.map((id) => [id, 0]))
+        edges.forEach((targets) => targets.forEach((target) => indegree.set(target, (indegree.get(target) || 0) + 1)))
+        const bySequence = (a, b) => ((catalog.get(a) || {}).default_sequence || 0) - ((catalog.get(b) || {}).default_sequence || 0) || a.localeCompare(b)
+        const queue = ids.filter((id) => indegree.get(id) === 0).sort(bySequence)
+        const ordered = []
+        while (queue.length) {
+          const id = queue.shift(); ordered.push(id)
+          edges.get(id).forEach((target) => { indegree.set(target, indegree.get(target) - 1); if (indegree.get(target) === 0) { queue.push(target); queue.sort(bySequence) } })
+        }
+        return ordered.length === ids.length ? ordered : ids.sort(bySequence)
+      }
+
+      function runV1(factors) {
+        const included = new Set()
+        const excluded = new Set()
+        const matchedRules = []
+        ;[...loaded.v1Rules.rules].filter((item) => item.enabled !== false).sort((a, b) => (b.priority || 0) - (a.priority || 0)).forEach((rule) => {
+          const conditions = rule.when && rule.when.all || []
+          if (!conditions.every((condition) => compare(factors[condition.factor_key], condition.op || '=', condition.value))) return
+          matchedRules.push(rule.rule_id)
+          ;(rule.then && rule.then.include_process_keys || []).forEach((id) => included.add(id))
+          ;(rule.then && rule.then.exclude_process_keys || []).forEach((id) => excluded.add(id))
+        })
+        loaded.v1Catalog.processes.forEach((process) => { if (process.default_included) included.add(process.process_key) })
+        excluded.forEach((id) => included.delete(id))
+        const processes = loaded.v1Catalog.processes.filter((item) => item.enabled !== false && included.has(item.process_key)).sort((a, b) => (a.sequence || 0) - (b.sequence || 0) || String(a.process_key).localeCompare(String(b.process_key))).map((item) => item.process_key)
+        return { processes, matched_rules: matchedRules }
+      }
+
+      function buildV1Factors(inputs) {
+        const factors = {}
+        ;(loaded.factorSchema.factors || []).forEach((definition) => {
+          factors[definition.factor_key] = definition.default_value != null ? definition.default_value : definition.value_type === 'boolean' ? false : null
+        })
+        const material = getPath(inputs, 'material.grade')
+        if (material !== undefined) factors.material_grade = material
+        ;['cad.features', 'precision.grades', 'special.requirements'].forEach((fieldKey) => {
+          const selected = getPath(inputs, fieldKey)
+          ;(Array.isArray(selected) ? selected : []).forEach((item) => { const mapped = valueFactorMap[`${fieldKey}\u0000${item}`]; if (mapped) factors[mapped] = true })
+        })
+        ;(loaded.factorSchema.factors || []).forEach((definition) => {
+          const description = String(definition.description || '')
+          const marker = 'ProcessMind 字段 '
+          if (description.includes(marker)) {
+            const key = description.split(marker).pop().replace(/[ 。]+$/g, '')
+            const value = getPath(inputs, key)
+            if (value !== undefined) factors[definition.factor_key] = value
+          } else if (String(definition.name || '').includes('特殊要求：')) {
+            const requirement = String(definition.name).split('特殊要求：').pop()
+            const selected = getPath(inputs, 'special.requirements')
+            factors[definition.factor_key] = Array.isArray(selected) && selected.includes(requirement)
+          }
+        })
+        return factors
+      }
+
+      function evaluateCondition(node, inputs) {
+        if (!node) return false
+        if (Array.isArray(node.all)) return node.all.every((child) => evaluateCondition(child, inputs))
+        if (Array.isArray(node.any)) return node.any.some((child) => evaluateCondition(child, inputs))
+        if (node.not) return !evaluateCondition(node.not, inputs)
+        return compare(getPath(inputs, node.field), node.op, node.value)
+      }
+
+      function compare(actual, op, expected) {
+        const numeric = typeof expected === 'number' && actual !== '' && actual != null ? Number(actual) : actual
+        if (op === 'eq' || op === '=') return numeric === expected
+        if (op === 'neq' || op === '!=') return numeric !== expected
+        if (op === 'gt' || op === '>') return numeric != null && numeric > expected
+        if (op === 'gte' || op === '>=') return numeric != null && numeric >= expected
+        if (op === 'lt' || op === '<') return numeric != null && numeric < expected
+        if (op === 'lte' || op === '<=') return numeric != null && numeric <= expected
+        if (op === 'in') return Array.isArray(expected) && expected.includes(numeric)
+        if (op === 'not_in') return Array.isArray(expected) && !expected.includes(numeric)
+        if (op === 'contains') return Array.isArray(actual) ? actual.includes(expected) : typeof actual === 'string' && actual.includes(String(expected))
+        if (op === 'contains_any') return Array.isArray(actual) && Array.isArray(expected) && expected.some((item) => actual.includes(item))
+        if (op === 'contains_all') return Array.isArray(actual) && Array.isArray(expected) && expected.every((item) => actual.includes(item))
+        if (op === 'between') return Array.isArray(expected) && numeric >= expected[0] && numeric <= expected[1]
+        if (op === 'exists') return actual !== undefined && actual !== null && actual !== ''
+        return false
+      }
+
+      function renderResults(report) {
+        const compatible = report.compatible
+        dom.emptyResult.style.display = 'none'
+        dom.results.classList.add('show')
+        dom.verdict.className = `verdict ${compatible ? 'pass' : 'warn'}`
+        dom.verdict.innerHTML = `<div class="verdict-mark">${compatible ? '✓' : '!'}</div><div><span>${compatible ? '兼容性通过' : '发现执行差异'}</span><strong>${compatible ? '两个执行器选中的工序一致' : `${report.only_v2_process_ids.length + report.only_kmai_process_ids.length} 项工序需要复核`}</strong></div><b>${escapeHtml(new Date().toLocaleTimeString())}</b>`
+        dom.v2Meta.textContent = `命中 ${report.processmind_v2.matched_rules.length} 条规则 · 选中 ${report.processmind_v2.processes.length} 道工序`
+        dom.v1Meta.textContent = `命中 ${report.kmai_v1.matched_rules.length} 条规则 · 选中 ${report.kmai_v1.processes.length} 道工序`
+        renderProcessList(dom.v2Processes, report.processmind_v2.processes)
+        renderProcessList(dom.v1Processes, report.kmai_v1.processes)
+        const meaningfulFactors = Object.values(report.manual_factors).filter((value) => value !== null && value !== false && value !== '').length
+        dom.differenceGrid.innerHTML = [
+          ['仅 ProcessMind', report.only_v2_process_ids], ['仅 KmAI', report.only_kmai_process_ids], ['KmAI 有效因素', Array(meaningfulFactors).fill('')],
+        ].map(([label, items]) => `<article class="difference"><span>${escapeHtml(label)}</span><strong>${items.length}</strong><p>${label === 'KmAI 有效因素' ? '本次输入映射后的非空因素' : escapeHtml(items.map(processName).join('、') || '无')}</p></article>`).join('')
+        dom.noticeList.innerHTML = report.notices.map((item) => `<div class="notice">${escapeHtml(item)}</div>`).join('')
+      }
+
+      function renderProcessList(target, ids) {
+        target.innerHTML = ids.length ? ids.map((id) => `<li>${escapeHtml(processName(id))}</li>`).join('') : '<li>未选中工序</li>'
+      }
+
+      function processName(id) {
+        const process = loaded.v2Catalog.processes.find((item) => item.process_id === id)
+        const v1Process = loaded.v1Catalog.processes.find((item) => item.process_key === id)
+        return process && process.display_name || v1Process && v1Process.process_name || id
+      }
+
+      function downloadReport() {
+        if (!lastReport) return
+        const blob = new Blob([`${JSON.stringify(lastReport, null, 2)}\n`], { type: 'application/json' })
+        const link = document.createElement('a')
+        link.href = URL.createObjectURL(blob)
+        link.download = `kmai-compatibility-${Date.now()}.json`
+        link.style.display = 'none'
+        document.body.appendChild(link)
+        link.click()
+        window.setTimeout(() => {
+          URL.revokeObjectURL(link.href)
+          link.remove()
+        }, 1000)
+      }
+
+      async function readZip(buffer) {
+        const bytes = new Uint8Array(buffer)
+        const view = new DataView(buffer)
+        let eocd = -1
+        for (let index = bytes.length - 22; index >= Math.max(0, bytes.length - 65557); index -= 1) {
+          if (view.getUint32(index, true) === 0x06054b50) { eocd = index; break }
+        }
+        if (eocd < 0) throw new Error('ZIP 文件结构无效。')
+        const count = view.getUint16(eocd + 10, true)
+        let offset = view.getUint32(eocd + 16, true)
+        const decoder = new TextDecoder('utf-8')
+        const result = {}
+        for (let index = 0; index < count; index += 1) {
+          if (view.getUint32(offset, true) !== 0x02014b50) throw new Error('ZIP 中央目录无效。')
+          const method = view.getUint16(offset + 10, true)
+          const compressedSize = view.getUint32(offset + 20, true)
+          const nameLength = view.getUint16(offset + 28, true)
+          const extraLength = view.getUint16(offset + 30, true)
+          const commentLength = view.getUint16(offset + 32, true)
+          const localOffset = view.getUint32(offset + 42, true)
+          const name = decoder.decode(bytes.slice(offset + 46, offset + 46 + nameLength))
+          const localNameLength = view.getUint16(localOffset + 26, true)
+          const localExtraLength = view.getUint16(localOffset + 28, true)
+          const dataStart = localOffset + 30 + localNameLength + localExtraLength
+          const compressed = bytes.slice(dataStart, dataStart + compressedSize)
+          if (!name.endsWith('/')) result[name] = decoder.decode(await decompressEntry(compressed, method))
+          offset += 46 + nameLength + extraLength + commentLength
+        }
+        return result
+      }
+
+      async function decompressEntry(bytes, method) {
+        if (method === 0) return bytes
+        if (method !== 8 || typeof DecompressionStream === 'undefined') throw new Error('该 ZIP 使用了当前浏览器不支持的压缩方式。')
+        const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))
+        return new Uint8Array(await new Response(stream).arrayBuffer())
+      }
+
+      function nestValues(flat) {
+        const result = {}
+        Object.entries(flat).forEach(([key, value]) => {
+          const normalized = typeof value === 'string' ? value.trim() : value
+          if (!hasValue(normalized)) return
+          const parts = key.split('.')
+          let cursor = result
+          parts.forEach((part, index) => {
+            if (index === parts.length - 1) cursor[part] = normalized
+            else cursor = cursor[part] = cursor[part] && typeof cursor[part] === 'object' ? cursor[part] : {}
+          })
+        })
+        return result
+      }
+
+      function getPath(object, path) {
+        if (!path) return undefined
+        return String(path).split('.').reduce((value, part) => value == null ? undefined : value[part], object)
+      }
+
+      function isArrayField(field) { return ['array', 'list', 'multi_select'].includes(field.type) }
+      function hasValue(value) { return Array.isArray(value) ? value.length > 0 : typeof value === 'string' ? value.trim().length > 0 : value !== undefined && value !== null }
+      function exampleText(field) {
+        const options = (field.options || []).map((item) => item.value ?? item.label).filter(Boolean)
+        if (options.length) return `例如 ${options[0]}`
+        if (field.key === 'material.grade') return '例如 9Cr18'
+        return '请输入'
+      }
+      function element(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text != null) node.textContent = text; return node }
+      function escapeHtml(value) { return String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]) }
+      function showImportError(message) { dom.importMessage.className = 'message error show'; dom.importMessage.textContent = message }
+      function showImportSuccess(message) { dom.importMessage.className = 'message success show'; dom.importMessage.textContent = message }
+    })()
+  </script>
+</body>
+</html>
