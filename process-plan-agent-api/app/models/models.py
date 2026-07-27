@@ -1,7 +1,7 @@
 """
 ORM 数据模型 —— 对应 database_schema.md 中设计的核心表
 """
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, Float
+from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.database import Base
@@ -36,6 +36,12 @@ class Project(Base):
     normalized_route_segment_factor_reviews = relationship("NormalizedRouteSegmentFactorReview", back_populates="project")
     normalized_route_segment_rule_reviews = relationship("NormalizedRouteSegmentRuleReview", back_populates="project")
     finalized_rule_packages = relationship("FinalizedRulePackage", back_populates="project")
+    kmai_factor_mappings = relationship(
+        "KmaiFactorMapping",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 # ---------- 工艺规程文件 ----------
@@ -298,3 +304,76 @@ class FinalizedRulePackage(Base):
     supersedes_id = Column(Integer, ForeignKey("finalized_rule_packages.id"), nullable=True)
 
     project = relationship("Project", back_populates="finalized_rule_packages")
+    kmai_mapping_usages = relationship(
+        "KmaiFactorMappingUsage",
+        back_populates="package",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class KmaiFactorMapping(Base):
+    __tablename__ = "kmai_factor_mappings"
+    __table_args__ = (
+        CheckConstraint("scope IN ('global', 'project')", name="ck_kmai_mapping_scope"),
+        CheckConstraint(
+            "mapping_mode IN ('existing_factor', 'manual_factor')",
+            name="ck_kmai_mapping_mode",
+        ),
+        CheckConstraint("status IN ('active', 'inactive')", name="ck_kmai_mapping_status"),
+        CheckConstraint(
+            "(scope = 'global' AND project_id IS NULL) OR (scope = 'project' AND project_id IS NOT NULL)",
+            name="ck_kmai_mapping_scope_project",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    scope = Column(String(16), nullable=False)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=True)
+    source_field = Column(String(120), nullable=False)
+    source_value = Column(String(255), nullable=False)
+    mapping_mode = Column(String(24), nullable=False)
+    target_factor_key = Column(String(120), nullable=False)
+    target_factor_name = Column(String(255), nullable=False)
+    target_factor_category = Column(String(120), nullable=False)
+    status = Column(String(16), nullable=False, default="active", server_default="active")
+    revision = Column(Integer, nullable=False, default=1, server_default="1")
+    promoted_from_id = Column(Integer, ForeignKey("kmai_factor_mappings.id", ondelete="SET NULL"), nullable=True)
+    created_by = Column(String(100), nullable=False, default="默认用户", server_default="默认用户")
+    updated_by = Column(String(100), nullable=False, default="默认用户", server_default="默认用户")
+    created_at = Column(DateTime, default=utcnow, server_default=func.current_timestamp())
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, server_default=func.current_timestamp())
+
+    project = relationship("Project", back_populates="kmai_factor_mappings")
+    promoted_from = relationship("KmaiFactorMapping", remote_side=[id], uselist=False)
+    events = relationship("KmaiFactorMappingEvent", back_populates="mapping", passive_deletes=True)
+    usages = relationship("KmaiFactorMappingUsage", back_populates="mapping", passive_deletes=True)
+
+
+class KmaiFactorMappingEvent(Base):
+    __tablename__ = "kmai_factor_mapping_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    mapping_id = Column(Integer, ForeignKey("kmai_factor_mappings.id", ondelete="SET NULL"), nullable=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=True)
+    action = Column(String(40), nullable=False)
+    actor = Column(String(100), nullable=False, default="默认用户", server_default="默认用户")
+    before_json = Column(Text)
+    after_json = Column(Text)
+    created_at = Column(DateTime, default=utcnow, server_default=func.current_timestamp())
+
+    mapping = relationship("KmaiFactorMapping", back_populates="events")
+
+
+class KmaiFactorMappingUsage(Base):
+    __tablename__ = "kmai_factor_mapping_usages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    mapping_id = Column(Integer, ForeignKey("kmai_factor_mappings.id", ondelete="RESTRICT"), nullable=False)
+    package_id = Column(Integer, ForeignKey("finalized_rule_packages.id", ondelete="CASCADE"), nullable=False)
+    revision = Column(Integer, nullable=False, default=1, server_default="1")
+    mapping_snapshot_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=utcnow, server_default=func.current_timestamp())
+
+    mapping = relationship("KmaiFactorMapping", back_populates="usages")
+    package = relationship("FinalizedRulePackage", back_populates="kmai_mapping_usages")

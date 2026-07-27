@@ -226,6 +226,87 @@ async def ensure_project_schema(conn):
         ON finalized_rule_packages (project_id)
         WHERE status = 'published'
     """))
+    # Mapping tables are maintained explicitly because deployed SQLite files
+    # predate these ORM models. Each statement is safe on repeated startup.
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS kmai_factor_mappings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope VARCHAR(16) NOT NULL CHECK (scope IN ('global', 'project')),
+            project_id INTEGER,
+            source_field VARCHAR(120) NOT NULL,
+            source_value VARCHAR(255) NOT NULL,
+            mapping_mode VARCHAR(24) NOT NULL CHECK (mapping_mode IN ('existing_factor', 'manual_factor')),
+            target_factor_key VARCHAR(120) NOT NULL,
+            target_factor_name VARCHAR(255) NOT NULL,
+            target_factor_category VARCHAR(120) NOT NULL,
+            status VARCHAR(16) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+            revision INTEGER NOT NULL DEFAULT 1,
+            promoted_from_id INTEGER,
+            created_by VARCHAR(100) NOT NULL DEFAULT '默认用户',
+            updated_by VARCHAR(100) NOT NULL DEFAULT '默认用户',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY(promoted_from_id) REFERENCES kmai_factor_mappings(id) ON DELETE SET NULL,
+            CHECK ((scope = 'global' AND project_id IS NULL) OR (scope = 'project' AND project_id IS NOT NULL))
+        )
+    """))
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS kmai_factor_mapping_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            mapping_id INTEGER,
+            project_id INTEGER,
+            action VARCHAR(40) NOT NULL,
+            actor VARCHAR(100) NOT NULL DEFAULT '默认用户',
+            before_json TEXT,
+            after_json TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(mapping_id) REFERENCES kmai_factor_mappings(id) ON DELETE SET NULL,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+        )
+    """))
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS kmai_factor_mapping_usages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            mapping_id INTEGER NOT NULL,
+            package_id INTEGER NOT NULL,
+            revision INTEGER NOT NULL DEFAULT 1,
+            mapping_snapshot_json TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(mapping_id) REFERENCES kmai_factor_mappings(id) ON DELETE RESTRICT,
+            FOREIGN KEY(package_id) REFERENCES finalized_rule_packages(id) ON DELETE CASCADE
+        )
+    """))
+    await conn.execute(text("""
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_kmai_factor_mappings_global_source
+        ON kmai_factor_mappings (source_field, source_value)
+        WHERE scope = 'global' AND project_id IS NULL
+    """))
+    await conn.execute(text("""
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_kmai_factor_mappings_project_source
+        ON kmai_factor_mappings (project_id, source_field, source_value)
+        WHERE scope = 'project' AND project_id IS NOT NULL
+    """))
+    await conn.execute(text("""
+        CREATE INDEX IF NOT EXISTS idx_kmai_factor_mappings_project_status
+        ON kmai_factor_mappings (project_id, status)
+    """))
+    await conn.execute(text("""
+        CREATE INDEX IF NOT EXISTS idx_kmai_factor_mapping_events_mapping
+        ON kmai_factor_mapping_events (mapping_id)
+    """))
+    await conn.execute(text("""
+        CREATE INDEX IF NOT EXISTS idx_kmai_factor_mapping_events_project
+        ON kmai_factor_mapping_events (project_id)
+    """))
+    await conn.execute(text("""
+        CREATE INDEX IF NOT EXISTS idx_kmai_factor_mapping_usages_package
+        ON kmai_factor_mapping_usages (package_id)
+    """))
+    await conn.execute(text("""
+        CREATE INDEX IF NOT EXISTS idx_kmai_factor_mapping_usages_mapping
+        ON kmai_factor_mapping_usages (mapping_id)
+    """))
 
 
 async def _backfill_rule_package_hashes(conn):

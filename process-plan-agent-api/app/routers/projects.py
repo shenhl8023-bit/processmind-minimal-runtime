@@ -13,6 +13,7 @@ from app.models.models import (
     Factor,
     FinalizedRulePackage,
     GeneratedRoute,
+    KmaiFactorMapping,
     NormalizedRouteVersion,
     NormalizedRouteSegmentFactorReview,
     NormalizedRouteSegmentRuleReview,
@@ -179,6 +180,7 @@ async def delete_project(project_id: int, db: AsyncSession = Depends(get_db)):
     segment_factor_reviews = (await db.execute(select(NormalizedRouteSegmentFactorReview).where(NormalizedRouteSegmentFactorReview.project_id == project_id))).scalars().all()
     segment_rule_reviews = (await db.execute(select(NormalizedRouteSegmentRuleReview).where(NormalizedRouteSegmentRuleReview.project_id == project_id))).scalars().all()
     finalized_rule_packages = (await db.execute(select(FinalizedRulePackage).where(FinalizedRulePackage.project_id == project_id))).scalars().all()
+    kmai_factor_mappings = (await db.execute(select(KmaiFactorMapping).where(KmaiFactorMapping.project_id == project_id))).scalars().all()
 
     for row in detail_rows:
         await db.delete(row)
@@ -207,6 +209,15 @@ async def delete_project(project_id: int, db: AsyncSession = Depends(get_db)):
 
     for package in finalized_rule_packages:
         await db.delete(package)
+
+    # Flush package deletes first so SQLite applies the usage cascade before
+    # project mapping rows are deleted with their RESTRICT usage reference.
+    await db.flush()
+
+    # Explicitly remove project-owned mappings after package usages. This also
+    # works for legacy SQLite databases where ORM-level deletes are used.
+    for mapping in kmai_factor_mappings:
+        await db.delete(mapping)
 
     await _delete_legacy_rule_asset_rows(project_id, db)
 
