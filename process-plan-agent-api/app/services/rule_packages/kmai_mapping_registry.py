@@ -58,20 +58,6 @@ BUILTIN_VALUE_FACTOR_MAP: Mapping[tuple[str, str], str] = MappingProxyType(
         ("cad.features", "\u94f0\u5b54/\u7cbe\u5b54"): "has_reamed_or_precision_hole",
         ("cad.features", "\u578b\u5b54/\u5272\u6241"): "has_shaped_hole_or_cut_flat",
         ("cad.features", "\u9876\u5c16\u5b54"): "uses_center_hole_location",
-        ("precision.grades", "\u5b54\u7cbe\u52a0\u5de5"): "has_hole_finish_machining",
-        ("precision.grades", "\u73e9\u5b54\u8981\u6c42"): "requires_honing",
-        ("precision.grades", "\u7814\u5b54\u8981\u6c42"): "requires_hole_lapping",
-        ("precision.grades", "\u5916\u5706\u78e8\u524a"): "requires_outer_diameter_grinding",
-        ("precision.grades", "\u7aef\u9762\u78e8\u524a"): "requires_end_face_grinding",
-        ("precision.grades", "\u69fd\u78e8\u524a"): "requires_slot_grinding",
-        ("precision.grades", "\u7814\u5916\u5706"): "requires_outer_diameter_lapping",
-        ("special.requirements", "\u6e17\u6c2e\u5c42\u8981\u6c42"): "has_nitrided_layer",
-        ("special.requirements", "\u94ec\u9178\u9633\u6781\u5316\u8981\u6c42"): "needs_chromic_acid_anodizing",
-        ("special.requirements", "\u786c\u8d28\u9633\u6781\u5316\u8981\u6c42"): "needs_hard_anodizing",
-        ("special.requirements", "\u8ffd\u6eaf\u6807\u5370"): "needs_marking",
-        ("special.requirements", "\u65e0\u635f\u68c0\u6d4b\u8981\u6c42"): "needs_ndt_inspection",
-        ("special.requirements", "\u78c1\u7c89\u68c0\u67e5\u8981\u6c42"): "needs_crack_inspection",
-        ("special.requirements", "\u70e7\u4f24\u68c0\u67e5"): "needs_burn_inspection",
     }
 )
 

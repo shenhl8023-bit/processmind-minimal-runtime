@@ -223,6 +223,32 @@ def test_builtin_snapshots_and_catalog_are_deterministic_and_read_only():
     assert all(item.read_only for item in builtin_factor_catalog())
 
 
+def test_builtin_registry_exposes_only_the_six_cad_feature_mappings():
+    registry = builtin_mapping_registry()
+
+    resolved_mappings = {
+        (snapshot.source_field, snapshot.source_value, snapshot.target_factor_key)
+        for snapshot in registry.snapshots
+    }
+
+    assert resolved_mappings == {
+        ("cad.features", "扁位/平面", "has_flat_or_plane"),
+        ("cad.features", "槽类特征", "has_slot_feature"),
+        ("cad.features", "普通孔/辅助孔", "has_standard_or_aux_hole"),
+        ("cad.features", "铰孔/精孔", "has_reamed_or_precision_hole"),
+        ("cad.features", "型孔/割扁", "has_shaped_hole_or_cut_flat"),
+        ("cad.features", "顶尖孔", "uses_center_hole_location"),
+    }
+
+
+def test_builtin_registry_does_not_auto_resolve_unconfigured_source_values():
+    registry = builtin_mapping_registry()
+
+    assert registry.resolve("cad.features", "unlisted feature") is None
+    assert registry.resolve("precision.grades", "unlisted precision") is None
+    assert registry.resolve("special.requirements", "unlisted requirement") is None
+
+
 def test_mapping_normalization_manual_key_and_signature_are_stable(tmp_path):
     async def run():
         normalized = normalize_mapping_value("  \uff21\uff22\uff23\t feature  ")
