@@ -268,7 +268,7 @@ async def ensure_project_schema(conn):
     await conn.execute(text("""
         CREATE TABLE IF NOT EXISTS kmai_factor_mapping_usages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            mapping_id INTEGER NOT NULL,
+            mapping_id INTEGER,
             package_id INTEGER NOT NULL,
             revision INTEGER NOT NULL DEFAULT 1,
             mapping_snapshot_json TEXT NOT NULL,

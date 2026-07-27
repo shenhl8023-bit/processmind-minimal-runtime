@@ -3,9 +3,11 @@ import asyncio
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.database import Base, configure_sqlite_engine
+from app.models.models import KmaiFactorMapping, KmaiFactorMappingEvent, Project
+from app.routers import projects as projects_router
 from app.services.db_schema_maintenance import ensure_project_schema
 
 
@@ -128,6 +130,61 @@ def test_mapping_schema_cascades_project_rows_without_removing_global_rows(tmp_p
                 assert rows == [("global",)]
                 assert (await conn.execute(text("SELECT COUNT(*) FROM kmai_factor_mapping_events"))).scalar_one() == 0
                 assert (await conn.execute(text("SELECT COUNT(*) FROM kmai_factor_mapping_usages"))).scalar_one() == 0
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
+
+
+def test_project_delete_removes_mapping_event_without_project_id(tmp_path):
+    async def run():
+        engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'project-delete.db'}")
+        configure_sqlite_engine(engine)
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+                await ensure_project_schema(conn)
+
+            async with session_factory() as db:
+                project = Project(name="project")
+                global_mapping = KmaiFactorMapping(
+                    scope="global",
+                    source_field="cad.features",
+                    source_value="global",
+                    mapping_mode="existing_factor",
+                    target_factor_key="global_key",
+                    target_factor_name="Global",
+                    target_factor_category="cad",
+                )
+                project_mapping = KmaiFactorMapping(
+                    scope="project",
+                    project=project,
+                    source_field="cad.features",
+                    source_value="project",
+                    mapping_mode="existing_factor",
+                    target_factor_key="project_key",
+                    target_factor_name="Project",
+                    target_factor_category="cad",
+                )
+                db.add_all([project, global_mapping, project_mapping])
+                await db.flush()
+                db.add(
+                    KmaiFactorMappingEvent(
+                        mapping_id=project_mapping.id,
+                        project_id=None,
+                        action="created",
+                        actor="tester",
+                        before_json='{"before": null}',
+                        after_json='{"after": 1}',
+                    )
+                )
+                await db.commit()
+
+                await projects_router.delete_project(project.id, db=db)
+
+                assert (await db.execute(text("SELECT COUNT(*) FROM kmai_factor_mapping_events"))).scalar_one() == 0
+                assert (await db.execute(text("SELECT scope FROM kmai_factor_mappings"))).all() == [("global",)]
         finally:
             await engine.dispose()
 

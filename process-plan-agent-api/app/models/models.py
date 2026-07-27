@@ -369,7 +369,7 @@ class KmaiFactorMappingUsage(Base):
     __tablename__ = "kmai_factor_mapping_usages"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    mapping_id = Column(Integer, ForeignKey("kmai_factor_mappings.id", ondelete="RESTRICT"), nullable=False)
+    mapping_id = Column(Integer, ForeignKey("kmai_factor_mappings.id", ondelete="RESTRICT"), nullable=True)
     package_id = Column(Integer, ForeignKey("finalized_rule_packages.id", ondelete="CASCADE"), nullable=False)
     revision = Column(Integer, nullable=False, default=1, server_default="1")
     mapping_snapshot_json = Column(Text, nullable=False)

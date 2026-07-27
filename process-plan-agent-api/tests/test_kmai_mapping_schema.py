@@ -32,6 +32,11 @@ def test_manual_factor_contracts_reject_client_generated_factor_keys():
             {"expected_revision": 1, "mapping_mode": "manual_factor", "target_factor_key": "client_generated_key"}
         )
 
+    with pytest.raises(ValueError, match="require mapping_mode"):
+        KmaiMappingUpdateRequest.model_validate(
+            {"expected_revision": 1, "target_factor_key": "client_generated_key"}
+        )
+
 
 def test_kmai_mapping_schema_is_idempotent_and_preserves_audit_history(tmp_path):
     async def run():
@@ -114,18 +119,33 @@ def test_kmai_mapping_schema_is_idempotent_and_preserves_audit_history(tmp_path)
                 await conn.execute(text("""
                     INSERT INTO finalized_rule_packages
                     (id, project_id, version, package_name, schema_version, status)
-                    VALUES (1, 1, 1, 'pkg', '1.0', 'published')
+                    VALUES (1, 1, 1, 'persisted-mapping-pkg', '1.0', 'published'),
+                           (2, 1, 2, 'builtin-mapping-pkg', '1.0', 'superseded')
                 """))
                 await conn.execute(text("""
                     INSERT INTO kmai_factor_mapping_usages
                     (mapping_id, package_id, revision, mapping_snapshot_json)
                     VALUES (1, 1, 1, '{"mapping_id": 1}')
                 """))
+                await conn.execute(text("""
+                    INSERT INTO kmai_factor_mapping_usages
+                    (mapping_id, package_id, revision, mapping_snapshot_json)
+                    VALUES (NULL, 2, 1, '{"mapping_id": null, "scope": "builtin"}')
+                """))
+                with pytest.raises(IntegrityError):
+                    await conn.execute(text("DELETE FROM kmai_factor_mappings WHERE id = 1"))
                 await conn.execute(text("DELETE FROM finalized_rule_packages WHERE id = 1"))
-                assert (await conn.execute(text("SELECT COUNT(*) FROM kmai_factor_mapping_usages"))).scalar_one() == 0
+                builtin_usage = (await conn.execute(text("""
+                    SELECT mapping_id, mapping_snapshot_json
+                    FROM kmai_factor_mapping_usages
+                    WHERE package_id = 2
+                """))).one()
+                assert builtin_usage == (None, '{"mapping_id": null, "scope": "builtin"}')
                 await conn.execute(text("DELETE FROM kmai_factor_mappings WHERE id = 1"))
                 event = (await conn.execute(text("SELECT mapping_id, before_json, after_json FROM kmai_factor_mapping_events"))).one()
                 assert event == (None, '{"before": null}', '{"after": 1}')
+                await conn.execute(text("DELETE FROM finalized_rule_packages WHERE id = 2"))
+                assert (await conn.execute(text("SELECT COUNT(*) FROM kmai_factor_mapping_usages"))).scalar_one() == 0
         finally:
             await engine.dispose()
 
