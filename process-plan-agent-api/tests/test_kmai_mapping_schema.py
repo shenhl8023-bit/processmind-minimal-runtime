@@ -150,3 +150,81 @@ def test_kmai_mapping_schema_is_idempotent_and_preserves_audit_history(tmp_path)
             await engine.dispose()
 
     asyncio.run(run())
+
+
+def test_schema_migrates_legacy_usage_mapping_id_to_nullable(tmp_path):
+    async def run():
+        engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'legacy-usage.db'}")
+        configure_sqlite_engine(engine)
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+                await conn.execute(text("DROP TABLE kmai_factor_mapping_usages"))
+                await conn.execute(text("""
+                    CREATE TABLE kmai_factor_mapping_usages (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        mapping_id INTEGER NOT NULL,
+                        package_id INTEGER NOT NULL,
+                        revision INTEGER NOT NULL DEFAULT 1,
+                        mapping_snapshot_json TEXT NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY(mapping_id) REFERENCES kmai_factor_mappings(id) ON DELETE RESTRICT,
+                        FOREIGN KEY(package_id) REFERENCES finalized_rule_packages(id) ON DELETE CASCADE
+                    )
+                """))
+                await conn.execute(text("INSERT INTO projects (id, name) VALUES (1, 'legacy-project')"))
+                await conn.execute(text("""
+                    INSERT INTO kmai_factor_mappings
+                    (id, scope, project_id, source_field, source_value, mapping_mode,
+                     target_factor_key, target_factor_name, target_factor_category)
+                    VALUES (1, 'global', NULL, 'cad.features', 'legacy', 'existing_factor',
+                            'legacy_key', 'Legacy', 'cad')
+                """))
+                await conn.execute(text("""
+                    INSERT INTO finalized_rule_packages
+                    (id, project_id, version, package_name, schema_version, status)
+                    VALUES (1, 1, 1, 'legacy-pkg', '1.0', 'published'),
+                           (2, 1, 2, 'builtin-pkg', '1.0', 'superseded')
+                """))
+                await conn.execute(text("""
+                    INSERT INTO kmai_factor_mapping_usages
+                    (mapping_id, package_id, revision, mapping_snapshot_json)
+                    VALUES (1, 1, 7, '{"mapping_id": 1, "revision": 7}')
+                """))
+
+                await ensure_project_schema(conn)
+                await ensure_project_schema(conn)
+
+                columns = {
+                    row[1]: row
+                    for row in (await conn.execute(text("PRAGMA table_info(kmai_factor_mapping_usages)"))).all()
+                }
+                assert columns["mapping_id"][3] == 0
+                assert (await conn.execute(text("""
+                    SELECT mapping_id, package_id, revision, mapping_snapshot_json
+                    FROM kmai_factor_mapping_usages
+                """))).one() == (1, 1, 7, '{"mapping_id": 1, "revision": 7}')
+                foreign_keys = {
+                    (row[3], row[2], row[6].upper())
+                    for row in (await conn.execute(text("PRAGMA foreign_key_list(kmai_factor_mapping_usages)"))).all()
+                }
+                assert ("mapping_id", "kmai_factor_mappings", "RESTRICT") in foreign_keys
+                assert ("package_id", "finalized_rule_packages", "CASCADE") in foreign_keys
+                indexes = {
+                    row[0]
+                    for row in (await conn.execute(text("SELECT name FROM sqlite_master WHERE type='index'"))).all()
+                }
+                assert "idx_kmai_factor_mapping_usages_mapping" in indexes
+                assert "idx_kmai_factor_mapping_usages_package" in indexes
+
+                await conn.execute(text("""
+                    INSERT INTO kmai_factor_mapping_usages
+                    (mapping_id, package_id, revision, mapping_snapshot_json)
+                    VALUES (NULL, 2, 1, '{"mapping_id": null, "scope": "builtin"}')
+                """))
+                with pytest.raises(IntegrityError):
+                    await conn.execute(text("DELETE FROM kmai_factor_mappings WHERE id = 1"))
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())

@@ -277,6 +277,7 @@ async def ensure_project_schema(conn):
             FOREIGN KEY(package_id) REFERENCES finalized_rule_packages(id) ON DELETE CASCADE
         )
     """))
+    await _migrate_kmai_mapping_usage_mapping_id_nullable(conn)
     await conn.execute(text("""
         CREATE UNIQUE INDEX IF NOT EXISTS uq_kmai_factor_mappings_global_source
         ON kmai_factor_mappings (source_field, source_value)
@@ -306,6 +307,39 @@ async def ensure_project_schema(conn):
     await conn.execute(text("""
         CREATE INDEX IF NOT EXISTS idx_kmai_factor_mapping_usages_mapping
         ON kmai_factor_mapping_usages (mapping_id)
+    """))
+
+
+async def _migrate_kmai_mapping_usage_mapping_id_nullable(conn):
+    columns = (
+        await conn.execute(text("PRAGMA table_info(kmai_factor_mapping_usages)"))
+    ).all()
+    mapping_id = next((column for column in columns if column[1] == "mapping_id"), None)
+    if mapping_id is None or mapping_id[3] == 0:
+        return
+
+    await conn.execute(text("""
+        CREATE TABLE kmai_factor_mapping_usages_rebuilt (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            mapping_id INTEGER,
+            package_id INTEGER NOT NULL,
+            revision INTEGER NOT NULL DEFAULT 1,
+            mapping_snapshot_json TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(mapping_id) REFERENCES kmai_factor_mappings(id) ON DELETE RESTRICT,
+            FOREIGN KEY(package_id) REFERENCES finalized_rule_packages(id) ON DELETE CASCADE
+        )
+    """))
+    await conn.execute(text("""
+        INSERT INTO kmai_factor_mapping_usages_rebuilt
+        (id, mapping_id, package_id, revision, mapping_snapshot_json, created_at)
+        SELECT id, mapping_id, package_id, revision, mapping_snapshot_json, created_at
+        FROM kmai_factor_mapping_usages
+    """))
+    await conn.execute(text("DROP TABLE kmai_factor_mapping_usages"))
+    await conn.execute(text("""
+        ALTER TABLE kmai_factor_mapping_usages_rebuilt
+        RENAME TO kmai_factor_mapping_usages
     """))
 
 
