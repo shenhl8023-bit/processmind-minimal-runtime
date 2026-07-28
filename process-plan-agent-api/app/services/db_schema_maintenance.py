@@ -41,11 +41,14 @@ async def ensure_project_schema(conn):
     await ensure_column("normalized_route_segment_rule_reviews", "condition_confidence", "condition_confidence FLOAT")
     await ensure_column("normalized_route_segment_rule_reviews", "condition_issues_json", "condition_issues_json TEXT")
     await ensure_column("normalized_route_segment_rule_reviews", "condition_field_registry_version", "condition_field_registry_version VARCHAR(20)")
+    await ensure_column("normalized_route_segment_rule_reviews", "condition_parser_version", "condition_parser_version VARCHAR(64)")
+    await ensure_column("normalized_route_segment_rule_reviews", "condition_parse_duration_ms", "condition_parse_duration_ms INTEGER")
     await ensure_column("normalized_route_segment_rule_reviews", "condition_confirmed_by", "condition_confirmed_by VARCHAR(100)")
     await ensure_column("normalized_route_segment_rule_reviews", "condition_confirmed_at", "condition_confirmed_at DATETIME")
     await ensure_column("projects", "mode", "mode VARCHAR(50) DEFAULT 'route_rules'")
     await ensure_column("projects", "profile", f"profile VARCHAR(100) DEFAULT '{ROUTE_RULES_PROFILE}'")
     await ensure_column("projects", "rule_engine", "rule_engine VARCHAR(20) DEFAULT 'auto'")
+    await ensure_column("projects", "workflow_revision", "workflow_revision INTEGER NOT NULL DEFAULT 0")
 
     await conn.execute(text(f"""
         UPDATE projects
@@ -73,6 +76,11 @@ async def ensure_project_schema(conn):
         WHERE rule_engine IS NULL
            OR TRIM(rule_engine) = ''
            OR rule_engine NOT IN ('auto', 'v1', 'v2')
+    """))
+    await conn.execute(text("""
+        UPDATE projects
+        SET workflow_revision = 0
+        WHERE workflow_revision IS NULL
     """))
     await conn.execute(text("""
         UPDATE projects

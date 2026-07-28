@@ -4,6 +4,7 @@ import {
   clearWorkflowDataCache,
   clearWorkflowProjectDataCache,
   getWorkflowDataCache,
+  getWorkflowDataRevision,
   setWorkflowDataCache,
 } from '@/composables/workflowDataCache'
 
@@ -15,6 +16,7 @@ export interface Project {
   mode: ProjectMode
   profile: string
   rule_engine?: 'auto' | 'v1' | 'v2' | string
+  workflow_revision: number
   status: string
   created_at: string
   updated_at: string
@@ -33,9 +35,10 @@ export async function listProjects(forceRefresh = false) {
     const cached = getWorkflowDataCache<Project[]>(PROJECT_LIST_CACHE_KEY)
     if (cached) return cached
   }
+  const requestRevision = getWorkflowDataRevision()
   const { data } = await api.get('/api/projects/')
   const projects = data as Project[]
-  setWorkflowDataCache(PROJECT_LIST_CACHE_KEY, projects)
+  setWorkflowDataCache(PROJECT_LIST_CACHE_KEY, projects, requestRevision)
   return projects
 }
 

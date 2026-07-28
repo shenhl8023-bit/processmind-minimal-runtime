@@ -1,15 +1,17 @@
 import json
 
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.database import Base
-from app.models.models import NormalizedRouteSegmentRuleReview, NormalizedRouteVersion
+from app.models.models import NormalizedRouteSegmentRuleReview, NormalizedRouteVersion, Project
 from app.services.rule_packages import condition_parser
 from app.services.rule_packages.condition_contracts import (
     ConfirmRuleConditionRequest,
+    ManualRuleConditionRequest,
     ParseRuleConditionRequest,
     RuleConditionProcessOption,
     SaveRuleConditionDraftRequest,
@@ -20,6 +22,7 @@ from app.services.rule_packages.condition_reviews import (
     confirm_condition_review,
     invalidate_legacy_nondestructive_relation_reviews,
     migrate_legacy_boolean_requirement_reviews,
+    set_manual_condition_review,
     parse_condition_review,
     save_condition_draft,
 )
@@ -82,8 +85,70 @@ async def test_parses_it_grade_into_controlled_numeric_field():
     assert candidate.when.op == "lte"
     assert candidate.when.value == 8
     assert candidate.then.include_process_ids == ["process_grind_outer"]
-    assert confidence == 0.65
+    assert "IT8" in candidate.evidence
+    assert confidence == 0.9
     assert issues == []
+
+
+@pytest.mark.asyncio
+async def test_deterministic_standard_condition_does_not_wait_for_llm(monkeypatch):
+    async def llm_must_not_run(*args, **kwargs):
+        raise AssertionError("标准数值条件应由本地解析器直接处理")
+
+    monkeypatch.setattr(condition_parser, "call_llm", llm_must_not_run)
+    candidate, confidence, issues = await condition_parser.parse_rule_condition(
+        "当外圆尺寸精度达到 IT8 时，纳入磨外圆工序",
+        "process_grind_outer",
+        "磨外圆",
+        PROCESSES,
+    )
+
+    assert candidate is not None
+    assert candidate.when.field == "precision.outer_diameter_it"
+    assert confidence == 0.9
+    assert issues == []
+
+
+@pytest.mark.asyncio
+async def test_complex_condition_uses_rule_specific_llm_time_budget(monkeypatch):
+    captured = {}
+
+    async def capture_llm(*args, **kwargs):
+        captured.update(kwargs)
+        return ""
+
+    monkeypatch.setattr(condition_parser, "call_llm", capture_llm)
+    await condition_parser.parse_rule_condition(
+        "当零件具有复杂异形轮廓时，安排检验工序",
+        "process_inspect",
+        "检验",
+        PROCESSES,
+    )
+
+    assert captured["timeout_seconds"] == 45.0
+    assert captured["max_retries"] == 1
+
+
+@pytest.mark.asyncio
+async def test_partially_recognized_vague_condition_still_uses_llm(monkeypatch):
+    calls = 0
+
+    async def capture_llm(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return ""
+
+    monkeypatch.setattr(condition_parser, "call_llm", capture_llm)
+    candidate, confidence, _ = await condition_parser.parse_rule_condition(
+        "当零件存在内孔、通孔或中心孔，以及不同结构类型下工艺安排存在差异时，纳入珩孔工序",
+        "process_hone",
+        "珩孔",
+        [RuleConditionProcessOption(process_id="process_hone", display_name="珩孔")],
+    )
+
+    assert calls == 1
+    assert candidate is None
+    assert confidence is None
 
 
 @pytest.mark.asyncio
@@ -98,6 +163,49 @@ async def test_parses_compound_and_condition():
     assert candidate is not None
     assert candidate.when.all_conditions is not None
     assert [child.field for child in candidate.when.all_conditions] == ["material.grade", "mechanical.hardness_hrc"]
+
+
+@pytest.mark.asyncio
+async def test_partial_compound_condition_uses_llm_instead_of_dropping_unknown_clause(monkeypatch):
+    calls = 0
+
+    async def compound_llm(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return """{
+          "candidate": {
+            "kind": "condition",
+            "when": {"all": [
+              {"field": "precision.outer_diameter_it", "op": "lte", "value": 8},
+              {"field": "cad.features", "op": "contains", "value": "复杂异形轮廓"}
+            ]},
+            "then": {"include_process_ids": ["process_grind_outer"], "exclude_process_ids": []},
+            "preview": "外圆尺寸精度 IT <= 8 并且 CAD 特征包含复杂异形轮廓",
+            "evidence": "外圆尺寸精度达到 IT8 并且具有复杂异形轮廓"
+          },
+          "confidence": 0.9,
+          "warnings": [],
+          "unresolved": []
+        }"""
+
+    monkeypatch.setattr(condition_parser, "call_llm", compound_llm)
+    candidate, confidence, issues = await condition_parser.parse_rule_condition(
+        "当外圆尺寸精度达到 IT8 并且具有复杂异形轮廓时，纳入磨外圆工序",
+        "process_grind_outer",
+        "磨外圆",
+        PROCESSES,
+    )
+
+    assert calls == 1
+    assert candidate is not None
+    assert candidate.when is not None
+    assert candidate.when.all_conditions is not None
+    assert [child.field for child in candidate.when.all_conditions] == [
+        "precision.outer_diameter_it",
+        "cad.features",
+    ]
+    assert confidence == 0.9
+    assert issues == []
 
 
 @pytest.mark.asyncio
@@ -169,6 +277,24 @@ async def test_parses_process_relation_before_parameter_condition():
     assert candidate.relation.target_process_ids == ["process_burn_inspect"]
     assert "纳入烧伤检查" in candidate.preview
     assert confidence == 0.9
+    assert issues == []
+
+
+@pytest.mark.asyncio
+async def test_process_name_inside_requirement_is_not_treated_as_relation():
+    candidate, confidence, issues = await condition_parser.parse_rule_condition(
+        "当零件存在镀铜要求时，安排除铜工序",
+        "process_strip_copper",
+        "除铜",
+        NATURAL_RELATION_PROCESSES,
+    )
+
+    assert candidate is not None
+    assert candidate.kind == "condition"
+    assert candidate.when is not None
+    assert candidate.when.field == "special.requirements"
+    assert candidate.when.value == "镀铜要求"
+    assert confidence == 0.65
     assert issues == []
 
 
@@ -459,6 +585,39 @@ async def test_llm_candidate_takes_priority_when_it_passes_validation(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_llm_evidence_is_replaced_when_it_is_not_an_exact_source_excerpt(monkeypatch):
+    async def hallucinated_evidence_llm(*args, **kwargs):
+        return """{
+          "candidate": {
+            "kind": "condition",
+            "when": {"field": "cad.features", "op": "contains", "value": "复杂异形轮廓"},
+            "then": {"include_process_ids": ["process_grind_outer"], "exclude_process_ids": []},
+            "preview": "CAD 特征集合包含复杂异形轮廓",
+            "evidence": "图纸明确标注复杂异形轮廓"
+          },
+          "confidence": 0.92,
+          "warnings": [],
+          "unresolved": []
+        }"""
+
+    monkeypatch.setattr(condition_parser, "call_llm", hallucinated_evidence_llm)
+    source_text = "当零件具有复杂异形轮廓时，纳入磨外圆工序"
+    candidate, confidence, issues = await condition_parser.parse_rule_condition(
+        source_text,
+        "process_grind_outer",
+        "磨外圆",
+        PROCESSES,
+    )
+
+    assert candidate is not None
+    assert candidate.evidence
+    assert candidate.evidence in source_text
+    assert candidate.evidence != "图纸明确标注复杂异形轮廓"
+    assert confidence == 0.92
+    assert issues == []
+
+
+@pytest.mark.asyncio
 async def test_explicit_process_relation_overrides_wrong_llm_condition(monkeypatch):
     async def wrong_condition_llm(*args, **kwargs):
         return """{
@@ -530,6 +689,109 @@ def test_registry_rejects_out_of_range_and_reversed_numeric_conditions():
 
 
 @pytest.mark.asyncio
+async def test_manual_boolean_rule_is_confirmed_without_model_parsing():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    candidate = condition_parser.RuleConditionCandidate.model_validate({
+        "kind": "condition",
+        "when": {"field": "project_factor.manual_process_487e1c0a", "op": "eq", "value": True},
+        "then": {"include_process_ids": ["process_mark"], "exclude_process_ids": []},
+        "field_definitions": [{
+            "key": "project_factor.manual_process_487e1c0a",
+            "label": "是否需要标记",
+            "category": "可选工序",
+            "type": "boolean",
+            "operators": ["eq", "neq"],
+            "source": "用户直接设定",
+            "allow_custom": False,
+        }],
+        "preview": "是否需要标记 等于 是",
+    })
+
+    async with session_factory() as session:
+        session.add(NormalizedRouteVersion(
+            id=1,
+            project_id=7,
+            version=1,
+            route_json='[{"id":"process_mark"}]',
+        ))
+        await session.commit()
+        response = await set_manual_condition_review(
+            ManualRuleConditionRequest(
+                project_id=7,
+                route_id=1,
+                segment_id="process_mark",
+                process_id="process_mark",
+                source_text="用户直接决定是否纳入标记工序",
+                candidate=candidate,
+                processes=[RuleConditionProcessOption(process_id="process_mark", display_name="标记")],
+                confirmed_by="用户直接设定",
+            ),
+            session,
+        )
+
+        assert response.review.status == "confirmed"
+        assert response.review.confirmed is not None
+        assert response.review.confirmed.when is not None
+        assert response.review.confirmed.when.field == "project_factor.manual_process_487e1c0a"
+        assert response.review.confirmed_by == "用户直接设定"
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_manual_boolean_rule_rejects_wrong_target_and_spoofed_shape():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    candidate = condition_parser.RuleConditionCandidate.model_validate({
+        "kind": "condition",
+        "when": {"field": "project_factor.some_other_switch", "op": "eq", "value": True},
+        "then": {"include_process_ids": ["process_other"], "exclude_process_ids": []},
+        "field_definitions": [{
+            "key": "project_factor.some_other_switch",
+            "label": "伪造字段",
+            "category": "可选工序",
+            "type": "boolean",
+            "operators": ["eq"],
+            "source": "伪造来源",
+            "allow_custom": True,
+        }],
+    })
+
+    async with session_factory() as session:
+        session.add(NormalizedRouteVersion(
+            id=1,
+            project_id=7,
+            version=1,
+            route_json='[{"id":"process_mark"},{"id":"process_other"}]',
+        ))
+        await session.commit()
+        with pytest.raises(HTTPException, match="人工 Bool"):
+            await set_manual_condition_review(
+                ManualRuleConditionRequest(
+                    project_id=7,
+                    route_id=1,
+                    segment_id="process_mark",
+                    process_id="process_mark",
+                    source_text="用户决定是否纳入标记工序",
+                    candidate=candidate,
+                    processes=[
+                        RuleConditionProcessOption(process_id="process_mark", display_name="标记"),
+                        RuleConditionProcessOption(process_id="process_other", display_name="其他"),
+                    ],
+                    confirmed_by="攻击者",
+                ),
+                session,
+            )
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_confirmed_rule_is_invalidated_when_source_text_changes():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
@@ -544,7 +806,7 @@ async def test_confirmed_rule_is_invalidated_when_source_text_changes():
             version=1,
             route_json='[{"id":"process_prepare"},{"id":"process_grind_outer"},{"id":"process_inspect"}]',
         )
-        session.add(route)
+        session.add_all([Project(id=7, name="条件解析测试"), route])
         await session.commit()
 
         parsed = await parse_condition_review(
@@ -607,7 +869,7 @@ async def test_parse_result_does_not_overwrite_a_newer_condition_draft(monkeypat
             version=1,
             route_json='[{"id":"process_grind_outer"}]',
         )
-        session.add(route)
+        session.add_all([Project(id=7, name="条件解析测试"), route])
         await session.commit()
 
         async def superseded_parse(*args, **kwargs):
@@ -638,6 +900,219 @@ async def test_parse_result_does_not_overwrite_a_newer_condition_draft(monkeypat
         )
 
         assert response.review.source_text == "新的条件文字"
+        assert response.review.status == "draft"
+        assert response.review.candidate is None
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_parse_review_reuses_current_candidate_without_calling_parser(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    source_text = "当外圆尺寸精度达到 IT8 时，纳入磨外圆工序"
+
+    async with session_factory() as session:
+        route = NormalizedRouteVersion(
+            id=1,
+            project_id=7,
+            version=1,
+            route_json='[{"id":"process_grind_outer"}]',
+        )
+        session.add_all([Project(id=7, name="条件解析测试"), route])
+        await session.commit()
+
+        first = await parse_condition_review(
+            ParseRuleConditionRequest(
+                project_id=7,
+                route_id=1,
+                segment_id="process_grind_outer",
+                source_text=source_text,
+                process_id="process_grind_outer",
+                process_name="磨外圆",
+                processes=[RuleConditionProcessOption(process_id="process_grind_outer", display_name="磨外圆")],
+            ),
+            session,
+        )
+        assert first.review.status == "pending_confirmation"
+
+        async def unexpected_parse(*args, **kwargs):
+            raise AssertionError("同一原文不应重复调用解析器")
+
+        monkeypatch.setattr(condition_reviews, "parse_rule_condition", unexpected_parse)
+        cached = await condition_reviews.parse_condition_review(
+            ParseRuleConditionRequest(
+                project_id=7,
+                route_id=1,
+                segment_id="process_grind_outer",
+                source_text=source_text,
+                process_id="process_grind_outer",
+                process_name="磨外圆",
+                processes=[RuleConditionProcessOption(process_id="process_grind_outer", display_name="磨外圆")],
+            ),
+            session,
+        )
+
+        assert cached.review.status == "pending_confirmation"
+        assert cached.review.candidate == first.review.candidate
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_parse_review_invalidates_cache_when_parser_version_changes(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    source_text = "当外圆尺寸精度达到 IT8 时，纳入磨外圆工序"
+    request = ParseRuleConditionRequest(
+        project_id=7,
+        route_id=1,
+        segment_id="process_grind_outer",
+        source_text=source_text,
+        process_id="process_grind_outer",
+        process_name="磨外圆",
+        processes=[RuleConditionProcessOption(process_id="process_grind_outer", display_name="磨外圆")],
+    )
+
+    async with session_factory() as session:
+        session.add(Project(id=7, name="条件解析测试"))
+        session.add(NormalizedRouteVersion(
+            id=1,
+            project_id=7,
+            version=1,
+            route_json='[{"id":"process_grind_outer"}]',
+        ))
+        await session.commit()
+        first = await parse_condition_review(request, session)
+        assert first.review.candidate is not None
+
+        row = (await session.execute(
+            select(NormalizedRouteSegmentRuleReview).where(
+                NormalizedRouteSegmentRuleReview.route_version_id == 1,
+                NormalizedRouteSegmentRuleReview.segment_id == "process_grind_outer",
+            )
+        )).scalars().one()
+        row.condition_parser_version = "outdated"
+        await session.commit()
+
+        calls = 0
+
+        async def reparsed(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            return first.review.candidate, 0.9, []
+
+        monkeypatch.setattr(condition_reviews, "parse_rule_condition", reparsed)
+        refreshed = await condition_reviews.parse_condition_review(request, session)
+
+        assert calls == 1
+        assert refreshed.review.parser_version
+        assert refreshed.review.parser_version != "outdated"
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_parse_review_uses_same_llm_config_for_version_and_inference(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    resolved_config = {"url": "https://example.test/v1/chat/completions", "key": "secret", "model": "model-a"}
+    captured_config = None
+
+    async def fixed_config():
+        return resolved_config
+
+    async def capture_llm(*args, config=None, **kwargs):
+        nonlocal captured_config
+        captured_config = config
+        return ""
+
+    monkeypatch.setattr(condition_reviews, "get_llm_config", fixed_config)
+    monkeypatch.setattr(condition_parser, "call_llm", capture_llm)
+
+    async with session_factory() as session:
+        session.add(Project(id=7, name="条件解析测试"))
+        session.add(NormalizedRouteVersion(
+            id=1,
+            project_id=7,
+            version=1,
+            route_json='[{"id":"process_grind_outer"}]',
+        ))
+        await session.commit()
+        await parse_condition_review(
+            ParseRuleConditionRequest(
+                project_id=7,
+                route_id=1,
+                segment_id="process_grind_outer",
+                source_text="复杂条件",
+                process_id="process_grind_outer",
+                process_name="磨外圆",
+                processes=[RuleConditionProcessOption(process_id="process_grind_outer", display_name="磨外圆")],
+            ),
+            session,
+        )
+
+    assert captured_config == resolved_config
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_older_parse_does_not_overwrite_newer_parser_version(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with session_factory() as session:
+        session.add(Project(id=7, name="条件解析测试"))
+        session.add(NormalizedRouteVersion(
+            id=1,
+            project_id=7,
+            version=1,
+            route_json='[{"id":"process_grind_outer"}]',
+        ))
+        await session.commit()
+
+        async def superseded_parser(*args, **kwargs):
+            row = (await session.execute(
+                select(NormalizedRouteSegmentRuleReview).where(
+                    NormalizedRouteSegmentRuleReview.route_version_id == 1,
+                    NormalizedRouteSegmentRuleReview.segment_id == "process_grind_outer",
+                )
+            )).scalars().one()
+            row.condition_parser_version = "newer-parser-version"
+            row.condition_status = "draft"
+            row.condition_candidate_json = None
+            await session.commit()
+            candidate = condition_parser.RuleConditionCandidate.model_validate({
+                "kind": "condition",
+                "when": {"field": "precision.outer_diameter_it", "op": "lte", "value": 8},
+                "then": {"include_process_ids": ["process_grind_outer"], "exclude_process_ids": []},
+                "preview": "旧解析结果",
+            })
+            return candidate, 0.9, []
+
+        monkeypatch.setattr(condition_reviews, "parse_rule_condition", superseded_parser)
+        response = await parse_condition_review(
+            ParseRuleConditionRequest(
+                project_id=7,
+                route_id=1,
+                segment_id="process_grind_outer",
+                source_text="复杂条件",
+                process_id="process_grind_outer",
+                process_name="磨外圆",
+                processes=[RuleConditionProcessOption(process_id="process_grind_outer", display_name="磨外圆")],
+            ),
+            session,
+        )
+
+        assert response.review.parser_version == "newer-parser-version"
         assert response.review.status == "draft"
         assert response.review.candidate is None
 

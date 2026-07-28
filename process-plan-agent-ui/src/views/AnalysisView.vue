@@ -7,6 +7,9 @@
         <div class="analysis-hero-desc">已保存路线版本一览，左侧选工序、右侧看证据。</div>
       </div>
       <div class="analysis-actions">
+        <button class="btn btn-outline btn-sm" @click="resetDialogVisible = true" :disabled="loading || resettingWorkflow || !savedRoute">
+          重新回答全部
+        </button>
         <button class="btn btn-outline btn-sm" @click="loadSavedRoute(true)" :disabled="loading || !projectId">
           刷新路线
         </button>
@@ -210,6 +213,18 @@
       @previous="goBackToExtract"
       @next="goToFinalize"
     />
+
+    <WorkflowResetDialog
+      v-model="resetDialogVisible"
+      title="重新回答第三步全部问题？"
+      description="标准路线不会改变，系统会清除当前问题回答及其下游规则结果。"
+      :keep-items="['第二步已保存的标准路线', '上传文件和工序明细']"
+      :clear-items="['第三步全部问答与因素审核', '第四步条件审核和当前规则包', '第五步已生成路线']"
+      confirm-label="重新回答全部"
+      busy-label="正在清理..."
+      :busy="resettingWorkflow"
+      @confirm="confirmResetAllAnswers"
+    />
   </div>
 </template>
 
@@ -218,6 +233,7 @@ import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AnalysisRouteList from '@/components/analysis/AnalysisRouteList.vue'
 import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
+import WorkflowResetDialog from '@/components/workflow/WorkflowResetDialog.vue'
 import { buildProjectRouteQuery } from '@/composables/useCurrentProject'
 import { useAnalysisWorkspace } from '@/composables/useAnalysisWorkspace'
 import { useRouteSegmentSteps } from '@/composables/useRouteSegmentSteps'
@@ -234,10 +250,12 @@ type SegmentFilter = 'all' | 'pending' | 'started' | 'completed'
 
 const segmentSearch = ref('')
 const segmentFilter = ref<SegmentFilter>('pending')
+const resetDialogVisible = ref(false)
 
 
 const {
   loading,
+  resettingWorkflow,
   error,
   projectId,
   savedRoute,
@@ -273,6 +291,7 @@ const {
   questionTreeSavedSummaryLines,
   questionTreeSavedTrail,
   loadSavedRoute,
+  resetAllAnalysisAnswers,
   goBackToExtract,
   openDocumentPreview,
   closeDocumentPreview,
@@ -342,6 +361,14 @@ watch(filteredSegments, (segments) => {
 function resetSegmentFilters() {
   segmentSearch.value = ''
   segmentFilter.value = 'all'
+}
+
+async function confirmResetAllAnswers() {
+  const reset = await resetAllAnalysisAnswers()
+  if (!reset) return
+  resetDialogVisible.value = false
+  segmentSearch.value = ''
+  segmentFilter.value = 'pending'
 }
 
 function segmentPhaseLabel(segment: any) {

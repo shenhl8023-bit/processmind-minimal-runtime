@@ -64,6 +64,7 @@ from app.services.legacy_operation_route_selector import (
     collapse_redundant_quality_gates as _collapse_redundant_quality_gates,
     select_best_operations as _select_best_operations,
 )
+from app.services.project_workflow_lifecycle import acquire_workflow_revision
 from app.services.param_json_route_builder import (
     build_param_sample_stages as _build_param_sample_stages,
     build_param_superset_stages as _build_param_superset_stages,
@@ -978,6 +979,12 @@ async def generate_route(
     """
     if not body.project_id:
         raise HTTPException(400, "project_id 不能为空")
+
+    await acquire_workflow_revision(
+        db,
+        body.project_id,
+        body.expected_workflow_revision,
+    )
 
     resources = await load_project_resource_bundle(body.project_id, db)
     project = resources.project

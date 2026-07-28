@@ -233,7 +233,7 @@ export function useGenerateInputFields(args: {
       if (isArrayField(field)) {
         nextValues[field.key] = []
       } else if (isBooleanField(field)) {
-        nextValues[field.key] = undefined
+        nextValues[field.key] = field.source === '用户直接设定' ? false : undefined
       } else {
         nextValues[field.key] = field.examples?.[0] || ''
       }

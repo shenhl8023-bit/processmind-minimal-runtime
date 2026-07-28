@@ -39,24 +39,20 @@
         :class="{ complete: Boolean(fieldPreviewValue(field.key)), optional: !field.required }"
       >
         <div class="field-label-row">
-          <div class="field-title-stack">
-            <div class="field-name-line">
-              <span class="field-label">{{ field.name || field.key }}</span>
-              <!-- Checkmark for completed fields -->
-              <svg v-if="Boolean(fieldPreviewValue(field.key))" class="field-complete-icon" width="13" height="13" viewBox="0 0 16 16" fill="none">
-                <circle cx="8" cy="8" r="7" fill="#22c55e" opacity="0.15"/>
-                <path d="M5 8l2.5 2.5L11 5.5" stroke="#16a34a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </div>
+          <div class="field-name-line">
+            <span class="field-label">{{ field.name || field.key }}</span>
+            <svg v-if="Boolean(fieldPreviewValue(field.key))" class="field-complete-icon" width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="7" fill="#22c55e" opacity="0.15"/>
+              <path d="M5 8l2.5 2.5L11 5.5" stroke="#16a34a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div class="field-meta">
             <span class="field-source" :class="`field-source-${fieldSourceKind(field.source)}`" :title="field.source || '规则包输入'">
               {{ fieldSourceLabel(field.source) }}
             </span>
-          </div>
-          <span class="field-meta">
             <span class="field-type">{{ fieldTypeLabel(field) }}</span>
-            <span v-if="!field.required" class="field-optional">可选</span>
-            <span v-else class="field-required">必填</span>
-          </span>
+            <span v-if="field.required" class="field-required">必填</span>
+          </div>
         </div>
 
         <input
@@ -104,20 +100,16 @@
               {{ item }}
             </button>
           </div>
-          <div v-if="field.allow_custom" class="field-subrow">
-            <span>补充输入</span>
-            <span>添加规则包之外的值</span>
-          </div>
           <div v-if="field.allow_custom" class="custom-row">
             <input
-              class="text-input"
+              class="text-input custom-input"
               type="text"
-              :placeholder="field.examples?.[0] ? `例如 ${field.examples[0]}` : '补充参数'"
+              :placeholder="field.examples?.[0] ? `补充输入 (例 ${field.examples[0]})` : '补充输入'"
               :value="customInputValues[field.key] || ''"
               @input="setCustomInput(field.key, inputValue($event))"
               @keydown.enter.prevent="addCustomArrayValue(field.key)"
             />
-            <button class="mini-btn" type="button" @click="addCustomArrayValue(field.key)">添加</button>
+            <button class="custom-add-btn" type="button" @click="addCustomArrayValue(field.key)">+ 添加</button>
           </div>
         </div>
 
@@ -338,26 +330,23 @@ function fieldSourceLabel(source: string | undefined) {
 .field-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-top: 12px;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .field-block {
-  padding: 11px 11px 11px 13px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
-  border-left: 3px solid transparent;
-  border-radius: 8px;
-  background: #fbfcfc;
-  transition: border-color 0.16s ease, background 0.16s ease, border-left-color 0.25s ease;
+  border-radius: 7px;
+  background: #ffffff;
+  transition: border-color 0.16s ease, background 0.16s ease;
 }
 .field-block:focus-within {
   border-color: var(--accent);
-  background: #ffffff;
 }
 .field-block.complete {
-  border-color: #d1fae5;
-  border-left-color: #22c55e;
-  background: #f8fffd;
+  border-color: #cbd5e1;
+  background: #ffffff;
 }
 
 .field-label-row {
@@ -365,30 +354,27 @@ function fieldSourceLabel(source: string | undefined) {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
-.field-title-stack { min-width: 0; }
 .field-name-line {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
 }
 .field-label {
   display: inline;
   color: var(--ink);
-  font-size: 13px;
-  font-weight: 750;
+  font-size: 12.5px;
+  font-weight: 700;
 }
 .field-complete-icon { flex-shrink: 0; }
 
 .field-source {
   display: inline-flex;
   align-items: center;
-  margin-top: 2px;
-  width: fit-content;
   border-radius: 3px;
-  padding: 1px 5px;
-  font-size: 11px;
+  padding: 0 4px;
+  font-size: 10px;
   line-height: 1.35;
 }
 .field-source-manual  { background: #fff2e8; color: #a6542e; }
@@ -399,33 +385,31 @@ function fieldSourceLabel(source: string | undefined) {
 .field-meta {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   flex-shrink: 0;
 }
 .field-type,
-.field-required,
-.field-optional {
+.field-required {
   display: inline-flex;
   align-items: center;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: 4px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 3px;
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
 }
 .field-type     { border: 1px solid #e2e8f0; color: var(--muted); }
 .field-required { background: #fdf0e7; color: #b54708; }
-.field-optional { color: #84918f; }
 
 /* ===== Inputs ===== */
 .text-input {
-  width: 100%; height: 36px;
-  padding: 0 10px;
+  width: 100%; height: 30px;
+  padding: 0 8px;
   border: 1px solid #d0d5dd;
-  border-radius: 6px;
+  border-radius: 5px;
   background: #ffffff;
   color: var(--ink);
-  font: inherit; font-size: 13px;
+  font: inherit; font-size: 12px;
   outline: none;
   transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
@@ -437,19 +421,22 @@ function fieldSourceLabel(source: string | undefined) {
 .chip-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
+  gap: 5px;
 }
 .chip-grid.compact { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 
 .select-chip {
-  min-height: 33px;
-  padding: 5px 7px;
+  min-height: 26px;
+  padding: 3px 8px;
   border: 1px solid #d0d5dd;
-  border-radius: 6px;
+  border-radius: 5px;
   background: #ffffff;
   color: #334155;
-  font: inherit; font-size: 12px; font-weight: 600;
+  font: inherit; font-size: 11.5px; font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
 }
 .select-chip:hover { border-color: var(--accent); }
@@ -459,23 +446,27 @@ function fieldSourceLabel(source: string | undefined) {
   color: #4338ca;
 }
 
-.field-subrow {
+.custom-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 10px;
-  color: var(--muted);
+  gap: 6px;
+  margin-top: 6px;
+}
+.custom-input { height: 26px; font-size: 11.5px; }
+.custom-add-btn {
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  background: #f8fafc;
+  color: #475569;
   font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
-.field-subrow span:first-child { color: #0f172a; font-weight: 700; }
-
-.custom-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 58px;
-  gap: 7px;
-  margin-top: 7px;
-}
+.custom-add-btn:hover { background: #eef2ff; border-color: #6366f1; color: #4f46e5; }
 
 .check-row {
   display: inline-flex;

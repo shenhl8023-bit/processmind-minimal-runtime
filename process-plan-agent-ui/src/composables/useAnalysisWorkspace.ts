@@ -1,7 +1,7 @@
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { FactorCandidate } from '@/components/analysis/types'
-import type { SegmentFactorReview } from '@/api'
+import { resetWorkflow, type SegmentFactorReview } from '@/api'
 import {
   buildDocOperationHighlights,
   buildFactorCandidates,
@@ -30,6 +30,7 @@ import { answersFromTrail, savedQuestionTrail } from '@/composables/analysisQues
 import { useAnalysisReviewPersistence } from '@/composables/useAnalysisReviewPersistence'
 import { useAnalysisWorkspaceData } from '@/composables/useAnalysisWorkspaceData'
 import { getWorkflowDataRevision } from '@/composables/workflowDataCache'
+import { publishWorkflowReset, workflowResetSignal } from '@/composables/workflowResetState'
 
 export function useAnalysisWorkspace() {
   const route = useRoute()
@@ -53,6 +54,8 @@ export function useAnalysisWorkspace() {
     getRouteProjectId: () => route.query.project_id as string | undefined,
   })
   const ruleReviewNote = ref('')
+  const resettingWorkflow = ref(false)
+  let locallyHandledResetAt = 0
   const sampleCompareExpanded = ref(false)
   const evidenceExcerptExpanded = ref(false)
   const evidenceRowsExpanded = ref(false)
@@ -264,6 +267,7 @@ export function useAnalysisWorkspace() {
     chooseQuestionTreeOptions,
     reanswerLastQuestionTree,
     resetQuestionTree,
+    resetAllQuestionTrees,
     updateQuestionTreeNote,
     clearQuestionTreeRejudging,
   } = useAnalysisQuestionTree({
@@ -320,6 +324,44 @@ export function useAnalysisWorkspace() {
     loadedDataRevision = getWorkflowDataRevision()
   }
 
+  async function applyAnalysisWorkflowReset() {
+    resetAllQuestionTrees()
+    ruleReviewNote.value = ''
+    await reloadSavedRouteWorkspace(true)
+    const firstPending = savedRoute.value?.segments.find(segment => !segmentHasRuleDecision(segment))
+    selectedSegmentId.value = firstPending?.id || savedRoute.value?.segments[0]?.id || ''
+    resetAnalysisPanelState()
+  }
+
+  async function resetAllAnalysisAnswers() {
+    if (resettingWorkflow.value || !projectId.value || !savedRoute.value) return false
+    resettingWorkflow.value = true
+    error.value = ''
+    try {
+      const result = await resetWorkflow({
+        project_id: projectId.value,
+        from_step: 3,
+        expected_workflow_revision: savedRoute.value.workflow_revision,
+      })
+      publishWorkflowReset({
+        projectId: result.project_id,
+        fromStep: 3,
+        workflowRevision: result.workflow_revision,
+      })
+      locallyHandledResetAt = workflowResetSignal.value?.emittedAt || 0
+      await applyAnalysisWorkflowReset()
+      return true
+    } catch (e: any) {
+      console.error('重新回答全部失败', e)
+      error.value = e?.response?.data?.detail?.message
+        || e?.response?.data?.detail
+        || '重新回答全部失败，请刷新页面后重试。'
+      return false
+    } finally {
+      resettingWorkflow.value = false
+    }
+  }
+
   const {
     savingRuleReview,
     autoPersistingRuleSegmentId,
@@ -335,6 +377,7 @@ export function useAnalysisWorkspace() {
     questionTreeTrail,
     clearQuestionTreeRejudging,
     goToNextPendingSegment,
+    onWorkflowConflict: () => applyAnalysisWorkflowReset(),
   })
 
   function goBackToExtract() {
@@ -366,6 +409,13 @@ export function useAnalysisWorkspace() {
     if (!analysisViewActive) return
     resolveProjectId()
     await reloadSavedRouteWorkspace()
+  })
+
+  watch(workflowResetSignal, (signal) => {
+    if (!signal || signal.emittedAt === locallyHandledResetAt) return
+    if (signal.projectId !== projectId.value || signal.fromStep > 3) return
+    locallyHandledResetAt = signal.emittedAt
+    void applyAnalysisWorkflowReset()
   })
 
   watch(selectedSegment, async () => {
@@ -445,6 +495,7 @@ export function useAnalysisWorkspace() {
 
   return {
     loading,
+    resettingWorkflow,
     error,
     projectId,
     savedRoute,
@@ -486,6 +537,7 @@ export function useAnalysisWorkspace() {
     excludedFactorCount,
     pendingFactorCount,
     loadSavedRoute: reloadSavedRouteWorkspace,
+    resetAllAnalysisAnswers,
     goBackToExtract,
     openDocumentPreview,
     closeDocumentPreview,

@@ -44,6 +44,11 @@ export function useFinalizeDrafts(projectId: Ref<number | null>) {
 
   function saveInlineEdit(item: any) {
     const segmentId = item.segment.id
+    const nextConditionText = inlineEditingText.value.trim()
+    if (nextConditionText === String(item.conditionText || '').trim()) {
+      cancelInlineEdit()
+      return false
+    }
     const existingDraft = drafts.value[segmentId] || {
       factorNames: [...item.factorNames],
       userAnswerLabels: [...item.userAnswerLabels],
@@ -54,11 +59,27 @@ export function useFinalizeDrafts(projectId: Ref<number | null>) {
       ...drafts.value,
       [segmentId]: {
         ...existingDraft,
-        conditionText: inlineEditingText.value.trim(),
+        conditionText: nextConditionText,
       },
     }
 
     cancelInlineEdit()
+    return true
+  }
+
+  function setConditionTextDraft(item: any, conditionText: string) {
+    const existingDraft = drafts.value[item.segment.id] || {
+      factorNames: [...item.factorNames],
+      userAnswerLabels: [...item.userAnswerLabels],
+      userAnswerContextLabels: [...item.userAnswerContextLabels],
+    }
+    drafts.value = {
+      ...drafts.value,
+      [item.segment.id]: {
+        ...existingDraft,
+        conditionText: conditionText.trim(),
+      },
+    }
   }
 
   function resetInlineEdit(item: any) {
@@ -72,8 +93,17 @@ export function useFinalizeDrafts(projectId: Ref<number | null>) {
     }
   }
 
+  function clearAllDrafts() {
+    drafts.value = {}
+    cancelInlineEdit()
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(draftStorageKey.value)
+    }
+  }
+
   return {
     cancelInlineEdit,
+    clearAllDrafts,
     drafts,
     inlineEditingSegmentId,
     inlineEditingText,
@@ -81,6 +111,7 @@ export function useFinalizeDrafts(projectId: Ref<number | null>) {
     readDrafts,
     resetInlineEdit,
     saveInlineEdit,
+    setConditionTextDraft,
     setInlineTextareaRef,
     startInlineEdit,
   }

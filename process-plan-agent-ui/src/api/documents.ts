@@ -2,6 +2,7 @@ import { api, apiBaseUrl } from './client'
 import {
   clearAllWorkflowDataCache,
   getWorkflowDataCache,
+  getWorkflowDataRevision,
   setWorkflowDataCache,
 } from '@/composables/workflowDataCache'
 
@@ -41,9 +42,10 @@ export async function listDocuments(projectId: number, forceRefresh = false) {
     const cached = getWorkflowDataCache<DocumentItem[]>(cacheKey)
     if (cached) return cached
   }
+  const requestRevision = getWorkflowDataRevision()
   const { data } = await api.get('/api/documents/', { params: { project_id: projectId } })
   const documents = data as DocumentItem[]
-  setWorkflowDataCache(cacheKey, documents)
+  setWorkflowDataCache(cacheKey, documents, requestRevision)
   return documents
 }
 
@@ -101,8 +103,9 @@ export async function listReferences(projectId: number, forceRefresh = false) {
     const cached = getWorkflowDataCache<any[]>(cacheKey)
     if (cached) return cached
   }
+  const requestRevision = getWorkflowDataRevision()
   const { data } = await api.get('/api/documents/references', { params: { project_id: projectId } })
-  setWorkflowDataCache(cacheKey, data)
+  setWorkflowDataCache(cacheKey, data, requestRevision)
   return data
 }
 

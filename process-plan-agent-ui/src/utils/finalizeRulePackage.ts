@@ -6,6 +6,7 @@ import type {
   RulePackageCondition,
   RulePackageProcessRelation,
   RulePackageRule,
+  RuleConditionCandidate,
 } from '@/api/rulePackages'
 
 export function normalizeExportProcessName(name: string) {
@@ -35,7 +36,7 @@ export function isProcessRelationConditionText(value: string) {
   const text = String(value || '').trim()
   if (!text) return false
   return /(?:后|之后|完成后).{0,80}(?:安排|设置|纳入|加入|添加|增加|出现|检查|释放|进行|执行|实施|处理)/.test(text)
-    || /(?:存在|出现).{1,30}工序.{0,60}(?:安排|设置|纳入|加入|添加|增加|出现|检查|释放|进行|执行|实施|处理)/.test(text)
+    || /(?:存在|出现).{1,30}工序(?:时|后|之后|的情况下).{0,60}(?:安排|设置|纳入|加入|添加|增加|出现|检查|释放|进行|执行|实施|处理)/.test(text)
     || /(?:前面|此前|之前).{0,30}(?:有|存在|出现).{0,60}(?:安排|设置|纳入|加入|添加|增加|出现|检查|释放|进行|执行|实施|处理)/.test(text)
     || /(?:必须在|应在).{1,40}(?:后|之后)|不得早于/.test(text)
     || /(?:前|之前).{0,20}(?:必须|需要).{0,20}(?:完成|存在|经过)|依赖于|以前置/.test(text)
@@ -86,6 +87,110 @@ export function hasCurrentConfirmedUserRule(item: any) {
     && String(review.source_text || '').trim() === String(item.conditionText || '').trim()
     && (review.confirmed.kind || 'condition') === expectedKind,
   )
+}
+
+const ADVISORY_PARSE_ISSUE_PATTERNS = [
+  /^AI 返回的规则结构未通过格式校验，已尝试使用本地解析器。$/,
+  /^已使用内置规则解析器生成候选结果，请重点核对。$/,
+  /^模型候选与明确的工序关系语义不一致，已改用关联工序候选。$/,
+  /^模型候选与明确的特殊要求语义不一致，已改用特殊要求候选。$/,
+]
+
+export function isAdvisoryParserIssue(issue: unknown) {
+  const text = String(issue || '').trim()
+  return Boolean(text) && ADVISORY_PARSE_ISSUE_PATTERNS.some(pattern => pattern.test(text))
+}
+
+export function isSafeForBatchRuleConfirmation(item: any) {
+  const review = item.conditionReview
+  const expectedKind = finalizeRuleMode(item) === 'relation' ? 'process_relation' : 'condition'
+  const issues = Array.isArray(review?.issues) ? review.issues : []
+  const hasOnlyAdvisoryFallbackIssues = issues.length > 0 && issues.every(isAdvisoryParserIssue)
+  const confidence = Number(review?.confidence || 0)
+  return Boolean(
+    review?.status === 'pending_confirmation'
+    && review?.candidate
+    && String(review.source_text || '').trim() === String(item.conditionText || '').trim()
+    && (review.candidate.kind || 'condition') === expectedKind
+    && (
+      (confidence >= 0.85 && issues.length === 0)
+      || (confidence >= 0.65 && hasOnlyAdvisoryFallbackIssues)
+    ),
+  )
+}
+
+// The server owns parser and field-registry freshness. Every unconfirmed
+// candidate must pass through its version-aware cache before batch confirmation.
+export function requiresServerRuleConditionRefresh(item: any) {
+  return !hasCurrentConfirmedUserRule(item)
+}
+
+function manualProcessFieldKey(processId: string) {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < processId.length; index += 1) {
+    hash ^= processId.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return `project_factor.manual_process_${(hash >>> 0).toString(16).padStart(8, '0')}`
+}
+
+export function defaultManualBooleanLabel(item: any) {
+  const name = normalizeExportProcessName(String(item.segment?.normalized_step_name || '当前工序'))
+  return `是否需要${name}`
+}
+
+export function isManualBooleanFinalizeCard(item: any) {
+  if (!hasCurrentConfirmedUserRule(item)) return false
+  const confirmed = item.conditionReview?.confirmed
+  if ((confirmed?.kind || 'condition') !== 'condition') return false
+  const manualField = confirmed.field_definitions?.find((field: CanonicalConditionField) =>
+    field.type === 'boolean'
+    && field.source === '用户直接设定'
+    && field.key.startsWith('project_factor.manual_process_'),
+  )
+  return Boolean(
+    manualField
+    && confirmed.when?.field === manualField.key
+    && confirmed.when?.op === 'eq'
+    && confirmed.when?.value === true,
+  )
+}
+
+export function manualRuleModeActionState(item: any, inlineEditing: boolean) {
+  return {
+    visible: !inlineEditing,
+    mainlineActive: finalizeRuleMode(item) === 'mainline',
+    booleanActive: isManualBooleanFinalizeCard(item),
+  }
+}
+
+export function buildManualBooleanRuleCandidate(item: any, label: string): RuleConditionCandidate {
+  const processId = exportProcessIdForItem(item)
+  const switchLabel = String(label || '').trim() || defaultManualBooleanLabel(item)
+  const fieldKey = manualProcessFieldKey(processId)
+  return {
+    kind: 'condition',
+    when: { field: fieldKey, op: 'eq', value: true },
+    then: {
+      include_process_ids: [processId],
+      exclude_process_ids: [],
+      reason: `用户选择“${switchLabel}”时纳入当前工序`,
+    },
+    field_definitions: [{
+      key: fieldKey,
+      label: switchLabel,
+      category: '可选工序',
+      type: 'boolean',
+      operators: ['eq', 'neq'],
+      aliases: [],
+      required: false,
+      source: '用户直接设定',
+      options: [],
+      allow_custom: false,
+    }],
+    preview: `${switchLabel} 等于 是`,
+    evidence: '用户直接设定',
+  }
 }
 
 export function exportProcessIdForItem(item: any) {
@@ -252,6 +357,7 @@ function setNestedInputValue(target: Record<string, any>, key: string, value: un
 }
 
 function defaultInputValueForField(field: CompileRulePackageRequest['fields'][number]) {
+  if (field.source === '用户直接设定' && field.type === 'boolean') return false
   const firstOption = field.options?.[0]?.value || '样例值'
   if (field.type === 'multi_select') return [firstOption]
   if (field.type === 'single_select') return firstOption
@@ -291,13 +397,14 @@ function buildDefaultV2TestCases(
 }
 
 function collectConditionFields(condition: RulePackageCondition, target: Set<string>) {
-  if ('field' in condition) {
-    target.add(condition.field)
+  const node = condition as unknown as Record<string, unknown>
+  if (typeof node.field === 'string' && node.field) {
+    target.add(node.field)
     return
   }
-  if ('all' in condition) condition.all.forEach(child => collectConditionFields(child, target))
-  if ('any' in condition) condition.any.forEach(child => collectConditionFields(child, target))
-  if ('not' in condition) collectConditionFields(condition.not, target)
+  if (Array.isArray(node.all)) node.all.forEach(child => collectConditionFields(child as RulePackageCondition, target))
+  if (Array.isArray(node.any)) node.any.forEach(child => collectConditionFields(child as RulePackageCondition, target))
+  if (node.not && typeof node.not === 'object') collectConditionFields(node.not as RulePackageCondition, target)
 }
 
 function registryFieldToInputField(field: CanonicalConditionField): CompileRulePackageRequest['fields'][number] {
@@ -325,38 +432,53 @@ function normalizeLegacyBooleanCondition(
   condition: RulePackageCondition,
   definitions: Map<string, CanonicalConditionField>,
 ): RulePackageCondition {
-  if ('field' in condition) {
-    const field = definitions.get(condition.field)
-    if (field?.type === 'boolean' && condition.field.startsWith('custom.requirements.')) {
+  const node = condition as unknown as Record<string, unknown>
+  if (typeof node.field === 'string' && node.field) {
+    const field = definitions.get(node.field)
+    if (field?.type === 'boolean' && node.field.startsWith('custom.requirements.')) {
       return { field: 'special.requirements', op: 'contains', value: specialRequirementForLegacyBoolean(field) }
     }
-    return condition
+    return {
+      field: node.field,
+      op: typeof node.op === 'string' ? node.op : 'eq',
+      ...(Object.prototype.hasOwnProperty.call(node, 'value') && node.value !== null
+        ? { value: node.value }
+        : {}),
+    }
   }
-  if ('all' in condition) return { all: condition.all.map(item => normalizeLegacyBooleanCondition(item, definitions)) }
-  if ('any' in condition) return { any: condition.any.map(item => normalizeLegacyBooleanCondition(item, definitions)) }
-  return { not: normalizeLegacyBooleanCondition(condition.not, definitions) }
+  if (Array.isArray(node.all)) {
+    return { all: node.all.map(item => normalizeLegacyBooleanCondition(item as RulePackageCondition, definitions)) }
+  }
+  if (Array.isArray(node.any)) {
+    return { any: node.any.map(item => normalizeLegacyBooleanCondition(item as RulePackageCondition, definitions)) }
+  }
+  if (node.not && typeof node.not === 'object') {
+    return { not: normalizeLegacyBooleanCondition(node.not as RulePackageCondition, definitions) }
+  }
+  return condition
 }
 
 function collectCustomTagValues(
   condition: RulePackageCondition,
   target: Map<string, Set<string>>,
 ) {
-  if ('field' in condition) {
+  const node = condition as unknown as Record<string, unknown>
+  if (typeof node.field === 'string' && node.field) {
     if (
-      ['eq', 'in', 'contains', 'contains_any', 'contains_all'].includes(condition.op)
+      ['eq', 'in', 'contains', 'contains_any', 'contains_all'].includes(String(node.op || ''))
     ) {
-      const values = Array.isArray(condition.value) ? condition.value : [condition.value]
-      const fieldValues = target.get(condition.field) || new Set<string>()
+      const values = Array.isArray(node.value) ? node.value : [node.value]
+      const fieldValues = target.get(node.field) || new Set<string>()
       values.forEach((value) => {
         if (typeof value === 'string' && value.trim()) fieldValues.add(value.trim())
       })
-      target.set(condition.field, fieldValues)
+      target.set(node.field, fieldValues)
     }
     return
   }
-  if ('all' in condition) condition.all.forEach(item => collectCustomTagValues(item, target))
-  if ('any' in condition) condition.any.forEach(item => collectCustomTagValues(item, target))
-  if ('not' in condition) collectCustomTagValues(condition.not, target)
+  if (Array.isArray(node.all)) node.all.forEach(item => collectCustomTagValues(item as RulePackageCondition, target))
+  if (Array.isArray(node.any)) node.any.forEach(item => collectCustomTagValues(item as RulePackageCondition, target))
+  if (node.not && typeof node.not === 'object') collectCustomTagValues(node.not as RulePackageCondition, target)
 }
 
 function compactV2InputSchema(args: {
@@ -476,9 +598,9 @@ export function buildCompileRequestFromCards(args: {
   })
   const userRules: RulePackageRule[] = confirmedCards
     .filter(item => (item.conditionReview.confirmed.kind || 'condition') === 'condition')
-    .map((item) => {
+    .flatMap((item) => {
       const confirmed = item.conditionReview.confirmed
-      return {
+      const baseRule = {
         rule_id: `user.${String(item.segment.id || item.segment.sequence).replace(/[^a-zA-Z0-9_.-]+/g, '_')}`,
         priority: 1000 + Math.max(0, 1000 - Number(item.segment.sequence || 0)),
         enabled: true,
@@ -494,6 +616,30 @@ export function buildCompileRequestFromCards(args: {
           reason: confirmed.then?.reason || `用户确认条件：${item.conditionText}`,
         },
       }
+      const manualField = confirmed.field_definitions?.find((field: CanonicalConditionField) =>
+        field.type === 'boolean' && field.source === '用户直接设定' && field.key.startsWith('project_factor.manual_process_'),
+      )
+      if (!manualField || confirmed.when?.field !== manualField.key || confirmed.when.op !== 'eq') {
+        return [baseRule]
+      }
+      return [
+        {
+          ...baseRule,
+          rule_id: `${baseRule.rule_id}.manual.true`,
+          priority: Math.max(baseRule.priority, 2000),
+        },
+        {
+          ...baseRule,
+          rule_id: `${baseRule.rule_id}.manual.false`,
+          priority: Math.max(baseRule.priority, 2000),
+          when: { field: manualField.key, op: 'eq', value: false },
+          then: {
+            include_process_ids: [],
+            exclude_process_ids: baseRule.then.include_process_ids || [],
+            reason: `用户选择“否”时排除${baseRule.then.reason || '当前工序'}`,
+          },
+        },
+      ]
     })
   const processRelations: RulePackageProcessRelation[] = confirmedCards
     .filter(item => item.conditionReview.confirmed.kind === 'process_relation' && item.conditionReview.confirmed.relation)

@@ -4,6 +4,7 @@
 避免一次发送整批长文档导致限流或超时。
 """
 import asyncio
+from dataclasses import asdict
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,6 +38,8 @@ from app.schemas.schemas import (
     SaveSegmentRuleReviewRequest,
     SaveNormalizedSupersetRouteRequest,
     SupersetRouteOut,
+    WorkflowResetOut,
+    WorkflowResetRequest,
 )
 from app.services.extraction_pipeline import (
     queue_extraction_job,
@@ -56,6 +59,7 @@ from app.services.rule_packages.hashing import (
     rule_package_content_hash,
 )
 from app.services.rule_packages.lifecycle import publish_rule_package
+from app.services.rule_packages.confirmation_validation import require_confirmed_user_rule_sources
 from app.services.rule_packages.loader import load_published_rule_package
 from app.services.rule_packages.validator import validate_rule_package
 from app.services.process_tree_builder import build_superset_process_tree
@@ -95,6 +99,10 @@ from app.services.route_analysis import (
     save_segment_rule_review_record,
 )
 from app.services.operation_review_meta import get_project_sample_count
+from app.services.project_workflow_lifecycle import (
+    acquire_workflow_revision,
+    invalidate_project_workflow,
+)
 
 router = APIRouter(prefix="/api/extract", tags=["规则提炼"])
 
@@ -104,6 +112,24 @@ async def _ensure_project_exists(project_id: int, db: AsyncSession) -> Project:
     if not project:
         raise HTTPException(404, "任务不存在")
     return project
+
+
+@router.post("/workflow/reset", response_model=WorkflowResetOut)
+async def reset_project_workflow(
+    body: WorkflowResetRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    if body.from_step not in {3, 4}:
+        raise HTTPException(400, "主动重置只支持第三步或第四步。")
+    project = await _ensure_project_exists(body.project_id, db)
+    result = await invalidate_project_workflow(
+        db,
+        project,
+        from_step=body.from_step,
+        expected_workflow_revision=body.expected_workflow_revision,
+    )
+    await db.commit()
+    return WorkflowResetOut(**asdict(result))
 
 async def _save_ops(db: AsyncSession, project_id: int, ops_data: list) -> None:
     await save_route_rules_ops(
@@ -368,6 +394,7 @@ async def save_segment_rule_review(
     body: SaveSegmentRuleReviewRequest,
     db: AsyncSession = Depends(get_db),
 ):
+    await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
     return await save_segment_rule_review_record(
         project_id=body.project_id,
         route_id=body.route_id,
@@ -385,7 +412,11 @@ async def save_finalized_rule_package(
     body: FinalizedRulePackageSaveRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    project = await _ensure_project_exists(body.project_id, db)
+    project = await acquire_workflow_revision(
+        db,
+        body.project_id,
+        body.expected_workflow_revision,
+    )
     # A project remains based on the same reviewed route after step 5 has run.
     # Allow publishing a corrected package in that state; the route-version
     # ownership check below still prevents cross-project or stale-route saves.
@@ -433,6 +464,14 @@ async def save_finalized_rule_package(
                     "validation": server_validation,
                 },
             )
+        if body.route_version_id is None:
+            raise HTTPException(422, "V2 规则包必须关联当前路线版本")
+        await require_confirmed_user_rule_sources(
+            package_v2,
+            project_id=body.project_id,
+            route_version_id=body.route_version_id,
+            db=db,
+        )
         content_hash = rule_package_content_hash(package_v2)
     else:
         content_hash = legacy_rule_package_content_hash(

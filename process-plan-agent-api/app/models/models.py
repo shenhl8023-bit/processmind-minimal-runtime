@@ -20,6 +20,7 @@ class Project(Base):
     mode = Column(String(50), default="route_rules")
     profile = Column(String(100), default="route_rules.document_rules")
     rule_engine = Column(String(20), default="auto")
+    workflow_revision = Column(Integer, nullable=False, default=0)
     status = Column(String(20), default="CREATED")  # CREATED / UPLOADED / EXTRACTING / ROUTE_SET_READY / GENERATED / EXTRACT_ERROR
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
@@ -264,6 +265,8 @@ class NormalizedRouteSegmentRuleReview(Base):
     condition_confidence = Column(Float)
     condition_issues_json = Column(Text)
     condition_field_registry_version = Column(String(20))
+    condition_parser_version = Column(String(64))
+    condition_parse_duration_ms = Column(Integer)
     condition_confirmed_by = Column(String(100))
     condition_confirmed_at = Column(DateTime)
     created_at = Column(DateTime, default=utcnow)

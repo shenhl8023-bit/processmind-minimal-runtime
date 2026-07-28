@@ -14,6 +14,7 @@ import {
   clearWorkflowDataCache,
   clearWorkflowProjectDataCache,
   getWorkflowDataCache,
+  getWorkflowDataRevision,
   setWorkflowDataCache,
 } from '@/composables/workflowDataCache'
 
@@ -182,6 +183,7 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
     if (!options.projectId.value) return false
     const projectId = options.projectId.value
     const cacheKey = routeMergeWorkspaceCacheKey(projectId)
+    const requestRevision = getWorkflowDataRevision()
     try {
       const cachedSnapshot = forceRefresh
         ? null
@@ -191,7 +193,8 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
       }
 
       const snapshot = await fetchRouteMergeWorkspace(projectId, forceRefresh)
-      setWorkflowDataCache(cacheKey, snapshot)
+      if (requestRevision !== getWorkflowDataRevision()) return false
+      setWorkflowDataCache(cacheKey, snapshot, requestRevision)
       return await applyRouteMergeWorkspaceSnapshot(snapshot, syncPreviewDraft)
     } catch (error) {
       console.error('加载后端路线归并工作台失败', error)

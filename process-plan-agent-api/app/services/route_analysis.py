@@ -12,6 +12,7 @@ from app.models.models import (
     NormalizedRouteSegmentFactorReview,
     NormalizedRouteSegmentRuleReview,
     NormalizedRouteVersion,
+    Project,
 )
 from app.schemas.schemas import (
     SavedNormalizedRouteSegmentOut,
@@ -267,6 +268,10 @@ async def build_saved_normalized_route_response(
     await migrate_legacy_boolean_requirement_reviews(version_row, db)
     await invalidate_legacy_nondestructive_relation_reviews(version_row, db)
     response = serialize_saved_normalized_route_version(version_row)
+    project = (
+        await db.execute(select(Project).where(Project.id == version_row.project_id))
+    ).scalar_one_or_none()
+    response.workflow_revision = int(project.workflow_revision or 0) if project else 0
     reviews_by_segment = await load_route_factor_reviews(version_row.id, db)
     rule_reviews_by_segment = await load_route_rule_reviews(version_row.id, db)
     next_segments: list[dict[str, object]] = []

@@ -47,7 +47,7 @@
         :can-enter="canEnterRouteFactorAnalysis"
         :status-label="routeMergeStatusLabel"
         :notice="visibleRouteMergeNotice"
-        @rerun="() => startExtraction(true)"
+        @rerun="resetDialogVisible = true"
       />
 
       <div class="route-mobile-tabs" role="tablist" aria-label="路线归并面板">
@@ -177,6 +177,18 @@
       />
       </template>
     </div>
+
+    <WorkflowResetDialog
+      v-model="resetDialogVisible"
+      title="重新推理第二步路线？"
+      description="系统会先让现有下游结果失效，再启动新的路线推理任务。"
+      :keep-items="['上传文件', '已提取的文档工序明细']"
+      :clear-items="['第二步归并结果和标准路线', '第三步问答与第四步审核', '当前规则包和第五步生成结果']"
+      confirm-label="确认重新推理"
+      busy-label="正在启动..."
+      :busy="resettingFromStepTwo"
+      @confirm="confirmRerunExtraction"
+    />
   </div>
 </template>
 
@@ -188,6 +200,7 @@ import ExtractRouteActionFooter from '@/components/extract/ExtractRouteActionFoo
 import ExtractRouteShellHeader from '@/components/extract/ExtractRouteShellHeader.vue'
 import ExtractStatusCard from '@/components/extract/ExtractStatusCard.vue'
 import RouteProgressCard from '@/components/extract/RouteProgressCard.vue'
+import WorkflowResetDialog from '@/components/workflow/WorkflowResetDialog.vue'
 import {
   useRouteMergeResultWorkspace,
   type RouteMergeGroup,
@@ -247,6 +260,8 @@ const routeMergeSuggestions = ref<MergeSuggestion[]>([])
 const routeMergeNormalizedSegments = ref<any[]>([])
 const selectedMergeGroupId = ref('')
 const mobileRoutePane = ref<'source' | 'queue' | 'result'>('source')
+const resetDialogVisible = ref(false)
+const resettingFromStepTwo = ref(false)
 const routeFullSetOperations = computed(() =>
   [...visibleRoutes.value].sort((a, b) => a.sequence - b.sequence || a.id - b.id)
 )
@@ -449,6 +464,17 @@ const {
   clearRouteResultDraftStorage,
   clearPreviewHighlight,
 })
+
+async function confirmRerunExtraction() {
+  if (resettingFromStepTwo.value) return
+  resettingFromStepTwo.value = true
+  try {
+    await startExtraction(true)
+    if (status.value !== 'error') resetDialogVisible.value = false
+  } finally {
+    resettingFromStepTwo.value = false
+  }
+}
 
 const {
   mergeSuggestionForGroup,

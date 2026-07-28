@@ -26,6 +26,7 @@ export interface GenerateRouteResult {
 
 export async function generateRoute(body: {
   project_id: number
+  expected_workflow_revision: number
   factor_values: Record<string, any>
 }) {
   const { data } = await api.post('/api/generate/', body)

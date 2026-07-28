@@ -110,6 +110,25 @@ def test_generate_rejects_missing_required_v2_input():
     assert any(item["code"] == "required_input_missing" for item in response.json()["detail"])
 
 
+def test_generate_rejects_stale_workflow_revision():
+    project_id, _ = asyncio.run(_seed_published_v2("v2-stale-workflow"))
+    response = client.post(
+        "/api/generate/",
+        json={
+            "project_id": project_id,
+            "expected_workflow_revision": 99,
+            "factor_values": {
+                "material": {"grade": "9Cr18"},
+                "cad": {"features": ["槽类特征"]},
+                "target_hardness_hrc": 58,
+            },
+        },
+    )
+
+    assert response.status_code == 409
+    assert "页面已过期" in str(response.json()["detail"])
+
+
 def test_draft_v2_is_not_used_for_generate():
     payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
 

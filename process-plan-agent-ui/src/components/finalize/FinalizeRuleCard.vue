@@ -24,6 +24,29 @@
           恢复默认
         </button>
         <button
+          v-if="!inlineEditing && editableCandidate && candidateMatchesCardMode && ['conditional','relation'].includes(cardRuleMode)"
+          class="ghost-btn"
+          @click="ruleEditorExpanded = !ruleEditorExpanded"
+        >
+          {{ ruleEditorExpanded ? '收起' : '修改规则' }}
+        </button>
+        <button
+          v-if="manualModeState.visible && !inlineEditing && !manualBooleanEditing && !(cardRuleMode === 'mainline' && !mainlineExpanded)"
+          class="ghost-btn"
+          :disabled="conditionBusy || manualModeState.mainlineActive"
+          @click="$emit('set-mainline', item)"
+        >
+          {{ manualModeState.mainlineActive ? '已是主工序' : '转主工序' }}
+        </button>
+        <button
+          v-if="manualModeState.visible && !inlineEditing && !manualBooleanEditing && !(cardRuleMode === 'mainline' && !mainlineExpanded)"
+          class="ghost-btn ghost-btn-bool"
+          :disabled="conditionBusy || manualModeState.booleanActive"
+          @click="beginBooleanConversion"
+        >
+          {{ manualModeState.booleanActive ? '已是Bool' : '转Bool' }}
+        </button>
+        <button
           v-if="!inlineEditing"
           class="preview-edit-btn"
           @click="$emit('start-edit', item)"
@@ -55,14 +78,14 @@
     </div>
 
     <!-- Mainline collapsed: minimal one-line hint -->
-    <div v-if="cardRuleMode === 'mainline' && !mainlineExpanded" class="mainline-collapsed-hint">
+    <div v-if="cardRuleMode === 'mainline' && !mainlineExpanded && !inlineEditing" class="mainline-collapsed-hint">
       <span class="mainline-hint-text">{{ item.conditionText || '主线工序，默认纳入路线' }}</span>
     </div>
 
     <!-- Full card body -->
     <div v-else class="preview-card-body">
       <div class="preview-row">
-        <div class="preview-row-label">
+        <div v-if="cardRuleMode === 'mainline'" class="preview-row-label">
           <span class="condition-badge-label">{{ conditionLabel }}</span>
         </div>
         <div class="preview-row-content preview-condition">
@@ -84,50 +107,63 @@
         </div>
       </div>
 
-      <section v-if="!inlineEditing && cardRuleMode === 'unresolved'" class="rule-summary-strip rule-summary-unresolved">
-        <div>
-          <span class="summary-status">条件待补充</span>
-          <p>当前描述还缺少具体判断依据，请补充判断字段、比较关系或明确取值。</p>
-        </div>
-        <button class="summary-action" @click="$emit('start-edit', item)">补充条件</button>
-      </section>
-
-      <section
-        v-else-if="!inlineEditing && ['conditional', 'relation'].includes(cardRuleMode)"
-        class="rule-review-panel"
-        :class="`rule-review-${effectiveStatus}`"
-      >
-        <!-- Pending: no candidate yet -->
-        <div v-if="!editableCandidate || !candidateMatchesCardMode" class="rule-summary-strip rule-summary-pending">
-          <div>
-            <span class="summary-status" :class="{ 'summary-status-attention': sourceTextChanged }">{{ pendingStatusLabel }}</span>
-            <p>{{ pendingStatusDetail }}</p>
-          </div>
-          <button class="summary-action" :disabled="conditionBusy" @click="$emit('parse-condition', item)">
-            {{ pendingActionLabel }}
+      <!-- Boolean conversion inline editor -->
+      <div v-if="manualBooleanEditing && !inlineEditing" class="manual-boolean-editor">
+        <span class="manual-bool-tag">Bool 开关名称</span>
+        <input
+          :id="`manual-bool-label-${item.segment.id}`"
+          v-model="manualBooleanLabel"
+          type="text"
+          maxlength="40"
+          :placeholder="defaultManualBooleanLabel(item)"
+          class="manual-bool-input"
+        />
+        <div class="manual-bool-actions">
+          <button type="button" class="manual-bool-btn manual-bool-btn-cancel" @click="manualBooleanEditing = false">取消</button>
+          <button
+            type="button"
+            class="manual-bool-btn manual-bool-btn-save"
+            :disabled="conditionBusy || !manualBooleanLabel.trim()"
+            @click="confirmBooleanConversion"
+          >
+            确认转换
           </button>
         </div>
+      </div>
 
-        <!-- Has candidate -->
+      <!-- Unresolved: compact inline strip -->
+      <div v-if="!inlineEditing && cardRuleMode === 'unresolved'" class="card-inline-strip card-strip-warn">
+        <span class="strip-label">条件待补充</span>
+        <span class="strip-desc">请补充判断字段或明确取值</span>
+        <button class="strip-action" @click="$emit('start-edit', item)">补充条件</button>
+      </div>
+
+      <!-- Conditional/relation rule status -->
+      <template v-if="!inlineEditing && ['conditional', 'relation'].includes(cardRuleMode)">
+        <!-- No candidate yet -->
+        <div v-if="!editableCandidate || !candidateMatchesCardMode" class="card-inline-strip card-strip-pending">
+          <span class="strip-label" :class="{ 'strip-label-attention': sourceTextChanged }">{{ pendingStatusLabel }}</span>
+          <span class="strip-desc">{{ pendingStatusDetail }}</span>
+          <button class="strip-action" :disabled="conditionBusy" @click="$emit('parse-condition', item)">{{ pendingActionLabel }}</button>
+        </div>
+
+        <!-- Has candidate: compact rule line -->
         <template v-else>
-          <div class="candidate-summary-row">
-            <div class="candidate-summary-copy">
-              <span class="summary-status" :class="{ confirmed: effectiveStatus === 'confirmed' }">
-                {{ effectiveStatus === 'confirmed' ? '已审核' : '已识别' }}
-              </span>
-              <strong>{{ candidateSummary }}</strong>
-              <div class="candidate-recognition" aria-label="规则识别依据">
-                <span class="candidate-recognition-label">识别结果</span>
-                <span class="candidate-type-chip" :class="`candidate-type-${candidateRecognition.kind}`">{{ candidateRecognition.label }}</span>
-                <span class="candidate-recognition-divider">依据</span>
-                <span>{{ candidateRecognition.reason }}</span>
-              </div>
-            </div>
-            <div class="candidate-summary-actions">
-              <button class="summary-action secondary" @click="ruleEditorExpanded = !ruleEditorExpanded">
-                {{ ruleEditorExpanded ? '收起规则' : '修改规则' }}
-              </button>
-            </div>
+          <div class="card-rule-compact">
+            <span class="compact-status" :class="{ 'compact-confirmed': effectiveStatus === 'confirmed' }">{{ effectiveStatus === 'confirmed' ? '✓ 已审核' : '已识别' }}</span>
+            <span class="compact-summary">{{ candidateSummary }}</span>
+          </div>
+
+          <div v-if="requiresManualReview" class="manual-review-note">
+            <strong>需要人工审核</strong>
+            <span>{{ manualReviewReason }}</span>
+          </div>
+
+          <div v-if="ruleEditorExpanded" class="candidate-recognition" aria-label="规则识别依据">
+            <span class="candidate-recognition-label">识别结果</span>
+            <span class="candidate-type-chip" :class="`candidate-type-${candidateRecognition.kind}`">{{ candidateRecognition.label }}</span>
+            <span class="candidate-recognition-divider">依据</span>
+            <span>{{ editableCandidate.evidence || candidateRecognition.reason }}</span>
           </div>
 
           <!-- Expanded rule editor -->
@@ -345,11 +381,12 @@
             </div>
           </div>
 
-          <div v-if="effectiveStatus === 'confirmed' && item.conditionReview?.confirmed_by" class="confirmation-audit">
+          <div v-if="active && effectiveStatus === 'confirmed' && item.conditionReview?.confirmed_by" class="confirmation-audit">
             {{ item.conditionReview.confirmed_by }} · {{ formatConfirmedAt(item.conditionReview.confirmed_at) }}
           </div>
         </template>
-      </section>
+      </template>
+
     </div>
   </article>
 </template>
@@ -364,7 +401,12 @@ import type {
   RulePackageCondition,
 } from '@/api/rulePackages'
 import RuleConditionNodeEditor from '@/components/finalize/RuleConditionNodeEditor.vue'
-import { finalizeRuleMode } from '@/utils/finalizeRulePackage'
+import {
+  defaultManualBooleanLabel,
+  finalizeRuleMode,
+  isSafeForBatchRuleConfirmation,
+  manualRuleModeActionState,
+} from '@/utils/finalizeRulePackage'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
 
 const props = defineProps<{
@@ -390,12 +432,16 @@ const emit = defineEmits<{
   save: [item: FinalizeCard]
   'parse-condition': [item: FinalizeCard]
   'confirm-condition': [item: FinalizeCard, candidate: RuleConditionCandidate]
+  'set-mainline': [item: FinalizeCard]
+  'set-boolean': [item: FinalizeCard, label: string]
   'update:inlineEditingText': [value: string]
 }>()
 
 const editableCandidate = ref<RuleConditionCandidate | null>(null)
 const ruleEditorExpanded = ref(false)
 const mainlineExpanded = ref(false)
+const manualBooleanEditing = ref(false)
+const manualBooleanLabel = ref('')
 
 // Process picker
 type PickerKind = 'include' | 'exclude' | 'source' | 'target'
@@ -448,24 +494,37 @@ const candidateMatchesCardMode = computed(() => {
     ? candidateKind.value === 'process_relation'
     : candidateKind.value === 'condition'
 })
+const requiresManualReview = computed(() => (
+  effectiveStatus.value === 'pending_confirmation'
+  && !isSafeForBatchRuleConfirmation(props.item)
+))
+const manualModeState = computed(() => manualRuleModeActionState(props.item, props.inlineEditing))
+const manualReviewReason = computed(() => {
+  const issue = props.item.conditionReview?.issues?.[0]
+  if (issue) return issue
+  const confidence = Number(props.item.conditionReview?.confidence || 0)
+  return confidence > 0
+    ? `识别置信度 ${Math.round(confidence * 100)}%，请核对字段、取值和目标工序。`
+    : '当前候选缺少可靠置信度，请核对字段、取值和目标工序。'
+})
 const pendingStatusLabel = computed(() => {
   if (props.conditionBusy) return '正在识别规则'
-  if (sourceTextChanged.value) return '原文已修改，正在更新'
+  if (sourceTextChanged.value) return props.conditionBusy ? '原文已修改，正在更新' : '原文已修改，待重新识别'
   if (editableCandidate.value) return '规则类型需要更新'
   if (effectiveStatus.value === 'invalid') return '暂未识别'
-  return '等待自动识别'
+  return '待识别'
 })
 const pendingStatusDetail = computed(() => {
   if (sourceTextChanged.value) return '系统会按当前文字重新判断条件和目标工序。'
   if (editableCandidate.value) return '当前识别结果与原文类型不一致，请重新识别。'
   if (effectiveStatus.value === 'invalid') return props.item.conditionReview?.issues?.[0] || '请补充更明确的判断条件、比较关系或取值。'
   return cardRuleMode.value === 'relation'
-    ? '系统正在识别触发、依赖或先后关系。'
-    : '系统正在识别判断条件和目标工序。'
+    ? '审核时将识别触发、依赖或先后关系。'
+    : '审核时将识别判断条件和目标工序。'
 })
 const pendingActionLabel = computed(() => {
   if (props.conditionBusy) return '识别中…'
-  return '重试识别'
+  return effectiveStatus.value === 'invalid' ? '重试识别' : '识别规则'
 })
 const hasRuleAction = computed(() => {
   const candidate = editableCandidate.value
@@ -668,6 +727,18 @@ function confirmCandidate() {
   emit('confirm-condition', props.item, JSON.parse(JSON.stringify(editableCandidate.value)))
 }
 
+function beginBooleanConversion() {
+  manualBooleanLabel.value = defaultManualBooleanLabel(props.item)
+  manualBooleanEditing.value = true
+}
+
+function confirmBooleanConversion() {
+  const label = manualBooleanLabel.value.trim()
+  if (!label) return
+  emit('set-boolean', props.item, label)
+  manualBooleanEditing.value = false
+}
+
 function formatConfirmedAt(value: string) {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false })
@@ -767,11 +838,11 @@ function formatConfirmedAt(value: string) {
 
 /* ===== Card base ===== */
 .preview-card {
-  padding: 12px 16px;
+  padding: 10px 14px;
   border-radius: 8px;
   background: #ffffff;
   border: 1px solid #e8ecf2;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   transition: all 0.2s ease;
 }
 .preview-card:last-child { margin-bottom: 0; }
@@ -795,7 +866,7 @@ function formatConfirmedAt(value: string) {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 7px;
+  margin-bottom: 4px;
 }
 .preview-card-title-group {
   display: flex;
@@ -873,12 +944,15 @@ function formatConfirmedAt(value: string) {
 .preview-edit-btn:active { transform: scale(0.97); }
 
 /* ===== Card body ===== */
-.preview-card-body {}
+.preview-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 .preview-row {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  margin-bottom: 6px;
 }
 .preview-row-label {
   flex-shrink: 0;
@@ -898,42 +972,55 @@ function formatConfirmedAt(value: string) {
   margin: 0; font-size: 13px; line-height: 1.6; color: #334155; font-weight: 400;
 }
 
-/* ===== Review panel ===== */
-.rule-review-panel {
-  margin-top: 10px; padding: 10px 12px;
-  border: 1px solid #dce3ec; border-radius: 9px; background: #f8fafc;
+/* ===== Compact inline strips (pending / unresolved) ===== */
+.card-inline-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.5;
 }
-.rule-review-confirmed { border-color: #b9dbc9; background: #f4fbf7; }
-.rule-review-pending_confirmation { border-color: #cbd7ed; background: #f7f9fd; }
+.card-strip-warn { background: #fff8f4; border: 1px solid #f0c8b9; }
+.card-strip-pending { background: #f7f9fd; border: 1px solid #dde5f2; }
+.strip-label { font-weight: 700; color: #52647e; flex-shrink: 0; white-space: nowrap; }
+.strip-label-attention { color: #9a5b2d; }
+.card-strip-warn .strip-label { color: #a04b2e; }
+.strip-desc { flex: 1; min-width: 0; color: #748095; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.strip-action {
+  flex-shrink: 0;
+  border: 1px solid #8093bd; border-radius: 5px;
+  background: #fff; color: #3e5688;
+  padding: 3px 9px; font-size: 10px; font-weight: 700; cursor: pointer;
+  transition: background 0.12s;
+}
+.strip-action:hover:not(:disabled) { background: #f1f5f9; }
+.strip-action:disabled { cursor: not-allowed; opacity: .5; }
 
-.rule-summary-strip,
-.candidate-summary-row,
+/* ===== Compact rule status line ===== */
+.card-rule-compact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.compact-status { flex-shrink: 0; font-size: 10px; font-weight: 750; color: #52647e; letter-spacing: .02em; }
+.compact-confirmed { color: #2f7554; }
+.compact-summary { flex: 1; min-width: 0; color: #475569; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ===== Editor footer ===== */
 .candidate-footer {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
 }
-.rule-summary-strip { margin-top: 10px; padding: 9px 11px; border: 1px solid #dfe5ed; border-radius: 8px; background: #f9fafc; }
-.rule-review-panel > .rule-summary-strip { margin: 0; padding: 0; border: none; background: transparent; }
-.rule-summary-unresolved { border-color: #f0c8b9; background: #fff8f4; }
-.summary-status { display: inline-flex; margin-bottom: 3px; color: #52647e; font-size: 10px; font-weight: 750; letter-spacing: .02em; }
-.summary-status.confirmed { color: #2f7554; }
-.summary-status-attention { color: #9a5b2d; }
-.rule-summary-unresolved .summary-status { color: #a04b2e; }
-.rule-summary-strip p { margin: 0; color: #748095; font-size: 11px; line-height: 1.5; }
-
-.summary-action,
 .confirm-rule-btn {
   flex-shrink: 0;
-  border: 1px solid #8093bd; border-radius: 7px;
-  background: #fff; color: #3e5688;
+  border: 1px solid #405987; border-radius: 7px;
+  background: #405987; color: #fff;
   padding: 6px 11px; font-size: 11px; font-weight: 700; cursor: pointer;
 }
-.summary-action:disabled, .confirm-rule-btn:disabled { cursor: not-allowed; opacity: .5; }
-.summary-action.secondary { border-color: #d5dde9; color: #64748b; }
-.confirm-rule-btn { background: #405987; border-color: #405987; color: #fff; }
-
-.candidate-summary-copy { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
-.candidate-summary-copy strong { overflow: hidden; color: #2d3a4f; font-size: 12px; font-weight: 650; line-height: 1.45; text-overflow: ellipsis; }
-.candidate-summary-actions { display: flex; flex-shrink: 0; gap: 7px; align-items: center; }
+.confirm-rule-btn:disabled { cursor: not-allowed; opacity: .5; }
 .candidate-recognition {
   display: flex; align-items: center; flex-wrap: wrap; gap: 5px;
   margin-top: 5px; color: #718097; font-size: 10px; line-height: 1.45;
@@ -946,6 +1033,92 @@ function formatConfirmedAt(value: string) {
 }
 .candidate-type-relation { border-color: #bddbd0; background: #eff9f4; color: #2c7656; }
 .candidate-recognition-divider { color: #a0acbc; }
+.manual-review-note {
+  display: flex; align-items: flex-start; gap: 7px; margin-top: 6px;
+  border-left: 3px solid #d69a36; padding: 5px 8px; background: #fff9ed;
+  color: #76591f; font-size: 10px; line-height: 1.45;
+}
+.manual-review-note strong { flex-shrink: 0; color: #8a621d; font-size: 10px; }
+
+/* ===== Ghost button variant for Bool ===== */
+.ghost-btn-bool { color: #4f46e5; }
+.ghost-btn-bool:hover { color: #4338ca; }
+
+/* ===== Boolean editor (inline in card body) ===== */
+.manual-boolean-editor {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  margin-top: 4px;
+}
+.manual-bool-tag {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.manual-bool-input {
+  flex: 1;
+  min-width: 140px;
+  height: 28px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 0 10px;
+  color: #1e293b;
+  font-size: 12px;
+  background: #ffffff;
+  outline: none;
+  transition: all 0.15s ease;
+}
+.manual-bool-input:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+}
+.manual-bool-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.manual-bool-btn {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.manual-bool-btn-cancel {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #64748b;
+}
+.manual-bool-btn-cancel:hover {
+  background: #f1f5f9;
+  color: #334155;
+}
+.manual-bool-btn-save {
+  background: #4f46e5;
+  border: 1px solid #4f46e5;
+  color: #ffffff;
+}
+.manual-bool-btn-save:hover:not(:disabled) {
+  background: #4338ca;
+  border-color: #4338ca;
+}
+.manual-bool-btn-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 /* ===== Candidate editor ===== */
 .candidate-editor { display: grid; gap: 11px; margin-top: 11px; }
