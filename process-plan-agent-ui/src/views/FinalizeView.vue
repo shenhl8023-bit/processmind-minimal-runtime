@@ -1234,17 +1234,17 @@ onDeactivated(() => {
   align-items: center;
   justify-content: center;
   padding: 4px 12px;
-  border: 1px solid #405987;
-  border-radius: 7px;
-  background: #405987;
+  border: 1px solid #4f46e5;
+  border-radius: 8px;
+  background: #4f46e5;
   color: #fff;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
-  transition: background .15s ease, border-color .15s ease;
+  transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
 }
-.ash-btn-primary:hover { background: #334a75; border-color: #334a75; }
-.ash-btn-primary:disabled { opacity: .48; cursor: not-allowed; }
+.ash-btn-primary:hover:not(:disabled) { background: #4338ca; border-color: #4338ca; }
+.ash-btn-primary:disabled { opacity: .45; cursor: not-allowed; }
 
 .export-blocker-overlay {
   position: fixed;
@@ -1384,7 +1384,7 @@ onDeactivated(() => {
 
 /* ===== Phase-active button highlight ===== */
 .ash-btn-primary.ash-btn-phase-active {
-  box-shadow: 0 0 0 2px rgba(64, 89, 135, 0.35), 0 4px 12px rgba(64, 89, 135, 0.22);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.30), 0 4px 12px rgba(79, 70, 229, 0.25);
   transform: translateY(-1px);
 }
 .ash-btn-outline.ash-btn-phase-active {
