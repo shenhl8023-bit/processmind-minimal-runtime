@@ -62,6 +62,13 @@ class ProcessConstraints(StrictModel):
     conflicts_with: list[str] = Field(default_factory=list)
 
 
+class TemplateGroupAliasBinding(StrictModel):
+    source_operation_id: int = Field(gt=0)
+    alias: str = Field(min_length=1)
+    template_group_id: str = Field(min_length=1)
+    template_group_path: list[str] = Field(default_factory=list)
+
+
 class ProcessV2(StrictModel):
     process_id: str = Field(min_length=1)
     process_code: str = ""
@@ -69,6 +76,7 @@ class ProcessV2(StrictModel):
     phase: str = ""
     default_sequence: int = Field(default=0, ge=0)
     main: bool = False
+    template_group_aliases: list[TemplateGroupAliasBinding] = Field(default_factory=list)
     steps: list[ProcessStepV2] = Field(default_factory=list)
     constraints: ProcessConstraints = Field(default_factory=ProcessConstraints)
 
@@ -250,6 +258,29 @@ class ValidationIssue(StrictModel):
     message: str
 
 
+class KmaiCompatibilityIssue(ValidationIssue):
+    field: str | None = None
+    value: str | None = None
+    occurrences: int | None = None
+    rule_refs: list[str] = Field(default_factory=list)
+    suggested_existing_factors: list[str] = Field(default_factory=list)
+    can_create_manual_factor: bool | None = None
+
+
+class KmaiMappingUsageSnapshot(StrictModel):
+    mapping_id: int | None = None
+    mapping_identity: str
+    revision: int = 1
+    scope: Literal["builtin", "global", "project"]
+    project_id: int | None = None
+    source_field: str
+    source_value: str
+    mapping_mode: Literal["existing_factor", "manual_factor"]
+    target_factor_key: str
+    target_factor_name: str
+    target_factor_category: str
+
+
 class TestCaseResult(StrictModel):
     case_id: str
     passed: bool
@@ -267,9 +298,11 @@ class KmaiCompatibilityExport(StrictModel):
     format: Literal["kmai-v1"] = "kmai-v1"
     valid: bool
     target_directory: str
-    errors: list[ValidationIssue] = Field(default_factory=list)
-    warnings: list[ValidationIssue] = Field(default_factory=list)
+    errors: list[KmaiCompatibilityIssue] = Field(default_factory=list)
+    warnings: list[KmaiCompatibilityIssue] = Field(default_factory=list)
     files: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    mapping_signature: str = ""
+    mapping_usages: list[KmaiMappingUsageSnapshot] = Field(default_factory=list)
 
 
 class CompileRulePackageResponse(StrictModel):
@@ -304,6 +337,7 @@ class PlannedRouteStep(StrictModel):
     op_type: Literal["MAIN", "BRANCH"]
     reason: str
     process_steps: list[str] = Field(default_factory=list)
+    template_group_aliases: list[TemplateGroupAliasBinding] = Field(default_factory=list)
 
 
 class RoutePlan(StrictModel):

@@ -1,9 +1,39 @@
-from fastapi.testclient import TestClient
+import asyncio
 
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from app.database import Base, get_db
 from app.main import app
+from app.services.db_schema_maintenance import ensure_project_schema
 
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def isolated_rule_package_db(tmp_path):
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'rule-package-api.db'}")
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def setup():
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            await ensure_project_schema(conn)
+
+    asyncio.run(setup())
+
+    async def override_get_db():
+        async with session_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        asyncio.run(engine.dispose())
 
 
 def _compile_payload(package_payload):
@@ -89,7 +119,11 @@ def test_simulate_rejects_missing_required_input(rule_package_v2_payload):
     )
 
     assert response.status_code == 422
-    assert response.json()["detail"][0]["code"] == "required_input_missing"
+    error = response.json()["detail"][0]
+    assert error["code"] == "required_input_missing"
+    assert error["field"] == "cad.features"
+    assert error["reason"] == error["message"]
+    assert error["allowed_values"] == []
 
 
 def test_simulate_rejects_non_string_multi_select_item(rule_package_v2_payload):
@@ -105,4 +139,44 @@ def test_simulate_rejects_non_string_multi_select_item(rule_package_v2_payload):
     )
 
     assert response.status_code == 422
-    assert response.json()["detail"][0]["code"] == "input_type_mismatch"
+    error = response.json()["detail"][0]
+    assert error["code"] == "input_type_mismatch"
+    assert error["field"] == "cad.features"
+    assert error["reason"] == error["message"]
+    assert error["allowed_values"] == []
+
+
+def test_simulate_rejects_invalid_option_with_allowed_values(rule_package_v2_payload):
+    material_field = next(
+        field
+        for field in rule_package_v2_payload["input_schema"]["fields"]
+        if field["key"] == "material.grade"
+    )
+    material_field.update(
+        {
+            "type": "single_select",
+            "options": [
+                {"value": "9Cr18", "label": "9Cr18", "aliases": []},
+                {"value": "95Cr18", "label": "95Cr18", "aliases": []},
+            ],
+            "allow_custom": False,
+        }
+    )
+
+    response = client.post(
+        "/api/extract/finalized-rule-packages/simulate",
+        json={
+            "package": rule_package_v2_payload,
+            "inputs": {
+                "material": {"grade": "SUS304"},
+                "cad": {"features": ["槽类特征"]},
+                "target_hardness_hrc": 58,
+            },
+        },
+    )
+
+    assert response.status_code == 422
+    error = response.json()["detail"][0]
+    assert error["code"] == "input_option_invalid"
+    assert error["field"] == "material.grade"
+    assert error["allowed_values"] == ["9Cr18", "95Cr18"]

@@ -26,7 +26,7 @@ from app.models.models import (
     RouteMergeSnapshot,
 )
 from app.schemas.schemas import ProjectCreate, ProjectOut, ProjectProfileOut, ProjectRuleEngineUpdate
-from app.services.extraction_tasks import cancel_extraction_task
+from app.services.extraction_tasks import cancel_extraction_task, delete_extraction_task_state
 from app.services.profile_registry import list_profiles, normalize_profile
 
 router = APIRouter(prefix="/api/projects", tags=["项目管理"])
@@ -190,22 +190,24 @@ async def delete_project(project_id: int, db: AsyncSession = Depends(get_db)):
                 select(KmaiFactorMappingEvent).where(KmaiFactorMappingEvent.mapping_id.in_(mapping_ids))
             )
         ).scalars().all()
+    file_paths = [
+        UPLOAD_DIR / doc.filename
+        for doc in docs
+        if doc.filename
+    ] + [
+        UPLOAD_DIR / ref.filename
+        for ref in refs
+        if ref.ref_type == "uploaded" and ref.filename
+    ]
 
     for row in detail_rows:
         await db.delete(row)
 
-    for doc in docs:
-        path = UPLOAD_DIR / doc.filename
-        if path.exists():
-            path.unlink()
-        await db.delete(doc)
-
     for ref in refs:
-        if ref.filename:
-            path = UPLOAD_DIR / ref.filename
-            if path.exists():
-                path.unlink()
         await db.delete(ref)
+
+    for doc in docs:
+        await db.delete(doc)
 
     for op in ops:
         factors = (await db.execute(select(Factor).where(Factor.operation_id == op.id))).scalars().all()
@@ -251,6 +253,13 @@ async def delete_project(project_id: int, db: AsyncSession = Depends(get_db)):
     for version in normalized_route_versions:
         await db.delete(version)
 
+    await delete_extraction_task_state(db, project_id)
+
     await db.delete(project)
     await db.commit()
+    for path in file_paths:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
     return {"ok": True}

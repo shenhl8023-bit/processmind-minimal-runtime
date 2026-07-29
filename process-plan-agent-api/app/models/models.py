@@ -20,7 +20,7 @@ class Project(Base):
     mode = Column(String(50), default="route_rules")
     profile = Column(String(100), default="route_rules.document_rules")
     rule_engine = Column(String(20), default="auto")
-    workflow_revision = Column(Integer, nullable=False, default=0)
+    workflow_revision = Column(Integer, nullable=False, default=0, server_default="0")
     status = Column(String(20), default="CREATED")  # CREATED / UPLOADED / EXTRACTING / ROUTE_SET_READY / GENERATED / EXTRACT_ERROR
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
@@ -43,6 +43,35 @@ class Project(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    extraction_task_state = relationship(
+        "ExtractionTaskState",
+        back_populates="project",
+        uselist=False,
+        passive_deletes=True,
+    )
+
+
+class ExtractionTaskState(Base):
+    __tablename__ = "extraction_task_states"
+
+    project_id = Column(
+        Integer,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    task_status = Column(String(30), nullable=False, default="idle")
+    stage = Column(String(100), nullable=False, default="idle")
+    message = Column(Text)
+    error = Column(Text)
+    progress = Column(Integer, nullable=False, default=0)
+    started_at = Column(String(64))
+    updated_at = Column(String(64))
+    finished_at = Column(String(64))
+    project_status = Column(String(30))
+    harness_json = Column(Text)
+    force_reextract = Column(Boolean, nullable=False, default=False)
+
+    project = relationship("Project", back_populates="extraction_task_state")
 
 
 # ---------- 工艺规程文件 ----------

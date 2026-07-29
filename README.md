@@ -6,9 +6,9 @@
 
 1. 前端源码 `process-plan-agent-ui`
 2. 后端源码 `process-plan-agent-api`
-3. 当前运行数据快照 `data`
-4. 运行所需模板 `docs/配置模板`
-5. Docker 与本地启动脚本
+3. 运行所需模板 `docs/配置模板`
+4. Docker 与本地启动脚本
+5. 示例环境配置
 
 它没有保留：
 
@@ -21,10 +21,9 @@
 ## 目录说明
 
 ```text
-processmind-minimal-runtime-20260709/
+processmind-minimal-runtime/
 ├── process-plan-agent-api/
 ├── process-plan-agent-ui/
-├── data/
 ├── docs/
 ├── docker/
 ├── start-api.sh
@@ -38,9 +37,9 @@ processmind-minimal-runtime-20260709/
 
 ## 运行方式一：本地开发运行
 
-### 双击启动（推荐）
+### 脚本启动（推荐）
 
-首次启动会自动安装后端和前端依赖，启动成功后会自动打开浏览器。API 和前端在后台运行，运行日志位于 `.runtime/logs/`。
+API 和前端在后台运行，运行日志位于 `.runtime/logs/`。Windows 首次启动会自动安装依赖；macOS 首次运行需要先执行一次 `./bootstrap.sh`。
 
 Windows：
 
@@ -49,13 +48,14 @@ Windows：
 
 macOS：
 
-1. 双击 `start-macos.command` 启动项目
-2. 双击 `stop-macos.command` 停止项目
+1. 首次运行先在终端执行 `./bootstrap.sh`
+2. 执行 `./scripts/manage-macos.sh start` 启动项目
+3. 执行 `./scripts/manage-macos.sh stop` 停止项目
 
-macOS 如果首次打开时被系统拦截，请在 Finder 中右键脚本并选择“打开”。如果脚本经 Windows 压缩包传输后提示没有执行权限，请在“终端”中进入项目目录并执行一次：
+macOS 如果脚本经 Windows 压缩包传输后提示没有执行权限，请在“终端”中进入项目目录并执行一次：
 
 ```bash
-chmod +x start-macos.command stop-macos.command
+chmod +x scripts/manage-macos.sh
 ```
 
 本地启动需要 Python 3.11+、Node.js 20+ 和 npm。
@@ -67,7 +67,7 @@ chmod +x start-macos.command stop-macos.command
 #### 1. 启动后端
 
 ```bash
-cd processmind-minimal-runtime-20260709
+cd processmind-minimal-runtime
 ./bootstrap.sh
 ./start-api.sh
 ```
@@ -82,7 +82,7 @@ cd processmind-minimal-runtime-20260709
 新开一个终端：
 
 ```bash
-cd processmind-minimal-runtime-20260709
+cd processmind-minimal-runtime
 ./start-ui.sh
 ```
 
@@ -93,7 +93,7 @@ cd processmind-minimal-runtime-20260709
 ## 运行方式二：Docker
 
 ```bash
-cd processmind-minimal-runtime-20260709
+cd processmind-minimal-runtime
 cp .env.compose.example .env
 docker compose up -d --build
 ```
@@ -112,12 +112,14 @@ docker compose up -d --build
 
 ## 数据说明
 
-`data/` 里已经包含一份当前数据库快照和上传文件快照，拿到包后可以直接看到现有项目数据。
+后端默认在当前包内创建并读取 `data/` 目录；Docker 运行时会把宿主机 `./data` 挂载到容器内 `/runtime-data`。
 
 关键目录：
 
 1. `data/db/process_mind.db`
 2. `data/uploads/`
+
+离线交付包不会携带开发机现有的 `data/`、上传文档、SQLite 数据库或 `.env` 文件。需要迁移真实数据时，请单独走备份/恢复流程。
 
 ## 常用修改位置
 
@@ -141,15 +143,23 @@ docker compose up -d --build
 
 ProcessMind 会在下载前校验 KmAI 因素引用、工序引用和条件操作符；不兼容时会阻止导出，不会生成无法生效的替换文件。
 
+### KmAI 因素映射运维
+
+1. 不能自动解析的来源值，需要在第 4 步「规则定稿」中完成映射后再发布规则包。
+2. 在「模型设置」中管理全局映射和项目映射；同一来源值的优先级固定为项目映射 > 全局映射 > 内置映射。
+3. 将来源值映射到已有 KmAI 因素前，必须先确认两者的工艺语义一致；映射本身不会替代这项人工确认。
+4. 标记为手工因素的映射会以 `source_mode=manual_override` 导出。KmAI 运行时必须在输入中通过 `manual.factor_overrides` 提供对应因素值，不能从来源字段自动推断。
+5. 已发布 ZIP 会保留生成时使用的有效映射快照；之后修改全局或项目映射，不会改变既有 ZIP 的执行含义。
+
 ## 内网离线部署（Windows）
 
-若目标机**无外网**，请使用已打好的分卷包：
+若目标机**无外网**，请使用已打好的单 ZIP 离线包：
 
-1. 打开目录 `dist-offline\offline-bundle\`
-2. 整夹拷到内网机，双击 `assemble-offline-windows.cmd`
-3. 进入生成的 `processmind-offline-ready\`，双击 `start-windows.cmd`
+1. 在有外网的 Windows 开发机上生成 `dist-offline\processmind-offline-windows-YYYYMMDD.zip`
+2. 将 ZIP 拷到内网机并解压
+3. 进入解压后的目录，双击 `start-windows.cmd`
 
-包内已含便携 Python（后端依赖已装）与前端 `node_modules`。Node.js 20+ 需目标机预装，或组装后执行 `scripts\prepare-offline-node.ps1` 打入便携 Node。
+包内已含便携 Python（后端依赖已装）与前端 `node_modules`。打包前执行 `scripts\prepare-offline-node.ps1` 可把便携 Node 一并放入 ZIP；若未包含，目标机必须预装 Node.js 20+。
 
 在 Windows 开发机上也可重新打单文件完整包：
 
@@ -159,9 +169,13 @@ powershell -File scripts\prepare-offline-node.ps1
 powershell -File scripts\pack-offline-windows.ps1
 ```
 
+打包脚本只复制明确允许的源码、便携运行时、前端依赖和示例配置，并在压缩前扫描运行时数据库、上传文件、`.env`、`process_settings.json` 与疑似真实密钥。扫描命中时会以非零退出码停止，且不会生成交付包。真实密钥请在目标机部署时通过环境变量或设置页单独注入；可从不含真实值的 `.env.example` 开始配置。
+
+KmAI 兼容导出的 `all` / `any` 条件组合数默认上限为 `10000`，展开后所有子句包含的条件对象总数默认上限为 `100000`。如确有需要，可在部署环境中分别通过 `PROCESSMIND_KMAI_MAX_COMBINATIONS` 和 `PROCESSMIND_KMAI_MAX_CONDITION_OBJECTS` 调整。
+
 ## 备注
 
 1. 前端开发模式下，默认会请求 `http://当前主机:8000`
-2. 后端默认会读取当前包内的 `data/` 目录
-3. 如果需要对外分享给下一位开发者，直接分发整个目录或同目录下生成的 zip 包即可
-4. 内网交付优先使用 `scripts\pack-offline-windows.ps1` 生成的离线包，而不是仅含源码的最小包
+2. 后端默认会在当前包内创建并读取 `data/` 目录；离线交付包不会携带开发机现有的 `data/`
+3. 不要直接分发开发目录或手工压缩包；其中可能包含数据库、上传文档和运行时密钥
+4. 内网交付应使用 `scripts\pack-offline-windows.ps1` 生成并通过安全扫描的离线包

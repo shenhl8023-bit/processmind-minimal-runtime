@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from itertools import product
 from typing import Any
@@ -10,68 +11,24 @@ from typing import Any
 from app.services.rule_packages.contracts import (
     ConditionNode,
     KmaiCompatibilityExport,
+    KmaiCompatibilityIssue,
+    KmaiMappingUsageSnapshot,
     RulePackageV2,
     ValidationIssue,
 )
-
-
-KMAI_TARGET_DIRECTORY = r"KmMpsMcpServer\skills\process-route-generator\references\v1"
-
-
-_FACTOR_SPECS: tuple[tuple[str, str, str, str, str], ...] = (
-    ("F001", "material_grade", "材料牌号", "material", "enum"),
-    ("F002", "part_type", "零件类型", "part", "enum"),
-    ("F003", "has_flat_or_plane", "扁位/平面", "feature", "boolean"),
-    ("F004", "has_slot_feature", "槽类特征", "feature", "boolean"),
-    ("F005", "has_standard_or_aux_hole", "普通孔/辅助孔", "feature", "boolean"),
-    ("F005A", "has_center_through_hole", "中间通孔", "feature", "boolean"),
-    ("F006", "has_reamed_or_precision_hole", "铰孔/精孔", "feature", "boolean"),
-    ("F007", "has_shaped_hole_or_cut_flat", "型孔/割扁", "feature", "boolean"),
-    ("F008", "has_post_stage_added_hole", "后段补充孔", "feature", "boolean"),
-    ("F009", "has_hole_finish_machining", "孔精加工", "precision", "boolean"),
-    ("F010", "requires_honing", "珩孔要求", "precision", "boolean"),
-    ("F011", "requires_hole_lapping", "研孔要求", "precision", "boolean"),
-    ("F012", "requires_outer_diameter_grinding", "外圆磨削", "precision", "boolean"),
-    ("F013", "requires_end_face_grinding", "端面磨削", "precision", "boolean"),
-    ("F014", "requires_slot_grinding", "槽磨削", "precision", "boolean"),
-    ("F015", "requires_outer_diameter_lapping", "研外圆", "precision", "boolean"),
-    ("F016", "uses_center_hole_location", "顶尖孔定位", "precision", "boolean"),
-    ("F017", "needs_stress_relief", "去应力", "heat_treatment", "boolean"),
-    ("F018", "needs_quenching", "淬火", "heat_treatment", "boolean"),
-    ("F019", "needs_vacuum_quenching", "真空淬火", "heat_treatment", "boolean"),
-    ("F020", "has_nitrided_layer", "渗氮层", "heat_treatment", "boolean"),
-    ("F021", "needs_chromic_acid_anodizing", "铬酸阳极化", "surface_treatment", "boolean"),
-    ("F022", "needs_hard_anodizing", "硬质阳极化", "surface_treatment", "boolean"),
-    ("F023", "needs_marking", "标印/标刻", "inspection_marking", "boolean"),
-    ("F024", "needs_crack_inspection", "裂纹检测", "inspection_marking", "boolean"),
-    ("F025", "needs_burn_inspection", "烧伤检查", "inspection_marking", "boolean"),
-    ("F026", "needs_ndt_inspection", "无损检测", "inspection_marking", "boolean"),
+from app.services.rule_packages.kmai_mapping_registry import (
+    BUILTIN_FACTOR_SPECS as _FACTOR_SPECS,
+    KmaiMappingRegistry,
+    builtin_factor_catalog,
+    builtin_mapping_registry,
+    normalize_mapping_value,
 )
 
-
-_VALUE_FACTOR_MAP: dict[tuple[str, str], str] = {
-    ("cad.features", "扁位/平面"): "has_flat_or_plane",
-    ("cad.features", "槽类特征"): "has_slot_feature",
-    ("cad.features", "普通孔/辅助孔"): "has_standard_or_aux_hole",
-    ("cad.features", "铰孔/精孔"): "has_reamed_or_precision_hole",
-    ("cad.features", "型孔/割扁"): "has_shaped_hole_or_cut_flat",
-    ("cad.features", "顶尖孔"): "uses_center_hole_location",
-    ("precision.grades", "孔精加工"): "has_hole_finish_machining",
-    ("precision.grades", "珩孔要求"): "requires_honing",
-    ("precision.grades", "研孔要求"): "requires_hole_lapping",
-    ("precision.grades", "外圆磨削"): "requires_outer_diameter_grinding",
-    ("precision.grades", "端面磨削"): "requires_end_face_grinding",
-    ("precision.grades", "槽磨削"): "requires_slot_grinding",
-    ("precision.grades", "研外圆"): "requires_outer_diameter_lapping",
-    ("special.requirements", "渗氮层要求"): "has_nitrided_layer",
-    ("special.requirements", "铬酸阳极化要求"): "needs_chromic_acid_anodizing",
-    ("special.requirements", "硬质阳极化要求"): "needs_hard_anodizing",
-    ("special.requirements", "追溯标印"): "needs_marking",
-    ("special.requirements", "无损检测要求"): "needs_ndt_inspection",
-    ("special.requirements", "磁粉检查要求"): "needs_crack_inspection",
-    ("special.requirements", "烧伤检查要求"): "needs_burn_inspection",
-}
-
+KMAI_TARGET_DIRECTORY = r"KmMpsMcpServer\skills\process-route-generator\references\v1"
+KMAI_MAX_COMBINATIONS_ENV = "PROCESSMIND_KMAI_MAX_COMBINATIONS"
+DEFAULT_KMAI_MAX_COMBINATIONS = 10_000
+KMAI_MAX_CONDITION_OBJECTS_ENV = "PROCESSMIND_KMAI_MAX_CONDITION_OBJECTS"
+DEFAULT_KMAI_MAX_CONDITION_OBJECTS = 100_000
 
 _OPERATOR_MAP = {
     "eq": "=",
@@ -85,8 +42,32 @@ _OPERATOR_MAP = {
 }
 
 
-def _issue(code: str, message: str, path: str = "") -> ValidationIssue:
-    return ValidationIssue(code=code, path=path, message=message)
+def _issue(
+    code: str,
+    message: str,
+    path: str = "",
+    **details: Any,
+) -> KmaiCompatibilityIssue:
+    return KmaiCompatibilityIssue(code=code, path=path, message=message, **details)
+
+
+class _UnmappedMappingValue(ValueError):
+    def __init__(self, field: str, value: str):
+        self.field = field
+        self.value = value
+        super().__init__(f"KmAI mapping is required for {field}: {value}")
+
+
+class _IncompatibleMappingTarget(ValueError):
+    def __init__(self, field: str, value: str, factor_key: str, value_type: str):
+        self.field = field
+        self.value = value
+        self.factor_key = factor_key
+        self.value_type = value_type
+        super().__init__(
+            f"KmAI presence mapping {field}={value} cannot target "
+            f"{factor_key} ({value_type}); a boolean factor is required"
+        )
 
 
 def _field_options(package: RulePackageV2, key: str) -> list[str]:
@@ -303,6 +284,12 @@ def _route_catalog(package: RulePackageV2) -> tuple[dict[str, Any], dict[str, st
                 "process_key": process_key,
                 "process_id": f"P{index:03d}",
                 "process_name": process.display_name,
+                # Optional ProcessMind metadata. KmAI v1 ignores unknown process
+                # properties, so this keeps the original route contract intact.
+                "template_group_aliases": [
+                    alias.model_dump(mode="json")
+                    for alias in process.template_group_aliases
+                ],
                 "process_type": "main" if process.main else "conditional",
                 "stage": _process_stage(process.phase, process.display_name),
                 "sequence": process.default_sequence,
@@ -426,12 +413,38 @@ def _dynamic_special_requirement_factor(
     return factor_key
 
 
+def _mapped_manual_factor(snapshot: Any, dynamic_factors: dict[str, dict[str, Any]]) -> str:
+    """Expose a persisted manual mapping as a KmAI boolean factor once per export."""
+    factor_key = snapshot.target_factor_key
+    if factor_key in dynamic_factors:
+        return factor_key
+    dynamic_factors[factor_key] = {
+        "factor_key": factor_key,
+        "factor_id": f"F{900 + len(dynamic_factors):03d}",
+        "name": snapshot.target_factor_name,
+        "category": "manual_override",
+        "value_type": "boolean",
+        "multiple": False,
+        "required": False,
+        "source_mode": "manual_override",
+        "default_value": False,
+        "options": [],
+        "description": (
+            f"由 ProcessMind 映射 {snapshot.source_field}={snapshot.source_value} 生成；"
+            "KmAI 通过 manual.factor_overrides 提供 true/false。"
+        ),
+    }
+    return factor_key
+
+
 def _leaf_condition(
     package: RulePackageV2,
     node: ConditionNode,
     dynamic_factors: dict[str, dict[str, Any]],
     warnings: list[ValidationIssue],
     path: str,
+    mapping_registry: KmaiMappingRegistry,
+    mapping_usages: dict[str, KmaiMappingUsageSnapshot],
 ) -> list[list[dict[str, Any]]]:
     field = node.field or ""
     op = node.op or ""
@@ -443,8 +456,26 @@ def _leaf_condition(
     if field in {"cad.features", "precision.grades", "special.requirements"}:
         values = node.value if isinstance(node.value, list) else [node.value]
         factor_keys: list[str] = []
+        catalog_by_key = {item.factor_key: item for item in builtin_factor_catalog()}
         for value in values:
-            factor_key = _VALUE_FACTOR_MAP.get((field, str(value)))
+            snapshot = mapping_registry.resolve(field, str(value))
+            factor_key = snapshot.target_factor_key if snapshot is not None else None
+            if snapshot is not None:
+                if snapshot.mapping_mode == "existing_factor":
+                    catalog_item = catalog_by_key.get(snapshot.target_factor_key)
+                    value_type = catalog_item.value_type if catalog_item is not None else "unknown"
+                    if value_type != "boolean":
+                        raise _IncompatibleMappingTarget(
+                            field,
+                            normalize_mapping_value(value),
+                            snapshot.target_factor_key,
+                            value_type,
+                        )
+                mapping_usages[snapshot.mapping_identity] = KmaiMappingUsageSnapshot.model_validate(
+                    snapshot.model_dump(mode="json")
+                )
+                if snapshot.mapping_mode == "manual_factor":
+                    _mapped_manual_factor(snapshot, dynamic_factors)
             if not factor_key and field == "special.requirements":
                 factor_key = _dynamic_special_requirement_factor(str(value), dynamic_factors)
                 warnings.append(
@@ -455,7 +486,7 @@ def _leaf_condition(
                     )
                 )
             if not factor_key:
-                raise ValueError(f"字段 {field} 存在 KmAI 未映射值：{value}")
+                raise _UnmappedMappingValue(field, normalize_mapping_value(value))
             factor_keys.append(factor_key)
         leaves = [{"factor_key": factor_key, "op": "=", "value": True} for factor_key in factor_keys]
         if op in {"contains", "eq", "contains_all"}:
@@ -484,12 +515,30 @@ def _condition_dnf(
     dynamic_factors: dict[str, dict[str, Any]],
     warnings: list[ValidationIssue],
     path: str,
+    mapping_registry: KmaiMappingRegistry,
+    mapping_usages: dict[str, KmaiMappingUsageSnapshot],
 ) -> list[list[dict[str, Any]]]:
     if node.field is not None:
-        return _leaf_condition(package, node, dynamic_factors, warnings, path)
+        return _leaf_condition(
+            package,
+            node,
+            dynamic_factors,
+            warnings,
+            path,
+            mapping_registry,
+            mapping_usages,
+        )
     if node.all_conditions is not None:
         groups = [
-            _condition_dnf(package, child, dynamic_factors, warnings, f"{path}.all[{index}]")
+            _condition_dnf(
+                package,
+                child,
+                dynamic_factors,
+                warnings,
+                f"{path}.all[{index}]",
+                mapping_registry,
+                mapping_usages,
+            )
             for index, child in enumerate(node.all_conditions)
         ]
         clauses: list[list[dict[str, Any]]] = [[]]
@@ -499,9 +548,122 @@ def _condition_dnf(
     if node.any_conditions is not None:
         clauses: list[list[dict[str, Any]]] = []
         for index, child in enumerate(node.any_conditions):
-            clauses.extend(_condition_dnf(package, child, dynamic_factors, warnings, f"{path}.any[{index}]"))
+            clauses.extend(
+                _condition_dnf(
+                    package,
+                    child,
+                    dynamic_factors,
+                    warnings,
+                    f"{path}.any[{index}]",
+                    mapping_registry,
+                    mapping_usages,
+                )
+            )
         return clauses
     raise ValueError("KmAI V1 暂不支持 not 条件，请先在 ProcessMind 中改写为正向条件")
+
+
+def _condition_expansion_size(node: ConditionNode) -> tuple[int, int]:
+    """Return DNF clause and condition-object counts without materializing them."""
+    if node.field is not None:
+        values = node.value if isinstance(node.value, list) else [node.value]
+        if node.field in {"cad.features", "precision.grades", "special.requirements"}:
+            if node.op in {"contains_any", "in"}:
+                return len(values), len(values)
+            if node.op in {"contains", "eq", "contains_all"}:
+                return 1, len(values)
+        return 1, 1
+    if node.all_conditions is not None:
+        clause_count = 1
+        condition_object_count = 0
+        for child in node.all_conditions:
+            child_clause_count, child_condition_object_count = _condition_expansion_size(child)
+            # A Cartesian product repeats each side's conditions once per clause on the other side.
+            condition_object_count = (
+                condition_object_count * child_clause_count
+                + child_condition_object_count * clause_count
+            )
+            clause_count *= child_clause_count
+        return clause_count, condition_object_count
+    if node.any_conditions is not None:
+        clause_count = 0
+        condition_object_count = 0
+        for child in node.any_conditions:
+            child_clause_count, child_condition_object_count = _condition_expansion_size(child)
+            clause_count += child_clause_count
+            condition_object_count += child_condition_object_count
+        return clause_count, condition_object_count
+    raise ValueError("KmAI V1 暂不支持 not 条件，请先在 ProcessMind 中改写为正向条件")
+
+
+def _collect_unmapped_mapping_values(
+    node: ConditionNode,
+    mapping_registry: KmaiMappingRegistry,
+    unmapped_mappings: dict[tuple[str, str], dict[str, Any]],
+    rule_id: str,
+) -> bool:
+    """Collect every unresolved CAD/precision value before converting a rule."""
+    if node.field is not None:
+        if node.field not in {"cad.features", "precision.grades"}:
+            return False
+        values = node.value if isinstance(node.value, list) else [node.value]
+        unresolved = False
+        for value in values:
+            normalized_value = normalize_mapping_value(value)
+            if mapping_registry.resolve(node.field, normalized_value) is not None:
+                continue
+            details = unmapped_mappings.setdefault(
+                (node.field, normalized_value),
+                {"occurrences": 0, "rule_refs": set()},
+            )
+            details["occurrences"] += 1
+            details["rule_refs"].add(rule_id)
+            unresolved = True
+        return unresolved
+
+    children = node.all_conditions or node.any_conditions
+    if children is not None:
+        return any(
+            [
+                _collect_unmapped_mapping_values(
+                    child,
+                    mapping_registry,
+                    unmapped_mappings,
+                    rule_id,
+                )
+                for child in children
+            ]
+        )
+    if node.not_condition is not None:
+        return _collect_unmapped_mapping_values(
+            node.not_condition,
+            mapping_registry,
+            unmapped_mappings,
+            rule_id,
+        )
+    return False
+
+
+def _configured_max_combinations() -> int:
+    raw_value = os.getenv(KMAI_MAX_COMBINATIONS_ENV, "").strip()
+    if not raw_value:
+        return DEFAULT_KMAI_MAX_COMBINATIONS
+    try:
+        value = int(raw_value)
+    except ValueError:
+        return DEFAULT_KMAI_MAX_COMBINATIONS
+    return value if value > 0 else DEFAULT_KMAI_MAX_COMBINATIONS
+
+
+def _configured_max_condition_objects() -> int:
+    raw_value = os.getenv(KMAI_MAX_CONDITION_OBJECTS_ENV, "").strip()
+    if not raw_value:
+        return DEFAULT_KMAI_MAX_CONDITION_OBJECTS
+    try:
+        value = int(raw_value)
+    except ValueError:
+        return DEFAULT_KMAI_MAX_CONDITION_OBJECTS
+    return value if value > 0 else DEFAULT_KMAI_MAX_CONDITION_OBJECTS
 
 
 def _route_rules(
@@ -510,15 +672,97 @@ def _route_rules(
     dynamic_factors: dict[str, dict[str, Any]],
     errors: list[ValidationIssue],
     warnings: list[ValidationIssue],
+    max_combinations: int,
+    max_condition_objects: int,
+    mapping_registry: KmaiMappingRegistry,
+    mapping_usages: dict[str, KmaiMappingUsageSnapshot],
+    unmapped_mappings: dict[tuple[str, str], dict[str, Any]],
 ) -> dict[str, Any]:
     rules: list[dict[str, Any]] = []
+    generated_combination_count = 0
+    generated_condition_object_count = 0
     for rule_index, rule in enumerate(package.route_rules.rules):
         path = f"route_rules.rules[{rule_index}]"
+        if _collect_unmapped_mapping_values(
+            rule.when,
+            mapping_registry,
+            unmapped_mappings,
+            rule.rule_id,
+        ):
+            continue
         try:
-            clauses = _condition_dnf(package, rule.when, dynamic_factors, warnings, f"{path}.when")
+            combination_count, condition_object_count = _condition_expansion_size(rule.when)
         except ValueError as exc:
             errors.append(_issue("kmai_condition_unsupported", str(exc), f"{path}.when"))
             continue
+        projected_count = generated_combination_count + combination_count
+        if combination_count > max_combinations or projected_count > max_combinations:
+            errors.append(
+                _issue(
+                    "kmai_combination_limit_exceeded",
+                    (
+                        f"规则 {rule.rule_id} 的 all/any 条件将展开为 {combination_count} 个组合，"
+                        f"累计组合数为 {projected_count}，超过上限 {max_combinations}。"
+                        f"请缩小条件范围或调整 {KMAI_MAX_COMBINATIONS_ENV}。"
+                    ),
+                    f"{path}.when",
+                )
+            )
+            continue
+        projected_condition_object_count = (
+            generated_condition_object_count + condition_object_count
+        )
+        if (
+            condition_object_count > max_condition_objects
+            or projected_condition_object_count > max_condition_objects
+        ):
+            errors.append(
+                _issue(
+                    "kmai_condition_object_limit_exceeded",
+                    (
+                        f"规则 {rule.rule_id} 的 all/any 条件展开后包含 {condition_object_count} 个条件对象，"
+                        f"累计条件对象数为 {projected_condition_object_count}，"
+                        f"超过上限 {max_condition_objects}。"
+                        f"请缩小条件范围或调整 {KMAI_MAX_CONDITION_OBJECTS_ENV}。"
+                    ),
+                    f"{path}.when",
+                )
+            )
+            continue
+        try:
+            clauses = _condition_dnf(
+                package,
+                rule.when,
+                dynamic_factors,
+                warnings,
+                f"{path}.when",
+                mapping_registry,
+                mapping_usages,
+            )
+        except _UnmappedMappingValue as exc:
+            details = unmapped_mappings.setdefault(
+                (exc.field, exc.value),
+                {"occurrences": 0, "rule_refs": set()},
+            )
+            details["occurrences"] += 1
+            details["rule_refs"].add(rule.rule_id)
+            continue
+        except _IncompatibleMappingTarget as exc:
+            errors.append(
+                _issue(
+                    "kmai_mapping_factor_type_incompatible",
+                    str(exc),
+                    f"{path}.when",
+                    field=exc.field,
+                    value=exc.value,
+                )
+            )
+            continue
+        except ValueError as exc:
+            errors.append(_issue("kmai_condition_unsupported", str(exc), f"{path}.when"))
+            continue
+        generated_combination_count += len(clauses)
+        generated_condition_object_count += sum(len(clause) for clause in clauses)
         include_keys = [process_keys[item] for item in rule.then.include_process_ids if item in process_keys]
         exclude_keys = [process_keys[item] for item in rule.then.exclude_process_ids if item in process_keys]
         missing_ids = [
@@ -560,12 +804,38 @@ def _route_rules(
     }
 
 
-def build_kmai_compatibility_export(package: RulePackageV2) -> KmaiCompatibilityExport:
+def build_kmai_compatibility_export(
+    package: RulePackageV2,
+    mapping_registry: KmaiMappingRegistry | None = None,
+    *,
+    max_combinations: int | None = None,
+    max_condition_objects: int | None = None,
+) -> KmaiCompatibilityExport:
     errors: list[ValidationIssue] = []
     warnings: list[ValidationIssue] = []
     dynamic_factors: dict[str, dict[str, Any]] = {}
+    registry = mapping_registry or builtin_mapping_registry()
+    mapping_usages: dict[str, KmaiMappingUsageSnapshot] = {}
+    unmapped_mappings: dict[tuple[str, str], dict[str, Any]] = {}
+    combination_limit = max_combinations or _configured_max_combinations()
+    if combination_limit <= 0:
+        combination_limit = DEFAULT_KMAI_MAX_COMBINATIONS
+    condition_object_limit = max_condition_objects or _configured_max_condition_objects()
+    if condition_object_limit <= 0:
+        condition_object_limit = DEFAULT_KMAI_MAX_CONDITION_OBJECTS
     route_catalog, process_keys = _route_catalog(package)
-    route_rules = _route_rules(package, process_keys, dynamic_factors, errors, warnings)
+    route_rules = _route_rules(
+        package,
+        process_keys,
+        dynamic_factors,
+        errors,
+        warnings,
+        combination_limit,
+        condition_object_limit,
+        registry,
+        mapping_usages,
+        unmapped_mappings,
+    )
     factor_schema = _factor_schema(package, dynamic_factors)
     factor_expansion_rules = _factor_expansion_rules(package)
 
@@ -581,6 +851,25 @@ def build_kmai_compatibility_export(package: RulePackageV2) -> KmaiCompatibility
                     )
                 )
 
+    suggested_existing_factors = [
+        item.factor_key
+        for item in builtin_factor_catalog()
+        if item.value_type == "boolean"
+    ]
+    for (field, value), details in sorted(unmapped_mappings.items()):
+        errors.append(
+            _issue(
+                "kmai_mapping_required",
+                f"字段 {field} 存在需要映射到 KmAI 因素的值：{value}",
+                field=field,
+                value=value,
+                occurrences=details["occurrences"],
+                rule_refs=sorted(details["rule_refs"]),
+                suggested_existing_factors=suggested_existing_factors,
+                can_create_manual_factor=True,
+            )
+        )
+
     files = {
         "factor_schema.json": factor_schema,
         "factor_expansion_rules.json": factor_expansion_rules,
@@ -593,4 +882,6 @@ def build_kmai_compatibility_export(package: RulePackageV2) -> KmaiCompatibility
         errors=errors,
         warnings=warnings,
         files=files,
+        mapping_signature=registry.signature,
+        mapping_usages=sorted(mapping_usages.values(), key=lambda item: item.mapping_identity),
     )

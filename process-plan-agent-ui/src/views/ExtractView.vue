@@ -46,7 +46,11 @@
         :pending-count="routeMergePendingCount"
         :can-enter="canEnterRouteFactorAnalysis"
         :status-label="routeMergeStatusLabel"
+        :has-template-aliases="hasTemplateGroupAliases"
+        :show-template-aliases="showTemplateAliasDetails"
         :notice="visibleRouteMergeNotice"
+        @open-template-mapping="templateGroupMappingVisible = true"
+        @toggle-template-aliases="showTemplateAliasDetails = !showTemplateAliasDetails"
         @rerun="resetDialogVisible = true"
       />
 
@@ -147,6 +151,8 @@
             :can-remove="canRemoveSelectedPreviewItem"
             :rename-editing="previewRenameEditing"
             :rename-draft="previewRenameDraft"
+            :show-template-aliases="showTemplateAliasDetails"
+            :template-group-aliases="templateGroupAliases"
             @select="selectPreviewItem"
             @reorder="reorderPreviewItems"
             @move-up="movePreviewItemUp"
@@ -175,6 +181,12 @@
         @previous="goBackToUpload"
         @next="openRouteFactorAnalysis"
       />
+      <TemplateGroupMappingDialog
+        v-model="templateGroupMappingVisible"
+        :operations="templateMappingOperations"
+        :aliases="templateGroupAliases"
+        @save="saveTemplateGroupMappings"
+      />
       </template>
     </div>
 
@@ -201,6 +213,7 @@ import ExtractRouteShellHeader from '@/components/extract/ExtractRouteShellHeade
 import ExtractStatusCard from '@/components/extract/ExtractStatusCard.vue'
 import RouteProgressCard from '@/components/extract/RouteProgressCard.vue'
 import WorkflowResetDialog from '@/components/workflow/WorkflowResetDialog.vue'
+import TemplateGroupMappingDialog from '@/components/extract/TemplateGroupMappingDialog.vue'
 import {
   useRouteMergeResultWorkspace,
   type RouteMergeGroup,
@@ -209,6 +222,17 @@ import { useRouteMergeWorkspace } from '@/composables/useRouteMergeWorkspace'
 import { useRouteRulesFlow } from '@/composables/useRouteRulesFlow'
 import { useRouteMergeInteractionActions } from '@/composables/useRouteMergeInteractionActions'
 import { useRouteMergeDisplayHelpers } from '@/composables/useRouteMergeDisplayHelpers'
+import {
+  aliasesFromRouteSegments,
+  hasTemplateGroupAliasDraft,
+  inferTemplateStepFamilyFromOperation,
+  isTemplateMappableOperation,
+  loadTemplateGroupAliases,
+  saveTemplateGroupAliases,
+  serializeAliasesForRouteSegment,
+  type TemplateAliasBinding,
+  type TemplateOperation,
+} from '@/composables/templateGroupMapping'
 import {
   buildRouteFullSetSectionsFromTree,
   buildRouteOperationNameCounts,
@@ -262,6 +286,7 @@ const selectedMergeGroupId = ref('')
 const mobileRoutePane = ref<'source' | 'queue' | 'result'>('source')
 const resetDialogVisible = ref(false)
 const resettingFromStepTwo = ref(false)
+const visibleRoutes = computed(() => routes.value.filter(route => !isNoiseOperationName(route.name)))
 const routeFullSetOperations = computed(() =>
   [...visibleRoutes.value].sort((a, b) => a.sequence - b.sequence || a.id - b.id)
 )
@@ -337,6 +362,131 @@ const totalRouteSampleCount = computed(() =>
     return total > best ? total : best
   }, 0)
 )
+const templateGroupMappingVisible = ref(false)
+const showTemplateAliasDetails = ref(false)
+const templateGroupAliases = ref<Record<string, TemplateAliasBinding>>({})
+const templateAliasesHydratedProjectId = ref<number | null>(null)
+const templateOperationFamilyById = computed(() => {
+  const families = new Map<number, string>()
+  routeMergeGroupsSorted.value.forEach((group) => {
+    const family = String(group.step_family || '').trim()
+    if (!family) return
+    group.operation_ids.forEach((operationId) => {
+      const normalizedId = Number(operationId || 0)
+      if (normalizedId > 0) families.set(normalizedId, family)
+    })
+  })
+  routeMergeNormalizedSegments.value.forEach((segment) => {
+    const family = String(segment?.step_family || '').trim()
+    if (!family) return
+    ;(segment?.source_operation_ids || []).forEach((operationId: unknown) => {
+      const normalizedId = Number(operationId || 0)
+      if (normalizedId > 0 && !families.has(normalizedId)) families.set(normalizedId, family)
+    })
+  })
+  return families
+})
+const templateMappingOperations = computed<TemplateOperation[]>(() => {
+  const seen = new Set<number>()
+  return routeFullSetOperations.value
+    .map((operation) => {
+      const sourceOperationId = Number((operation as any).source_operation_id || operation.id || 0)
+      const name = String((operation as any).source_operation_name || operation.name || '').trim()
+      const stepItems = Array.isArray((operation as any).step_items)
+        ? (operation as any).step_items.map((item: unknown) => String(item || '').trim()).filter(Boolean)
+        : []
+      const inferredStepFamily = inferTemplateStepFamilyFromOperation({ name, step_items: stepItems })
+      const stepFamily = String(
+        inferredStepFamily
+        || (operation as any).step_family
+        || templateOperationFamilyById.value.get(sourceOperationId)
+        || '',
+      ).trim()
+      return {
+        id: sourceOperationId,
+        source_operation_id: sourceOperationId,
+        name,
+        sequence: Number(operation.sequence || 0),
+        step_family: stepFamily,
+        step_items: stepItems,
+      }
+    })
+    .filter((operation) => {
+      if (!operation.id || seen.has(operation.id)) return false
+      seen.add(operation.id)
+      return true
+    })
+})
+const templateMappableOperations = computed<TemplateOperation[]>(() =>
+  templateMappingOperations.value.filter(isTemplateMappableOperation)
+)
+const templateAliasRouteFingerprint = computed(() => JSON.stringify(templateMappableOperations.value.map(operation => ({
+  id: operation.id,
+  name: operation.name,
+  step_family: operation.step_family,
+}))))
+const hasTemplateGroupAliases = computed(() => templateMappableOperations.value.some(operation => (
+  Boolean(templateGroupAliases.value[String(operation.id)]?.alias)
+)))
+
+function scopedTemplateGroupAliases(aliases: Record<string, TemplateAliasBinding>) {
+  const validIds = new Set(templateMappableOperations.value.map(operation => Number(operation.id)))
+  return Object.fromEntries(Object.entries(aliases)
+    .filter(([operationId, binding]) => validIds.has(Number(operationId)) && binding?.alias)
+    .map(([operationId, binding]) => [operationId, {
+      source_operation_id: Number(binding.source_operation_id),
+      alias: String(binding.alias || ''),
+      template_group_id: String(binding.template_group_id || ''),
+      template_group_path: [...(binding.template_group_path || [])],
+    }])) as Record<string, TemplateAliasBinding>
+}
+
+function hydrateTemplateGroupAliases() {
+  const currentProjectId = Number(projectId.value || 0)
+  if (!currentProjectId || !templateMappableOperations.value.length) return
+  if (templateAliasesHydratedProjectId.value === currentProjectId) return
+
+  const hasLocalDraft = hasTemplateGroupAliasDraft(currentProjectId)
+  const localAliases = loadTemplateGroupAliases(currentProjectId, templateMappableOperations.value)
+  const savedAliases = aliasesFromRouteSegments(routeMergeNormalizedSegments.value)
+  const aliases = scopedTemplateGroupAliases(hasLocalDraft ? localAliases : (
+    Object.keys(savedAliases).length ? savedAliases : localAliases
+  ))
+  templateGroupAliases.value = aliases
+  templateAliasesHydratedProjectId.value = currentProjectId
+  if (!hasLocalDraft && Object.keys(aliases).length) {
+    saveTemplateGroupAliases(currentProjectId, aliases, undefined, templateAliasRouteFingerprint.value)
+  }
+}
+
+function saveTemplateGroupMappings(aliases: Record<string, TemplateAliasBinding>) {
+  if (!projectId.value) return
+  templateGroupAliases.value = scopedTemplateGroupAliases(aliases)
+  saveTemplateGroupAliases(
+    projectId.value,
+    templateGroupAliases.value,
+    undefined,
+    templateAliasRouteFingerprint.value,
+  )
+  routeMergeNotice.value = Object.keys(templateGroupAliases.value).length
+    ? '模板分组映射已保存，详细信息可查看工序别名。'
+    : '模板分组映射已清空。'
+}
+
+function templateGroupAliasesForItem(item: { operationIds: number[] }) {
+  return serializeAliasesForRouteSegment({ source_operation_ids: item.operationIds }, templateGroupAliases.value)
+}
+
+watch(projectId, (nextProjectId, previousProjectId) => {
+  if (nextProjectId === previousProjectId) return
+  templateAliasesHydratedProjectId.value = null
+  templateGroupAliases.value = {}
+  showTemplateAliasDetails.value = false
+})
+
+watch([projectId, templateAliasRouteFingerprint], () => {
+  hydrateTemplateGroupAliases()
+}, { flush: 'post' })
 
 const {
   buildRoutePreviewStats,
@@ -414,6 +564,7 @@ const {
   routeMergeResultItems,
   routeMergePreviewItems,
   routeMergeEditUnlocked,
+  templateGroupAliasesForItem,
   buildRouteMergeGroupsFromSuggestions,
   buildRoutePreviewStats,
   findPreferredMergeGroupId,
@@ -545,7 +696,6 @@ const {
   removePreviewItemBase,
 })
 
-const visibleRoutes = computed(() => routes.value.filter(route => !isNoiseOperationName(route.name)))
 function getNextActionableGroupId(currentId: string) {
   return getNextActionableGroupIdFromGroups(routeMergeActionableGroupsSorted.value, currentId)
 }
@@ -557,8 +707,8 @@ function buildRouteMergeGroupsFromSuggestions(suggestions: MergeSuggestion[]) {
   )
 }
 
-function buildRouteResultSaveFingerprint(items = routeMergeResultItems.value) {
-  return JSON.stringify(items.map(item => ({
+function routeResultLayoutSnapshot(items = routeMergeResultItems.value) {
+  return items.map(item => ({
     id: String(item.id || ''),
     groupId: String(item.groupId || ''),
     sequence: Number(item.sequence || 0),
@@ -573,12 +723,34 @@ function buildRouteResultSaveFingerprint(items = routeMergeResultItems.value) {
       operationIds: (child.operationIds || []).map(id => Number(id)).filter(Boolean),
       sourceNodes: (child.sourceNodes || []).map(value => String(value || '').trim()).filter(Boolean),
     })),
-  })))
+  }))
 }
 
-function routeResultMatchesBackendWorkspace(routeResultFingerprint: string) {
+function templateAliasFingerprint(aliases: Record<string, TemplateAliasBinding>) {
+  return JSON.stringify(Object.values(aliases)
+    .map(binding => ({
+      source_operation_id: Number(binding.source_operation_id || 0),
+      alias: String(binding.alias || ''),
+      template_group_id: String(binding.template_group_id || ''),
+      template_group_path: [...(binding.template_group_path || [])],
+    }))
+    .filter(binding => binding.source_operation_id > 0 && binding.alias && binding.template_group_id)
+    .sort((left, right) => left.source_operation_id - right.source_operation_id))
+}
+
+function buildRouteResultSaveFingerprint(items = routeMergeResultItems.value) {
+  return JSON.stringify({
+    items: routeResultLayoutSnapshot(items),
+    template_group_aliases: templateAliasFingerprint(templateGroupAliases.value),
+  })
+}
+
+function routeResultMatchesBackendWorkspace() {
   if (!routeMergeNormalizedSegments.value.length) return false
-  return routeResultFingerprint === buildRouteResultSaveFingerprint(routeMergePreviewItems.value)
+  return JSON.stringify(routeResultLayoutSnapshot(routeMergeResultItems.value))
+    === JSON.stringify(routeResultLayoutSnapshot(routeMergePreviewItems.value))
+    && templateAliasFingerprint(templateGroupAliases.value)
+      === templateAliasFingerprint(aliasesFromRouteSegments(routeMergeNormalizedSegments.value))
 }
 
 function hasInMemoryRouteMergeWorkspace(projectIdToCheck?: number | string | null) {
@@ -664,7 +836,7 @@ async function openRouteFactorAnalysis() {
       routeResultFingerprint
       && (
         routeResultFingerprint === lastSavedRouteResultFingerprint.value
-        || routeResultMatchesBackendWorkspace(routeResultFingerprint)
+        || routeResultMatchesBackendWorkspace()
       )
     ) {
       routeMergeNotice.value = '结果路线已是最新，直接进入规则分析。'

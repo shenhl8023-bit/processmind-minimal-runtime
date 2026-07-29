@@ -1,5 +1,10 @@
 import { api } from './client'
-import type { FinalizedRulePackageResult, FinalizedRulePackageSimulationResult } from './extract'
+import type {
+  FinalizedRulePackageResult,
+  FinalizedRulePackageSimulationResult,
+  TemplateGroupAliasBinding,
+} from './extract'
+import type { KmaiCompatibilityExport } from './kmaiFactorMappings'
 
 export type InputFieldType = 'string' | 'number' | 'boolean' | 'single_select' | 'multi_select'
 
@@ -36,6 +41,7 @@ export type RulePackageProcess = {
   process_id: string
   process_code?: string
   display_name: string
+  template_group_aliases?: TemplateGroupAliasBinding[]
   phase?: string
   default_sequence?: number
   main?: boolean
@@ -190,14 +196,7 @@ export type CompileRulePackageResponse = {
   package: RulePackageV2
   content_hash: string
   validation: RulePackageValidationReport
-  kmai_compatibility: {
-    format: 'kmai-v1'
-    valid: boolean
-    target_directory: string
-    errors: Array<{ code: string; path?: string; message: string }>
-    warnings: Array<{ code: string; path?: string; message: string }>
-    files: Record<string, Record<string, unknown>>
-  }
+  kmai_compatibility: KmaiCompatibilityExport
 }
 
 export type SimulateRulePackageDraftResponse = FinalizedRulePackageSimulationResult

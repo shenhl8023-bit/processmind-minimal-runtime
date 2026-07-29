@@ -12,9 +12,15 @@ services:
     restart: unless-stopped
     environment:
       PROCESSMIND_DATA_DIR: /runtime-data
+      DATABASE_URL: ${DATABASE_URL:-sqlite+aiosqlite:////runtime-data/db/process_mind.db}
       LLM_API_URL: ${LLM_API_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}
+      KNOWLEDGE_SEARCH_PROVIDER: ${KNOWLEDGE_SEARCH_PROVIDER:-}
+      KNOWLEDGE_SEARCH_API_URL: ${KNOWLEDGE_SEARCH_API_URL:-}
+      KNOWLEDGE_SEARCH_API_KEY: ${KNOWLEDGE_SEARCH_API_KEY:-}
+      PROCESSMIND_KMAI_MAX_COMBINATIONS: ${PROCESSMIND_KMAI_MAX_COMBINATIONS:-10000}
+      PROCESSMIND_KMAI_MAX_CONDITION_OBJECTS: ${PROCESSMIND_KMAI_MAX_CONDITION_OBJECTS:-100000}
     volumes:
       - ./data:/runtime-data
     healthcheck:

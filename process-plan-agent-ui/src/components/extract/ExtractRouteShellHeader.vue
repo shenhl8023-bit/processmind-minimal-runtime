@@ -15,6 +15,25 @@
         <span class="tag" :class="canEnter ? 'tag-success' : 'tag-warning'">
           {{ canEnter ? '已收敛' : statusLabel }}
         </span>
+        <button
+          class="btn btn-text btn-sm route-shell-tool"
+          type="button"
+          :disabled="!canEnter"
+          @click="$emit('open-template-mapping')"
+        >
+          <Connection class="icon-sm" />
+          模板分组映射
+        </button>
+        <button
+          class="btn btn-text btn-sm route-shell-tool"
+          :class="{ 'route-shell-tool-active': showTemplateAliases }"
+          type="button"
+          :disabled="!hasTemplateAliases"
+          @click="$emit('toggle-template-aliases')"
+        >
+          <InfoFilled class="icon-sm" />
+          详细信息
+        </button>
         <button class="btn btn-text btn-sm route-shell-revert" @click="$emit('rerun')">
           <svg viewBox="0 0 24 24" fill="none" class="icon-sm">
             <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 005.373 6.222M20 20v-5h-.581m-15.357-2a8.001 8.001 0 0013.984 4.778" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -32,6 +51,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { Connection, InfoFilled } from '@element-plus/icons-vue'
 
 const props = defineProps<{
   editUnlocked: boolean
@@ -40,11 +60,15 @@ const props = defineProps<{
   pendingCount: number
   canEnter: boolean
   statusLabel: string
+  hasTemplateAliases: boolean
+  showTemplateAliases: boolean
   notice?: string
 }>()
 
 defineEmits<{
   rerun: []
+  'open-template-mapping': []
+  'toggle-template-aliases': []
 }>()
 
 const isWarningNotice = computed(() =>
@@ -123,6 +147,38 @@ const isWarningNotice = computed(() =>
   background: transparent;
   border: 1px solid #c7d2fe;
   transition: all .2s;
+}
+
+.route-shell-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border: 1px solid #c7d2fe;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #4f46e5;
+  font-size: 11.5px;
+  font-weight: 600;
+  transition: all .2s;
+}
+
+.route-shell-tool:hover:not(:disabled),
+.route-shell-tool-active {
+  border-color: #818cf8;
+  background: #eef2ff;
+  color: #3730a3;
+}
+
+.route-shell-tool:disabled {
+  border-color: #e2e8f0;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.route-shell-tool .icon-sm {
+  width: 13px;
+  height: 13px;
 }
 
 .route-shell-revert:hover {

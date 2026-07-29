@@ -446,6 +446,41 @@ describe('V2 compile DTO from finalize cards', () => {
     expect(request.processes).toEqual([expect.objectContaining({ process_id: 'process_clean', main: true })])
   })
 
+  it('carries template aliases as hidden metadata without changing process display names', () => {
+    const request = buildCompileRequestFromCards({
+      projectId: 12,
+      packageName: 'template_alias_metadata',
+      routeVersionId: 3,
+      cards: [
+        finalizeItem({
+          id: 'process_drill',
+          sequence: 70,
+          normalized_step_name: '钻孔',
+          template_group_aliases: [{
+            source_operation_id: 80,
+            alias: '钻孔（A侧/外环槽）',
+            template_group_id: '3358f0f62d04abb99d35dec48ef73e1',
+            template_group_path: ['A侧', '外环槽'],
+          }],
+        }),
+      ],
+      displayName: segment => segment.normalized_step_name,
+      phaseLabel: () => 'machining',
+      primarySteps: () => ['钻孔'],
+      attachedSteps: () => [],
+      conditionFields: baseConditionFields(),
+    })
+
+    const process = request.processes[0]!
+    expect(process.display_name).toBe('钻孔')
+    expect(process.template_group_aliases).toEqual([{
+      source_operation_id: 80,
+      alias: '钻孔（A侧/外环槽）',
+      template_group_id: '3358f0f62d04abb99d35dec48ef73e1',
+      template_group_path: ['A侧', '外环槽'],
+    }])
+  })
+
   it('nests dotted factor keys for expression engine', () => {
     expect(nestFactorValues({
       'material.grade': '9Cr18',

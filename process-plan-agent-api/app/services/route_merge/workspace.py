@@ -19,7 +19,9 @@ from collections.abc import Awaitable, Callable
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import DocumentOperationDetail, RouteMergeSnapshot
+from app.core.paths import UPLOAD_DIR
+from app.models.models import Document, DocumentOperationDetail, RouteMergeSnapshot
+from app.services.rule_packages.lifecycle import supersede_published_rule_packages
 from app.services.route_merge.config import (
     ROUTE_MERGE_ALGO_VERSION,
 )
@@ -50,6 +52,120 @@ from app.services.route_merge.sorting import (
 )
 
 ROUTE_MERGE_BUILD_LOCKS: dict[int, asyncio.Lock] = {}
+
+
+def get_route_merge_project_lock(project_id: int) -> asyncio.Lock:
+    return ROUTE_MERGE_BUILD_LOCKS.setdefault(project_id, asyncio.Lock())
+
+
+def _document_source_key(document: Document) -> str:
+    """Return a cheap, persistent content-version key for an uploaded document."""
+    path = UPLOAD_DIR / str(document.filename or "")
+    try:
+        stat = path.stat()
+        file_state = f"present:{stat.st_size}:{stat.st_mtime_ns}"
+    except OSError:
+        file_state = "missing"
+    return json.dumps(
+        [
+            str(document.id or 0),
+            str(document.filename or ""),
+            str(document.original_name or ""),
+            str(document.file_type or ""),
+            str(document.file_size or 0),
+            file_state,
+        ],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+async def _project_document_source_keys(project_id: int, db: AsyncSession) -> list[str]:
+    documents = (
+        await db.execute(
+            select(Document)
+            .where(Document.project_id == project_id)
+            .order_by(Document.id.asc())
+        )
+    ).scalars().all()
+    return [_document_source_key(document) for document in documents]
+
+
+def _document_source_digest(document_source_keys: list[str] | None = None) -> str:
+    payload = json.dumps(
+        sorted(document_source_keys or []),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+async def invalidate_project_route_merge_cache(
+    db: AsyncSession,
+    project_id: int,
+    *,
+    document_ids: list[int] | set[int] | tuple[int, ...] | None = None,
+) -> dict[str, int]:
+    """Invalidate only rebuildable route-merge state for one project.
+
+    ``document_ids=None`` clears every parsed document-detail row for the
+    project. Passing explicit ids keeps unaffected document parse caches while
+    still invalidating the project-wide merge snapshot.
+    """
+    snapshots = (
+        await db.execute(
+            select(RouteMergeSnapshot).where(RouteMergeSnapshot.project_id == project_id)
+        )
+    ).scalars().all()
+    for snapshot in snapshots:
+        await db.delete(snapshot)
+
+    detail_rows: list[DocumentOperationDetail] = []
+    if document_ids is None:
+        detail_rows = (
+            await db.execute(
+                select(DocumentOperationDetail).where(DocumentOperationDetail.project_id == project_id)
+            )
+        ).scalars().all()
+    else:
+        normalized_document_ids = {
+            int(document_id)
+            for document_id in document_ids
+            if int(document_id) > 0
+        }
+        if normalized_document_ids:
+            detail_rows = (
+                await db.execute(
+                    select(DocumentOperationDetail).where(
+                        DocumentOperationDetail.project_id == project_id,
+                        DocumentOperationDetail.document_id.in_(normalized_document_ids),
+                    )
+                )
+            ).scalars().all()
+    for detail_row in detail_rows:
+        await db.delete(detail_row)
+
+    await db.flush()
+    return {
+        "route_merge_snapshots": len(snapshots),
+        "document_operation_details": len(detail_rows),
+    }
+
+
+async def invalidate_project_document_derived_state(
+    db: AsyncSession,
+    project_id: int,
+    *,
+    document_ids: list[int] | set[int] | tuple[int, ...] | None = None,
+) -> dict[str, int]:
+    """Invalidate cached and published state derived from a document set."""
+    result = await invalidate_project_route_merge_cache(
+        db,
+        project_id,
+        document_ids=document_ids,
+    )
+    result["finalized_rule_packages"] = await supersede_published_rule_packages(project_id, db)
+    return result
 
 
 def _clean_text_line(line: str) -> str:
@@ -267,7 +383,11 @@ def build_normalized_route_from_groups(groups: list[dict]) -> list[dict]:
     return route_items
 
 
-def route_merge_source_signature(operations: list[dict], detail_rows: list[DocumentOperationDetail]) -> str:
+def route_merge_source_signature(
+    operations: list[dict],
+    detail_rows: list[DocumentOperationDetail],
+    document_source_keys: list[str] | None = None,
+) -> str:
     op_keys = sorted(f"{item.get('id')}:{item.get('name')}:{item.get('sequence')}" for item in operations)
     detail_keys = sorted(
         (
@@ -277,14 +397,19 @@ def route_merge_source_signature(operations: list[dict], detail_rows: list[Docum
         )
         for row in detail_rows
     )
+    document_keys = sorted(document_source_keys or [])
+    document_digest = _document_source_digest(document_keys)
     payload = json.dumps(
-        {"operations": op_keys, "details": detail_keys},
+        {"operations": op_keys, "details": detail_keys, "documents": document_keys},
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
     )
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-    return f"{ROUTE_MERGE_ALGO_VERSION}|ops={len(op_keys)}|details={len(detail_keys)}|sha256={digest}"
+    return (
+        f"{ROUTE_MERGE_ALGO_VERSION}|ops={len(op_keys)}|details={len(detail_keys)}|"
+        f"docs={len(document_keys)}|docsha256={document_digest}|sha256={digest}"
+    )
 
 
 async def get_latest_route_merge_snapshot(project_id: int, db: AsyncSession) -> RouteMergeSnapshot | None:
@@ -323,6 +448,7 @@ def build_route_merge_snapshot_payload(
     project_id: int,
     raw_operations: list[dict],
     detail_rows: list[DocumentOperationDetail],
+    document_source_keys: list[str] | None = None,
 ) -> dict[str, object]:
     groups = build_initial_merge_groups(raw_operations, detail_rows)
     suggestions = build_merge_suggestions_from_groups(groups)
@@ -333,7 +459,11 @@ def build_route_merge_snapshot_payload(
         "merge_groups": groups,
         "merge_suggestions": suggestions,
         "normalized_superset_route": normalized_route,
-        "source_signature": route_merge_source_signature(raw_operations, detail_rows),
+        "source_signature": route_merge_source_signature(
+            raw_operations,
+            detail_rows,
+            document_source_keys,
+        ),
     }
 
 
@@ -343,10 +473,10 @@ async def ensure_route_merge_snapshot(
     load_superset_route: Callable[[], Awaitable[list[dict]]],
     load_detail_rows: Callable[[], Awaitable[list[DocumentOperationDetail]]],
 ) -> dict[str, object]:
-    async def _load_snapshot_payload() -> dict[str, object] | None:
+    async def _load_snapshot_payload() -> tuple[dict[str, object] | None, bool, bool]:
         latest = await get_latest_route_merge_snapshot(project_id, db)
         if not latest:
-            return None
+            return None, False, False
         try:
             payload = {
                 "project_id": project_id,
@@ -357,8 +487,15 @@ async def ensure_route_merge_snapshot(
                 "source_signature": latest.source_signature or "",
                 "review_state": json.loads(latest.review_state_json or "{}"),
             }
-            if not str(payload.get("source_signature") or "").startswith(f"{ROUTE_MERGE_ALGO_VERSION}|"):
-                raise ValueError("stale_route_merge_snapshot")
+            source_signature = str(payload.get("source_signature") or "")
+            if not source_signature.startswith(f"{ROUTE_MERGE_ALGO_VERSION}|"):
+                return None, True, False
+            document_digest_match = re.search(r"(?:^|\|)docsha256=([0-9a-f]{64})(?:\||$)", source_signature)
+            if not document_digest_match:
+                return None, True, False
+            current_document_keys = await _project_document_source_keys(project_id, db)
+            if document_digest_match.group(1) != _document_source_digest(current_document_keys):
+                return None, True, True
             detail_count = int(
                 (
                     await db.execute(
@@ -374,24 +511,36 @@ async def ensure_route_merge_snapshot(
                 for group in payload.get("merge_groups") or []
             )
             if detail_count > 0 or not payload.get("merge_groups") or has_detail_evidence:
-                return payload
+                return payload, False, False
         except Exception:
-            return None
-        return None
+            return None, False, False
+        return None, False, False
 
-    cached = await _load_snapshot_payload()
+    cached, _, _ = await _load_snapshot_payload()
     if cached:
         return cached
 
-    lock = ROUTE_MERGE_BUILD_LOCKS.setdefault(project_id, asyncio.Lock())
+    lock = get_route_merge_project_lock(project_id)
     async with lock:
-        cached = await _load_snapshot_payload()
+        cached, cache_stale, document_source_changed = await _load_snapshot_payload()
         if cached:
             return cached
 
+        if cache_stale:
+            if document_source_changed:
+                await invalidate_project_document_derived_state(db, project_id)
+            else:
+                await invalidate_project_route_merge_cache(db, project_id)
+
         raw_operations = await load_superset_route()
         detail_rows = await load_detail_rows()
-        payload = build_route_merge_snapshot_payload(project_id, raw_operations, detail_rows)
+        document_source_keys = await _project_document_source_keys(project_id, db)
+        payload = build_route_merge_snapshot_payload(
+            project_id,
+            raw_operations,
+            detail_rows,
+            document_source_keys,
+        )
         await save_route_merge_snapshot(project_id, db, payload, review_state={})
         await db.commit()
         return payload
@@ -446,7 +595,10 @@ __all__ = [
     "detail_row_atomic_names",
     "ensure_route_merge_snapshot",
     "find_group_index",
+    "get_route_merge_project_lock",
     "get_latest_route_merge_snapshot",
+    "invalidate_project_document_derived_state",
+    "invalidate_project_route_merge_cache",
     "build_route_item_source_lookup",
     "build_saved_route_version_segments",
     "merge_family_key",

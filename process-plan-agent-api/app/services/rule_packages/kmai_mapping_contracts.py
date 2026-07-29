@@ -23,10 +23,16 @@ class KmaiMappingSnapshot(StrictModel):
     target_factor_category: str
 
 
+class KmaiMappingAuditState(KmaiMappingSnapshot):
+    status: Literal["active", "inactive"]
+    promoted_from_id: int | None = None
+
+
 class KmaiFactorCatalogItem(StrictModel):
     factor_key: str
     factor_name: str
     factor_category: str
+    value_type: Literal["boolean", "enum"]
     source_mode: str = "catalog"
     read_only: bool = False
 
@@ -39,7 +45,6 @@ class KmaiMappingCreateRequest(StrictModel):
     mapping_mode: KmaiMappingMode
     target_factor_key: str | None = None
     target_factor_name: str | None = None
-    target_factor_category: str | None = None
     actor: str = "默认用户"
 
     @model_validator(mode="after")
@@ -64,7 +69,6 @@ class KmaiMappingUpdateRequest(StrictModel):
     mapping_mode: KmaiMappingMode | None = None
     target_factor_key: str | None = None
     target_factor_name: str | None = None
-    target_factor_category: str | None = None
     status: Literal["active", "inactive"] | None = None
     actor: str = "默认用户"
 
@@ -82,6 +86,9 @@ class KmaiMappingOut(KmaiMappingSnapshot):
     promoted_from_id: int | None = None
     created_by: str = "默认用户"
     updated_by: str = "默认用户"
+    overridden: bool = False
+    read_only: bool = False
+    reference_count: int = Field(default=0, ge=0)
 
 
 class KmaiMappingPreviewRequest(StrictModel):

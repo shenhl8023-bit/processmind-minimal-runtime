@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     v-model="visible"
-    width="480px"
+    :width="dialogWidth"
     class="premium-settings-dialog"
     :show-close="false"
     :align-center="true"
@@ -28,7 +28,12 @@
       </div>
     </template>
 
-    <div class="p-dialog-body">
+    <div class="p-settings-tabs" role="tablist" aria-label="设置类型">
+      <button type="button" :class="{ active: activeTab === 'model' }" @click="activeTab = 'model'">模型配置</button>
+      <button type="button" :class="{ active: activeTab === 'mappings' }" @click="activeTab = 'mappings'">KmAI 映射</button>
+    </div>
+
+    <div v-if="activeTab === 'model'" class="p-dialog-body">
       <!-- Preset Templates -->
       <div class="p-preset-section">
         <label class="p-label">快速配置</label>
@@ -149,8 +154,14 @@
       </div>
     </div>
 
+    <KmaiMappingManagerDialog
+      v-else
+      :project-id="projectId"
+      :active="visible && activeTab === 'mappings'"
+    />
+
     <template #footer>
-      <div class="p-dialog-footer">
+      <div v-if="activeTab === 'model'" class="p-dialog-footer">
         <div class="p-footer-left">
           <transition name="fade">
             <div v-if="saveStatus" :class="['p-status-indicator', saveStatus.type]">
@@ -184,11 +195,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { listSettings, updateSetting, testLLMConnection, getAvailableModels } from '@/api'
+import KmaiMappingManagerDialog from '@/components/kmai/KmaiMappingManagerDialog.vue'
 
 const props = defineProps<{
   modelValue: boolean
+  projectId: number | null
 }>()
 
 const emit = defineEmits<{
@@ -196,6 +209,8 @@ const emit = defineEmits<{
 }>()
 
 const visible = ref(false)
+const activeTab = ref<'model' | 'mappings'>('model')
+const dialogWidth = computed(() => activeTab.value === 'model' ? '480px' : 'min(1180px, calc(100vw - 32px))')
 const showKey = ref(false)
 const saving = ref(false)
 const testing = ref(false)
@@ -477,6 +492,30 @@ function handleClose() {
 
 .p-dialog-body {
   padding: 16px 20px;
+}
+
+.p-settings-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 10px 20px 14px;
+}
+
+.p-settings-tabs button {
+  flex: 1;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  padding: 7px 10px;
+  background: #f8fafc;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.p-settings-tabs button.active {
+  border-color: #818cf8;
+  background: #eef2ff;
+  color: #4338ca;
 }
 
 /* Preset Section */

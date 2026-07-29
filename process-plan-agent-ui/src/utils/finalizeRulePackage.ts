@@ -8,6 +8,7 @@ import type {
   RulePackageRule,
   RuleConditionCandidate,
 } from '@/api/rulePackages'
+import type { TemplateGroupAliasBinding } from '@/api'
 
 export function normalizeExportProcessName(name: string) {
   const text = String(name || '').trim()
@@ -216,6 +217,36 @@ function slugStepId(processId: string, stepName: string, index: number, kind: 'p
     .replace(/[^a-z0-9一-鿿]+/g, '_')
     .replace(/^_+|_+$/g, '')
   return `${processId}.${kind}.${base || index + 1}`
+}
+
+function normalizeTemplateGroupAliases(value: unknown): TemplateGroupAliasBinding[] {
+  if (!Array.isArray(value)) return []
+  return value.map((item) => {
+    if (!item || typeof item !== 'object') return null
+    const sourceOperationId = Number((item as any).source_operation_id || 0)
+    const alias = String((item as any).alias || '').trim()
+    const templateGroupId = String((item as any).template_group_id || '').trim()
+    const templateGroupPath = Array.isArray((item as any).template_group_path)
+      ? (item as any).template_group_path.map((part: unknown) => String(part || '').trim()).filter(Boolean)
+      : []
+    if (sourceOperationId <= 0 || !alias || !templateGroupId || !templateGroupPath.length) return null
+    return {
+      source_operation_id: sourceOperationId,
+      alias,
+      template_group_id: templateGroupId,
+      template_group_path: templateGroupPath,
+    }
+  }).filter((item): item is TemplateGroupAliasBinding => Boolean(item))
+}
+
+function mergeTemplateGroupAliases(target: TemplateGroupAliasBinding[], incoming: TemplateGroupAliasBinding[]) {
+  const seen = new Set(target.map(item => Number(item?.source_operation_id || 0)).filter(Boolean))
+  incoming.forEach((item) => {
+    const sourceOperationId = Number(item?.source_operation_id || 0)
+    if (!sourceOperationId || seen.has(sourceOperationId)) return
+    target.push(item)
+    seen.add(sourceOperationId)
+  })
 }
 
 function leafCondition(field: string, op: string, value: unknown): RulePackageCondition {
@@ -529,6 +560,7 @@ export function buildCompileRequestFromCards(args: {
   args.cards.forEach((item) => {
     const displayName = normalizeExportProcessName(args.displayName(item.segment))
     const processId = stableProcessId(exportProcessIdForItem(item), displayName)
+    const templateGroupAliases = normalizeTemplateGroupAliases(item.segment?.template_group_aliases)
     const primary = args.primarySteps(item.segment).map((name, index) => ({
       step_id: slugStepId(processId, name, index, 'primary'),
       name,
@@ -548,6 +580,7 @@ export function buildCompileRequestFromCards(args: {
         phase: args.phaseLabel(item.segment) || item.segment?.phase || '',
         default_sequence: Number(item.segment?.sequence || 0) * 10,
         main: isMainlineRule(item),
+        template_group_aliases: templateGroupAliases,
         steps: [...primary, ...attached],
         constraints: {
           requires: [],
@@ -560,6 +593,7 @@ export function buildCompileRequestFromCards(args: {
     }
     existing.main = existing.main || isMainlineRule(item)
     existing.default_sequence = Math.min(existing.default_sequence, Number(item.segment?.sequence || 0) * 10)
+    mergeTemplateGroupAliases(existing.template_group_aliases, templateGroupAliases)
     const known = new Set(existing.steps.map((step: any) => step.name))
     ;[...primary, ...attached].forEach((step) => {
       if (!known.has(step.name)) {

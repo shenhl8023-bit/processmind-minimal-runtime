@@ -1,7 +1,10 @@
+import json
 from copy import deepcopy
 
 import pytest
 
+from app.schemas.schemas import RouteStep
+from app.services.generate_route_result_builder import build_generate_output_json
 from app.services.rule_packages.contracts import RulePackageV2
 from app.services.rule_packages.hashing import rule_package_content_hash
 from app.services.rule_packages.planner import plan_route
@@ -44,6 +47,32 @@ def test_display_name_change_does_not_change_selection(rule_package_v2_payload):
 
     assert "process_quench" in plan.selected_process_ids
     assert next(step.name for step in plan.steps if step.process_id == "process_quench") == "真空淬火（新名称）"
+
+
+def test_template_group_aliases_do_not_change_display_name_and_follow_plan(rule_package_v2_payload):
+    payload = deepcopy(rule_package_v2_payload)
+    process = next(item for item in payload["route_catalog"]["processes"] if item["process_id"] == "process_mill_slot")
+    process["display_name"] = "铣槽"
+    process["template_group_aliases"] = [{
+        "source_operation_id": 100,
+        "alias": "铣槽（A侧/外环槽）",
+        "template_group_id": "3358f0f62d04abb99d35dec48ef73e1",
+        "template_group_path": ["A侧", "外环槽"],
+    }]
+    package = RulePackageV2.model_validate(payload)
+
+    plan = plan_route(package, {"cad": {"features": ["槽类特征"]}})
+    step = next(item for item in plan.steps if item.process_id == "process_mill_slot")
+
+    assert step.name == "铣槽"
+    assert [alias.model_dump() for alias in step.template_group_aliases] == process["template_group_aliases"]
+    output = json.loads(build_generate_output_json(
+        12,
+        "finalized_rule_package_v2",
+        [RouteStep(**step.model_dump())],
+    ))
+    assert output["route"][0]["process_name"] == "铣槽"
+    assert output["route"][0]["template_group_aliases"] == process["template_group_aliases"]
 
 
 def test_hash_is_stable_and_changes_with_semantics(rule_package_v2_payload):

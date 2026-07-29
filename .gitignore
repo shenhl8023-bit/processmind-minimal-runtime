@@ -1,13 +1,25 @@
-# Runtime state
+# Generated runtime state (the curated offline runtime already tracked by Git is retained)
 .runtime/
 data/db/
 data/uploads/
 data/config/
 process-plan-agent-api/process_settings.json
+.env
+.env.*
+!.env.example
+!.env.*.example
 
 # Python
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+coverage/
 .venv/
 
 # Node
@@ -17,8 +29,15 @@ dist-ssr/
 
 # Offline packaging output (large binary parts; keep scripts only if needed)
 # Comment out the next line if you want to version the offline bundle.
-# dist-offline/
+dist-offline/
+
+# Local test and agent workspaces
+.test-tmp/
+.superpowers/
 
 # Logs and local OS files
+.playwright-cli/
 *.log
 .DS_Store
+Thumbs.db
+Desktop.ini

@@ -12,20 +12,33 @@ from app.services.db_schema_maintenance import ensure_project_schema
 
 DEFAULT_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite+aiosqlite:///{DEFAULT_DB_PATH}")
+IS_SQLITE = DATABASE_URL.startswith("sqlite")
 
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    connect_args={"timeout": 30},
+    connect_args={"timeout": 30} if IS_SQLITE else {},
 )
 
 
-@event.listens_for(engine.sync_engine, "connect")
-def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record):
-    # SQLite does not enforce declared foreign keys unless enabled per connection.
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.close()
+def configure_sqlite_engine(async_engine) -> None:
+    """Install SQLite pragmas on every new DB-API connection."""
+    if not str(async_engine.url).startswith("sqlite"):
+        return
+
+    @event.listens_for(async_engine.sync_engine, "connect")
+    def _set_sqlite_pragmas(dbapi_connection, _connection_record):  # pragma: no cover
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.execute("PRAGMA busy_timeout=30000")
+        finally:
+            cursor.close()
+
+
+configure_sqlite_engine(engine)
+
+
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -42,7 +55,9 @@ async def init_db():
     # 延迟导入模型，确保 Base.metadata 已完整注册所有表
     import app.models.models  # noqa: F401
     async with engine.begin() as conn:
-        await conn.execute(text("PRAGMA journal_mode=WAL"))
-        await conn.execute(text("PRAGMA busy_timeout=30000"))
+        if IS_SQLITE:
+            await conn.execute(text("PRAGMA journal_mode=WAL"))
+            await conn.execute(text("PRAGMA foreign_keys=ON"))
+            await conn.execute(text("PRAGMA busy_timeout=30000"))
         await conn.run_sync(Base.metadata.create_all)
         await ensure_project_schema(conn)

@@ -43,6 +43,7 @@ def build_generate_output_json(project_id: int, output_mode: str, steps: list[Ro
                     "sequence": step.sequence or index * 10,
                     "process_name": step.name,
                     "process_steps": step.process_steps,
+                    "template_group_aliases": [alias.model_dump() for alias in step.template_group_aliases],
                 }
                 for index, step in enumerate(steps, start=1)
             ],

@@ -6,7 +6,13 @@ COPY process-plan-agent-ui/package.json /app/package.json
 COPY process-plan-agent-ui/package-lock.json /app/package-lock.json
 RUN npm ci
 
-COPY process-plan-agent-ui /app
+COPY process-plan-agent-ui/index.html /app/index.html
+COPY process-plan-agent-ui/vite.config.ts /app/vite.config.ts
+COPY process-plan-agent-ui/tsconfig.json /app/tsconfig.json
+COPY process-plan-agent-ui/tsconfig.app.json /app/tsconfig.app.json
+COPY process-plan-agent-ui/tsconfig.node.json /app/tsconfig.node.json
+COPY process-plan-agent-ui/public /app/public
+COPY process-plan-agent-ui/src /app/src
 COPY docs/配置模板/第三步工序问答共享模板.json /docs/配置模板/第三步工序问答共享模板.json
 RUN npm run build
 

@@ -60,7 +60,6 @@ def _manual_mapping(source_value="custom feature"):
         "source_value": source_value,
         "mapping_mode": "manual_factor",
         "target_factor_name": "Custom feature",
-        "target_factor_category": "custom",
     }
 
 
@@ -73,6 +72,26 @@ def _existing_mapping(source_value="custom feature"):
         "mapping_mode": "existing_factor",
         "target_factor_key": "has_slot_feature",
     }
+
+
+def _create_revision_two_mapping(mapping_client, source_value):
+    created = mapping_client.post(
+        "/api/kmai-factor-mappings",
+        json=_existing_mapping(source_value),
+    )
+    assert created.status_code == 200
+    mapping_id = created.json()["mapping_id"]
+    updated = mapping_client.put(
+        f"/api/kmai-factor-mappings/{mapping_id}",
+        json={
+            "expected_revision": 1,
+            "mapping_mode": "existing_factor",
+            "target_factor_key": "requires_honing",
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["revision"] == 2
+    return updated.json()
 
 
 def _install_unique_insert_race(mapping_client, source_value):
@@ -156,7 +175,15 @@ def test_catalog_and_manual_mapping_use_server_generated_key(mapping_client):
     catalog = mapping_client.get("/api/kmai-factor-mappings/catalog")
 
     assert catalog.status_code == 200
-    assert any(item["factor_key"] == "has_slot_feature" and item["read_only"] for item in catalog.json())
+    assert any(
+        item["factor_key"] == "has_slot_feature"
+        and item["value_type"] == "boolean"
+        and item["read_only"]
+        for item in catalog.json()
+    )
+    assert next(
+        item for item in catalog.json() if item["factor_key"] == "material_grade"
+    )["value_type"] == "enum"
 
     created = mapping_client.post("/api/kmai-factor-mappings", json=_manual_mapping())
 
@@ -166,6 +193,18 @@ def test_catalog_and_manual_mapping_use_server_generated_key(mapping_client):
     assert mapping["mapping_mode"] == "manual_factor"
     assert mapping["target_factor_key"].startswith("processmind_manual_")
     assert mapping["target_factor_key"] != "custom_feature"
+
+
+def test_create_rejects_enum_existing_factor_for_presence_mapping(mapping_client):
+    request = _existing_mapping("enum target on create")
+    request["target_factor_key"] = "material_grade"
+
+    created = mapping_client.post("/api/kmai-factor-mappings", json=request)
+
+    assert created.status_code == 422
+    assert created.json()["detail"]["code"] == "kmai_mapping_factor_type_incompatible"
+    listed = mapping_client.get("/api/kmai-factor-mappings", params={"project_id": 12}).json()
+    assert not any(item["source_value"] == "enum target on create" for item in listed)
 
 
 def test_manual_mapping_requires_an_explicit_display_name(mapping_client):
@@ -178,6 +217,39 @@ def test_manual_mapping_requires_an_explicit_display_name(mapping_client):
     assert created.status_code == 422
     listed = mapping_client.get("/api/kmai-factor-mappings", params={"project_id": 12})
     assert not any(item["source_value"] == "unlabeled manual feature" for item in listed.json())
+
+
+def test_manual_mapping_rejects_client_controlled_category_on_create(mapping_client):
+    request = _manual_mapping("spoofed category on create")
+    request["target_factor_category"] = "processmind_special_requirement"
+
+    created = mapping_client.post("/api/kmai-factor-mappings", json=request)
+
+    assert created.status_code == 422
+    listed = mapping_client.get("/api/kmai-factor-mappings", params={"project_id": 12}).json()
+    assert not any(item["source_value"] == "spoofed category on create" for item in listed)
+
+
+def test_manual_mapping_rejects_client_controlled_category_on_update(mapping_client):
+    request = _manual_mapping("spoofed category on update")
+    created = mapping_client.post("/api/kmai-factor-mappings", json=request)
+    assert created.status_code == 200
+    assert created.json()["target_factor_category"] == "manual_override"
+
+    updated = mapping_client.put(
+        f"/api/kmai-factor-mappings/{created.json()['mapping_id']}",
+        json={
+            "expected_revision": 1,
+            "mapping_mode": "manual_factor",
+            "target_factor_category": "processmind_input",
+        },
+    )
+
+    assert updated.status_code == 422
+    listed = mapping_client.get("/api/kmai-factor-mappings", params={"project_id": 12}).json()
+    persisted = next(item for item in listed if item["mapping_id"] == created.json()["mapping_id"])
+    assert persisted["target_factor_category"] == "manual_override"
+    assert persisted["revision"] == 1
 
 
 def test_manual_mapping_cannot_be_updated_to_an_empty_display_name(mapping_client):
@@ -258,6 +330,31 @@ def test_existing_target_key_update_still_requires_existing_factor_mode(mapping_
     assert updated.status_code == 200
     assert updated.json()["target_factor_key"] == "requires_honing"
     assert updated.json()["revision"] == 2
+
+
+def test_update_rejects_enum_existing_factor_without_incrementing_revision(mapping_client):
+    created = mapping_client.post(
+        "/api/kmai-factor-mappings",
+        json=_existing_mapping("enum target on update"),
+    )
+    assert created.status_code == 200
+    mapping_id = created.json()["mapping_id"]
+
+    updated = mapping_client.put(
+        f"/api/kmai-factor-mappings/{mapping_id}",
+        json={
+            "expected_revision": 1,
+            "mapping_mode": "existing_factor",
+            "target_factor_key": "part_type",
+        },
+    )
+
+    assert updated.status_code == 422
+    assert updated.json()["detail"]["code"] == "kmai_mapping_factor_type_incompatible"
+    listed = mapping_client.get("/api/kmai-factor-mappings", params={"project_id": 12}).json()
+    persisted = next(item for item in listed if item["mapping_id"] == mapping_id)
+    assert persisted["target_factor_key"] == "has_slot_feature"
+    assert persisted["revision"] == 1
 
 
 def test_project_mapping_rejects_an_unknown_project(mapping_client):
@@ -360,7 +457,10 @@ def test_update_promotion_and_preview_report_real_mapping_behavior(mapping_clien
     assert updated.status_code == 200
     assert updated.json()["revision"] == 2
 
-    promoted = mapping_client.post(f"/api/kmai-factor-mappings/{mapping['mapping_id']}/promote")
+    promoted = mapping_client.post(
+        f"/api/kmai-factor-mappings/{mapping['mapping_id']}/promote",
+        params={"expected_revision": 2},
+    )
     assert promoted.status_code == 200
     assert promoted.json()["scope"] == "global"
     assert promoted.json()["promoted_from_id"] == mapping["mapping_id"]
@@ -386,6 +486,163 @@ def test_update_promotion_and_preview_report_real_mapping_behavior(mapping_clien
     assert issue["occurrences"] == 1
     assert issue["rule_refs"] == ["unknown-feature"]
     assert issue["can_create_manual_factor"] is True
+
+
+@pytest.mark.parametrize(
+    ("method", "suffix", "params"),
+    [
+        ("post", "/promote", {}),
+        ("delete", "", {}),
+        ("delete", "", {"delete": "true"}),
+    ],
+)
+def test_promote_deactivate_and_delete_require_expected_revision(
+    mapping_client,
+    method,
+    suffix,
+    params,
+):
+    created = mapping_client.post(
+        "/api/kmai-factor-mappings",
+        json=_existing_mapping(f"required revision {method} {suffix} {params}"),
+    )
+    assert created.status_code == 200
+
+    response = getattr(mapping_client, method)(
+        f"/api/kmai-factor-mappings/{created.json()['mapping_id']}{suffix}",
+        params=params,
+    )
+
+    assert response.status_code == 422
+
+
+def test_stale_revision_cannot_promote_newer_mapping(mapping_client):
+    mapping = _create_revision_two_mapping(mapping_client, "stale promotion")
+
+    promoted = mapping_client.post(
+        f"/api/kmai-factor-mappings/{mapping['mapping_id']}/promote",
+        params={"expected_revision": 1},
+    )
+
+    assert promoted.status_code == 409
+    assert promoted.json()["detail"]["code"] == "kmai_mapping_revision_conflict"
+    listed = mapping_client.get("/api/kmai-factor-mappings", params={"project_id": 12}).json()
+    assert not any(
+        item["scope"] == "global" and item["source_value"] == "stale promotion"
+        for item in listed
+    )
+
+
+def test_stale_revision_cannot_deactivate_newer_mapping(mapping_client):
+    mapping = _create_revision_two_mapping(mapping_client, "stale deactivation")
+
+    deactivated = mapping_client.delete(
+        f"/api/kmai-factor-mappings/{mapping['mapping_id']}",
+        params={"expected_revision": 1},
+    )
+
+    assert deactivated.status_code == 409
+    assert deactivated.json()["detail"]["code"] == "kmai_mapping_revision_conflict"
+    listed = mapping_client.get("/api/kmai-factor-mappings", params={"project_id": 12}).json()
+    persisted = next(item for item in listed if item["mapping_id"] == mapping["mapping_id"])
+    assert persisted["status"] == "active"
+    assert persisted["revision"] == 2
+
+
+def test_stale_revision_cannot_hard_delete_newer_mapping(mapping_client):
+    mapping = _create_revision_two_mapping(mapping_client, "stale deletion")
+
+    deleted = mapping_client.delete(
+        f"/api/kmai-factor-mappings/{mapping['mapping_id']}",
+        params={"delete": "true", "expected_revision": 1},
+    )
+
+    assert deleted.status_code == 409
+    assert deleted.json()["detail"]["code"] == "kmai_mapping_revision_conflict"
+    listed = mapping_client.get("/api/kmai-factor-mappings", params={"project_id": 12}).json()
+    persisted = next(item for item in listed if item["mapping_id"] == mapping["mapping_id"])
+    assert persisted["revision"] == 2
+
+
+def test_status_transitions_have_explicit_audit_actions_and_state(mapping_client):
+    created = mapping_client.post(
+        "/api/kmai-factor-mappings",
+        json=_existing_mapping("audited status transition"),
+    )
+    assert created.status_code == 200
+    mapping_id = created.json()["mapping_id"]
+
+    deactivated = mapping_client.delete(
+        f"/api/kmai-factor-mappings/{mapping_id}",
+        params={"expected_revision": 1, "actor": "deactivator"},
+    )
+    assert deactivated.status_code == 200
+    reactivated = mapping_client.put(
+        f"/api/kmai-factor-mappings/{mapping_id}",
+        json={"expected_revision": 2, "status": "active", "actor": "reactivator"},
+    )
+    assert reactivated.status_code == 200
+
+    async def load_events():
+        async with mapping_client.mapping_session_factory() as db:
+            return (
+                await db.execute(
+                    select(KmaiFactorMappingEvent)
+                    .where(KmaiFactorMappingEvent.mapping_id == mapping_id)
+                    .order_by(KmaiFactorMappingEvent.id)
+                )
+            ).scalars().all()
+
+    events = asyncio.run(load_events())
+    assert [event.action for event in events] == ["created", "deactivated", "reactivated"]
+    deactivated_before = json.loads(events[1].before_json)
+    deactivated_after = json.loads(events[1].after_json)
+    reactivated_before = json.loads(events[2].before_json)
+    reactivated_after = json.loads(events[2].after_json)
+    assert (deactivated_before["status"], deactivated_after["status"]) == ("active", "inactive")
+    assert (reactivated_before["status"], reactivated_after["status"]) == ("inactive", "active")
+    assert deactivated_after["promoted_from_id"] is None
+
+
+def test_promotion_audit_retains_source_id_after_source_mapping_is_deleted(mapping_client):
+    created = mapping_client.post(
+        "/api/kmai-factor-mappings",
+        json=_existing_mapping("audited promotion provenance"),
+    )
+    assert created.status_code == 200
+    source_id = created.json()["mapping_id"]
+    promoted = mapping_client.post(
+        f"/api/kmai-factor-mappings/{source_id}/promote",
+        params={"expected_revision": 1, "actor": "promoter"},
+    )
+    assert promoted.status_code == 200
+    promoted_id = promoted.json()["mapping_id"]
+
+    deleted = mapping_client.delete(
+        f"/api/kmai-factor-mappings/{source_id}",
+        params={"delete": "true", "expected_revision": 1, "actor": "deleter"},
+    )
+    assert deleted.status_code == 200
+
+    async def load_state_and_event():
+        async with mapping_client.mapping_session_factory() as db:
+            mapping = await db.get(KmaiFactorMapping, promoted_id)
+            event = (
+                await db.execute(
+                    select(KmaiFactorMappingEvent).where(
+                        KmaiFactorMappingEvent.mapping_id == promoted_id,
+                        KmaiFactorMappingEvent.action == "promoted",
+                    )
+                )
+            ).scalar_one()
+            return mapping, event
+
+    promoted_mapping, event = asyncio.run(load_state_and_event())
+    assert promoted_mapping is not None
+    assert promoted_mapping.promoted_from_id is None
+    after = json.loads(event.after_json)
+    assert after["status"] == "active"
+    assert after["promoted_from_id"] == source_id
 
 
 def test_same_expected_revision_updates_are_atomic_and_only_winner_is_audited(mapping_client):
@@ -475,7 +732,10 @@ def test_promotion_rejects_an_existing_global_mapping(mapping_client):
     project_mapping = mapping_client.post("/api/kmai-factor-mappings", json=_existing_mapping(source_value))
     assert project_mapping.status_code == 200
 
-    promoted = mapping_client.post(f"/api/kmai-factor-mappings/{project_mapping.json()['mapping_id']}/promote")
+    promoted = mapping_client.post(
+        f"/api/kmai-factor-mappings/{project_mapping.json()['mapping_id']}/promote",
+        params={"expected_revision": 1},
+    )
 
     assert promoted.status_code == 409
     assert promoted.json()["detail"]["code"] == "kmai_mapping_conflict"
@@ -491,7 +751,8 @@ def test_promotion_maps_database_unique_race_to_conflict(mapping_client):
     _install_unique_insert_race(mapping_client, source_value)
 
     promoted = mapping_client.post(
-        f"/api/kmai-factor-mappings/{project_mapping.json()['mapping_id']}/promote"
+        f"/api/kmai-factor-mappings/{project_mapping.json()['mapping_id']}/promote",
+        params={"expected_revision": 1},
     )
 
     assert promoted.status_code == 409
@@ -571,6 +832,42 @@ def test_preview_aggregates_repeated_unmapped_values_across_rules(mapping_client
     assert issue["rule_refs"] == ["unmapped-one", "unmapped-two"]
 
 
+def test_list_reports_reference_count_for_mapping_usage(mapping_client):
+    created = mapping_client.post("/api/kmai-factor-mappings", json=_existing_mapping("listed reference"))
+    assert created.status_code == 200
+    mapping_id = created.json()["mapping_id"]
+
+    async def add_usage():
+        async with mapping_client.mapping_session_factory() as db:
+            package = FinalizedRulePackage(
+                project_id=12,
+                version=1,
+                package_name="listed usage",
+                schema_version="2.0",
+                status="published",
+            )
+            db.add(package)
+            await db.flush()
+            db.add(
+                KmaiFactorMappingUsage(
+                    mapping_id=mapping_id,
+                    package_id=package.id,
+                    revision=1,
+                    mapping_snapshot_json='{"scope": "project"}',
+                )
+            )
+            await db.commit()
+
+    asyncio.run(add_usage())
+
+    listed = mapping_client.get("/api/kmai-factor-mappings", params={"project_id": 12})
+
+    assert listed.status_code == 200
+    referenced = next(item for item in listed.json() if item["mapping_id"] == mapping_id)
+    assert referenced["reference_count"] == 1
+    assert all(item["reference_count"] == 0 for item in listed.json() if item["scope"] == "builtin")
+
+
 def test_mapping_referenced_by_package_cannot_be_deleted_but_can_be_deactivated(mapping_client):
     created = mapping_client.post("/api/kmai-factor-mappings", json=_existing_mapping("referenced"))
     assert created.status_code == 200
@@ -599,11 +896,17 @@ def test_mapping_referenced_by_package_cannot_be_deleted_but_can_be_deactivated(
 
     asyncio.run(add_usage())
 
-    delete = mapping_client.delete(f"/api/kmai-factor-mappings/{mapping_id}", params={"delete": "true"})
+    delete = mapping_client.delete(
+        f"/api/kmai-factor-mappings/{mapping_id}",
+        params={"delete": "true", "expected_revision": 1},
+    )
     assert delete.status_code == 409
     assert delete.json()["detail"]["code"] == "kmai_mapping_in_use"
 
-    deactivated = mapping_client.delete(f"/api/kmai-factor-mappings/{mapping_id}")
+    deactivated = mapping_client.delete(
+        f"/api/kmai-factor-mappings/{mapping_id}",
+        params={"expected_revision": 1},
+    )
     assert deactivated.status_code == 200
     assert deactivated.json()["mapping"]["status"] == "inactive"
 
@@ -635,7 +938,7 @@ def test_delete_maps_usage_created_after_precheck_to_mapping_in_use(mapping_clie
 
     deleted = mapping_client.delete(
         f"/api/kmai-factor-mappings/{mapping_id}",
-        params={"delete": "true"},
+        params={"delete": "true", "expected_revision": 1},
     )
 
     assert deleted.status_code == 409

@@ -57,9 +57,9 @@ from app.services.question_harness_hooks import build_question_harness_hooks
 from app.services.finalized_route_generator import generate_steps_from_finalized_rule_package
 from app.services.rule_packages.loader import load_published_rule_package
 from app.services.rule_packages.lifecycle import RulePackageLifecycleError, v2_package_from_row
+from app.services.rule_packages.input_validation import input_validation_error_detail, validate_inputs
 from app.services.rule_packages.planner import RoutePlanningError, plan_route
 from app.services.rule_packages.validator import validate_rule_package
-from app.services.rule_packages.input_validation import validate_inputs
 from app.services.legacy_operation_route_selector import (
     collapse_redundant_quality_gates as _collapse_redundant_quality_gates,
     select_best_operations as _select_best_operations,
@@ -130,8 +130,13 @@ from app.services.param_question_flow import (
 
 router = APIRouter(prefix="/api/generate", tags=["工艺路线生成"])
 
-def _normalize_input_values(body: GenerateRequest) -> dict[str, object]:
+def _normalize_input_values(
+    body: GenerateRequest,
+    *,
+    explicit_legacy_fields_only: bool = False,
+) -> dict[str, object]:
     values = dict(body.factor_values or {})
+    submitted_fields = body.model_fields_set if explicit_legacy_fields_only else None
     legacy = {
         "family": body.family,
         "material": body.material,
@@ -141,6 +146,8 @@ def _normalize_input_values(body: GenerateRequest) -> dict[str, object]:
         "roughness": body.roughness,
     }
     for key, value in legacy.items():
+        if submitted_fields is not None and key not in submitted_fields:
+            continue
         if key not in values and value not in ("", None):
             values[key] = value
     return values
@@ -1022,6 +1029,9 @@ async def generate_route(
         if schema_version == "2.0" and rule_engine != "v1":
             # Stage 3: published V2 packages execute via plan_route (production).
             try:
+                # V2 input validation must reflect what the client actually submitted.
+                # GenerateRequest's legacy defaults remain available to the V1 path only.
+                inputs = _normalize_input_values(body, explicit_legacy_fields_only=True)
                 package_v2 = v2_package_from_row(finalized_package)
                 validation = validate_rule_package(package_v2)
                 if not validation.valid:
@@ -1034,7 +1044,7 @@ async def generate_route(
                 if input_errors:
                     raise HTTPException(
                         status_code=422,
-                        detail=[issue.model_dump(mode="json") for issue in input_errors],
+                        detail=input_validation_error_detail(input_errors),
                     )
                 plan = plan_route(package_v2, inputs)
                 steps = [
@@ -1045,6 +1055,7 @@ async def generate_route(
                         op_type=step.op_type,
                         reason=step.reason,
                         process_steps=list(step.process_steps or []),
+                        template_group_aliases=[alias.model_dump() for alias in step.template_group_aliases],
                     )
                     for step in plan.steps
                 ]

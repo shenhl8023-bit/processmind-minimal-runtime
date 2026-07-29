@@ -7,12 +7,13 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Iterable
 
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import and_, case, delete as sql_delete, func, insert, literal, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import KmaiFactorMapping, KmaiFactorMappingEvent, KmaiFactorMappingUsage, Project
 from app.services.rule_packages.kmai_mapping_contracts import (
+    KmaiMappingAuditState,
     KmaiMappingBatchRequest,
     KmaiMappingCreateRequest,
     KmaiMappingOut,
@@ -81,18 +82,31 @@ async def _flush_mapping_inserts(
         raise
 
 
-def _catalog_by_key() -> dict[str, tuple[str, str]]:
+def _catalog_by_key() -> dict[str, tuple[str, str, str]]:
     return {
-        item.factor_key: (item.factor_name, item.factor_category)
+        item.factor_key: (item.factor_name, item.factor_category, item.value_type)
         for item in builtin_factor_catalog()
     }
+
+
+def _audit_state(mapping: KmaiFactorMapping) -> KmaiMappingAuditState:
+    return KmaiMappingAuditState(
+        **mapping_snapshot_from_row(mapping).model_dump(mode="json"),
+        status=mapping.status,
+        promoted_from_id=mapping.promoted_from_id,
+    )
 
 
 def _snapshot_json(snapshot: KmaiMappingSnapshot) -> str:
     return json.dumps(snapshot.model_dump(mode="json"), ensure_ascii=False, sort_keys=True)
 
 
-def _mapping_out(mapping: KmaiFactorMapping, *, overridden: bool = False) -> KmaiMappingOut:
+def _mapping_out(
+    mapping: KmaiFactorMapping,
+    *,
+    overridden: bool = False,
+    reference_count: int = 0,
+) -> KmaiMappingOut:
     return KmaiMappingOut(
         **mapping_snapshot_from_row(mapping).model_dump(mode="json"),
         status=mapping.status,
@@ -100,6 +114,7 @@ def _mapping_out(mapping: KmaiFactorMapping, *, overridden: bool = False) -> Kma
         created_by=mapping.created_by,
         updated_by=mapping.updated_by,
         overridden=overridden,
+        reference_count=reference_count,
     )
 
 
@@ -143,13 +158,18 @@ def _normalized_create_values(request: KmaiMappingCreateRequest) -> dict[str, ob
         factor_key = request.target_factor_key or ""
         if factor_key not in catalog:
             raise KmaiMappingStoreError("kmai_mapping_factor_unknown", "target factor key is not in the builtin catalog")
-        factor_name, factor_category = catalog[factor_key]
+        factor_name, factor_category, value_type = catalog[factor_key]
+        if value_type != "boolean":
+            raise KmaiMappingStoreError(
+                "kmai_mapping_factor_type_incompatible",
+                "presence mappings require a boolean target factor",
+            )
     else:
         factor_key = manual_factor_key(source_field, source_value)
         factor_name = (request.target_factor_name or "").strip()
         if not factor_name:
             raise KmaiMappingStoreError("kmai_mapping_manual_name_required", "manual mappings require a display name")
-        factor_category = (request.target_factor_category or "manual_override").strip() or "manual_override"
+        factor_category = "manual_override"
 
     return {
         "scope": request.scope,
@@ -177,9 +197,9 @@ async def _add_event(
     mapping: KmaiFactorMapping,
     action: str,
     *,
-    before: KmaiMappingSnapshot | None = None,
+    before: KmaiMappingAuditState | None = None,
 ) -> None:
-    after = mapping_snapshot_from_row(mapping)
+    after = _audit_state(mapping)
     db.add(
         KmaiFactorMappingEvent(
             mapping_id=mapping.id,
@@ -289,6 +309,15 @@ async def list_mappings(db: AsyncSession, project_id: int | None) -> list[KmaiMa
             .order_by(KmaiFactorMapping.scope, KmaiFactorMapping.id)
         )
     ).scalars().all()
+    mapping_ids = [row.id for row in rows]
+    reference_counts: dict[int, int] = {}
+    if mapping_ids:
+        counts = await db.execute(
+            select(KmaiFactorMappingUsage.mapping_id, func.count(KmaiFactorMappingUsage.id))
+            .where(KmaiFactorMappingUsage.mapping_id.in_(mapping_ids))
+            .group_by(KmaiFactorMappingUsage.mapping_id)
+        )
+        reference_counts = dict(counts.all())
     registry = await load_effective_mapping_registry(db, project_id)
     effective_by_source = {
         (item.source_field, item.source_value): item.mapping_identity
@@ -300,6 +329,7 @@ async def list_mappings(db: AsyncSession, project_id: int | None) -> list[KmaiMa
             KmaiMappingOut(
                 **builtin.model_dump(mode="json"),
                 read_only=True,
+                reference_count=0,
                 overridden=effective_by_source[(builtin.source_field, builtin.source_value)] != builtin.mapping_identity,
             )
         )
@@ -309,6 +339,7 @@ async def list_mappings(db: AsyncSession, project_id: int | None) -> list[KmaiMa
             _mapping_out(
                 row,
                 overridden=effective_by_source.get((snapshot.source_field, snapshot.source_value)) != snapshot.mapping_identity,
+                reference_count=reference_counts.get(row.id, 0),
             )
         )
     return output
@@ -334,6 +365,11 @@ async def update_mapping(
         catalog = _catalog_by_key()
         if request.target_factor_key not in catalog:
             raise KmaiMappingStoreError("kmai_mapping_factor_unknown", "target factor key is not in the builtin catalog")
+        if catalog[request.target_factor_key][2] != "boolean":
+            raise KmaiMappingStoreError(
+                "kmai_mapping_factor_type_incompatible",
+                "presence mappings require a boolean target factor",
+            )
     if (
         mapping.mapping_mode == "manual_factor"
         and request.target_factor_name is not None
@@ -341,18 +377,20 @@ async def update_mapping(
     ):
         raise KmaiMappingStoreError("kmai_mapping_manual_name_required", "manual mappings require a display name")
 
-    before = mapping_snapshot_from_row(mapping)
+    before = _audit_state(mapping)
     values: dict[str, object] = {
         "updated_by": request.actor,
         "revision": request.expected_revision + 1,
     }
     if request.target_factor_key is not None:
         values["target_factor_key"] = request.target_factor_key
-        values["target_factor_name"], values["target_factor_category"] = _catalog_by_key()[request.target_factor_key]
+        factor_name, factor_category, _ = _catalog_by_key()[request.target_factor_key]
+        values["target_factor_name"] = factor_name
+        values["target_factor_category"] = factor_category
     if request.target_factor_name is not None and mapping.mapping_mode == "manual_factor":
         values["target_factor_name"] = request.target_factor_name.strip()
-    if request.target_factor_category is not None and mapping.mapping_mode == "manual_factor":
-        values["target_factor_category"] = request.target_factor_category.strip() or "manual_override"
+    if mapping.mapping_mode == "manual_factor":
+        values["target_factor_category"] = "manual_override"
     if request.status is not None:
         values["status"] = request.status
     result = await db.execute(
@@ -367,14 +405,24 @@ async def update_mapping(
     if result.rowcount != 1:
         raise KmaiMappingStoreError("kmai_mapping_revision_conflict", "mapping revision is stale")
     await db.refresh(mapping)
-    await _add_event(db, mapping, "updated", before=before)
+    action = "updated"
+    if before.status != mapping.status:
+        action = "deactivated" if mapping.status == "inactive" else "reactivated"
+    await _add_event(db, mapping, action, before=before)
     return _mapping_out(mapping)
 
 
-async def promote_mapping(db: AsyncSession, mapping_id: int, actor: str = "默认用户") -> KmaiMappingOut:
+async def promote_mapping(
+    db: AsyncSession,
+    mapping_id: int,
+    expected_revision: int,
+    actor: str = "默认用户",
+) -> KmaiMappingOut:
     mapping = await db.get(KmaiFactorMapping, mapping_id)
     if mapping is None:
         raise KmaiMappingStoreError("kmai_mapping_not_found", "mapping does not exist")
+    if mapping.revision != expected_revision:
+        raise KmaiMappingStoreError("kmai_mapping_revision_conflict", "mapping revision is stale")
     if mapping.scope != "project":
         raise KmaiMappingStoreError("kmai_mapping_promotion_invalid", "only project mappings can be promoted")
     duplicate = await _duplicate_mapping(
@@ -386,25 +434,66 @@ async def promote_mapping(db: AsyncSession, mapping_id: int, actor: str = "默�
     )
     if duplicate is not None:
         raise KmaiMappingStoreError("kmai_mapping_conflict", "global mapping already exists for this source pair")
-    promoted = KmaiFactorMapping(
-        scope="global",
-        source_field=mapping.source_field,
-        source_value=normalize_mapping_value(mapping.source_value),
-        mapping_mode=mapping.mapping_mode,
-        target_factor_key=mapping.target_factor_key,
-        target_factor_name=mapping.target_factor_name,
-        target_factor_category=mapping.target_factor_category,
-        status=mapping.status,
-        promoted_from_id=mapping.id,
-        created_by=actor,
-        updated_by=actor,
+    statement = (
+        insert(KmaiFactorMapping)
+        .from_select(
+            [
+                "scope",
+                "project_id",
+                "source_field",
+                "source_value",
+                "mapping_mode",
+                "target_factor_key",
+                "target_factor_name",
+                "target_factor_category",
+                "status",
+                "revision",
+                "promoted_from_id",
+                "created_by",
+                "updated_by",
+            ],
+            select(
+                literal("global"),
+                literal(None),
+                KmaiFactorMapping.source_field,
+                KmaiFactorMapping.source_value,
+                KmaiFactorMapping.mapping_mode,
+                KmaiFactorMapping.target_factor_key,
+                KmaiFactorMapping.target_factor_name,
+                case(
+                    (
+                        KmaiFactorMapping.mapping_mode == "manual_factor",
+                        literal("manual_override"),
+                    ),
+                    else_=KmaiFactorMapping.target_factor_category,
+                ),
+                KmaiFactorMapping.status,
+                literal(1),
+                KmaiFactorMapping.id,
+                literal(actor),
+                literal(actor),
+            ).where(
+                KmaiFactorMapping.id == mapping_id,
+                KmaiFactorMapping.revision == expected_revision,
+                KmaiFactorMapping.scope == "project",
+            ),
+        )
+        .returning(KmaiFactorMapping.id)
     )
-    db.add(promoted)
-    await _flush_mapping_inserts(
-        db,
-        [promoted],
-        message="global mapping already exists or its source mapping changed",
-    )
+    try:
+        promoted_id = (await db.execute(statement)).scalar_one_or_none()
+    except IntegrityError as error:
+        if _is_mapping_insert_conflict(error):
+            raise KmaiMappingStoreError(
+                "kmai_mapping_conflict",
+                "global mapping already exists or its source mapping changed",
+            ) from error
+        raise
+    if promoted_id is None:
+        raise KmaiMappingStoreError("kmai_mapping_revision_conflict", "mapping revision is stale")
+    promoted = await db.get(KmaiFactorMapping, promoted_id)
+    if promoted is None:
+        raise KmaiMappingStoreError("kmai_mapping_revision_conflict", "mapping revision is stale")
     await _add_event(db, promoted, "promoted")
     return _mapping_out(promoted)
 
@@ -413,19 +502,22 @@ async def deactivate_or_delete_mapping(
     db: AsyncSession,
     mapping_id: int,
     *,
+    expected_revision: int,
     delete: bool,
     actor: str = "默认用户",
 ) -> KmaiMappingOut | None:
     mapping = await db.get(KmaiFactorMapping, mapping_id)
     if mapping is None:
         raise KmaiMappingStoreError("kmai_mapping_not_found", "mapping does not exist")
+    if mapping.revision != expected_revision:
+        raise KmaiMappingStoreError("kmai_mapping_revision_conflict", "mapping revision is stale")
     if delete:
         usage_count = await db.scalar(
             select(func.count()).select_from(KmaiFactorMappingUsage).where(KmaiFactorMappingUsage.mapping_id == mapping_id)
         )
         if usage_count:
             raise KmaiMappingStoreError("kmai_mapping_in_use", "published package usage prevents mapping deletion")
-        before = mapping_snapshot_from_row(mapping)
+        before = _audit_state(mapping)
         event = KmaiFactorMappingEvent(
             mapping_id=mapping.id,
             project_id=mapping.project_id,
@@ -436,9 +528,15 @@ async def deactivate_or_delete_mapping(
         )
         db.add(event)
         await db.flush([event])
-        await db.delete(mapping)
         try:
-            await db.flush([mapping])
+            result = await db.execute(
+                sql_delete(KmaiFactorMapping)
+                .where(
+                    KmaiFactorMapping.id == mapping_id,
+                    KmaiFactorMapping.revision == expected_revision,
+                )
+                .execution_options(synchronize_session=False)
+            )
         except IntegrityError as error:
             if _is_foreign_key_conflict(error):
                 raise KmaiMappingStoreError(
@@ -446,8 +544,10 @@ async def deactivate_or_delete_mapping(
                     "published package usage prevents mapping deletion",
                 ) from error
             raise
+        if result.rowcount != 1:
+            raise KmaiMappingStoreError("kmai_mapping_revision_conflict", "mapping revision is stale")
         return None
-    request = KmaiMappingUpdateRequest(expected_revision=mapping.revision, status="inactive", actor=actor)
+    request = KmaiMappingUpdateRequest(expected_revision=expected_revision, status="inactive", actor=actor)
     return await update_mapping(db, mapping_id, request)
 
 
@@ -510,7 +610,11 @@ async def preview_mapping_resolution(db: AsyncSession, package, project_id: int 
             bucket["occurrences"] += 1
             bucket["rule_refs"].add(rule.rule_id)
 
-    catalog_keys = [item.factor_key for item in builtin_factor_catalog()]
+    catalog_keys = [
+        item.factor_key
+        for item in builtin_factor_catalog()
+        if item.value_type == "boolean"
+    ]
     issues = [
         {
             "field": source_field,

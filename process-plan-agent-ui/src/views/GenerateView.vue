@@ -118,6 +118,7 @@ import {
 } from '@/composables/useGenerateInputFields'
 import {
   downloadGeneratedRouteJson,
+  formatGenerateErrorDetail,
 } from '@/utils/generateRouteOutput'
 import { createLatestWorkflowRequestGuard, getWorkflowDataRevision } from '@/composables/workflowDataCache'
 import { workflowResetSignal } from '@/composables/workflowResetState'
@@ -125,11 +126,13 @@ import { workflowResetSignal } from '@/composables/workflowResetState'
 const route = useRoute()
 const router = useRouter()
 let generateViewActive = false
-let contextLoading = false
+const contextLoading = ref(false)
 let initialLoadFinished = false
 let loadedDataRevision = -1
 const contextRequestGuard = createLatestWorkflowRequestGuard()
 const generationRequestGuard = createLatestWorkflowRequestGuard()
+let contextLoadRequestId = 0
+let generationRequestId = 0
 
 const projectId = ref<number | null>(null)
 const projectName = ref('')
@@ -166,6 +169,7 @@ const {
   inputSchema,
   hasRulePackage,
   projectId,
+  schemaLoading: contextLoading,
 })
 
 const generationUsesRulePackage = computed(() => (
@@ -183,11 +187,13 @@ const packageMetaLabel = computed(() => {
 })
 
 const schemaStatusText = computed(() => {
+  if (contextLoading.value) return '正在加载当前任务的输入参数…'
   if (!hasRulePackage.value) return '当前任务还没有可用规则包。请先在第4步导出规则包。'
   return '当前规则包没有定义输入参数，请返回第4步重新导出规则包。'
 })
 
 const generateHintText = computed(() => {
+  if (contextLoading.value) return '正在加载当前任务的输入参数，请稍候。'
   if (!hasRulePackage.value) return '请先在第4步导出规则包。'
   if (!inputFields.value.length) return '当前规则包没有定义输入参数。'
   return '请先补全必填输入参数。'
@@ -230,9 +236,15 @@ function clearGeneratedWorkflowState() {
   resetFieldValues()
 }
 
-async function refreshGeneratedPackageMetadata(generatedResult: GenerateRouteResult) {
-  if (!projectId.value || !generatedResult.rule_package_version) return
-  const latestPackage = await getLatestFinalizedRulePackage(projectId.value, true).catch(() => null)
+async function refreshGeneratedPackageMetadata(
+  generatedResult: GenerateRouteResult,
+  generatedProjectId: number,
+  requestId: number,
+  isLatest: () => boolean,
+) {
+  if (!generatedResult.rule_package_version) return
+  const latestPackage = await getLatestFinalizedRulePackage(generatedProjectId, true).catch(() => null)
+  if (!isLatest() || requestId !== generationRequestId || projectId.value !== generatedProjectId) return
   if (!latestPackage || latestPackage.version !== generatedResult.rule_package_version) return
   if (
     generatedResult.rule_package_hash
@@ -243,26 +255,39 @@ async function refreshGeneratedPackageMetadata(generatedResult: GenerateRouteRes
 }
 
 async function runGenerate() {
-  if (!projectId.value || !canGenerate.value) return
+  if (!projectId.value || contextLoading.value || !canGenerate.value) return
   const request = generationRequestGuard.start()
+  const generatedProjectId = projectId.value
+  const loadedContextRequestId = contextLoadRequestId
+  const requestId = ++generationRequestId
   generating.value = true
   error.value = ''
   try {
     const generatedResult = await generateRoute({
-      project_id: projectId.value,
+      project_id: generatedProjectId,
       expected_workflow_revision: workflowRevision.value,
       factor_values: factorValues.value,
     })
-    if (!request.isLatest()) return
+    if (
+      !request.isLatest()
+      || requestId !== generationRequestId
+      || loadedContextRequestId !== contextLoadRequestId
+      || projectId.value !== generatedProjectId
+    ) return
     result.value = generatedResult
-    await refreshGeneratedPackageMetadata(generatedResult)
+    await refreshGeneratedPackageMetadata(generatedResult, generatedProjectId, requestId, request.isLatest)
   } catch (err: any) {
-    if (!request.isLatest()) return
+    if (!request.isLatest() || requestId !== generationRequestId || projectId.value !== generatedProjectId) return
     console.error(err)
-    error.value = err?.response?.data?.detail || err?.message || '生成路线失败'
+    const fieldLabels = Object.fromEntries(
+      inputFields.value.map(field => [field.key, field.name || field.key]),
+    )
+    error.value = formatGenerateErrorDetail(
+      err?.response?.data?.detail ?? err?.message,
+      fieldLabels,
+    )
   } finally {
-    if (!request.isLatest()) return
-    generating.value = false
+    if (request.isLatest() && requestId === generationRequestId) generating.value = false
   }
 }
 
@@ -274,59 +299,84 @@ function downloadOutputJson() {
   })
 }
 
+function clearRulePackageContext() {
+  inputSchema.value = null
+  hasRulePackage.value = false
+  resetRulePackageMetadata()
+  resetFieldValues()
+}
+
+function setLoadingProject(nextProjectId: number | null) {
+  if (projectId.value === nextProjectId) return false
+  generationRequestGuard.start()
+  generationRequestId += 1
+  generating.value = false
+  result.value = null
+  error.value = ''
+  projectId.value = nextProjectId
+  projectName.value = nextProjectId ? `任务 #${nextProjectId}` : ''
+  clearRulePackageContext()
+  return true
+}
+
 async function loadGenerateContext() {
   const request = contextRequestGuard.start()
-  contextLoading = true
+  const requestId = ++contextLoadRequestId
+  const requestedProjectId = String(route.query.project_id || '')
+  const hintedProjectId = Number(requestedProjectId)
+  contextLoading.value = true
+  if (Number.isInteger(hintedProjectId) && hintedProjectId > 0) {
+    setLoadingProject(hintedProjectId)
+  }
   try {
     const projects = await listProjects()
-    if (!request.isCurrent()) return
-    const resolvedProjectId = resolveAvailableProjectId(String(route.query.project_id || ''), projects)
+    if (
+      !request.isCurrent()
+      || requestId !== contextLoadRequestId
+      || String(route.query.project_id || '') !== requestedProjectId
+    ) return
+    const resolvedProjectId = resolveAvailableProjectId(requestedProjectId, projects)
     if (!resolvedProjectId) {
-      projectId.value = null
-      projectName.value = ''
-      inputSchema.value = null
-      hasRulePackage.value = false
-      resetRulePackageMetadata()
-      resetFieldValues()
-      result.value = null
+      setLoadingProject(null)
+      clearRulePackageContext()
       return
     }
-    projectId.value = Number(resolvedProjectId)
-    if (String(route.query.project_id || '') !== resolvedProjectId) {
+    const targetProjectId = Number(resolvedProjectId)
+    setLoadingProject(targetProjectId)
+    if (requestedProjectId !== resolvedProjectId) {
       void router.replace({
         path: route.path,
         query: { ...route.query, project_id: resolvedProjectId },
       })
     }
-    const currentProject = projects.find(project => project.id === projectId.value)
-    projectName.value = currentProject?.name || `任务 #${projectId.value}`
+    const currentProject = projects.find(project => project.id === targetProjectId)
+    projectName.value = currentProject?.name || `任务 #${targetProjectId}`
     workflowRevision.value = currentProject?.workflow_revision || 0
-    const latestPackage = await getLatestFinalizedRulePackage(projectId.value).catch(() => null)
-    if (!request.isCurrent()) return
+    const latestPackage = await getLatestFinalizedRulePackage(targetProjectId).catch(() => null)
+    const currentRouteProjectId = String(route.query.project_id || '')
+    if (
+      !request.isCurrent()
+      || requestId !== contextLoadRequestId
+      || projectId.value !== targetProjectId
+      || (currentRouteProjectId !== requestedProjectId && currentRouteProjectId !== resolvedProjectId)
+    ) return
     if (latestPackage?.input_schema) {
       inputSchema.value = latestPackage.input_schema
       hasRulePackage.value = true
       applyRulePackageMetadata(latestPackage)
       initializeFieldValues()
     } else {
-      inputSchema.value = null
-      hasRulePackage.value = false
-      resetRulePackageMetadata()
-      resetFieldValues()
-      result.value = null
+      clearRulePackageContext()
     }
   } catch (err) {
-    if (!request.isCurrent()) return
+    if (!request.isCurrent() || requestId !== contextLoadRequestId) return
     console.warn('读取生成上下文失败', err)
-    inputSchema.value = null
-    hasRulePackage.value = false
-    resetRulePackageMetadata()
-    resetFieldValues()
-    result.value = null
+    clearRulePackageContext()
   } finally {
-    if (!request.isLatest()) return
-    contextLoading = false
-    loadedDataRevision = getWorkflowDataRevision()
+    if (request.isLatest() && requestId === contextLoadRequestId) {
+      contextLoading.value = false
+      loadedDataRevision = getWorkflowDataRevision()
+    }
   }
 }
 
@@ -356,7 +406,7 @@ watch(workflowResetSignal, (signal) => {
 
 onActivated(() => {
   generateViewActive = true
-  if (!initialLoadFinished || contextLoading) return
+  if (!initialLoadFinished || contextLoading.value) return
 
   const routeProjectId = Number(route.query.project_id || 0)
   const projectChanged = routeProjectId > 0 && routeProjectId !== projectId.value

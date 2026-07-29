@@ -232,6 +232,15 @@
       @confirm="handleResetAllRecognition"
     />
 
+    <KmaiMappingResolutionDialog
+      v-model="mappingDialogVisible"
+      :issues="mappingIssues"
+      :project-id="projectId"
+      :rule-package="mappingRulePackage"
+      :allow-global="false"
+      @resolved="completeMappingResolution(true)"
+      @cancelled="completeMappingResolution(false)"
+    />
   </div>
 </template>
 
@@ -240,6 +249,7 @@ import { computed, nextTick, onActivated, onDeactivated, onMounted, ref, watch }
 import { useRoute, useRouter } from 'vue-router'
 import FinalizeRouteNav from '@/components/finalize/FinalizeRouteNav.vue'
 import FinalizeRuleCard from '@/components/finalize/FinalizeRuleCard.vue'
+import KmaiMappingResolutionDialog from '@/components/kmai/KmaiMappingResolutionDialog.vue'
 import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
 import WorkflowResetDialog from '@/components/workflow/WorkflowResetDialog.vue'
 import {
@@ -263,7 +273,9 @@ import {
   type RuleConditionCandidate,
   type RuleConditionProcessOption,
   type RuleConditionReview,
+  type RulePackageV2,
 } from '@/api/rulePackages'
+import type { KmaiMappingIssue } from '@/api/kmaiFactorMappings'
 import {
   segmentDisplayMetaLabel,
   segmentDisplayName,
@@ -339,6 +351,10 @@ function setBatchNotice(msg: string) {
 }
 const blockedExportCards = ref<FinalizeCard[]>([])
 const exportIssue = ref<{ title: string; summary: string; details?: string; context?: string } | null>(null)
+const mappingIssues = ref<KmaiMappingIssue[]>([])
+const mappingDialogVisible = ref(false)
+const mappingRulePackage = ref<RulePackageV2 | null>(null)
+let mappingResolutionPromise: ((resolved: boolean) => void) | null = null
 const {
   segmentAttachedSteps: finalizeSegmentAttachedSteps,
   segmentPrimarySteps: finalizeSegmentPrimarySteps,
@@ -489,6 +505,29 @@ function blockedExportStatusLabel(item: FinalizeCard) {
 
 function closeExportIssue() {
   exportIssue.value = null
+}
+
+function requestKmaiMappingResolution(
+  issues: KmaiMappingIssue[],
+  rulePackage: Record<string, unknown>,
+): Promise<boolean> {
+  if (!projectId.value) return Promise.resolve(false)
+  if (mappingResolutionPromise) mappingResolutionPromise(false)
+  mappingIssues.value = issues
+  mappingRulePackage.value = rulePackage as RulePackageV2
+  mappingDialogVisible.value = true
+  return new Promise((resolve) => {
+    mappingResolutionPromise = resolve
+  })
+}
+
+function completeMappingResolution(resolved: boolean) {
+  const complete = mappingResolutionPromise
+  mappingResolutionPromise = null
+  mappingDialogVisible.value = false
+  mappingRulePackage.value = null
+  mappingIssues.value = []
+  complete?.(resolved)
 }
 
 function showFinalizeNotice(title: string, summary: string, details = '') {
@@ -847,6 +886,7 @@ const {
   onExportIssue: (issue) => {
     exportIssue.value = { ...issue, context: '规则包导出' }
   },
+  onKmaiMappingsRequired: requestKmaiMappingResolution,
   onExportedVersion: (version, meta) => {
     lastExportedRulePackageVersion.value = version
     outdatedRulePackageVersion.value = null

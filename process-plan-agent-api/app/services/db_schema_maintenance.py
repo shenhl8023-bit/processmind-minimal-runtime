@@ -1,9 +1,12 @@
 import hashlib
 import json
+import logging
 
 from sqlalchemy import text
 
 from app.services.profile_registry import ROUTE_RULES_PROFILE
+
+logger = logging.getLogger(__name__)
 
 
 async def ensure_project_schema(conn):
@@ -49,6 +52,39 @@ async def ensure_project_schema(conn):
     await ensure_column("projects", "profile", f"profile VARCHAR(100) DEFAULT '{ROUTE_RULES_PROFILE}'")
     await ensure_column("projects", "rule_engine", "rule_engine VARCHAR(20) DEFAULT 'auto'")
     await ensure_column("projects", "workflow_revision", "workflow_revision INTEGER NOT NULL DEFAULT 0")
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            name VARCHAR(100) PRIMARY KEY,
+            applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """))
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS schema_maintenance_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            migration_name VARCHAR(100) NOT NULL,
+            status VARCHAR(30) NOT NULL,
+            summary_json TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """))
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS extraction_task_states (
+            project_id INTEGER PRIMARY KEY,
+            task_status VARCHAR(30) NOT NULL DEFAULT 'idle',
+            stage VARCHAR(100) NOT NULL DEFAULT 'idle',
+            message TEXT,
+            error TEXT,
+            progress INTEGER NOT NULL DEFAULT 0,
+            started_at VARCHAR(64),
+            updated_at VARCHAR(64),
+            finished_at VARCHAR(64),
+            project_status VARCHAR(30),
+            harness_json TEXT,
+            force_reextract BOOLEAN NOT NULL DEFAULT 0,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+        )
+    """))
+    await ensure_column("extraction_task_states", "force_reextract", "force_reextract BOOLEAN NOT NULL DEFAULT 0")
 
     await conn.execute(text(f"""
         UPDATE projects
@@ -109,11 +145,8 @@ async def ensure_project_schema(conn):
         )
 
     await backfill_chain_columns(conn)
-    await dedupe_operations(conn)
-    await conn.execute(text("""
-        CREATE UNIQUE INDEX IF NOT EXISTS uq_operations_project_seq_name
-        ON operations (project_id, sequence, name)
-    """))
+    await audit_duplicate_operations(conn)
+    await ensure_operations_project_seq_name_index(conn)
     await conn.execute(text("""
         CREATE INDEX IF NOT EXISTS idx_doc_op_details_project_document
         ON document_operation_details (project_id, document_id)
@@ -400,16 +433,34 @@ async def _normalize_published_rule_packages(conn):
 
 
 async def dedupe_operations(conn):
-    await conn.execute(text("""
-        DELETE FROM factors
-        WHERE operation_id IN (
-            SELECT dup.id
+    """Merge duplicate operation factors before deleting duplicate operation rows.
+
+    This function is intentionally not called during normal application startup.
+    It remains available for explicit maintenance scripts that can take backups
+    and review the affected rows first.
+    """
+    duplicate_factor_rows = (
+        await conn.execute(text("""
+            SELECT dup.id AS duplicate_id, keep.id AS keep_id
             FROM operations AS dup
             JOIN operations AS keep
               ON keep.project_id = dup.project_id
              AND keep.sequence = dup.sequence
              AND keep.name = dup.name
              AND keep.id < dup.id
+        """))
+    ).mappings().all()
+    for row in duplicate_factor_rows:
+        await conn.execute(
+            text("UPDATE factors SET operation_id = :keep_id WHERE operation_id = :duplicate_id"),
+            {"keep_id": row["keep_id"], "duplicate_id": row["duplicate_id"]},
+        )
+    await conn.execute(text("""
+        DELETE FROM factors
+        WHERE id NOT IN (
+            SELECT MIN(id)
+            FROM factors
+            GROUP BY operation_id, name, COALESCE(evidence, ''), COALESCE(strength, ''), COALESCE(confirmed, 0)
         )
     """))
     await conn.execute(text("""
@@ -474,4 +525,86 @@ async def backfill_chain_columns(conn):
     await conn.execute(text(f"""
         UPDATE operations
         SET chain = {chain_case}
+        WHERE chain IS NULL OR TRIM(chain) = ''
     """))
+
+
+async def ensure_operations_project_seq_name_index(conn):
+    duplicate_count = (
+        await conn.execute(text("""
+            SELECT COUNT(*)
+            FROM (
+                SELECT project_id, sequence, name
+                FROM operations
+                GROUP BY project_id, sequence, name
+                HAVING COUNT(*) > 1
+            ) AS duplicate_groups
+        """))
+    ).scalar_one()
+    if duplicate_count:
+        logger.warning(
+            "Skipped unique operations(project_id, sequence, name) index because %s duplicate groups exist.",
+            duplicate_count,
+        )
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_operations_project_seq_name
+            ON operations (project_id, sequence, name)
+        """))
+        return
+    await conn.execute(text("""
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_operations_project_seq_name
+        ON operations (project_id, sequence, name)
+    """))
+
+
+async def audit_duplicate_operations(conn):
+    duplicate_groups = (
+        await conn.execute(text("""
+            SELECT project_id, sequence, name, COUNT(*) AS duplicate_count,
+                   GROUP_CONCAT(id) AS operation_ids
+            FROM operations
+            GROUP BY project_id, sequence, name
+            HAVING COUNT(*) > 1
+        """))
+    ).mappings().all()
+    params = {
+        "migration_name": "operations_identity_duplicates_audit_v1",
+        "status": "needs_manual_review" if duplicate_groups else "ok",
+        "summary_json": json.dumps(
+            {
+                "duplicate_group_count": len(duplicate_groups),
+                "duplicate_groups": [dict(row) for row in duplicate_groups],
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        ),
+    }
+    existing_count = (
+        await conn.execute(
+            text("""
+                SELECT COUNT(*)
+                FROM schema_maintenance_audit
+                WHERE migration_name = :migration_name
+            """),
+            {"migration_name": params["migration_name"]},
+        )
+    ).scalar_one()
+    if existing_count:
+        await conn.execute(
+            text("""
+                UPDATE schema_maintenance_audit
+                SET status = :status,
+                    summary_json = :summary_json,
+                    created_at = CURRENT_TIMESTAMP
+                WHERE migration_name = :migration_name
+            """),
+            params,
+        )
+        return
+    await conn.execute(
+        text("""
+            INSERT INTO schema_maintenance_audit (migration_name, status, summary_json)
+            VALUES (:migration_name, :status, :summary_json)
+        """),
+        params,
+    )

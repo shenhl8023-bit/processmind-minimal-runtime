@@ -7,6 +7,7 @@ import {
   saveNormalizedSupersetRoute,
   type MergeSuggestion,
   type OperationItem,
+  type TemplateGroupAliasBinding,
 } from '@/api'
 import type { RouteMergeGroup, RouteMergePreviewItem } from '@/composables/useRouteMergeResultWorkspace'
 import { formatRouteDisplayName } from '@/composables/routeNameDisplay'
@@ -33,6 +34,7 @@ type UseRouteMergeWorkspaceOptions = {
   routeMergeResultItems: ComputedRef<RouteMergePreviewItem[]>
   routeMergePreviewItems: ComputedRef<RouteMergePreviewItem[]>
   routeMergeEditUnlocked: ComputedRef<boolean>
+  templateGroupAliasesForItem: (item: RouteMergePreviewItem) => TemplateGroupAliasBinding[]
   buildRouteMergeGroupsFromSuggestions: (suggestions: MergeSuggestion[]) => RouteMergeGroup[]
   buildRoutePreviewStats: (group: RouteMergeGroup) => { coverageLabel: string; evidenceCount: number }
   findPreferredMergeGroupId: (groups: RouteMergeGroup[]) => string
@@ -320,6 +322,7 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
             (item.childItems || []).flatMap(child => child.sourceNodes || []),
           ),
           source_operation_names: normalizeStringList((item.childItems || []).map(child => child.name)),
+          template_group_aliases: options.templateGroupAliasesForItem(item),
           review_status: item.status || 'merged',
           source_type: item.manuallyEdited ? 'manual_adjusted' : 'system_generated',
         }))

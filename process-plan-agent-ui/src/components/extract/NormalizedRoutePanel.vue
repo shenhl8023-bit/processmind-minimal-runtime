@@ -39,10 +39,14 @@
             <span class="nrp-seq">{{ item.sequence }}</span>
             <div class="nrp-name-block">
               <span class="nrp-name">{{ routeItemDisplayName(item) }}</span>
-              <div v-if="isActive(item) && routeItemMetaLabel(item)" class="nrp-meta">
-                {{ routeItemMetaLabel(item) }}
-              </div>
             </div>
+          </div>
+
+          <div v-if="showTemplateAliases && templateAliasesForItem(item).length" class="nrp-aliases">
+            <span class="nrp-alias-label">别名</span>
+            <span v-for="binding in templateAliasesForItem(item)" :key="binding.source_operation_id" class="nrp-alias-chip">
+              {{ binding.alias }}
+            </span>
           </div>
 
           <!-- Steps: collapsible -->
@@ -121,6 +125,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import type { PropType } from 'vue'
+import type { TemplateGroupAliasBinding } from '@/api'
 import type { RouteMergePreviewItem } from '@/composables/useRouteMergeResultWorkspace'
 
 type RouteMergePreviewStepGroup = {
@@ -186,6 +191,14 @@ const props = defineProps({
   renameDraft: {
     type: String,
     default: '',
+  },
+  showTemplateAliases: {
+    type: Boolean,
+    default: false,
+  },
+  templateGroupAliases: {
+    type: Object as PropType<Record<string, TemplateGroupAliasBinding>>,
+    default: () => ({}),
   },
 })
 
@@ -257,8 +270,10 @@ function routeItemDisplayName(item: RouteMergePreviewItem) {
   return item.name || item.sourceLabel
 }
 
-function routeItemMetaLabel(_item: RouteMergePreviewItem) {
-  return ''
+function templateAliasesForItem(item: RouteMergePreviewItem) {
+  return item.operationIds
+    .map(operationId => props.templateGroupAliases[String(operationId)])
+    .filter((binding): binding is TemplateGroupAliasBinding => Boolean(binding))
 }
 
 function previewStepGroups(item: RouteMergePreviewItem) {
@@ -438,6 +453,35 @@ function previewStepGroups(item: RouteMergePreviewItem) {
   color: #94a3b8;
   font-weight: 500;
   line-height: 1.3;
+}
+
+.nrp-aliases {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  margin: 7px 0 0 34px;
+  padding-top: 7px;
+  border-top: 1px dashed #e2e8f0;
+}
+.nrp-alias-label {
+  color: #64748b;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.nrp-alias-chip {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  min-height: 20px;
+  padding: 1px 6px;
+  border: 1px solid #dbe4ff;
+  border-radius: 4px;
+  background: #f5f7ff;
+  color: #4f46e5;
+  font-size: 10.5px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 /* ── Steps area ── */

@@ -8,6 +8,7 @@ import {
 import type { FinalizeCard } from '@/composables/finalizeViewHelpers'
 import { FINALIZE_EXPORT_COPY } from '@/config/finalizeRulePresentation'
 import { createZipBlob, downloadBlob, textFile } from '@/utils/exportArchive'
+import type { KmaiMappingIssue } from '@/api/kmaiFactorMappings'
 import {
   buildCompileRequestFromCards,
   buildRuleReportFromV2Package,
@@ -31,6 +32,10 @@ type UseFinalizeRulePackageExportOptions = {
   conditionFields: Ref<CanonicalConditionField[]>
   onBlockedCards?: (cards: FinalizeCard[]) => void | Promise<void>
   onExportIssue?: (issue: { title: string; summary: string; details?: string }) => void
+  onKmaiMappingsRequired?: (
+    issues: KmaiMappingIssue[],
+    rulePackage: Record<string, unknown>,
+  ) => Promise<boolean>
   onExportedVersion?: (version: number, meta?: { schemaVersion: string; status: string }) => void
   onWorkflowConflict?: () => void | Promise<void>
 }
@@ -46,6 +51,30 @@ function formatValidationErrors(validation: {
     .map((item) => (typeof item === 'string' ? item : item.message || ''))
     .filter(Boolean)
     .join('\n')
+}
+
+function getKmaiMappingIssues(errors: Array<any> = []): KmaiMappingIssue[] {
+  return errors
+    .filter(issue => (
+      (issue.code === 'kmai_mapping_required' || issue.code === 'kmai_unmapped_value')
+      && issue.field && issue.value
+    ))
+    .map(issue => ({
+      field: issue.field,
+      value: issue.value,
+      occurrences: issue.occurrences || 1,
+      rule_refs: issue.rule_refs || [],
+      suggested_existing_factors: issue.suggested_existing_factors || [],
+      can_create_manual_factor: issue.can_create_manual_factor ?? true,
+    }))
+}
+
+function getManualKmaiFactors(files: Record<string, Record<string, unknown>>) {
+  const factorSchema = files['factor_schema.json']
+  const factors = Array.isArray(factorSchema?.factors) ? factorSchema.factors : []
+  return factors
+    .filter((factor: any) => factor?.source_mode === 'manual_override' && factor?.factor_key)
+    .map((factor: any) => ({ key: String(factor.factor_key), name: String(factor.name || factor.factor_key) }))
 }
 
 export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExportOptions) {
@@ -91,16 +120,39 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
 
     exportingRulePackage.value = true
     try {
-      const compiled = await compileRulePackage(compileRequest)
+      let compiled = await compileRulePackage(compileRequest)
       if (!compiled.validation?.valid) {
         const detail = formatValidationErrors(compiled.validation) || '规则包校验未通过'
         reportExportIssue('规则包还不能导出', '请先修正未通过校验的规则，再重新导出。', detail)
         return
       }
       if (!compiled.kmai_compatibility?.valid) {
-        const detail = formatValidationErrors(compiled.kmai_compatibility) || 'KmAI 兼容文件校验未通过'
-        reportExportIssue('规则包暂不兼容 KmAI', '当前规则中有 KmAI 尚不支持的表达，请根据检查详情调整后再导出。', detail)
-        return
+        const mappingIssues = getKmaiMappingIssues(compiled.kmai_compatibility.errors)
+        if (mappingIssues.length) {
+          const resolved = await options.onKmaiMappingsRequired?.(
+            mappingIssues,
+            compiled.package as unknown as Record<string, unknown>,
+          )
+          if (!resolved) return
+
+          // A persisted mapping changes the compiled rule package and KmAI files.
+          compiled = await compileRulePackage(compileRequest)
+          if (!compiled.validation?.valid) {
+            const detail = formatValidationErrors(compiled.validation) || 'Rule package validation failed after resolving mappings.'
+            reportExportIssue('Rule package cannot be exported', 'Fix the validation errors and export again.', detail)
+            return
+          }
+          if (!compiled.kmai_compatibility?.valid) {
+            const detail = JSON.stringify(compiled.kmai_compatibility?.errors || [], null, 2)
+            reportExportIssue('KmAI package is still incompatible', 'The saved mappings did not resolve every KmAI compatibility issue.', detail)
+            return
+          }
+        }
+        if (!compiled.kmai_compatibility?.valid) {
+          const detail = formatValidationErrors(compiled.kmai_compatibility) || 'KmAI compatibility validation failed.'
+          reportExportIssue('规则包暂不兼容 KmAI', '当前规则中有 KmAI 尚不支持的表达，请根据检查详情调整后再导出。', detail)
+          return
+        }
       }
 
       const ruleReport = buildRuleReportFromV2Package({
@@ -133,6 +185,13 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
         status: savedPackage.status,
       })
 
+      const authoritativeKmai = savedPackage.kmai_compatibility
+      if (!authoritativeKmai?.valid) {
+        reportExportIssue('KmAI 导出未完成', '服务器未返回可发布的 KmAI 兼容文件，请重新导出。')
+        return
+      }
+
+      const manualKmaiFactors = getManualKmaiFactors(authoritativeKmai.files)
       const files = [
         { name: 'manifest.json', content: textFile(savedPackage.manifest || compiled.package.manifest) },
         { name: 'input_schema.json', content: textFile(savedPackage.input_schema) },
@@ -144,7 +203,7 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
           name: 'validation_report.json',
           content: textFile(savedPackage.validation_report || compiled.validation),
         },
-        ...Object.entries(compiled.kmai_compatibility.files).map(([name, content]) => ({
+        ...Object.entries(authoritativeKmai.files).map(([name, content]) => ({
           name: `kmai-v1/${name}`,
           content: textFile(content),
         })),
@@ -153,13 +212,19 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
           content: [
             'KmAI 规则文件替换说明',
             '',
-            `目标目录：${compiled.kmai_compatibility.target_directory}`,
+            `目标目录：${authoritativeKmai.target_directory}`,
             '',
             '1. 先停止 KmAI Agent。',
             '2. 备份目标目录中同名的四个 JSON 文件。',
             '3. 将本目录中的 factor_schema.json、factor_expansion_rules.json、route_catalog.json、route_rules.json 复制到目标目录并覆盖。',
             '4. 不要删除或覆盖原有 group_match_rules.json。',
             '5. 重新启动 KmAI Agent；后续工艺路线生成将使用本次导出的 ProcessMind 规则。',
+            '6. route_catalog.json 的 template_group_aliases 为 ProcessMind 附加元数据；KmAI v1 会忽略它，不影响路线生成。',
+            '',
+            'Manual boolean factors require manual.factor_overrides values (true/false):',
+            ...(manualKmaiFactors.length
+              ? manualKmaiFactors.map(factor => `- ${factor.key}: ${factor.name}`)
+              : ['- None']),
             '',
           ].join('\n'),
         },

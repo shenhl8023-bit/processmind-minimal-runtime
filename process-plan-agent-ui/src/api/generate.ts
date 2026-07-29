@@ -1,5 +1,6 @@
 import { api } from './client'
 import { clearAllWorkflowDataCache } from '@/composables/workflowDataCache'
+import type { TemplateGroupAliasBinding } from './extract'
 
 export interface GeneratedRouteStep {
   process_id?: string
@@ -8,6 +9,7 @@ export interface GeneratedRouteStep {
   op_type: 'MAIN' | 'BRANCH' | string
   reason: string
   process_steps?: string[]
+  template_group_aliases?: TemplateGroupAliasBinding[]
 }
 
 export interface GenerateRouteResult {

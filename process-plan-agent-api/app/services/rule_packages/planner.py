@@ -252,6 +252,7 @@ def plan_route(package: RulePackageV2, inputs: dict[str, Any]) -> RoutePlan:
                 op_type="MAIN" if process.main else "BRANCH",
                 reason=reasons.get(process_id, "规则包依赖命中"),
                 process_steps=[step.name for step in process.steps],
+                template_group_aliases=list(process.template_group_aliases or []),
             )
         )
 

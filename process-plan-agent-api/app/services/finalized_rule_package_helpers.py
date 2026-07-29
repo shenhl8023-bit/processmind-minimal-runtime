@@ -38,7 +38,11 @@ def json_loads_list(value: str | None) -> list:
     return loaded if isinstance(loaded, list) else []
 
 
-def serialize_finalized_rule_package(row: FinalizedRulePackage) -> FinalizedRulePackageOut:
+def serialize_finalized_rule_package(
+    row: FinalizedRulePackage,
+    *,
+    kmai_compatibility: dict | None = None,
+) -> FinalizedRulePackageOut:
     return FinalizedRulePackageOut(
         id=row.id,
         project_id=row.project_id,
@@ -60,6 +64,7 @@ def serialize_finalized_rule_package(row: FinalizedRulePackage) -> FinalizedRule
         published_by=row.published_by,
         published_at=row.published_at,
         supersedes_id=row.supersedes_id,
+        kmai_compatibility=kmai_compatibility or {},
     )
 
 

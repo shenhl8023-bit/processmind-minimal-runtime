@@ -45,6 +45,35 @@ def _unique_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     return result
 
 
+def _template_group_aliases_for_route_item(
+    item: object,
+    source_operation_ids: list[int],
+) -> list[dict[str, object]]:
+    aliases: list[dict[str, object]] = []
+    valid_source_operation_ids = set(source_operation_ids)
+    for entry in route_item_value(item, "template_group_aliases", []) or []:
+        if hasattr(entry, "model_dump"):
+            entry = entry.model_dump()
+        if not isinstance(entry, dict):
+            continue
+        try:
+            source_operation_id = int(entry.get("source_operation_id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if source_operation_id <= 0:
+            continue
+        if source_operation_id not in valid_source_operation_ids:
+            continue
+        path = entry.get("template_group_path") or []
+        aliases.append({
+            "source_operation_id": source_operation_id,
+            "alias": str(entry.get("alias") or ""),
+            "template_group_id": str(entry.get("template_group_id") or ""),
+            "template_group_path": [str(part or "") for part in path] if isinstance(path, list) else [],
+        })
+    return aliases
+
+
 def _matched_rows_for_route_item(
     item: object,
     detail_rows: list[DocumentOperationDetail],
@@ -149,6 +178,7 @@ def build_saved_route_version_segments(
         source_operation_ids = route_item_source_operation_ids(item)
         source_nodes = resolved_route_item_source_nodes(item, source_lookup)
         source_operation_names = route_item_source_operation_names(item) or route_item_source_nodes(item)
+        template_group_aliases = _template_group_aliases_for_route_item(item, source_operation_ids)
         matched_rows = _matched_rows_for_route_item(item, detail_rows, source_lookup)
         evidence_excerpt = list(dict.fromkeys(
             extract_detail_excerpt(str(row.get("operation_content") or ""))
@@ -171,6 +201,7 @@ def build_saved_route_version_segments(
             "source_nodes": source_nodes,
             "source_operation_names": unique_nonblank_strings(source_operation_names),
             "source_operation_ids": source_operation_ids,
+            "template_group_aliases": template_group_aliases,
             "review_status": str(route_item_value(item, "review_status", "merged") or "merged"),
             "source_type": str(route_item_value(item, "source_type", "manual_adjusted") or "manual_adjusted"),
             "coverage_label": coverage_label,

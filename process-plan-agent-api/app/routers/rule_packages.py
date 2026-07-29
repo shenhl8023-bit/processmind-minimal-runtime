@@ -22,11 +22,12 @@ from app.services.rule_packages.contracts import (
     SimulateRulePackageResponse,
 )
 from app.services.rule_packages.planner import RoutePlanningError
-from app.services.rule_packages.input_validation import validate_inputs
+from app.services.rule_packages.input_validation import input_validation_error_detail, validate_inputs
 from app.services.rule_packages.loader import load_published_rule_package
-from app.services.rule_packages.lifecycle import v2_package_from_row
+from app.services.rule_packages.lifecycle import load_registry_for_package, v2_package_from_row
 from app.services.rule_packages.kmai_compatibility_runner import compare_kmai_v1
 from app.services.rule_packages.kmai_export import build_kmai_compatibility_export
+from app.services.rule_packages.kmai_mapping_registry import load_effective_mapping_registry
 from app.services.rule_packages.condition_contracts import (
     ConditionFieldRegistryResponse,
     ConfirmRuleConditionRequest,
@@ -90,13 +91,17 @@ async def set_manual_user_rule_condition(
 
 
 @router.post("/compile", response_model=CompileRulePackageResponse)
-async def compile_v2_rule_package(body: CompileRulePackageRequest):
+async def compile_v2_rule_package(
+    body: CompileRulePackageRequest,
+    db: AsyncSession = Depends(get_db),
+):
     package = compile_rule_package(body)
+    mapping_registry = await load_effective_mapping_registry(db, package.manifest.project_id)
     return CompileRulePackageResponse(
         package=package,
         content_hash=rule_package_content_hash(package),
         validation=validate_rule_package(package),
-        kmai_compatibility=build_kmai_compatibility_export(package),
+        kmai_compatibility=build_kmai_compatibility_export(package, mapping_registry=mapping_registry),
     )
 
 
@@ -115,7 +120,7 @@ async def simulate_v2_rule_package(body: SimulateRulePackageRequest):
     if input_errors:
         raise HTTPException(
             status_code=422,
-            detail=[issue.model_dump(mode="json") for issue in input_errors],
+            detail=input_validation_error_detail(input_errors),
         )
     try:
         plan = plan_route(body.package, body.inputs)
@@ -140,8 +145,9 @@ async def test_kmai_compatibility(
         raise HTTPException(422, detail=validation.model_dump(mode="json"))
     input_errors = validate_inputs(package.input_schema, body.inputs)
     if input_errors:
-        raise HTTPException(422, detail=[issue.model_dump(mode="json") for issue in input_errors])
-    comparison = compare_kmai_v1(package, body.inputs)
+        raise HTTPException(422, detail=input_validation_error_detail(input_errors))
+    mapping_registry = await load_registry_for_package(db, package_row.id)
+    comparison = compare_kmai_v1(package, body.inputs, mapping_registry=mapping_registry)
     return KmaiCompatibilityTestResponse(
         project_id=body.project_id,
         package_id=package_row.id,

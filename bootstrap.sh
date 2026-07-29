@@ -8,10 +8,10 @@ cd "$ROOT_DIR/process-plan-agent-api"
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r "$ROOT_DIR/requirement.txt"
 
 echo "[2/2] 安装前端依赖..."
 cd "$ROOT_DIR/process-plan-agent-ui"
-npm install
+npm ci --no-audit --no-fund
 
 echo "完成。现在可以分别执行 ./start-api.sh 和 ./start-ui.sh"

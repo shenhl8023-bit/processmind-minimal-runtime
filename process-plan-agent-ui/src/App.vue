@@ -25,8 +25,13 @@ const currentStepIndex = computed(() => {
   return index >= 0 ? index : null
 })
 
+const currentProjectId = computed(() => {
+  const id = resolveCurrentProjectId(String(route.query.project_id || ''))
+  return id ? Number(id) : null
+})
+
 const hasProjectContext = computed(() => {
-  return Boolean(resolveCurrentProjectId(String(route.query.project_id || '')))
+  return currentProjectId.value !== null
 })
 
 const stepStatus = (stepNumber: number) => {
@@ -115,7 +120,7 @@ onMounted(() => {
       </div>
     </header>
 
-    <ModelSettingsDrawer v-model="settingsVisible" />
+    <ModelSettingsDrawer v-model="settingsVisible" :project-id="currentProjectId" />
 
     <!-- Main Content Area -->
     <main class="main-area">

@@ -101,22 +101,33 @@ async def put_mapping(
 @router.post("/{mapping_id}/promote")
 async def promote_project_mapping(
     mapping_id: int,
+    expected_revision: int = Query(..., ge=1),
     actor: str = Query(default="默认用户"),
     db: AsyncSession = Depends(get_db),
 ):
-    mapping = await _commit_or_raise(db, lambda: promote_mapping(db, mapping_id, actor))
+    mapping = await _commit_or_raise(
+        db,
+        lambda: promote_mapping(db, mapping_id, expected_revision, actor),
+    )
     return mapping.model_dump(mode="json")
 
 
 @router.delete("/{mapping_id}")
 async def delete_or_deactivate_mapping(
     mapping_id: int,
+    expected_revision: int = Query(..., ge=1),
     delete: bool = Query(default=False),
     actor: str = Query(default="默认用户"),
     db: AsyncSession = Depends(get_db),
 ):
     result = await _commit_or_raise(
         db,
-        lambda: deactivate_or_delete_mapping(db, mapping_id, delete=delete, actor=actor),
+        lambda: deactivate_or_delete_mapping(
+            db,
+            mapping_id,
+            expected_revision=expected_revision,
+            delete=delete,
+            actor=actor,
+        ),
     )
     return {"deleted": delete, "mapping": result.model_dump(mode="json") if result is not None else None}

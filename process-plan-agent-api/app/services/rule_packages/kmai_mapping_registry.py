@@ -91,10 +91,11 @@ def builtin_factor_catalog() -> tuple[KmaiFactorCatalogItem, ...]:
             factor_key=factor_key,
             factor_name=factor_name,
             factor_category=factor_category,
+            value_type=value_type,
             source_mode="builtin",
             read_only=True,
         )
-        for _, factor_key, factor_name, factor_category, _ in BUILTIN_FACTOR_SPECS
+        for _, factor_key, factor_name, factor_category, value_type in BUILTIN_FACTOR_SPECS
     )
 
 
@@ -131,7 +132,11 @@ def mapping_snapshot_from_row(mapping: KmaiFactorMapping) -> KmaiMappingSnapshot
         mapping_mode=mapping.mapping_mode,
         target_factor_key=mapping.target_factor_key,
         target_factor_name=mapping.target_factor_name,
-        target_factor_category=mapping.target_factor_category,
+        target_factor_category=(
+            "manual_override"
+            if mapping.mapping_mode == "manual_factor"
+            else mapping.target_factor_category
+        ),
     )
 
 

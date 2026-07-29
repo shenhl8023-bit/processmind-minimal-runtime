@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 
-ROUTE_MERGE_ALGO_VERSION = "v32"
+ROUTE_MERGE_ALGO_VERSION = "v33"
 
 ROUTE_MERGE_RULES_PATH = (
     Path(__file__).resolve().parents[3]

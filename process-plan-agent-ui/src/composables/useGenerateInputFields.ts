@@ -1,4 +1,4 @@
-import { computed, ref, type Ref } from 'vue'
+import { computed, ref, watch, type Ref } from 'vue'
 
 export type GenerateInputField = {
   key: string
@@ -163,15 +163,57 @@ function exampleValueForField(field: GenerateInputField) {
   if (field.allowed_values?.length) return isArrayField(field) ? [field.allowed_values[0]] : field.allowed_values[0]
   if (isBooleanField(field)) return true
   if (isNumberField(field)) return field.validation?.min ?? 0
-  if (/material(?:\.grade)?|材料|牌号/i.test(field.key) || /材料|牌号/.test(field.name || '')) return '9Cr18'
+  if (/material(?:\\.grade)?|材料|牌号/i.test(field.key) || /材料|牌号/.test(field.name || '')) return '9Cr18'
   if (isArrayField(field)) return ['示例特征']
   return '示例值'
+}
+
+function isReusableFieldValue(field: GenerateInputField, value: any) {
+  if (value === undefined || value === null) return false
+
+  if (isArrayField(field)) {
+    if (!Array.isArray(value)) return false
+    const normalized = value.map(item => String(item ?? '').trim()).filter(Boolean)
+    if (normalized.length !== value.length) return false
+    if (field.allowed_values?.length && field.allow_custom === false) {
+      return normalized.every(item => field.allowed_values!.includes(item))
+    }
+    return true
+  }
+
+  if (isBooleanField(field)) return typeof value === 'boolean'
+
+  if (isNumberField(field)) {
+    const rawValue = typeof value === 'number' ? value : String(value).trim()
+    if (rawValue === '') return false
+    const normalized = typeof rawValue === 'number' ? rawValue : Number(rawValue)
+    if (!Number.isFinite(normalized)) return false
+    if (field.type === 'integer' && !Number.isInteger(normalized)) return false
+    if (typeof field.validation?.min === 'number' && normalized < field.validation.min) return false
+    if (typeof field.validation?.max === 'number' && normalized > field.validation.max) return false
+    return true
+  }
+
+  if (typeof value !== 'string') return false
+  const normalized = value.trim()
+  if (
+    isSingleSelectField(field)
+    && normalized
+    && field.allowed_values?.length
+    && field.allow_custom === false
+  ) {
+    return field.allowed_values.includes(normalized)
+  }
+  if (typeof field.validation?.min_length === 'number' && normalized.length < field.validation.min_length) return false
+  if (typeof field.validation?.max_length === 'number' && normalized.length > field.validation.max_length) return false
+  return true
 }
 
 export function useGenerateInputFields(args: {
   inputSchema: Ref<Record<string, any> | null>
   hasRulePackage: Ref<boolean>
   projectId: Ref<number | null>
+  schemaLoading?: Ref<boolean>
 }) {
   const fieldValues = ref<Record<string, any>>({})
   const customInputValues = ref<Record<string, string>>({})
@@ -191,17 +233,19 @@ export function useGenerateInputFields(args: {
   })
 
   const requiredFields = computed(() => inputFields.value.filter(field => field.required))
-  const filledFieldCount = computed(() => inputFields.value.filter(field => hasFieldValue(field.key)).length)
+  const filledFieldCount = computed(() => inputFields.value.filter(field => hasValidFieldValue(field)).length)
 
   const factorValues = computed(() => {
     const values: Record<string, any> = {}
     inputFields.value.forEach((field) => {
       const value = fieldValues.value[field.key]
+      if (!isReusableFieldValue(field, value)) return
       if (Array.isArray(value)) {
         values[field.key] = value.filter(Boolean)
+      } else if (isNumberField(field)) {
+        values[field.key] = typeof value === 'number' ? value : Number(String(value).trim())
       } else if (typeof value === 'string') {
-        const trimmed = value.trim()
-        values[field.key] = isNumberField(field) && trimmed ? Number(trimmed) : trimmed
+        values[field.key] = value.trim()
       } else if (value !== undefined && value !== null) {
         values[field.key] = value
       }
@@ -216,9 +260,9 @@ export function useGenerateInputFields(args: {
     Boolean(
       args.projectId.value
       && args.hasRulePackage.value
+      && !args.schemaLoading?.value
       && inputFields.value.length
-      && requiredFields.value.every(field => hasFieldValue(field.key))
-      && inputFields.value.every(field => isFieldValueValid(field)),
+      && requiredFields.value.every(field => hasValidFieldValue(field)),
     ),
   )
 
@@ -226,7 +270,7 @@ export function useGenerateInputFields(args: {
     const nextValues: Record<string, any> = {}
     inputFields.value.forEach((field) => {
       const currentValue = fieldValues.value[field.key]
-      if (currentValue !== undefined) {
+      if (isReusableFieldValue(field, currentValue)) {
         nextValues[field.key] = currentValue
         return
       }
@@ -234,37 +278,31 @@ export function useGenerateInputFields(args: {
         nextValues[field.key] = []
       } else if (isBooleanField(field)) {
         nextValues[field.key] = field.source === '用户直接设定' ? false : undefined
+      } else if (isSingleSelectField(field)) {
+        nextValues[field.key] = field.allowed_values?.[0] || field.examples?.[0] || ''
       } else {
         nextValues[field.key] = field.examples?.[0] || ''
       }
     })
     fieldValues.value = nextValues
+    const fieldKeys = new Set(inputFields.value.map(field => field.key))
+    customInputValues.value = Object.fromEntries(
+      Object.entries(customInputValues.value).filter(([key]) => fieldKeys.has(key)),
+    )
   }
 
   function hasFieldValue(key: string) {
     const value = fieldValues.value[key]
     if (Array.isArray(value)) return value.length > 0
     if (typeof value === 'string') return value.trim().length > 0
-    return typeof value === 'boolean' ? true : Boolean(value)
+    return Boolean(value)
   }
 
-  function isFieldValueValid(field: GenerateInputField) {
+  function hasValidFieldValue(field: GenerateInputField) {
     const value = fieldValues.value[field.key]
-    if (!hasFieldValue(field.key)) return !field.required
     if (isBooleanField(field)) return typeof value === 'boolean'
-    if (isNumberField(field)) {
-      const numericValue = Number(value)
-      if (!Number.isFinite(numericValue)) return false
-      if (field.validation?.min != null && numericValue < field.validation.min) return false
-      if (field.validation?.max != null && numericValue > field.validation.max) return false
-      return true
-    }
-    const allowed = field.allowed_values || []
-    if (allowed.length && !field.allow_custom) {
-      const values = Array.isArray(value) ? value : [value]
-      return values.every(item => allowed.includes(String(item)))
-    }
-    return true
+    if (isNumberField(field)) return isReusableFieldValue(field, value)
+    return isReusableFieldValue(field, value) && hasFieldValue(field.key)
   }
 
   function fieldTextValue(key: string) {
@@ -280,8 +318,6 @@ export function useGenerateInputFields(args: {
 
   function fieldPlaceholder(field: GenerateInputField) {
     if (field.examples?.length) return `例如 ${field.examples[0]}`
-    const fallback = exampleValueForField(field)
-    if (typeof fallback === 'string' && fallback) return `例如 ${fallback}`
     return field.source ? `来源：${field.source}` : '请输入'
   }
 
@@ -355,14 +391,6 @@ export function useGenerateInputFields(args: {
         nextValues[field.key] = preferred.length ? preferred : exampleValueForField(field)
         return
       }
-      if (isBooleanField(field)) {
-        nextValues[field.key] = true
-        return
-      }
-      if (isSingleSelectField(field)) {
-        nextValues[field.key] = field.allowed_values?.[0] || field.examples?.[0] || ''
-        return
-      }
       nextValues[field.key] = exampleValueForField(field)
     })
     fieldValues.value = nextValues
@@ -372,6 +400,10 @@ export function useGenerateInputFields(args: {
     fieldValues.value = {}
     customInputValues.value = {}
   }
+
+  watch(args.projectId, (nextProjectId, previousProjectId) => {
+    if (nextProjectId !== previousProjectId) resetFieldValues()
+  }, { flush: 'sync' })
 
   return {
     addCustomArrayValue,

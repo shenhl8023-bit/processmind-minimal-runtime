@@ -159,6 +159,13 @@ class MergeMatchedDetailRowOut(BaseModel):
     equipment_models: str = ""
 
 
+class TemplateGroupAliasBinding(BaseModel):
+    source_operation_id: int
+    alias: str
+    template_group_id: str
+    template_group_path: List[str] = Field(default_factory=list)
+
+
 class MergeSuggestionOut(BaseModel):
     suggestion_id: str
     target_group_id: str
@@ -219,6 +226,7 @@ class NormalizedRouteSegmentOut(BaseModel):
     reason_codes: List[str] = []
     evidence_excerpt: List[str] = []
     matched_detail_rows: List[MergeMatchedDetailRowOut] = []
+    template_group_aliases: List[TemplateGroupAliasBinding] = Field(default_factory=list)
 
 
 class NormalizedSupersetRouteOut(BaseModel):
@@ -286,6 +294,7 @@ class SavedNormalizedRouteSegmentOut(BaseModel):
     detail_coverage: DetailCoverageOut = Field(default_factory=DetailCoverageOut)
     evidence_excerpt: List[str] = []
     matched_detail_rows: List[MergeMatchedDetailRowOut] = []
+    template_group_aliases: List[TemplateGroupAliasBinding] = Field(default_factory=list)
     equipment_profile: EquipmentProfileOut = Field(default_factory=EquipmentProfileOut)
     analysis_status: str = "pending"
     factor_reviews: List[SegmentFactorReviewOut] = []
@@ -328,6 +337,7 @@ class NormalizedRouteSegmentSaveItem(BaseModel):
     reason_codes: List[str] = []
     evidence_excerpt: List[str] = []
     matched_detail_rows: List[MergeMatchedDetailRowOut] = []
+    template_group_aliases: List[TemplateGroupAliasBinding] = Field(default_factory=list)
 
 
 class SaveNormalizedSupersetRouteRequest(BaseModel):
@@ -392,6 +402,7 @@ class FinalizedRulePackageOut(BaseModel):
     published_by: Optional[str] = None
     published_at: Optional[datetime] = None
     supersedes_id: Optional[int] = None
+    kmai_compatibility: Dict[str, Any] = Field(default_factory=dict)
 
 
 class FinalizedRulePackageListItemOut(BaseModel):
@@ -510,6 +521,7 @@ class RouteStep(BaseModel):
     op_type: str  # MAIN / BRANCH
     reason: str
     process_steps: List[str] = Field(default_factory=list)
+    template_group_aliases: List[TemplateGroupAliasBinding] = Field(default_factory=list)
 
 
 class GenerateResponse(BaseModel):

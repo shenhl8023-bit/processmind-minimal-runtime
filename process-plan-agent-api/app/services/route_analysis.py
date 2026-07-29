@@ -115,9 +115,10 @@ async def save_normalized_route_version(
     source_signature: str,
     total_docs: int,
     normalized_route: list[dict[str, object]],
+    force_new_version: bool = False,
 ) -> NormalizedRouteVersion:
     latest = await get_latest_normalized_route_version(project_id, db)
-    if latest:
+    if latest and not force_new_version:
         latest_items = parse_route_json(latest.route_json)
         if normalized_route_content_hash(latest_items) == normalized_route_content_hash(normalized_route):
             # Same route content: reuse current version (no bump). Refresh metadata if needed.
@@ -195,6 +196,29 @@ async def ensure_saved_normalized_route_version(
             latest_items = json.loads(latest.route_json or "[]")
         except Exception:
             latest_items = []
+        snapshot_source_signature = str(snapshot_row.source_signature or "") if snapshot_row else ""
+        latest_source_signature = str(latest.source_signature or "")
+        if snapshot_row and latest_source_signature != snapshot_source_signature:
+            if not snapshot_items:
+                return None
+            rebuilt_route = build_saved_route_version_segments(
+                snapshot_items,
+                detail_rows,
+                total_docs,
+                source_lookup=source_lookup,
+            )
+            rebuilt_route = sort_and_resequence_saved_route(rebuilt_route)
+            if not rebuilt_route:
+                return None
+            return await save_normalized_route_version(
+                project_id=project_id,
+                db=db,
+                source_signature=snapshot_source_signature,
+                total_docs=total_docs,
+                normalized_route=rebuilt_route,
+                force_new_version=True,
+            )
+
         latest_names_by_id = {
             str(item.get("id") or ""): str(item.get("normalized_step_name") or "").strip()
             for item in latest_items

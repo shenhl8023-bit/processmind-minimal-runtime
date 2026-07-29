@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import json
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import FinalizedRulePackage, utcnow
+from app.models.models import FinalizedRulePackage, KmaiFactorMappingUsage, utcnow
 from app.services.finalized_rule_package_helpers import json_loads, json_loads_list
 from app.services.rule_packages.contracts import RulePackageV2, RulePackageValidationReport
+from app.services.rule_packages.kmai_mapping_contracts import KmaiMappingSnapshot
+from app.services.rule_packages.kmai_mapping_registry import (
+    KmaiMappingRegistry,
+    builtin_mapping_registry,
+)
 from app.services.rule_packages.validator import validate_rule_package
 
 
@@ -15,6 +22,25 @@ class RulePackageLifecycleError(ValueError):
     def __init__(self, message: str, validation: RulePackageValidationReport | None = None):
         super().__init__(message)
         self.validation = validation
+
+
+async def supersede_published_rule_packages(
+    project_id: int,
+    db: AsyncSession,
+) -> int:
+    """Retire packages derived from a project's previous document set."""
+    rows = (
+        await db.execute(
+            select(FinalizedRulePackage).where(
+                FinalizedRulePackage.project_id == project_id,
+                FinalizedRulePackage.status == "published",
+            )
+        )
+    ).scalars().all()
+    for row in rows:
+        row.status = "superseded"
+    await db.flush()
+    return len(rows)
 
 
 def v2_package_from_row(row: FinalizedRulePackage) -> RulePackageV2:
@@ -27,6 +53,32 @@ def v2_package_from_row(row: FinalizedRulePackage) -> RulePackageV2:
         "route_rules": json_loads(row.route_rules_json),
         "test_cases": json_loads_list(row.test_cases_json),
     })
+
+
+async def load_registry_for_package(
+    db: AsyncSession,
+    package_id: int,
+) -> KmaiMappingRegistry:
+    """Rebuild the mapping context captured when a published package was made."""
+    rows = (
+        await db.execute(
+            select(KmaiFactorMappingUsage)
+            .where(KmaiFactorMappingUsage.package_id == package_id)
+            .order_by(KmaiFactorMappingUsage.id)
+        )
+    ).scalars().all()
+    if not rows:
+        return builtin_mapping_registry()
+
+    snapshots = []
+    for row in rows:
+        try:
+            snapshots.append(
+                KmaiMappingSnapshot.model_validate(json.loads(row.mapping_snapshot_json))
+            )
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+    return KmaiMappingRegistry(snapshots) if snapshots else builtin_mapping_registry()
 
 
 async def publish_rule_package(
@@ -60,6 +112,5 @@ async def publish_rule_package(
     row.status = "published"
     row.published_by = (actor or "默认用户").strip() or "默认用户"
     row.published_at = utcnow()
-    await db.commit()
-    await db.refresh(row)
+    await db.flush()
     return row

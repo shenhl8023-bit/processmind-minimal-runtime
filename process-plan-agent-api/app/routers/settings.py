@@ -5,6 +5,7 @@ import httpx
 from app.schemas.schemas import SettingOut, SettingUpdate, LLMTestRequest, LLMTestOut, LLMModelOut
 from app.services.llm_client import normalize_llm_api_url
 from app.services.settings_store import (
+    SettingsStoreError,
     load_settings_for_output,
     serialize_setting_for_output,
     update_setting_value,
@@ -19,7 +20,10 @@ async def get_settings():
     """
     获取所有系统设置
     """
-    return load_settings_for_output()
+    try:
+        return load_settings_for_output()
+    except SettingsStoreError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.post("", response_model=SettingOut)
@@ -32,6 +36,8 @@ async def update_setting(payload: SettingUpdate):
         return serialize_setting_for_output(updated)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Setting {payload.key} not found")
+    except SettingsStoreError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.post("/test-connection", response_model=LLMTestOut)
@@ -44,7 +50,10 @@ async def test_llm_connection(payload: LLMTestRequest):
     model = payload.model
 
     if api_key == "__use_saved__":
-        api_key = get_llm_settings_map().get("LLM_API_KEY", "")
+        try:
+            api_key = get_llm_settings_map().get("LLM_API_KEY", "")
+        except SettingsStoreError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     if not api_url or not api_key:
         raise HTTPException(status_code=400, detail="API URL 和 API Key 不能为空")
@@ -103,6 +112,10 @@ async def get_available_models():
     """
     try:
         settings = get_llm_settings_map()
+    except SettingsStoreError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    try:
         api_url = normalize_llm_api_url(settings.get("LLM_API_URL", ""))
         api_key = settings.get("LLM_API_KEY", "")
 
@@ -140,6 +153,7 @@ async def get_available_models():
             models.sort(key=lambda x: x.id)
             return models
 
-    except Exception as e:
-        # 静默失败，返回空列表
-        return []
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"模型列表获取失败：{exc}") from exc
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail=f"模型列表解析失败：{exc}") from exc

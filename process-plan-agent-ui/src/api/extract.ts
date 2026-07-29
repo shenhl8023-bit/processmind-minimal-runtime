@@ -6,6 +6,7 @@ import {
   getWorkflowDataRevision,
   setWorkflowDataCache,
 } from '@/composables/workflowDataCache'
+import type { KmaiCompatibilityExport } from './kmaiFactorMappings'
 
 export interface OperationFactor {
   id: number
@@ -112,6 +113,13 @@ export interface MergeSuggestionResult {
   algo_version: string
 }
 
+export interface TemplateGroupAliasBinding {
+  source_operation_id: number
+  alias: string
+  template_group_id: string
+  template_group_path: string[]
+}
+
 export interface NormalizedRouteSegment {
   id: string
   sequence: number
@@ -136,6 +144,7 @@ export interface NormalizedRouteSegment {
   equipment_models: string[]
   equipment_support_result: string
   equipment_support_reason: string
+  template_group_aliases?: TemplateGroupAliasBinding[]
 }
 
 export interface SupersetRouteResult {
@@ -212,6 +221,7 @@ export interface SavedNormalizedRouteSegment {
   detail_coverage: SavedRouteDetailCoverage
   evidence_excerpt: string[]
   matched_detail_rows: MergeMatchedDetailRow[]
+  template_group_aliases?: TemplateGroupAliasBinding[]
   equipment_profile: SavedRouteEquipmentProfile
   analysis_status: string
   factor_reviews: SegmentFactorReview[]
@@ -261,6 +271,11 @@ export interface FinalizedRulePackageResult {
   published_by?: string | null
   published_at?: string | null
   supersedes_id?: number | null
+  kmai_compatibility?: KmaiCompatibilityExport
+}
+
+export type SaveFinalizedRulePackageResponse = Omit<FinalizedRulePackageResult, 'kmai_compatibility'> & {
+  kmai_compatibility: KmaiCompatibilityExport
 }
 
 export interface FinalizedRulePackageListItem {
@@ -459,6 +474,7 @@ export async function saveNormalizedSupersetRoute(body: {
     reason_codes?: string[]
     evidence_excerpt?: string[]
     matched_detail_rows?: Array<Record<string, any>>
+    template_group_aliases?: TemplateGroupAliasBinding[]
   }>
 }) {
   const { data } = await api.post('/api/extract/normalized-superset-route/save', body)
@@ -502,7 +518,7 @@ export async function saveFinalizedRulePackage(body: {
 }) {
   const { data } = await api.post('/api/extract/finalized-rule-packages', body)
   clearAllWorkflowDataCache()
-  return data as FinalizedRulePackageResult
+  return data as SaveFinalizedRulePackageResponse
 }
 
 export async function resetWorkflow(body: {
