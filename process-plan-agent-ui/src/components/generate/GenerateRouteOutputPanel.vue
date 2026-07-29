@@ -74,20 +74,16 @@
     </section>
 
     <section v-else class="route-output">
-      <!-- Result Summary Banner -->
-      <div class="result-summary-banner">
-        <div class="banner-left">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-            <path d="M22 4L12 14.01l-3-3"/>
-          </svg>
-          <span>工艺路线生成成功！包含 <strong>{{ result.steps.length }}</strong> 道工序（主线 <strong>{{ mainStepCount }}</strong> / 条件 <strong>{{ branchStepCount }}</strong>），工步累计 <strong>{{ processStepCount }}</strong> 项。</span>
-        </div>
-      </div>
-
       <div class="output-head">
         <div class="output-head-left">
           <span class="output-title">工序工步树</span>
+          <span class="output-stats-inline">
+            <span class="stat-inline-item">共 <strong>{{ result.steps.length }}</strong> 工序</span>
+            <span class="stat-inline-sep">·</span>
+            <span class="stat-inline-item">主线 <strong>{{ mainStepCount }}</strong> / 条件 <strong>{{ branchStepCount }}</strong></span>
+            <span class="stat-inline-sep">·</span>
+            <span class="stat-inline-item">工步 <strong>{{ processStepCount }}</strong> 项</span>
+          </span>
         </div>
         <div class="output-actions">
           <button class="copy-button" type="button" @click="copyJson" :disabled="!result.output_json_text">
@@ -158,7 +154,6 @@
                 </div>
               </Transition>
             </div>
-            <p v-else class="no-process-steps">该工序暂无下级工步</p>
           </article>
         </div>
       </div>
@@ -451,117 +446,103 @@ watch(() => props.result, () => {
 .error-panel strong { display: block; font-size: 12px; }
 .error-panel p { margin: 2px 0 0; font-size: 12px; line-height: 1.5; }
 
-.route-output { padding: 16px; }
-
-/* Result Summary Banner */
-.result-summary-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  margin-bottom: 12px;
-  border: 1px solid #bbf7d0;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
-  color: #166534;
-  font-size: 12.5px;
-}
-.banner-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.banner-left svg { flex-shrink: 0; color: #16a34a; }
+.route-output { padding: 12px; }
 
 .output-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
-  min-height: 28px;
-  padding: 0 4px 12px;
+  gap: 12px;
+  padding-bottom: 10px;
   border-bottom: 1px solid var(--line);
-  margin-bottom: 12px;
-  box-sizing: content-box;
+  margin-bottom: 10px;
 }
 
 .output-head-left {
   display: flex;
   align-items: center;
-  min-width: 0;
-  min-height: 28px;
   gap: 8px;
+  min-width: 0;
 }
 
 .output-title {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
-  line-height: 28px;
   color: var(--ink);
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .output-stats-inline {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-left: 10px;
-  padding-left: 10px;
-  border-left: 1px solid var(--line);
-  font-size: 12.5px;
-  line-height: 28px;
+  margin-left: 6px;
+  padding-left: 8px;
+  border-left: 1px solid #e2e8f0;
+  font-size: 12px;
   color: var(--muted);
+  white-space: nowrap;
 }
 
-.stat-inline-item strong { color: var(--ink); font-weight: 700; }
-.stat-inline-sep { color: #cbd5e1; }
+.stat-inline-item strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.stat-inline-sep {
+  color: #cbd5e1;
+}
 
 .output-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .copy-button {
-  flex-shrink: 0;
-  height: 28px;
-  padding: 0 11px;
-  border: 1px solid #cbd5e1;
-  border-radius: 7px;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid #6366f1;
+  border-radius: 6px;
   background: #ffffff;
-  color: #475569;
+  color: #6366f1;
   font: inherit;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
 }
+
 .copy-button:hover:not(:disabled) {
-  background: #f8fafc;
-  border-color: #94a3b8;
-  color: #0f172a;
+  background: #f5f3ff;
+  border-color: #4f46e5;
+  color: #4f46e5;
 }
 
 .export-button {
-  flex-shrink: 0;
-  height: 28px;
-  padding: 0 11px;
-  border: 1px solid #c7d2fe;
-  border-radius: 7px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid #6366f1;
+  border-radius: 6px;
   background: #ffffff;
-  color: #4f46e5;
+  color: #6366f1;
   font: inherit;
-  font-size: 12px;
-  font-weight: 750;
-  line-height: 1;
+  font-size: 11.5px;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
 }
+
 .export-button:hover:not(:disabled) {
-  border-color: #6366f1;
-  background: var(--accent-soft);
+  background: #f5f3ff;
+  border-color: #4f46e5;
+  color: #4f46e5;
 }
-.export-button:disabled, .copy-button:disabled {
+
+.export-button:disabled,
+.copy-button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }
@@ -574,8 +555,8 @@ watch(() => props.result, () => {
 
 .route-node {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr);
-  gap: 9px;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 8px;
 }
 
 .route-track {
@@ -584,7 +565,7 @@ watch(() => props.result, () => {
   align-items: center;
   flex-shrink: 0;
   width: 14px;
-  padding-top: 14px;
+  padding-top: 10px;
 }
 
 .route-dot {
@@ -607,16 +588,16 @@ watch(() => props.result, () => {
 .route-line {
   flex: 1;
   width: 1px;
-  min-height: 20px;
+  min-height: 16px;
   background: #cbd5e1;
 }
 
 .route-card {
-  margin-bottom: 10px;
-  padding: 12px 13px;
+  margin-bottom: 6px;
+  padding: 8px 12px;
   border: 1px solid var(--line);
   border-left: 3px solid #6366f1;
-  border-radius: 10px;
+  border-radius: 8px;
   background: #ffffff;
   transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
@@ -697,11 +678,10 @@ watch(() => props.result, () => {
   color: #7e22ce;
 }
 
-.route-step-area,
-.no-process-steps {
-  margin-top: 10px;
-  padding-top: 9px;
-  border-top: 1px dashed #d5dfdc;
+.route-step-area {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed #e2e8f0;
 }
 
 .route-step-summary {
@@ -762,18 +742,18 @@ watch(() => props.result, () => {
 .process-step-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
+  gap: 4px;
+  margin-top: 4px;
 }
 
 .process-step-chip {
   display: inline-flex;
   align-items: center;
-  min-height: 25px;
-  padding: 3px 8px;
+  min-height: 22px;
+  padding: 2px 7px;
   border: 1px solid #e2e8f0;
   border-radius: 4px;
-  background: #f8faf9;
+  background: #f8fafc;
   color: #334155;
   font-size: 11px;
   font-weight: 600;

@@ -44,6 +44,7 @@ class RuleConditionCandidate(StrictModel):
     relation: ProcessRelationCandidate | None = None
     field_definitions: list[CanonicalConditionField] = Field(default_factory=list)
     preview: str = ""
+    evidence: str = ""
 
     @model_validator(mode="after")
     def validate_candidate_kind(self):
@@ -58,6 +59,7 @@ class RuleConditionCandidate(StrictModel):
 class SaveRuleConditionDraftRequest(StrictModel):
     project_id: int = Field(gt=0)
     route_id: int = Field(gt=0)
+    expected_workflow_revision: int = Field(default=0, ge=0)
     segment_id: str = Field(min_length=1)
     source_text: str = ""
 
@@ -75,6 +77,13 @@ class ConfirmRuleConditionRequest(SaveRuleConditionDraftRequest):
     confirmed_by: str = "默认用户"
 
 
+class ManualRuleConditionRequest(SaveRuleConditionDraftRequest):
+    process_id: str = Field(min_length=1)
+    candidate: RuleConditionCandidate
+    processes: list[RuleConditionProcessOption]
+    confirmed_by: str = "用户直接设定"
+
+
 class RuleConditionReview(StrictModel):
     source_text: str = ""
     source_hash: str = ""
@@ -84,6 +93,8 @@ class RuleConditionReview(StrictModel):
     confidence: float | None = None
     issues: list[str] = Field(default_factory=list)
     field_registry_version: str = ""
+    parser_version: str = ""
+    parse_duration_ms: int | None = None
     confirmed_by: str = ""
     confirmed_at: str = ""
 

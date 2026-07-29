@@ -25,6 +25,22 @@ class _Decision:
     priority: int
     rule_id: str
     reason: str
+    manual_process_override: bool = False
+
+
+def _is_manual_process_override(decision: _Decision | None) -> bool:
+    return bool(decision and decision.manual_process_override)
+
+
+def _is_manual_process_exclusion_rule(rule, process_id: str, manual_field_keys: set[str]) -> bool:
+    return bool(
+        rule.source == "user_confirmed"
+        and rule.when.field
+        and rule.when.field in manual_field_keys
+        and rule.when.op == "eq"
+        and rule.when.value is False
+        and process_id in rule.then.exclude_process_ids
+    )
 
 
 def _apply_decision(decisions: dict[str, _Decision], process_id: str, decision: _Decision) -> None:
@@ -126,6 +142,15 @@ def _topological_process_order(
 
 def plan_route(package: RulePackageV2, inputs: dict[str, Any]) -> RoutePlan:
     process_map = {process.process_id: process for process in package.route_catalog.processes}
+    manual_field_keys = {
+        field.key
+        for field in package.input_schema.fields
+        if (
+            field.type == "boolean"
+            and field.source == "用户直接设定"
+            and field.key.startswith("project_factor.manual_process_")
+        )
+    }
     selected = {process.process_id for process in package.route_catalog.processes if process.main}
     reasons = {process_id: "主线工序" for process_id in selected}
     decisions: dict[str, _Decision] = {}
@@ -170,13 +195,19 @@ def plan_route(package: RulePackageV2, inputs: dict[str, Any]) -> RoutePlan:
         for process_id in rule.then.include_process_ids:
             _apply_decision(decisions, process_id, _Decision("include", rule.priority, rule.rule_id, reason))
         for process_id in rule.then.exclude_process_ids:
-            _apply_decision(decisions, process_id, _Decision("exclude", rule.priority, rule.rule_id, reason))
+            _apply_decision(decisions, process_id, _Decision(
+                "exclude",
+                rule.priority,
+                rule.rule_id,
+                reason,
+                manual_process_override=_is_manual_process_exclusion_rule(rule, process_id, manual_field_keys),
+            ))
 
     for process_id, decision in decisions.items():
         if decision.action == "include":
             selected.add(process_id)
             reasons[process_id] = decision.reason
-        elif not process_map[process_id].main:
+        elif _is_manual_process_override(decision) or not process_map[process_id].main:
             selected.discard(process_id)
             reasons.pop(process_id, None)
 
@@ -196,6 +227,8 @@ def plan_route(package: RulePackageV2, inputs: dict[str, Any]) -> RoutePlan:
             for target_id in relation.target_process_ids:
                 excluded = decisions.get(target_id)
                 if excluded and excluded.action == "exclude":
+                    if _is_manual_process_override(excluded):
+                        continue
                     raise RoutePlanningError(
                         f"工序关系 {relation.relation_id} 需要纳入 {target_id}，但规则 {excluded.rule_id} 将其排除"
                     )

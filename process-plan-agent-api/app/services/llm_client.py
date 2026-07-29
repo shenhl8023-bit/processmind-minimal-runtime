@@ -17,6 +17,34 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_LLM_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 DEFAULT_LLM_MODEL = "meta/llama-3.1-70b-instruct"
+DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS = 180.0
+DEFAULT_LLM_MAX_RETRIES = 2
+
+
+def llm_request_timeout_seconds(override: float | None = None) -> float:
+    """Return the provider timeout without allowing an accidental zero value."""
+    try:
+        value = float(
+            override
+            if override is not None
+            else os.getenv("LLM_REQUEST_TIMEOUT_SECONDS", str(DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS))
+        )
+    except (TypeError, ValueError):
+        return DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS
+    return max(5.0, min(value, 300.0))
+
+
+def llm_max_retries(override: int | None = None) -> int:
+    """Return the number of retries after the initial request."""
+    try:
+        value = int(
+            override
+            if override is not None
+            else os.getenv("LLM_MAX_RETRIES", str(DEFAULT_LLM_MAX_RETRIES))
+        )
+    except (TypeError, ValueError):
+        return DEFAULT_LLM_MAX_RETRIES
+    return max(0, min(value, 3))
 
 
 def _get_env_with_alias(key: str, alias: str, default: str = "") -> str:
@@ -176,6 +204,8 @@ async def request_llm_completion(
     user_prompt: str,
     *,
     temperature: float = 0.2,
+    timeout_seconds: float | None = None,
+    max_retries: int | None = None,
 ) -> str:
     headers = _build_headers(config["key"])
     payload = _build_completion_payload(
@@ -187,8 +217,9 @@ async def request_llm_completion(
     )
 
     last_error: Exception | None = None
-    async with httpx.AsyncClient(timeout=180.0) as client:
-        for attempt in range(3):
+    max_attempts = 1 + llm_max_retries(max_retries)
+    async with httpx.AsyncClient(timeout=llm_request_timeout_seconds(timeout_seconds)) as client:
+        for attempt in range(max_attempts):
             try:
                 if is_responses_api_url(config["url"]):
                     async with client.stream("POST", config["url"], headers=headers, json=payload) as resp:
@@ -202,13 +233,13 @@ async def request_llm_completion(
             except httpx.HTTPStatusError as exc:
                 last_error = exc
                 status = exc.response.status_code
-                if status in (429, 500, 502, 503, 504) and attempt < 2:
+                if status in (429, 500, 502, 503, 504) and attempt < max_attempts - 1:
                     await asyncio.sleep(2 * (attempt + 1))
                     continue
                 raise
             except (httpx.TimeoutException, httpx.ConnectError) as exc:
                 last_error = exc
-                if attempt < 2:
+                if attempt < max_attempts - 1:
                     await asyncio.sleep(2 * (attempt + 1))
                     continue
                 raise

@@ -293,10 +293,26 @@ defineEmits<{
   border-radius: 6px; border: 1px solid #f1f5f9;
   background: #ffffff; cursor: pointer; text-align: left;
   position: relative; margin-bottom: 4px;
-  transition: all 0.15s ease;
+  transition: background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
 }
 .phase-item:hover { background: #f8fafc; border-color: #cbd5e1; box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04); }
-.phase-item.active { background: #fafcff; border-color: #c7d2fe; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03); }
+.phase-item.active {
+  background: #fafcff; border-color: #c7d2fe;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.06);
+}
+.phase-item.active::after {
+  content: '';
+  position: absolute;
+  left: 0; top: 4px; bottom: 4px;
+  width: 3px;
+  background: #6366f1;
+  border-radius: 0 2px 2px 0;
+  animation: nav-highlight-in 0.3s ease;
+}
+@keyframes nav-highlight-in {
+  from { opacity: 0; transform: scaleY(0.5); }
+  to   { opacity: 1; transform: scaleY(1); }
+}
 
 .phase-header-row {
   display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;

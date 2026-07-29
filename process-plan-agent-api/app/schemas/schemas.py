@@ -21,6 +21,7 @@ class ProjectOut(BaseModel):
     mode: str
     profile: str
     rule_engine: str = "auto"
+    workflow_revision: int = 0
     status: str
     created_at: datetime
     updated_at: datetime
@@ -295,6 +296,7 @@ class SavedNormalizedRouteVersionOut(BaseModel):
     route_id: int
     project_id: int
     version: int
+    workflow_revision: int = 0
     source_signature: str = ""
     saved_by: str = "默认用户"
     saved_at: datetime
@@ -336,6 +338,7 @@ class SaveNormalizedSupersetRouteRequest(BaseModel):
 class SaveSegmentRuleReviewRequest(BaseModel):
     project_id: int
     route_id: int
+    expected_workflow_revision: int = 0
     segment_id: str
     decision: str = "accepted"
     note: str = ""
@@ -355,6 +358,7 @@ class SegmentRuleReviewSaveOut(BaseModel):
 class FinalizedRulePackageSaveRequest(BaseModel):
     project_id: int
     route_version_id: Optional[int] = None
+    expected_workflow_revision: int = 0
     package_name: str = "process_route_rules"
     schema_version: str = "1.0"
     manifest: Dict[str, Any] = Field(default_factory=dict)
@@ -433,6 +437,28 @@ class ExtractionTaskStartOut(BaseModel):
     task_status: str
     stage: str
     message: str
+    workflow_revision: int = 0
+
+
+class WorkflowResetRequest(BaseModel):
+    project_id: int
+    from_step: int
+    expected_workflow_revision: int = 0
+
+
+class WorkflowResetOut(BaseModel):
+    project_id: int
+    from_step: int
+    workflow_revision: int
+    deleted_operations: int = 0
+    deleted_route_merge_snapshots: int = 0
+    deleted_route_versions: int = 0
+    deleted_factor_reviews: int = 0
+    deleted_rule_reviews: int = 0
+    reset_condition_reviews: int = 0
+    preserved_manual_condition_reviews: int = 0
+    deleted_generated_routes: int = 0
+    archived_rule_package_versions: List[int] = []
 
 
 class ExtractionTaskStatusOut(BaseModel):
@@ -452,6 +478,7 @@ class ExtractionTaskStatusOut(BaseModel):
 # ---------- 工艺路线生成 ----------
 class GenerateRequest(BaseModel):
     project_id: Optional[int] = None
+    expected_workflow_revision: int = 0
     factor_values: dict[str, Any] = Field(default_factory=dict)
     family: str = ""
     material: str = ""

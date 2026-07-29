@@ -18,20 +18,30 @@ from app.services.llm_client import (
 PROMPTS_FILE = PROMPT_TEMPLATES_PATH
 
 
-async def call_llm(system_prompt: str, user_prompt: str, temperature: float = 0.2) -> str:
+async def call_llm(
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float = 0.2,
+    *,
+    config: dict[str, str] | None = None,
+    timeout_seconds: float | None = None,
+    max_retries: int | None = None,
+) -> str:
     """
     调用大模型 API（兼容 OpenAI Chat Completions 格式）。
     如果未配置 API Key，则返回 None 触发 fallback 逻辑。
     """
-    config = await get_llm_config()
-    api_key = config["key"]
+    resolved_config = config if config is not None else await get_llm_config()
+    api_key = resolved_config["key"]
     if not api_key or api_key == "your-api-key-here":
         return ""
     return await request_llm_completion(
-        config,
+        resolved_config,
         system_prompt,
         user_prompt,
         temperature=temperature,
+        timeout_seconds=timeout_seconds,
+        max_retries=max_retries,
     )
 
 

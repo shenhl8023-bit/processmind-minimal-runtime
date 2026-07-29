@@ -5,6 +5,7 @@ import {
   type SegmentRuleReviewSaveResult,
 } from '@/api'
 import { applyRuleReviewUpdateToRoute } from '@/composables/analysisWorkspaceHelpers'
+import { isWorkflowRevisionConflict } from '@/composables/workflowResetState'
 
 type Segment = SavedNormalizedRouteVersionResult['segments'][number]
 
@@ -19,6 +20,7 @@ type UseAnalysisReviewPersistenceOptions = {
   questionTreeTrail: ComputedRef<any[]>
   clearQuestionTreeRejudging: (segmentId: string) => void
   goToNextPendingSegment: () => void
+  onWorkflowConflict?: () => void | Promise<void>
 }
 
 export function useAnalysisReviewPersistence(options: UseAnalysisReviewPersistenceOptions) {
@@ -44,6 +46,7 @@ export function useAnalysisReviewPersistence(options: UseAnalysisReviewPersisten
       const result = await saveSegmentRuleReview({
         project_id: options.projectId.value,
         route_id: options.savedRoute.value.route_id,
+        expected_workflow_revision: options.savedRoute.value.workflow_revision,
         segment_id: segmentId,
         decision,
         note: options.ruleReviewNote.value.trim(),
@@ -56,7 +59,12 @@ export function useAnalysisReviewPersistence(options: UseAnalysisReviewPersisten
       }
     } catch (e) {
       console.error('保存规则候选判断失败', e)
-      options.error.value = '保存规则候选判断失败，请稍后重试。'
+      if (isWorkflowRevisionConflict(e)) {
+        options.error.value = '当前页面已过期，正在加载最新工作流状态。'
+        await options.onWorkflowConflict?.()
+      } else {
+        options.error.value = '保存规则候选判断失败，请稍后重试。'
+      }
     } finally {
       savingRuleReview.value = false
     }

@@ -112,6 +112,7 @@ def test_trigger_after_includes_target_and_orders_it_after_source(rule_package_v
     payload["route_rules"]["process_relations"] = [
         _relation("trigger_after", ["process_quench"], ["process_nitriding"]),
     ]
+    payload["test_cases"] = []
     package = RulePackageV2.model_validate(payload)
 
     plan = plan_route(package, {"material": {"grade": "9Cr18"}, "target_hardness_hrc": 58})
@@ -180,3 +181,51 @@ def test_conflicts_stops_route_with_incompatible_processes(rule_package_v2_paylo
 
     with pytest.raises(ValueError, match="不能同时进入路线"):
         plan_route(package, {"material": {"grade": "9Cr18"}, "target_hardness_hrc": 58})
+
+
+def test_manual_boolean_false_overrides_mainline_and_trigger_inclusion(rule_package_v2_payload):
+    payload = deepcopy(rule_package_v2_payload)
+    target = next(item for item in payload["route_catalog"]["processes"] if item["process_id"] == "process_nitriding")
+    target["main"] = True
+    target["constraints"]["conflicts_with"] = []
+    payload["input_schema"]["fields"].append({
+        "key": "project_factor.manual_process_nitriding",
+        "label": "是否需要渗氮",
+        "type": "boolean",
+        "required": False,
+        "source": "用户直接设定",
+        "options": [],
+        "allow_custom": False,
+    })
+    payload["route_rules"]["rules"].append({
+        # This is the exact identifier shape emitted by finalizeRulePackage.ts.
+        "rule_id": "user.process_nitriding.manual.false",
+        "priority": 2000,
+        "source": "user_confirmed",
+        "source_segment_id": "process_nitriding",
+        "source_text": "当用户选择是否需要渗氮为否时，排除渗氮工序",
+        "confirmed_by": "用户直接设定",
+        "confirmed_at": "2026-07-28T10:00:00+00:00",
+        "when": {"field": "project_factor.manual_process_nitriding", "op": "eq", "value": False},
+        "then": {
+            "include_process_ids": [],
+            "exclude_process_ids": ["process_nitriding"],
+            "reason": "用户选择否",
+        },
+    })
+    payload["route_rules"]["process_relations"] = [
+        _relation("trigger_after", ["process_quench"], ["process_nitriding"]),
+    ]
+    payload["test_cases"] = []
+    package = RulePackageV2.model_validate(payload)
+    report = validate_rule_package(package)
+
+    plan = plan_route(package, {
+        "material": {"grade": "9Cr18"},
+        "cad": {"features": []},
+        "target_hardness_hrc": 58,
+        "project_factor": {"manual_process_nitriding": False},
+    })
+
+    assert report.valid is True
+    assert "process_nitriding" not in plan.selected_process_ids

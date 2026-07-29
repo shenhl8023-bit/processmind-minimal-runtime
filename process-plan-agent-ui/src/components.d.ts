@@ -38,5 +38,6 @@ declare module 'vue' {
     UploadProjectBoard: typeof import('./components/upload/UploadProjectBoard.vue')['default']
     UploadReferenceCard: typeof import('./components/upload/UploadReferenceCard.vue')['default']
     WorkflowNavFooter: typeof import('./components/workflow/WorkflowNavFooter.vue')['default']
+    WorkflowResetDialog: typeof import('./components/workflow/WorkflowResetDialog.vue')['default']
   }
 }

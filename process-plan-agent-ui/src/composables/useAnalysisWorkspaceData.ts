@@ -16,12 +16,14 @@ import {
   resolveCurrentProjectId,
   setStoredCurrentProjectId,
 } from '@/composables/useCurrentProject'
+import { createLatestWorkflowRequestGuard } from '@/composables/workflowDataCache'
 
 type UseAnalysisWorkspaceDataOptions = {
   getRouteProjectId: () => string | undefined
 }
 
 export function useAnalysisWorkspaceData(options: UseAnalysisWorkspaceDataOptions) {
+  const loadRequestGuard = createLatestWorkflowRequestGuard()
   const loading = ref(false)
   const error = ref('')
   const projectId = ref<number | null>(null)
@@ -44,10 +46,12 @@ export function useAnalysisWorkspaceData(options: UseAnalysisWorkspaceDataOption
 
   async function loadSavedRoute(forceRefresh = false) {
     if (!projectId.value) return
+    const request = loadRequestGuard.start()
     loading.value = true
     error.value = ''
     try {
       const projects = await listProjects(forceRefresh)
+      if (!request.isCurrent()) return
       const current = projects.find(item => item.id === projectId.value)
       if (!current) {
         clearStoredCurrentProjectId()
@@ -62,6 +66,7 @@ export function useAnalysisWorkspaceData(options: UseAnalysisWorkspaceDataOption
         listDocuments(projectId.value, forceRefresh),
         getDocumentOperationDetails(projectId.value, undefined, undefined, forceRefresh),
       ])
+      if (!request.isCurrent()) return
       savedRoute.value = data
       operations.value = operationItems || []
       supersetOperations.value = supersetResult.superset_route || []
@@ -69,9 +74,11 @@ export function useAnalysisWorkspaceData(options: UseAnalysisWorkspaceDataOption
       detailRows.value = detailItems.items || []
       selectedSegmentId.value = data.segments[0]?.id || ''
     } catch (e: any) {
+      if (!request.isCurrent()) return
       console.error('加载已保存标准化路线失败', e)
       clearLoadedWorkspace(e?.response?.data?.detail || '加载已保存标准化路线失败，请先回到路线归并页保存一版结果。')
     } finally {
+      if (!request.isLatest()) return
       loading.value = false
     }
   }

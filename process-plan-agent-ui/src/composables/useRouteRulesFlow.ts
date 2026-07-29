@@ -8,6 +8,7 @@ import {
 } from '@/api'
 import type { RouteMergeGroup } from '@/composables/useRouteMergeResultWorkspace'
 import { clearProjectQuestionTreeStorage } from '@/composables/analysisQuestionTreeState'
+import { publishWorkflowReset } from '@/composables/workflowResetState'
 
 type UseRouteRulesFlowOptions = {
   projectId: Ref<number | null>
@@ -166,21 +167,28 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
   async function startExtraction(forceReextract: boolean = false) {
     if (status.value === 'loading') return
     if (!options.projectId.value) return
-    clearProjectQuestionTreeStorage(options.projectId.value)
     status.value = 'loading'
     extractTaskPollRetryCount = 0
-    options.routes.value = []
-    options.routeMergeGroups.value = []
-    options.routeMergeSuggestions.value = []
-    options.routeMergeNormalizedSegments.value = []
-    options.selectedMergeGroupId.value = ''
-    options.routeMergeNotice.value = ''
-    options.routeWorkspaceLoading.value = false
-    options.clearRouteResultDraftStorage()
     extractTask.value = null
     errorMsg.value = ''
     try {
       const task = await apiStartExtraction(options.projectId.value, forceReextract)
+      if (forceReextract) {
+        clearProjectQuestionTreeStorage(options.projectId.value)
+        publishWorkflowReset({
+          projectId: options.projectId.value,
+          fromStep: 2,
+          workflowRevision: task.workflow_revision,
+        })
+      }
+      options.routes.value = []
+      options.routeMergeGroups.value = []
+      options.routeMergeSuggestions.value = []
+      options.routeMergeNormalizedSegments.value = []
+      options.selectedMergeGroupId.value = ''
+      options.routeMergeNotice.value = ''
+      options.routeWorkspaceLoading.value = false
+      options.clearRouteResultDraftStorage()
       extractTask.value = {
         project_id: task.project_id,
         task_status: 'running',

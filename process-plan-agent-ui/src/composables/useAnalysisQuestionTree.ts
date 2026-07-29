@@ -272,6 +272,15 @@ export function useAnalysisQuestionTree(args: {
     setSegmentState(segment.id, createEmptySegmentTreeState())
   }
 
+  function resetAllQuestionTrees() {
+    treeStateMap.value = {}
+    hydratedSegmentIds.value = new Set()
+    rejudgingSegmentMap.value = {}
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(storageKey.value)
+    }
+  }
+
   function updateNote(value: string) {
     const segment = args.selectedSegment.value
     if (!segment) return
@@ -320,6 +329,7 @@ export function useAnalysisQuestionTree(args: {
     chooseQuestionTreeOptions: chooseMultiOptions,
     reanswerLastQuestionTree: reanswerLastQuestion,
     resetQuestionTree: reset,
+    resetAllQuestionTrees,
     updateQuestionTreeNote: updateNote,
     clearQuestionTreeRejudging: clearRejudging,
   }

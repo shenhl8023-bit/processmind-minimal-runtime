@@ -474,12 +474,11 @@ const goNext = async () => {
 </script>
 
 <style scoped>
-/* Root Layout Container: Full-Height Flex Fitting
-   与第4步一致：填满 main-area（topbar 48 + pad-top 14 + pad-bottom 92） */
+/* Root Layout Container: fill the main-area content box. */
 .upload-view {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 118px);
+  height: 100%;
   overflow: hidden;
   box-sizing: border-box;
 }
@@ -546,7 +545,7 @@ const goNext = async () => {
 
 @media (max-width: 900px) {
   .content-grid { grid-template-columns: 1fr; overflow-y: auto; }
-  .upload-view { height: auto; overflow: visible; }
+  .upload-view { height: 100%; min-height: 0; overflow: hidden; }
 }
 
 /* Custom Delete Dialog styling */

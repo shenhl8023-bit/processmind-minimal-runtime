@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { RouterView, useRoute } from 'vue-router'
+import { RouterView, useRoute, useRouter } from 'vue-router'
 import { computed, onMounted, ref } from 'vue'
 import ModelSettingsDrawer from '@/components/settings/ModelSettingsDrawer.vue'
 import {
@@ -8,15 +8,16 @@ import {
 import { workflowRouteLoaders } from '@/router'
 
 const route = useRoute()
+const router = useRouter()
 const activeIndex = computed(() => route.path)
 const settingsVisible = ref(false)
 
 const workflowSteps = [
-  { path: '/upload', number: 1 },
-  { path: '/extract', number: 2 },
-  { path: '/analysis', number: 3 },
-  { path: '/finalize', number: 4 },
-  { path: '/generate', number: 5 },
+  { path: '/upload', number: 1, label: '上传资料' },
+  { path: '/extract', number: 2, label: '路线归并' },
+  { path: '/analysis', number: 3, label: '规则分析' },
+  { path: '/finalize', number: 4, label: '规则定稿' },
+  { path: '/generate', number: 5, label: '路线生成' },
 ] as const
 
 const currentStepIndex = computed(() => {
@@ -39,6 +40,17 @@ const stepStatus = (stepNumber: number) => {
 }
 
 const stepIsCompleted = (stepNumber: number) => stepStatus(stepNumber) === 'completed'
+
+function navigateToStep(stepNumber: number) {
+  const status = stepStatus(stepNumber)
+  if (status === 'active' || status === 'locked') return
+  const step = workflowSteps[stepNumber - 1]
+  if (!step) return
+  router.push({
+    path: step.path,
+    query: route.query.project_id ? { project_id: route.query.project_id } : {},
+  })
+}
 
 const openSettings = () => {
   settingsVisible.value = true
@@ -76,30 +88,21 @@ onMounted(() => {
       </div>
 
       <nav class="step-indicator" aria-label="Workflow steps">
-        <div :class="['step', stepStatus(1)]" :aria-current="stepStatus(1) === 'active' ? 'step' : undefined">
-          <div class="step-dot">1</div>
-          <span>上传资料</span>
-        </div>
-        <div class="step-line" :class="{ completed: stepIsCompleted(1) }" aria-hidden="true"></div>
-        <div :class="['step', stepStatus(2)]" :aria-current="stepStatus(2) === 'active' ? 'step' : undefined">
-          <div class="step-dot">2</div>
-          <span>路线归并</span>
-        </div>
-        <div class="step-line" :class="{ completed: stepIsCompleted(2) }" aria-hidden="true"></div>
-        <div :class="['step', stepStatus(3)]" :aria-current="stepStatus(3) === 'active' ? 'step' : undefined">
-          <div class="step-dot">3</div>
-          <span>规则分析</span>
-        </div>
-        <div class="step-line" :class="{ completed: stepIsCompleted(3) }" aria-hidden="true"></div>
-        <div :class="['step', stepStatus(4)]" :aria-current="stepStatus(4) === 'active' ? 'step' : undefined">
-          <div class="step-dot">4</div>
-          <span>规则定稿</span>
-        </div>
-        <div class="step-line" :class="{ completed: stepIsCompleted(4) }" aria-hidden="true"></div>
-        <div :class="['step', stepStatus(5)]" :aria-current="stepStatus(5) === 'active' ? 'step' : undefined">
-          <div class="step-dot">5</div>
-          <span>路线生成</span>
-        </div>
+        <template v-for="(step, i) in workflowSteps" :key="step.number">
+          <div
+            :class="['step', stepStatus(step.number)]"
+            :aria-current="stepStatus(step.number) === 'active' ? 'step' : undefined"
+            :role="['completed','available'].includes(stepStatus(step.number)) ? 'button' : undefined"
+            :tabindex="['completed','available'].includes(stepStatus(step.number)) ? 0 : undefined"
+            :title="stepStatus(step.number) === 'completed' ? `返回${step.label}` : stepStatus(step.number) === 'available' ? `前往${step.label}` : undefined"
+            @click="navigateToStep(step.number)"
+            @keydown.enter="navigateToStep(step.number)"
+          >
+            <div class="step-dot">{{ step.number }}</div>
+            <span>{{ step.label }}</span>
+          </div>
+          <div v-if="i < workflowSteps.length - 1" class="step-line" :class="{ completed: stepIsCompleted(step.number) }" aria-hidden="true"></div>
+        </template>
       </nav>
 
       <div class="top-bar-right">
@@ -167,14 +170,10 @@ onMounted(() => {
   --page-padding-x: 24px;
 }
 
-html {
-  /* 预留滚动条槽，避免 fixed 底栏与文档流主内容因滚动条宽度错位 */
-  scrollbar-gutter: stable;
-}
-
 html, body {
   height: 100%;
-  overflow-x: hidden;
+  /* The workflow shell owns vertical scrolling through .main-area. */
+  overflow: hidden;
   /* Inter 负责拉丁字符和数字，PingFang SC 优先渲染汉字（macOS 原生，与 Inter 字重感知最接近）
      Noto Sans SC 作为跨平台兜底，Noto 比 PingFang 字冠更大但两者感知接近 */
   font-family: 'Inter', 'PingFang SC', 'Noto Sans SC', -apple-system, BlinkMacSystemFont,
@@ -194,7 +193,9 @@ html, body {
 .app-shell {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* ===== Top Bar ===== */
@@ -211,6 +212,7 @@ html, body {
   position: sticky;
   top: 0;
   z-index: 100;
+  flex-shrink: 0;
 }
 
 .brand {
@@ -351,11 +353,23 @@ html, body {
 
 .step.completed {
   color: var(--success);
+  cursor: pointer;
 }
+
+.step.completed:hover {
+  opacity: 0.75;
+}
+
 
 .step.available {
   color: var(--text-secondary);
+  cursor: pointer;
 }
+
+.step.available:hover {
+  color: var(--accent);
+}
+
 
 .step.locked {
   color: var(--text-muted);
@@ -405,12 +419,15 @@ html, body {
 /* ===== Main Content ===== */
 .main-area {
   flex: 1;
-  padding: 14px var(--page-padding-x) 56px;
+  /* Keep the workflow content close to the fixed bottom navigation. */
+  padding: 14px var(--page-padding-x) 32px;
   max-width: var(--page-max-width);
   width: 100%;
   min-width: 0;
+  min-height: 0;
   margin: 0 auto;
   overflow-x: hidden;
+  overflow-y: auto;
 }
 
 /* ===== Footer ===== */
@@ -421,6 +438,7 @@ html, body {
   color: var(--text-muted);
   border-top: 1px solid var(--border-light);
   background: var(--bg-card);
+  flex-shrink: 0;
 }
 
 /* ===== Shared Card Styles ===== */

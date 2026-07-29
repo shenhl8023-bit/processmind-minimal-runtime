@@ -14,6 +14,7 @@ import {
   hasCurrentConfirmedUserRule,
   requiresConfirmedUserRule,
 } from '@/utils/finalizeRulePackage'
+import { isWorkflowRevisionConflict } from '@/composables/workflowResetState'
 
 type Segment = SavedNormalizedRouteVersionResult['segments'][number]
 
@@ -31,6 +32,7 @@ type UseFinalizeRulePackageExportOptions = {
   onBlockedCards?: (cards: FinalizeCard[]) => void | Promise<void>
   onExportIssue?: (issue: { title: string; summary: string; details?: string }) => void
   onExportedVersion?: (version: number, meta?: { schemaVersion: string; status: string }) => void
+  onWorkflowConflict?: () => void | Promise<void>
 }
 
 function safeFilenamePart(value: string) {
@@ -113,6 +115,7 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
 
       const savedPackage = await saveFinalizedRulePackage({
         project_id: options.projectId.value,
+        expected_workflow_revision: options.savedRoute.value?.workflow_revision || 0,
         route_version_id: options.savedRoute.value?.route_id || null,
         package_name: packageName,
         schema_version: '2.0',
@@ -167,6 +170,11 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
       )
     } catch (err: any) {
       console.error('保存规则包失败', err)
+      if (isWorkflowRevisionConflict(err)) {
+        reportExportIssue('页面状态已过期', '上游工作流已经重新处理，正在加载最新状态。')
+        await options.onWorkflowConflict?.()
+        return
+      }
       const detail = err?.response?.data?.detail
       const message = typeof detail === 'string'
         ? detail

@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import {
   buildCompileRequestFromCards,
+  buildManualBooleanRuleCandidate,
   finalizeRuleMode,
   hasCurrentConfirmedUserRule,
   isActionableConditionText,
+  isSafeForBatchRuleConfirmation,
+  manualRuleModeActionState,
+  requiresServerRuleConditionRefresh,
 } from './finalizeRulePackage'
 import { nestFactorValues } from '@/composables/useGenerateInputFields'
 
@@ -119,6 +123,13 @@ describe('V2 compile DTO from finalize cards', () => {
       conditionText: '当防护、防腐蚀、绝缘或表面稳定性要求满足时，安排镀铜工序',
       factorNames: [],
     })).toBe('conditional')
+    ;['镀铜', '铬酸阳极化', '除铜'].forEach((processName) => {
+      expect(finalizeRuleMode({
+        ...finalizeItem({ id: `process_${processName}`, normalized_step_name: processName, doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+        conditionText: `当只有部分结构或工艺要求下才会出现时，安排“${processName}”工序满足表面处理或防护要求。`,
+        factorNames: [],
+      })).toBe('conditional')
+    })
     expect(finalizeRuleMode({
       ...finalizeItem({ id: 'process_clean', normalized_step_name: '清洗', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
       conditionText: '将其设置为主工序，始终保留在路线中',
@@ -144,6 +155,201 @@ describe('V2 compile DTO from finalize cards', () => {
       factorNames: [],
       edited: true,
     })).not.toBe('mainline')
+  })
+
+  it('only batch-confirms current high-confidence candidates or trusted local fallbacks', () => {
+    const item: any = {
+      ...finalizeItem({ id: 'process_mark', normalized_step_name: '标记', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: '当需要追溯标印时，安排标记工序',
+      factorNames: [],
+      conditionReview: {
+        source_text: '当需要追溯标印时，安排标记工序',
+        status: 'pending_confirmation',
+        confidence: 0.9,
+        issues: [],
+        candidate: {
+          kind: 'condition',
+          when: { field: 'special.requirements', op: 'contains', value: '追溯标印' },
+          then: { include_process_ids: ['process_mark'], exclude_process_ids: [] },
+        },
+      },
+    }
+
+    expect(isSafeForBatchRuleConfirmation(item)).toBe(true)
+    item.conditionReview.confidence = 0.79
+    expect(isSafeForBatchRuleConfirmation(item)).toBe(false)
+    item.conditionReview.confidence = 0.95
+    item.conditionReview.issues = ['模型候选需要重点核对']
+    expect(isSafeForBatchRuleConfirmation(item)).toBe(false)
+    item.conditionReview.confidence = 0.65
+    item.conditionReview.issues = [
+      'AI 返回的规则结构未通过格式校验，已尝试使用本地解析器。',
+      '已使用内置规则解析器生成候选结果，请重点核对。',
+    ]
+    expect(isSafeForBatchRuleConfirmation(item)).toBe(true)
+    item.conditionReview.issues = [
+      '已使用内置规则解析器生成候选结果，请重点核对。',
+      '条件无法可靠映射到标准字段，请补充字段、比较关系和阈值。',
+    ]
+    expect(isSafeForBatchRuleConfirmation(item)).toBe(false)
+    item.conditionReview.issues = []
+    item.conditionReview.source_text = '旧条件'
+    expect(isSafeForBatchRuleConfirmation(item)).toBe(false)
+  })
+
+  it('refreshes pending candidates through the server before batch confirmation', () => {
+    const pendingItem: any = {
+      ...finalizeItem({ id: 'process_mark', normalized_step_name: '标记', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: '当需要追溯标印时，安排标记工序',
+      factorNames: [],
+      conditionReview: {
+        source_text: '当需要追溯标印时，安排标记工序',
+        status: 'pending_confirmation',
+        confidence: 0.95,
+        issues: [],
+        parser_version: 'older-parser',
+        field_registry_version: 'older-registry',
+        candidate: {
+          kind: 'condition',
+          when: { field: 'special.requirements', op: 'contains', value: '追溯标印' },
+          then: { include_process_ids: ['process_mark'], exclude_process_ids: [] },
+        },
+      },
+    }
+
+    expect(requiresServerRuleConditionRefresh(pendingItem)).toBe(true)
+    pendingItem.conditionReview.status = 'confirmed'
+    pendingItem.conditionReview.confirmed = pendingItem.conditionReview.candidate
+    expect(requiresServerRuleConditionRefresh(pendingItem)).toBe(false)
+  })
+
+  it('builds a stable user-controlled boolean switch for the target process', () => {
+    const item: any = {
+      ...finalizeItem({ id: 'process_mark', normalized_step_name: '标记', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: '是否标记由用户决定',
+      factorNames: [],
+    }
+
+    const first = buildManualBooleanRuleCandidate(item, '是否标记')
+    const second = buildManualBooleanRuleCandidate(item, '是否需要标记')
+
+    expect(first.when).toEqual({
+      field: first.field_definitions?.[0]?.key,
+      op: 'eq',
+      value: true,
+    })
+    expect(first.then?.include_process_ids).toEqual(['process_mark'])
+    expect(first.then?.exclude_process_ids).toEqual([])
+    expect(first.field_definitions?.[0]).toMatchObject({
+      label: '是否标记',
+      category: '可选工序',
+      type: 'boolean',
+      operators: ['eq', 'neq'],
+      source: '用户直接设定',
+      required: false,
+      allow_custom: false,
+    })
+    expect(second.field_definitions?.[0]?.key).toBe(first.field_definitions?.[0]?.key)
+
+    const sourceText = '当用户选择“是否标记”为是时，纳入“标记”工序。'
+    const request = buildCompileRequestFromCards({
+      projectId: 12,
+      packageName: 'manual_boolean',
+      routeVersionId: 3,
+      cards: [
+        finalizeItem(),
+        {
+          ...item,
+          conditionText: sourceText,
+          edited: true,
+          conditionReview: {
+            source_text: sourceText,
+            source_hash: 'a'.repeat(64),
+            status: 'confirmed',
+            candidate: first,
+            confirmed: first,
+            confidence: 1,
+            issues: [],
+            field_registry_version: '2026.09',
+            confirmed_by: '用户直接设定',
+            confirmed_at: '2026-07-27T03:00:00Z',
+          },
+        },
+      ],
+      displayName: segment => segment.normalized_step_name,
+      phaseLabel: () => 'machining',
+      primarySteps: () => ['主工步'],
+      attachedSteps: () => [],
+      conditionFields: baseConditionFields(),
+    })
+
+    expect(request.fields).toContainEqual(expect.objectContaining({
+      key: first.field_definitions?.[0]?.key,
+      label: '是否标记',
+      type: 'boolean',
+      required: false,
+    }))
+    expect(request.rules).toContainEqual(expect.objectContaining({
+      source: 'user_confirmed',
+      when: first.when,
+      then: expect.objectContaining({ include_process_ids: ['process_mark'] }),
+    }))
+    expect(request.rules).toContainEqual(expect.objectContaining({
+      source: 'user_confirmed',
+      when: { field: 'project_factor.manual_process_487e1c0a', op: 'eq', value: false },
+      then: expect.objectContaining({ exclude_process_ids: ['process_mark'], include_process_ids: [] }),
+    }))
+  })
+
+  it('keeps manual mode actions available on every non-editing card', () => {
+    const mainline: any = finalizeItem()
+    const conditional: any = {
+      ...finalizeItem({ id: 'process_grind', normalized_step_name: '磨外圆', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: '当外圆尺寸精度达到 IT8 时，纳入磨外圆工序',
+      factorNames: [],
+    }
+    const manualBoolean: any = {
+      ...finalizeItem({ id: 'process_mark', normalized_step_name: '标记', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: '当用户选择“是否需要标记”为是时，纳入“标记”工序。',
+      factorNames: [],
+      conditionReview: {
+        source_text: '当用户选择“是否需要标记”为是时，纳入“标记”工序。',
+        status: 'confirmed',
+        confirmed: {
+          kind: 'condition',
+          when: { field: 'project_factor.manual_process_487e1c0a', op: 'eq', value: true },
+          then: { include_process_ids: ['process_mark'], exclude_process_ids: [] },
+          field_definitions: [{
+            key: 'project_factor.manual_process_487e1c0a',
+            label: '是否需要标记',
+            category: '可选工序',
+            type: 'boolean',
+            operators: ['eq', 'neq'],
+            aliases: [],
+            source: '用户直接设定',
+            options: [],
+            allow_custom: false,
+          }],
+        },
+      },
+    }
+
+    expect(manualRuleModeActionState(mainline, false)).toEqual({
+      visible: true,
+      mainlineActive: true,
+      booleanActive: false,
+    })
+    expect(manualRuleModeActionState(conditional, false)).toEqual({
+      visible: true,
+      mainlineActive: false,
+      booleanActive: false,
+    })
+    expect(manualRuleModeActionState(manualBoolean, false)).toEqual({
+      visible: true,
+      mainlineActive: false,
+      booleanActive: true,
+    })
+    expect(manualRuleModeActionState(conditional, true).visible).toBe(false)
   })
 
   it('builds a stable process catalog without unreferenced condition fields', () => {
@@ -297,6 +503,61 @@ describe('V2 compile DTO from finalize cards', () => {
     expect(userRule.source_segment_id).toBe('process_grind_outer')
     expect(request.fields.some(field => field.key === 'precision.outer_diameter_it')).toBe(true)
     expect(request.processes.find(process => process.process_id === 'process_grind_outer')?.main).toBe(false)
+  })
+
+  it('keeps fields from Pydantic condition nodes that include null branch keys', () => {
+    const sourceText = '当零件存在孔类结构并且精度要求满足时，纳入钻孔工序'
+    const card = {
+      ...finalizeItem({ id: 'process_drill', sequence: 30, normalized_step_name: '钻孔', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: sourceText,
+      edited: true,
+      conditionReview: {
+        source_text: sourceText,
+        source_hash: 'a'.repeat(64),
+        status: 'confirmed',
+        candidate: null,
+        confirmed: {
+          kind: 'condition',
+          when: {
+            all: [
+              { all: null, any: null, not: null, field: 'cad.features', op: 'contains', value: '孔类特征' },
+              { all: null, any: null, not: null, field: 'precision.grades', op: 'contains', value: '孔精加工' },
+            ],
+            any: null,
+            not: null,
+            field: null,
+            op: null,
+            value: null,
+          },
+          then: { include_process_ids: ['process_drill'], exclude_process_ids: [], reason: '用户确认' },
+          preview: '孔类特征 且 精度/表面要求集合包含孔精加工',
+        },
+        confidence: 0.9,
+        issues: [],
+        field_registry_version: '2026.10',
+        confirmed_by: '测试用户',
+        confirmed_at: '2026-07-27T05:00:00Z',
+      },
+    }
+    const request = buildCompileRequestFromCards({
+      projectId: 12,
+      packageName: 'compound_null_keys',
+      routeVersionId: 3,
+      cards: [finalizeItem(), card],
+      displayName: segment => segment.normalized_step_name,
+      phaseLabel: () => 'machining',
+      primarySteps: () => ['主工步'],
+      attachedSteps: () => [],
+      conditionFields: baseConditionFields(),
+    })
+
+    expect(request.fields.map(field => field.key)).toContain('precision.grades')
+    expect(request.rules!.find(rule => rule.source_segment_id === 'process_drill')?.when).toEqual({
+      all: [
+        { field: 'cad.features', op: 'contains', value: '孔类特征' },
+        { field: 'precision.grades', op: 'contains', value: '孔精加工' },
+      ],
+    })
   })
 
   it('writes a confirmed process relation into the V2 compile request', () => {

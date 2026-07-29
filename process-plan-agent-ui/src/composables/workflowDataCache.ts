@@ -29,11 +29,32 @@ export function getWorkflowDataCache<T>(
   return entry.value as T
 }
 
-export function setWorkflowDataCache<T>(key: string, value: T) {
+export function setWorkflowDataCache<T>(key: string, value: T, requestRevision = workflowDataRevision) {
+  if (requestRevision !== workflowDataRevision) return false
   workflowDataCache.set(key, {
     value,
     updatedAt: Date.now(),
   })
+  return true
+}
+
+export function createLatestWorkflowRequestGuard() {
+  let requestId = 0
+  return {
+    start() {
+      requestId += 1
+      const currentRequestId = requestId
+      const dataRevision = workflowDataRevision
+      return {
+        dataRevision,
+        isLatest: () => currentRequestId === requestId,
+        isCurrent: () => (
+          currentRequestId === requestId
+          && dataRevision === workflowDataRevision
+        ),
+      }
+    },
+  }
 }
 
 export function clearWorkflowDataCache(key: string) {

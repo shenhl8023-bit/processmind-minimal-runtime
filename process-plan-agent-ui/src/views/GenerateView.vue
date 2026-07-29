@@ -1,66 +1,21 @@
 <template>
   <div class="generate-view">
-    <div class="generate-header-card">
-      <div class="gh-left-content">
-        <span class="gh-page-title">路线生成</span>
+    <div class="analysis-style-header">
+      <div class="ash-left-content">
+        <span class="ash-page-title">路线生成</span>
         <template v-if="projectId">
-          <span class="generate-project-chip">{{ projectName || `任务 #${projectId}` }}</span>
+          <span class="ash-dark-chip">{{ projectName || `任务 #${projectId}` }}</span>
           
-          <div class="gh-meta-section">
-            <span class="generate-meta-item rule-package-meta">
-              <span>{{ packageContextLabel }}</span>
-              <template v-if="displayedPackageVersion">
-                <strong>发布版本 {{ displayedPackageVersion }}</strong>
-                <span class="package-status-badge">{{ packageStatusLabel }}</span>
-                <details class="package-details">
-                  <summary
-                    class="package-details-trigger"
-                    title="查看规则包详情"
-                    aria-label="查看规则包详情"
-                  >
-                    <InfoFilled aria-hidden="true" />
-                    <span class="sr-only">查看规则包详情</span>
-                  </summary>
-                  <div class="package-details-popover" role="group" aria-label="规则包详情">
-                    <div class="package-details-head">
-                      <strong>规则包详情</strong>
-                      <span>{{ packageStatusLabel }}</span>
-                    </div>
-                    <dl class="package-detail-list">
-                      <div>
-                        <dt>名称</dt>
-                        <dd>{{ displayedPackageName || '-' }}</dd>
-                      </div>
-                      <div>
-                        <dt>发布版本</dt>
-                        <dd>{{ displayedPackageVersion }}</dd>
-                      </div>
-                      <div>
-                        <dt>规则格式</dt>
-                        <dd>{{ displayedPackageSchemaVersion || '-' }}</dd>
-                      </div>
-                      <div>
-                        <dt>发布时间</dt>
-                        <dd>{{ displayedPackagePublishedAt }}</dd>
-                      </div>
-                      <div>
-                        <dt>发布人</dt>
-                        <dd>{{ displayedPackagePublishedBy || '-' }}</dd>
-                      </div>
-                      <div class="package-hash-row">
-                        <dt>内容哈希</dt>
-                        <dd><code>{{ displayedPackageHash || '-' }}</code></dd>
-                      </div>
-                    </dl>
-                    <p v-if="generationUsesRulePackage" class="package-result-note">当前生成结果使用此版本</p>
-                  </div>
-                </details>
-              </template>
-              <strong v-else class="pending">未发布</strong>
+          <div class="ash-meta-section">
+            <span class="ash-meta-item" v-if="displayedPackageVersion">
+              规则包 <strong>V{{ displayedPackageVersion }}</strong>
             </span>
-            <span class="generate-meta-item">规则格式 <strong>{{ displayedPackageSchemaVersion || '-' }}</strong></span>
-            <span class="generate-meta-item">输入字段 <strong>{{ inputFields.length }}</strong></span>
-            <span class="generate-meta-item">已填写 <strong>{{ filledFieldCount }}/{{ inputFields.length }}</strong></span>
+            <span class="ash-meta-item ash-meta-stale" v-else>
+              规则包 <strong>未发布</strong>
+            </span>
+            <span class="ash-meta-item">
+              已填写 <strong :class="{ 'text-done': filledFieldCount === inputFields.length }">{{ filledFieldCount }}/{{ inputFields.length }}</strong>
+            </span>
           </div>
         </template>
       </div>
@@ -138,7 +93,6 @@
 <script setup lang="ts">
 import { computed, onActivated, onDeactivated, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { InfoFilled } from '@element-plus/icons-vue'
 import GenerateInputPanel from '@/components/generate/GenerateInputPanel.vue'
 import GenerateRouteOutputPanel from '@/components/generate/GenerateRouteOutputPanel.vue'
 import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
@@ -165,7 +119,8 @@ import {
 import {
   downloadGeneratedRouteJson,
 } from '@/utils/generateRouteOutput'
-import { getWorkflowDataRevision } from '@/composables/workflowDataCache'
+import { createLatestWorkflowRequestGuard, getWorkflowDataRevision } from '@/composables/workflowDataCache'
+import { workflowResetSignal } from '@/composables/workflowResetState'
 
 const route = useRoute()
 const router = useRouter()
@@ -173,18 +128,15 @@ let generateViewActive = false
 let contextLoading = false
 let initialLoadFinished = false
 let loadedDataRevision = -1
+const contextRequestGuard = createLatestWorkflowRequestGuard()
+const generationRequestGuard = createLatestWorkflowRequestGuard()
 
 const projectId = ref<number | null>(null)
 const projectName = ref('')
 const inputSchema = ref<Record<string, any> | null>(null)
 const hasRulePackage = ref(false)
-const packageSchemaVersion = ref('')
 const packageVersion = ref<number | null>(null)
-const packageHash = ref('')
-const packageName = ref('')
-const packageStatus = ref('')
-const packagePublishedAt = ref('')
-const packagePublishedBy = ref('')
+const workflowRevision = ref(0)
 const generating = ref(false)
 const error = ref('')
 const result = ref<GenerateRouteResult | null>(null)
@@ -225,40 +177,6 @@ const displayedPackageVersion = computed(() => (
     ? (result.value?.rule_package_version ?? null)
     : packageVersion.value
 ))
-const displayedPackageHash = computed(() => (
-  generationUsesRulePackage.value
-    ? String(result.value?.rule_package_hash || '')
-    : packageHash.value
-))
-const displayedPackageSchemaVersion = computed(() => (
-  generationUsesRulePackage.value
-    ? String(result.value?.schema_version || '')
-    : packageSchemaVersion.value
-))
-const displayedPackageMatchesLoadedPackage = computed(() => {
-  if (!generationUsesRulePackage.value) return true
-  if (displayedPackageVersion.value !== packageVersion.value) return false
-  if (!displayedPackageHash.value || !packageHash.value) return true
-  return displayedPackageHash.value === packageHash.value
-})
-const displayedPackageName = computed(() => (
-  displayedPackageMatchesLoadedPackage.value ? packageName.value : ''
-))
-const displayedPackagePublishedAt = computed(() => (
-  displayedPackageMatchesLoadedPackage.value ? formatPackageTimestamp(packagePublishedAt.value) : '-'
-))
-const displayedPackagePublishedBy = computed(() => (
-  displayedPackageMatchesLoadedPackage.value ? packagePublishedBy.value : ''
-))
-const packageContextLabel = computed(() => (
-  generationUsesRulePackage.value ? '本次使用' : '当前规则包'
-))
-const packageStatusLabel = computed(() => {
-  if (generationUsesRulePackage.value) return '已使用'
-  if (packageStatus.value === 'draft') return '草稿'
-  if (packageStatus.value === 'archived') return '已归档'
-  return '已生效'
-})
 const packageMetaLabel = computed(() => {
   if (!displayedPackageVersion.value) return '未发布'
   return `发布版本 ${displayedPackageVersion.value}`
@@ -293,32 +211,23 @@ function goUpload() {
   router.push('/upload')
 }
 
-function formatPackageTimestamp(value: string) {
-  if (!value) return '-'
-  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value)
-  const date = new Date(hasTimezone ? value : `${value}Z`)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString('zh-CN', { hour12: false })
-}
-
 function resetRulePackageMetadata() {
-  packageSchemaVersion.value = ''
   packageVersion.value = null
-  packageHash.value = ''
-  packageName.value = ''
-  packageStatus.value = ''
-  packagePublishedAt.value = ''
-  packagePublishedBy.value = ''
+  workflowRevision.value = 0
 }
 
 function applyRulePackageMetadata(rulePackage: FinalizedRulePackageResult) {
-  packageSchemaVersion.value = String(rulePackage.schema_version || rulePackage.input_schema?.schema_version || '1.0')
   packageVersion.value = rulePackage.version ?? null
-  packageHash.value = rulePackage.content_hash || ''
-  packageName.value = rulePackage.package_name || ''
-  packageStatus.value = rulePackage.status || 'published'
-  packagePublishedAt.value = rulePackage.published_at || rulePackage.created_at || ''
-  packagePublishedBy.value = rulePackage.published_by || rulePackage.created_by || ''
+}
+
+function clearGeneratedWorkflowState() {
+  inputSchema.value = null
+  hasRulePackage.value = false
+  result.value = null
+  error.value = ''
+  generating.value = false
+  resetRulePackageMetadata()
+  resetFieldValues()
 }
 
 async function refreshGeneratedPackageMetadata(generatedResult: GenerateRouteResult) {
@@ -335,19 +244,24 @@ async function refreshGeneratedPackageMetadata(generatedResult: GenerateRouteRes
 
 async function runGenerate() {
   if (!projectId.value || !canGenerate.value) return
+  const request = generationRequestGuard.start()
   generating.value = true
   error.value = ''
   try {
     const generatedResult = await generateRoute({
       project_id: projectId.value,
+      expected_workflow_revision: workflowRevision.value,
       factor_values: factorValues.value,
     })
+    if (!request.isLatest()) return
     result.value = generatedResult
     await refreshGeneratedPackageMetadata(generatedResult)
   } catch (err: any) {
+    if (!request.isLatest()) return
     console.error(err)
     error.value = err?.response?.data?.detail || err?.message || '生成路线失败'
   } finally {
+    if (!request.isLatest()) return
     generating.value = false
   }
 }
@@ -361,9 +275,11 @@ function downloadOutputJson() {
 }
 
 async function loadGenerateContext() {
+  const request = contextRequestGuard.start()
   contextLoading = true
   try {
     const projects = await listProjects()
+    if (!request.isCurrent()) return
     const resolvedProjectId = resolveAvailableProjectId(String(route.query.project_id || ''), projects)
     if (!resolvedProjectId) {
       projectId.value = null
@@ -372,6 +288,7 @@ async function loadGenerateContext() {
       hasRulePackage.value = false
       resetRulePackageMetadata()
       resetFieldValues()
+      result.value = null
       return
     }
     projectId.value = Number(resolvedProjectId)
@@ -381,8 +298,11 @@ async function loadGenerateContext() {
         query: { ...route.query, project_id: resolvedProjectId },
       })
     }
-    projectName.value = projects.find(project => project.id === projectId.value)?.name || `任务 #${projectId.value}`
+    const currentProject = projects.find(project => project.id === projectId.value)
+    projectName.value = currentProject?.name || `任务 #${projectId.value}`
+    workflowRevision.value = currentProject?.workflow_revision || 0
     const latestPackage = await getLatestFinalizedRulePackage(projectId.value).catch(() => null)
+    if (!request.isCurrent()) return
     if (latestPackage?.input_schema) {
       inputSchema.value = latestPackage.input_schema
       hasRulePackage.value = true
@@ -393,14 +313,18 @@ async function loadGenerateContext() {
       hasRulePackage.value = false
       resetRulePackageMetadata()
       resetFieldValues()
+      result.value = null
     }
   } catch (err) {
+    if (!request.isCurrent()) return
     console.warn('读取生成上下文失败', err)
     inputSchema.value = null
     hasRulePackage.value = false
     resetRulePackageMetadata()
     resetFieldValues()
+    result.value = null
   } finally {
+    if (!request.isLatest()) return
     contextLoading = false
     loadedDataRevision = getWorkflowDataRevision()
   }
@@ -416,8 +340,17 @@ onMounted(async () => {
 
 watch(() => route.query.project_id, () => {
   if (!generateViewActive) return
+  generationRequestGuard.start()
+  generating.value = false
   result.value = null
   error.value = ''
+  void loadGenerateContext()
+})
+
+watch(workflowResetSignal, (signal) => {
+  if (!signal || signal.projectId !== projectId.value) return
+  generationRequestGuard.start()
+  clearGeneratedWorkflowState()
   void loadGenerateContext()
 })
 
@@ -446,58 +379,39 @@ onDeactivated(() => {
   --generate-panel: #f8fafc;
   --generate-accent: #4f46e5;
   --generate-accent-soft: #eef2ff;
-  height: calc(100vh - 118px);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
   color: var(--generate-ink);
 }
 
-.generate-header-card {
+.analysis-style-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  background: #ffffff;
-  border: 1px solid var(--generate-line);
-  border-radius: 8px;
-  padding: 5px 12px;
-  box-shadow: var(--shadow-sm);
-  margin-bottom: 12px;
-}
-
-.gh-left-content {
-  display: flex;
-  align-items: center;
   gap: 12px;
-  min-width: 0;
+  padding: 8px 14px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  margin-bottom: 10px;
 }
-
-.gh-page-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--generate-ink);
-  white-space: nowrap;
-  flex-shrink: 0;
+.ash-left-content { display: flex; align-items: center; gap: 10px; }
+.ash-page-title { font-size: 15px; font-weight: 700; color: #0f172a; }
+.ash-dark-chip {
+  background: #0f172a; color: #f1f5f9;
+  padding: 2px 8px; border-radius: 5px; font-size: 12px; font-weight: 700;
 }
-
-.generate-project-chip {
-  display: inline-flex;
-  align-items: center;
-  background: #0f172a;
-  color: #f1f5f9;
-  padding: 3px 8px;
-  border-radius: 6px;
-  font-size: 12.5px;
-  font-weight: 700;
-  flex-shrink: 0;
+.ash-meta-section {
+  display: flex; align-items: center; gap: 12px;
+  margin-left: 8px; padding-left: 12px; border-left: 1px solid #e2e8f0;
 }
-
-.gh-meta-section {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-left: 12px;
-  border-left: 1px solid var(--generate-line);
-  padding-left: 16px;
-}
+.ash-meta-item { font-size: 12px; color: #64748b; }
+.ash-meta-item strong { color: #0f172a; font-weight: 700; }
+.ash-meta-stale { color: #d97706; }
+.text-done { color: #16a34a !important; }
 
 .generate-meta-item {
   font-size: 12.5px;
@@ -686,8 +600,10 @@ onDeactivated(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
-  align-items: start;
-  height: calc(100vh - 178px);
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+  height: auto;
 }
 
 .empty-panel {
@@ -738,6 +654,12 @@ onDeactivated(() => {
 }
 
 @media (max-width: 900px) {
+  .generate-view {
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+  }
+
   .generate-header-card {
     flex-direction: column;
     align-items: stretch;

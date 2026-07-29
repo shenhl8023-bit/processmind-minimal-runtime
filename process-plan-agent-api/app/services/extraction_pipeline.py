@@ -21,7 +21,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Document, Project
 from app.services.extraction_lifecycle import (
-    clear_project_extraction_results,
     try_commit_project_status,
 )
 from app.services.extraction_tasks import (
@@ -35,6 +34,7 @@ from app.services.extraction_tasks import (
 )
 from app.services.llm_service import get_llm_config
 from app.services.harness_validators import HarnessValidationError
+from app.services.project_workflow_lifecycle import invalidate_project_workflow
 
 
 AsyncSessionFactory = Callable[[], object]
@@ -77,12 +77,6 @@ async def run_extraction_pipeline(
                 project_status="EXTRACTING",
             )
             await try_commit_project_status(db, project, "EXTRACTING")
-
-            await clear_project_extraction_results(
-                db,
-                project_id,
-                preserve_document_details=True,
-            )
 
             config = await get_llm_config()
             api_key = config["key"]
@@ -191,6 +185,7 @@ async def queue_extraction_job(
             "task_status": str(current.get("task_status") or "running"),
             "stage": str(current.get("stage") or "extracting_operations"),
             "message": str(current.get("message") or "当前任务正在后台提炼，请稍候。"),
+            "workflow_revision": int(project.workflow_revision or 0),
         }
 
     project_status = project.status
@@ -215,7 +210,16 @@ async def queue_extraction_job(
             "task_status": "running",
             "stage": "extracting_operations",
             "message": "当前任务正在由后台服务提炼，请稍候。",
+            "workflow_revision": int(project.workflow_revision or 0),
         }
+
+    invalidation = await invalidate_project_workflow(
+        db,
+        project,
+        from_step=2,
+        expected_workflow_revision=int(project.workflow_revision or 0),
+    )
+    project.status = "EXTRACTING"
     await db.commit()
 
     EXTRACTION_RUNNING.add(project_id)
@@ -236,6 +240,7 @@ async def queue_extraction_job(
         "task_status": "running",
         "stage": "queued",
         "message": "已进入后台提炼队列，正在准备任务...",
+        "workflow_revision": invalidation.workflow_revision,
     }
 
 

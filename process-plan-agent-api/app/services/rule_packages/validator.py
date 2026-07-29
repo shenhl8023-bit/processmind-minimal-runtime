@@ -66,6 +66,17 @@ def _dependency_cycle(processes, relations=()) -> list[str]:
     return []
 
 
+def _is_manual_process_exclusion(rule, process_id: str, manual_field_keys: set[str]) -> bool:
+    return bool(
+        rule.source == "user_confirmed"
+        and rule.when.field
+        and rule.when.field in manual_field_keys
+        and rule.when.op == "eq"
+        and rule.when.value is False
+        and process_id in rule.then.exclude_process_ids
+    )
+
+
 def validate_rule_package(package: RulePackageV2) -> RulePackageValidationReport:
     errors: list[ValidationIssue] = []
     warnings: list[ValidationIssue] = []
@@ -83,6 +94,15 @@ def validate_rule_package(package: RulePackageV2) -> RulePackageValidationReport
     relation_ids = [relation.relation_id for relation in package.route_rules.process_relations]
     case_ids = [case.case_id for case in package.test_cases]
     field_set = set(field_keys)
+    manual_field_keys = {
+        field.key
+        for field in package.input_schema.fields
+        if (
+            field.type == "boolean"
+            and field.source == "用户直接设定"
+            and field.key.startswith("project_factor.manual_process_")
+        )
+    }
     process_set = set(process_ids)
     process_map = {process.process_id: process for process in package.route_catalog.processes}
 
@@ -146,7 +166,11 @@ def validate_rule_package(package: RulePackageV2) -> RulePackageValidationReport
         for process_id in rule.then.exclude_process_ids:
             if process_id not in process_set:
                 error("unknown_process_action", f"规则 {rule.rule_id} 引用了不存在的工序 {process_id}", f"{path}.then")
-            elif process_map[process_id].main:
+            elif process_map[process_id].main and not _is_manual_process_exclusion(
+                rule,
+                process_id,
+                manual_field_keys,
+            ):
                 error("exclude_main_process", f"规则 {rule.rule_id} 不能排除主线工序 {process_id}", f"{path}.then")
             if rule.enabled:
                 opposing_actions[(rule.priority, process_id)]["exclude"].append(rule.rule_id)

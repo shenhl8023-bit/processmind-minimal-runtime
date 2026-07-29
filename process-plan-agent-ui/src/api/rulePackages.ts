@@ -112,6 +112,7 @@ export type RuleConditionCandidate = {
     source_match?: 'any' | 'all'
   } | null
   preview: string
+  evidence?: string
 }
 
 export type RuleConditionReview = {
@@ -123,6 +124,8 @@ export type RuleConditionReview = {
   confidence?: number | null
   issues: string[]
   field_registry_version: string
+  parser_version?: string
+  parse_duration_ms?: number | null
   confirmed_by: string
   confirmed_at: string
 }
@@ -237,6 +240,7 @@ export async function getConditionFieldRegistry() {
 export async function saveRuleConditionDraft(body: {
   project_id: number
   route_id: number
+  expected_workflow_revision: number
   segment_id: string
   source_text: string
 }) {
@@ -247,6 +251,7 @@ export async function saveRuleConditionDraft(body: {
 export async function parseRuleCondition(body: {
   project_id: number
   route_id: number
+  expected_workflow_revision: number
   segment_id: string
   source_text: string
   process_id: string
@@ -260,6 +265,7 @@ export async function parseRuleCondition(body: {
 export async function confirmRuleCondition(body: {
   project_id: number
   route_id: number
+  expected_workflow_revision: number
   segment_id: string
   source_text: string
   source_hash: string
@@ -268,6 +274,21 @@ export async function confirmRuleCondition(body: {
   confirmed_by?: string
 }) {
   const { data } = await api.post('/api/extract/finalized-rule-packages/rule-conditions/confirm', body)
+  return data as RuleConditionReviewResponse
+}
+
+export async function setManualRuleCondition(body: {
+  project_id: number
+  route_id: number
+  expected_workflow_revision: number
+  segment_id: string
+  process_id: string
+  source_text: string
+  candidate: RuleConditionCandidate
+  processes: RuleConditionProcessOption[]
+  confirmed_by?: string
+}) {
+  const { data } = await api.post('/api/extract/finalized-rule-packages/rule-conditions/manual', body)
   return data as RuleConditionReviewResponse
 }
 

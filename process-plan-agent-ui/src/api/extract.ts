@@ -3,6 +3,7 @@ import {
   clearAllWorkflowDataCache,
   clearWorkflowProjectDataCache,
   getWorkflowDataCache,
+  getWorkflowDataRevision,
   setWorkflowDataCache,
 } from '@/composables/workflowDataCache'
 
@@ -226,6 +227,7 @@ export interface SavedNormalizedRouteVersionResult {
   saved_at: string
   total_docs: number
   segment_count: number
+  workflow_revision: number
   segments: SavedNormalizedRouteSegment[]
 }
 
@@ -285,6 +287,22 @@ export interface ExtractionTaskStartResult {
   task_status: string
   stage: string
   message: string
+  workflow_revision: number
+}
+
+export interface WorkflowResetResult {
+  project_id: number
+  from_step: 3 | 4
+  workflow_revision: number
+  deleted_operations: number
+  deleted_route_merge_snapshots: number
+  deleted_route_versions: number
+  deleted_factor_reviews: number
+  deleted_rule_reviews: number
+  reset_condition_reviews: number
+  preserved_manual_condition_reviews: number
+  deleted_generated_routes: number
+  archived_rule_package_versions: number[]
 }
 
 export interface HarnessValidationIssue {
@@ -333,9 +351,10 @@ export async function listOperations(projectId: number, forceRefresh = false) {
     const cached = getWorkflowDataCache<OperationItem[]>(cacheKey)
     if (cached) return cached
   }
+  const requestRevision = getWorkflowDataRevision()
   const { data } = await api.get('/api/extract/operations', { params: { project_id: projectId } })
   const operations = data as OperationItem[]
-  setWorkflowDataCache(cacheKey, operations)
+  setWorkflowDataCache(cacheKey, operations, requestRevision)
   return operations
 }
 
@@ -350,6 +369,7 @@ export async function getDocumentOperationDetails(
     const cached = getWorkflowDataCache<DocumentOperationDetailResult>(cacheKey)
     if (cached) return cached
   }
+  const requestRevision = getWorkflowDataRevision()
   const { data } = await api.get('/api/extract/document-operation-details', {
     params: {
       project_id: projectId,
@@ -358,7 +378,7 @@ export async function getDocumentOperationDetails(
     },
   })
   const result = data as DocumentOperationDetailResult
-  setWorkflowDataCache(cacheKey, result)
+  setWorkflowDataCache(cacheKey, result, requestRevision)
   return result
 }
 
@@ -368,9 +388,10 @@ export async function getSupersetRoute(projectId: number, forceRefresh = false) 
     const cached = getWorkflowDataCache<SupersetRouteResult>(cacheKey)
     if (cached) return cached
   }
+  const requestRevision = getWorkflowDataRevision()
   const { data } = await api.get('/api/extract/superset-route', { params: { project_id: projectId } })
   const result = data as SupersetRouteResult
-  setWorkflowDataCache(cacheKey, result)
+  setWorkflowDataCache(cacheKey, result, requestRevision)
   return result
 }
 
@@ -380,9 +401,10 @@ export async function getMergeSuggestions(projectId: number, forceRefresh = fals
     const cached = getWorkflowDataCache<MergeSuggestionResult>(cacheKey)
     if (cached) return cached
   }
+  const requestRevision = getWorkflowDataRevision()
   const { data } = await api.get('/api/extract/merge-suggestions', { params: { project_id: projectId } })
   const result = data as MergeSuggestionResult
-  setWorkflowDataCache(cacheKey, result)
+  setWorkflowDataCache(cacheKey, result, requestRevision)
   return result
 }
 
@@ -392,9 +414,10 @@ export async function getNormalizedSupersetRoute(projectId: number, forceRefresh
     const cached = getWorkflowDataCache<NormalizedSupersetRouteResult>(cacheKey)
     if (cached) return cached
   }
+  const requestRevision = getWorkflowDataRevision()
   const { data } = await api.get('/api/extract/normalized-superset-route', { params: { project_id: projectId } })
   const result = data as NormalizedSupersetRouteResult
-  setWorkflowDataCache(cacheKey, result)
+  setWorkflowDataCache(cacheKey, result, requestRevision)
   return result
 }
 
@@ -404,9 +427,10 @@ export async function getSavedNormalizedRoute(projectId: number, forceRefresh = 
     const cached = getWorkflowDataCache<SavedNormalizedRouteVersionResult>(cacheKey)
     if (cached) return cached
   }
+  const requestRevision = getWorkflowDataRevision()
   const { data } = await api.get('/api/extract/saved-normalized-route', { params: { project_id: projectId } })
   const result = data as SavedNormalizedRouteVersionResult
-  setWorkflowDataCache(cacheKey, result)
+  setWorkflowDataCache(cacheKey, result, requestRevision)
   return result
 }
 
@@ -445,6 +469,7 @@ export async function saveNormalizedSupersetRoute(body: {
 export async function saveSegmentRuleReview(body: {
   project_id: number
   route_id: number
+  expected_workflow_revision: number
   segment_id: string
   decision: 'accepted' | 'rejected' | 'pending'
   note?: string
@@ -462,6 +487,7 @@ export async function saveSegmentRuleReview(body: {
 
 export async function saveFinalizedRulePackage(body: {
   project_id: number
+  expected_workflow_revision: number
   route_version_id?: number | null
   package_name?: string
   schema_version?: string
@@ -479,15 +505,26 @@ export async function saveFinalizedRulePackage(body: {
   return data as FinalizedRulePackageResult
 }
 
+export async function resetWorkflow(body: {
+  project_id: number
+  from_step: 3 | 4
+  expected_workflow_revision: number
+}) {
+  const { data } = await api.post('/api/extract/workflow/reset', body)
+  clearAllWorkflowDataCache()
+  return data as WorkflowResetResult
+}
+
 export async function getLatestFinalizedRulePackage(projectId: number, forceRefresh = false) {
   const cacheKey = `api:extract:finalized-rule-packages:latest:${projectId}`
   if (!forceRefresh) {
     const cached = getWorkflowDataCache<FinalizedRulePackageResult>(cacheKey)
     if (cached) return cached
   }
+  const requestRevision = getWorkflowDataRevision()
   const { data } = await api.get('/api/extract/finalized-rule-packages/latest', { params: { project_id: projectId } })
   const result = data as FinalizedRulePackageResult
-  setWorkflowDataCache(cacheKey, result)
+  setWorkflowDataCache(cacheKey, result, requestRevision)
   return result
 }
 
@@ -497,9 +534,10 @@ export async function listFinalizedRulePackages(projectId: number, forceRefresh 
     const cached = getWorkflowDataCache<FinalizedRulePackageListItem[]>(cacheKey)
     if (cached) return cached
   }
+  const requestRevision = getWorkflowDataRevision()
   const { data } = await api.get('/api/extract/finalized-rule-packages', { params: { project_id: projectId } })
   const result = data as FinalizedRulePackageListItem[]
-  setWorkflowDataCache(cacheKey, result)
+  setWorkflowDataCache(cacheKey, result, requestRevision)
   return result
 }
 

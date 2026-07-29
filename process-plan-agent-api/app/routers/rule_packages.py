@@ -30,6 +30,7 @@ from app.services.rule_packages.kmai_export import build_kmai_compatibility_expo
 from app.services.rule_packages.condition_contracts import (
     ConditionFieldRegistryResponse,
     ConfirmRuleConditionRequest,
+    ManualRuleConditionRequest,
     ParseRuleConditionRequest,
     RuleConditionReviewResponse,
     SaveRuleConditionDraftRequest,
@@ -37,9 +38,11 @@ from app.services.rule_packages.condition_contracts import (
 from app.services.rule_packages.condition_registry import FIELD_REGISTRY_VERSION, condition_fields
 from app.services.rule_packages.condition_reviews import (
     confirm_condition_review,
+    set_manual_condition_review,
     parse_condition_review,
     save_condition_draft,
 )
+from app.services.project_workflow_lifecycle import acquire_workflow_revision
 
 
 router = APIRouter(prefix="/api/extract/finalized-rule-packages", tags=["规则包 V2"])
@@ -55,6 +58,7 @@ async def save_rule_condition_draft(
     body: SaveRuleConditionDraftRequest,
     db: AsyncSession = Depends(get_db),
 ):
+    await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
     return await save_condition_draft(body, db)
 
 
@@ -63,6 +67,7 @@ async def parse_user_rule_condition(
     body: ParseRuleConditionRequest,
     db: AsyncSession = Depends(get_db),
 ):
+    await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
     return await parse_condition_review(body, db)
 
 
@@ -71,7 +76,17 @@ async def confirm_user_rule_condition(
     body: ConfirmRuleConditionRequest,
     db: AsyncSession = Depends(get_db),
 ):
+    await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
     return await confirm_condition_review(body, db)
+
+
+@router.post("/rule-conditions/manual", response_model=RuleConditionReviewResponse)
+async def set_manual_user_rule_condition(
+    body: ManualRuleConditionRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
+    return await set_manual_condition_review(body, db)
 
 
 @router.post("/compile", response_model=CompileRulePackageResponse)
