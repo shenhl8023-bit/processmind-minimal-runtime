@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { CompileRulePackageResponse, RulePackageV2 } from '@/api'
 
 const mocks = vi.hoisted(() => ({
   compileRulePackage: vi.fn(),
@@ -28,7 +29,7 @@ vi.mock('@/utils/finalizeRulePackage', () => ({
 
 import { useFinalizeRulePackageExport } from './useFinalizeRulePackageExport'
 
-const firstPackage = {
+const firstPackage: RulePackageV2 = {
   manifest: { project_id: 12, package_name: 'first' },
   input_schema: { schema_version: '2.0', fields: [] },
   route_catalog: { schema_version: '2.0', processes: [] },
@@ -41,7 +42,7 @@ const secondPackage = {
   manifest: { project_id: 12, package_name: 'second' },
 }
 
-function compiled(packageValue: typeof firstPackage, valid: boolean) {
+function compiled(packageValue: RulePackageV2, valid: boolean): CompileRulePackageResponse {
   return {
     package: packageValue,
     content_hash: valid ? 'second' : 'first',
@@ -66,7 +67,38 @@ function compiled(packageValue: typeof firstPackage, valid: boolean) {
   }
 }
 
-function createExport(options: { onKmaiMappingsRequired: () => Promise<boolean> }) {
+function savedPackage(
+  packageValue: RulePackageV2,
+  files: Record<string, Record<string, unknown>> = {},
+) {
+  return {
+    version: 3,
+    schema_version: '2.0',
+    status: 'published',
+    manifest: packageValue.manifest,
+    input_schema: packageValue.input_schema,
+    route_catalog: packageValue.route_catalog,
+    route_rules: packageValue.route_rules,
+    test_cases: [],
+    rule_report_md: '# report',
+    validation_report: {},
+    kmai_compatibility: {
+      format: 'kmai-v1',
+      valid: true,
+      target_directory: 'rules',
+      errors: [],
+      warnings: [],
+      files,
+      mapping_signature: 'saved',
+      mapping_usages: [],
+    },
+  }
+}
+
+function createExport(options: {
+  onExportReviewRequired?: (review: unknown) => Promise<boolean>
+  conditionFields?: Array<{ key: string }>
+}) {
   return useFinalizeRulePackageExport({
     projectId: ref(12),
     projectName: ref('project'),
@@ -77,8 +109,8 @@ function createExport(options: { onKmaiMappingsRequired: () => Promise<boolean> 
     phaseLabel: () => 'phase',
     primarySteps: () => [],
     attachedSteps: () => [],
-    conditionFields: ref([{ key: 'cad.features' }]),
-    onKmaiMappingsRequired: options.onKmaiMappingsRequired,
+    conditionFields: ref(options.conditionFields ?? [{ key: 'cad.features' }]),
+    onExportReviewRequired: options.onExportReviewRequired,
   } as any)
 }
 
@@ -90,38 +122,84 @@ describe('useFinalizeRulePackageExport KmAI mapping retry', () => {
     mocks.downloadBlob.mockClear()
   })
 
+  it('waits for export review before saving a compatible package', async () => {
+    const review = vi.fn().mockResolvedValue(false)
+    mocks.compileRulePackage.mockResolvedValueOnce(compiled(firstPackage, true))
+
+    const { downloadRuleDocument } = createExport({ onExportReviewRequired: review })
+    await downloadRuleDocument()
+
+    expect(review).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'ready',
+      projectName: 'project',
+      processCount: 0,
+      ruleCount: 0,
+    }))
+    expect(mocks.saveFinalizedRulePackage).not.toHaveBeenCalled()
+    expect(mocks.downloadBlob).not.toHaveBeenCalled()
+  })
+
+  it('never saves a blocked review even when the callback confirms it', async () => {
+    const invalid = compiled(firstPackage, true)
+    invalid.validation = {
+      valid: false,
+      errors: [{ code: 'invalid_rule', message: 'invalid rule' }],
+      warnings: [],
+      test_results: [],
+    }
+    const review = vi.fn().mockResolvedValue(true)
+    mocks.compileRulePackage.mockResolvedValueOnce(invalid)
+
+    const { downloadRuleDocument } = createExport({ onExportReviewRequired: review })
+    await downloadRuleDocument()
+
+    expect(review).toHaveBeenCalledWith(expect.objectContaining({ status: 'blocked' }))
+    expect(mocks.compileRulePackage).toHaveBeenCalledTimes(1)
+    expect(mocks.saveFinalizedRulePackage).not.toHaveBeenCalled()
+    expect(mocks.downloadBlob).not.toHaveBeenCalled()
+  })
+
+  it('shows the same blocked review when the field registry is unavailable', async () => {
+    const review = vi.fn().mockResolvedValue(false)
+    const { downloadRuleDocument } = createExport({
+      conditionFields: [],
+      onExportReviewRequired: review,
+    })
+
+    await downloadRuleDocument()
+
+    expect(review).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'blocked',
+      validation: null,
+      details: ['标准字段库尚未加载，请稍后刷新页面再重新审核。'],
+    }))
+    expect(mocks.compileRulePackage).not.toHaveBeenCalled()
+    expect(mocks.saveFinalizedRulePackage).not.toHaveBeenCalled()
+    expect(mocks.downloadBlob).not.toHaveBeenCalled()
+  })
+
   it('recompiles after resolved mappings and archives the authoritative saved KmAI files', async () => {
-    const resolveMappings = vi.fn().mockResolvedValue(true)
+    const review = vi.fn().mockResolvedValue(true)
     mocks.compileRulePackage
       .mockResolvedValueOnce(compiled(firstPackage, false))
       .mockResolvedValueOnce(compiled(secondPackage, true))
-    mocks.saveFinalizedRulePackage.mockResolvedValue({
-      version: 3,
-      schema_version: '2.0',
-      status: 'published',
-      manifest: secondPackage.manifest,
-      input_schema: secondPackage.input_schema,
-      route_catalog: secondPackage.route_catalog,
-      route_rules: secondPackage.route_rules,
-      test_cases: [],
-      rule_report_md: '# report',
-      validation_report: {},
-      kmai_compatibility: {
-        format: 'kmai-v1',
-        valid: true,
-        target_directory: 'rules',
-        errors: [],
-        warnings: [],
-        files: { 'route_rules.json': { source: 'saved' } },
-        mapping_signature: 'saved',
-        mapping_usages: [],
-      },
-    })
+    mocks.saveFinalizedRulePackage.mockResolvedValue(savedPackage(
+      secondPackage,
+      { 'route_rules.json': { source: 'saved' } },
+    ))
 
-    const { downloadRuleDocument } = createExport({ onKmaiMappingsRequired: resolveMappings })
+    const { downloadRuleDocument } = createExport({
+      onExportReviewRequired: review,
+    })
     await downloadRuleDocument()
 
-    expect(resolveMappings).toHaveBeenCalledTimes(1)
+    expect(review).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'mapping_required',
+      mappingIssues: [expect.objectContaining({
+        field: 'cad.features',
+        value: 'unmapped feature',
+      })],
+    }))
     expect(mocks.compileRulePackage).toHaveBeenCalledTimes(2)
     expect(mocks.compileRulePackage).toHaveBeenNthCalledWith(1, mocks.compileRulePackage.mock.calls[1]![0])
     expect(mocks.compileRulePackage.mock.calls[0]![0]).toBe(mocks.compileRulePackage.mock.calls[1]![0])
@@ -137,7 +215,7 @@ describe('useFinalizeRulePackageExport KmAI mapping retry', () => {
 
   it('does not save or download when mapping resolution is cancelled', async () => {
     mocks.compileRulePackage.mockResolvedValueOnce(compiled(firstPackage, false))
-    const { downloadRuleDocument } = createExport({ onKmaiMappingsRequired: async () => false })
+    const { downloadRuleDocument } = createExport({ onExportReviewRequired: async () => false })
 
     await downloadRuleDocument()
 
@@ -147,14 +225,18 @@ describe('useFinalizeRulePackageExport KmAI mapping retry', () => {
   })
 
   it('does not save or download when the recompiled package still needs mappings', async () => {
+    const review = vi.fn()
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
     mocks.compileRulePackage
       .mockResolvedValueOnce(compiled(firstPackage, false))
       .mockResolvedValueOnce(compiled(firstPackage, false))
-    const { downloadRuleDocument } = createExport({ onKmaiMappingsRequired: async () => true })
+    const { downloadRuleDocument } = createExport({ onExportReviewRequired: review })
 
     await downloadRuleDocument()
 
     expect(mocks.compileRulePackage).toHaveBeenCalledTimes(2)
+    expect(review).toHaveBeenCalledTimes(2)
     expect(mocks.saveFinalizedRulePackage).not.toHaveBeenCalled()
     expect(mocks.downloadBlob).not.toHaveBeenCalled()
   })

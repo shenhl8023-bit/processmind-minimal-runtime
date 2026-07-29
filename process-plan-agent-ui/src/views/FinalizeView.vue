@@ -177,31 +177,6 @@
       @next="goToGenerate"
     />
 
-    <div v-if="blockedExportCards.length" class="export-blocker-overlay" @click.self="closeBlockedExportDialog">
-      <section class="export-blocker-dialog" role="dialog" aria-modal="true" aria-labelledby="export-blocker-title">
-        <div class="export-blocker-header">
-          <div>
-            <span class="export-blocker-kicker">规则包导出</span>
-            <h2 id="export-blocker-title">还有 {{ blockedExportCards.length }} 道工序需要处理</h2>
-          </div>
-          <button class="export-blocker-close" aria-label="关闭提示" @click="closeBlockedExportDialog">关闭</button>
-        </div>
-        <p class="export-blocker-copy">系统已自动处理可识别规则；请只补充以下异常项，完成后即可再次审核并导出。</p>
-        <ol class="export-blocker-list">
-          <li v-for="item in blockedExportCards.slice(0, 6)" :key="item.segment.id">
-            <span>{{ item.segment.sequence }}</span>
-            <strong>{{ finalizeSegmentDisplayName(item.segment) }}</strong>
-            <em>{{ blockedExportStatusLabel(item) }}</em>
-          </li>
-        </ol>
-        <p v-if="blockedExportCards.length > 6" class="export-blocker-more">另有 {{ blockedExportCards.length - 6 }} 道工序待处理。</p>
-        <div class="export-blocker-actions">
-          <button class="ash-btn-outline" @click="closeBlockedExportDialog">暂不处理</button>
-          <button class="ash-btn-primary" @click="showBlockedExportCards">查看待处理</button>
-        </div>
-      </section>
-    </div>
-
     <div v-if="exportIssue" class="export-issue-overlay" @click.self="closeExportIssue">
       <section class="export-issue-dialog" role="dialog" aria-modal="true" aria-labelledby="export-issue-title">
         <div class="export-issue-icon" aria-hidden="true">!</div>
@@ -232,14 +207,13 @@
       @confirm="handleResetAllRecognition"
     />
 
-    <KmaiMappingResolutionDialog
-      v-model="mappingDialogVisible"
-      :issues="mappingIssues"
+    <RulePackageExportReviewDialog
+      v-model="exportReviewVisible"
+      :review="exportReview"
       :project-id="projectId"
-      :rule-package="mappingRulePackage"
       :allow-global="false"
-      @resolved="completeMappingResolution(true)"
-      @cancelled="completeMappingResolution(false)"
+      @confirmed="completeExportReview(true)"
+      @cancelled="completeExportReview(false)"
     />
   </div>
 </template>
@@ -249,7 +223,7 @@ import { computed, nextTick, onActivated, onDeactivated, onMounted, ref, watch }
 import { useRoute, useRouter } from 'vue-router'
 import FinalizeRouteNav from '@/components/finalize/FinalizeRouteNav.vue'
 import FinalizeRuleCard from '@/components/finalize/FinalizeRuleCard.vue'
-import KmaiMappingResolutionDialog from '@/components/kmai/KmaiMappingResolutionDialog.vue'
+import RulePackageExportReviewDialog from '@/components/kmai/RulePackageExportReviewDialog.vue'
 import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
 import WorkflowResetDialog from '@/components/workflow/WorkflowResetDialog.vue'
 import {
@@ -273,9 +247,7 @@ import {
   type RuleConditionCandidate,
   type RuleConditionProcessOption,
   type RuleConditionReview,
-  type RulePackageV2,
 } from '@/api/rulePackages'
-import type { KmaiMappingIssue } from '@/api/kmaiFactorMappings'
 import {
   segmentDisplayMetaLabel,
   segmentDisplayName,
@@ -286,7 +258,11 @@ import {
 } from '@/composables/finalizeViewHelpers'
 import type { FinalizeCard } from '@/composables/finalizeViewHelpers'
 import { useFinalizeDrafts } from '@/composables/useFinalizeDrafts'
-import { useFinalizeRulePackageExport } from '@/composables/useFinalizeRulePackageExport'
+import {
+  useFinalizeRulePackageExport,
+  type RulePackageExportReview,
+} from '@/composables/useFinalizeRulePackageExport'
+import { useRulePackageExportReview } from '@/composables/useRulePackageExportReview'
 import { useRouteSegmentSteps } from '@/composables/useRouteSegmentSteps'
 import { buildProjectRouteQuery, resolveAvailableProjectId } from '@/composables/useCurrentProject'
 import { FINALIZE_VIEW_COPY } from '@/config/finalizeRulePresentation'
@@ -349,12 +325,13 @@ function setBatchNotice(msg: string) {
     batchNoticeTimer = setTimeout(() => { batchNotice.value = '' }, 4000)
   }
 }
-const blockedExportCards = ref<FinalizeCard[]>([])
 const exportIssue = ref<{ title: string; summary: string; details?: string; context?: string } | null>(null)
-const mappingIssues = ref<KmaiMappingIssue[]>([])
-const mappingDialogVisible = ref(false)
-const mappingRulePackage = ref<RulePackageV2 | null>(null)
-let mappingResolutionPromise: ((resolved: boolean) => void) | null = null
+const {
+  visible: exportReviewVisible,
+  review: exportReview,
+  request: requestExportReview,
+  complete: completeExportReview,
+} = useRulePackageExportReview()
 const {
   segmentAttachedSteps: finalizeSegmentAttachedSteps,
   segmentPrimarySteps: finalizeSegmentPrimarySteps,
@@ -486,10 +463,6 @@ function toggleOnlyPending() {
   onlyPending.value = !onlyPending.value
 }
 
-function closeBlockedExportDialog() {
-  blockedExportCards.value = []
-}
-
 function blockedExportStatusLabel(item: FinalizeCard) {
   if (finalizeRuleMode(item) === 'unresolved') return '待补充条件'
   if (item.conditionReview?.status === 'invalid') return '未能识别'
@@ -503,43 +476,28 @@ function blockedExportStatusLabel(item: FinalizeCard) {
   return '需要重新识别'
 }
 
+function createBlockedExportReview(cards: FinalizeCard[]): RulePackageExportReview {
+  return {
+    status: 'blocked',
+    projectName: projectName.value || '未命名任务',
+    processCount: segmentCards.value.length,
+    ruleCount: reviewableRuleCount.value,
+    validation: null,
+    kmaiCompatibility: null,
+    mappingIssues: [],
+    rulePackage: null,
+    details: cards.map(item => (
+      `${finalizeSegmentDisplayName(item.segment)}：${blockedExportStatusLabel(item)}`
+    )),
+  }
+}
+
 function closeExportIssue() {
   exportIssue.value = null
 }
 
-function requestKmaiMappingResolution(
-  issues: KmaiMappingIssue[],
-  rulePackage: Record<string, unknown>,
-): Promise<boolean> {
-  if (!projectId.value) return Promise.resolve(false)
-  if (mappingResolutionPromise) mappingResolutionPromise(false)
-  mappingIssues.value = issues
-  mappingRulePackage.value = rulePackage as RulePackageV2
-  mappingDialogVisible.value = true
-  return new Promise((resolve) => {
-    mappingResolutionPromise = resolve
-  })
-}
-
-function completeMappingResolution(resolved: boolean) {
-  const complete = mappingResolutionPromise
-  mappingResolutionPromise = null
-  mappingDialogVisible.value = false
-  mappingRulePackage.value = null
-  mappingIssues.value = []
-  complete?.(resolved)
-}
-
 function showFinalizeNotice(title: string, summary: string, details = '') {
   exportIssue.value = { title, summary, details, context: '规则定稿' }
-}
-
-async function showBlockedExportCards() {
-  const first = blockedExportCards.value[0]
-  onlyPending.value = false
-  blockedExportCards.value = []
-  await nextTick()
-  if (first) focusSegment(first.segment.id)
 }
 
 function setConditionBusy(segmentId: string, busy: boolean) {
@@ -880,13 +838,14 @@ const {
   primarySteps: finalizeSegmentPrimarySteps,
   attachedSteps: finalizeSegmentAttachedSteps,
   conditionFields,
-  onBlockedCards: (cards) => {
-    blockedExportCards.value = cards
+  onBlockedCards: async (cards) => {
+    onlyPending.value = true
+    await requestExportReview(createBlockedExportReview(cards))
   },
   onExportIssue: (issue) => {
     exportIssue.value = { ...issue, context: '规则包导出' }
   },
-  onKmaiMappingsRequired: requestKmaiMappingResolution,
+  onExportReviewRequired: requestExportReview,
   onExportedVersion: (version, meta) => {
     lastExportedRulePackageVersion.value = version
     outdatedRulePackageVersion.value = null
@@ -919,9 +878,9 @@ async function handleReviewAndExport() {
       finalizeRuleMode(item) !== 'mainline' && !hasCurrentConfirmedUserRule(item),
     )
     if (remaining.length) {
-      blockedExportCards.value = remaining
       onlyPending.value = true
       batchNotice.value = `系统已自动处理可识别规则；还有 ${remaining.length} 道工序需要补充。`
+      await requestExportReview(createBlockedExportReview(remaining))
       return
     }
     await downloadRuleDocument()
@@ -1289,128 +1248,6 @@ onDeactivated(() => {
 }
 .ash-btn-primary:hover:not(:disabled) { background: #4338ca; border-color: #4338ca; }
 .ash-btn-primary:disabled { opacity: .45; cursor: not-allowed; }
-
-.export-blocker-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: rgba(15, 23, 42, 0.42);
-}
-
-.export-blocker-dialog {
-  width: min(540px, 100%);
-  max-height: min(680px, calc(100vh - 48px));
-  overflow: auto;
-  border: 1px solid #d8e1ec;
-  border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 20px 55px rgba(15, 23, 42, 0.22);
-}
-
-.export-blocker-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 22px 24px 15px;
-  border-bottom: 1px solid #e7edf4;
-}
-
-.export-blocker-kicker {
-  display: block;
-  margin-bottom: 5px;
-  color: #667991;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0;
-}
-
-.export-blocker-header h2 {
-  margin: 0;
-  color: #1e334c;
-  font-size: 19px;
-  line-height: 1.35;
-}
-
-.export-blocker-close {
-  flex: none;
-  border: 0;
-  background: transparent;
-  color: #697b90;
-  font-size: 12px;
-  cursor: pointer;
-  padding: 4px 0;
-}
-
-.export-blocker-close:hover { color: #263b54; }
-
-.export-blocker-copy {
-  margin: 0;
-  padding: 16px 24px 12px;
-  color: #566a82;
-  font-size: 13px;
-  line-height: 1.65;
-}
-
-.export-blocker-list {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-  padding: 0 24px;
-  list-style: none;
-}
-
-.export-blocker-list li {
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  min-height: 38px;
-  padding: 0 10px;
-  border: 1px solid #e3eaf2;
-  border-radius: 5px;
-  background: #f8fafc;
-}
-
-.export-blocker-list span {
-  color: #71839a;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.export-blocker-list strong {
-  overflow: hidden;
-  color: #2c4058;
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.export-blocker-list em {
-  color: #a35436;
-  font-size: 11px;
-  font-style: normal;
-  white-space: nowrap;
-}
-
-.export-blocker-more {
-  margin: 10px 24px 0;
-  color: #71839a;
-  font-size: 12px;
-}
-
-.export-blocker-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 18px;
-  padding: 14px 24px;
-  border-top: 1px solid #e7edf4;
-  background: #fbfcfe;
-}
 
 .warning-text { color: #b4532f !important; }
 .batch-notice {

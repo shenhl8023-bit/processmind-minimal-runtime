@@ -4,6 +4,8 @@ import {
   saveFinalizedRulePackage,
   type SavedNormalizedRouteVersionResult,
   type CanonicalConditionField,
+  type CompileRulePackageResponse,
+  type RulePackageV2,
 } from '@/api'
 import type { FinalizeCard } from '@/composables/finalizeViewHelpers'
 import { FINALIZE_EXPORT_COPY } from '@/config/finalizeRulePresentation'
@@ -19,6 +21,20 @@ import { isWorkflowRevisionConflict } from '@/composables/workflowResetState'
 
 type Segment = SavedNormalizedRouteVersionResult['segments'][number]
 
+export type RulePackageExportReviewStatus = 'ready' | 'mapping_required' | 'blocked'
+
+export type RulePackageExportReview = {
+  status: RulePackageExportReviewStatus
+  projectName: string
+  processCount: number
+  ruleCount: number
+  validation: CompileRulePackageResponse['validation'] | null
+  kmaiCompatibility: CompileRulePackageResponse['kmai_compatibility'] | null
+  mappingIssues: KmaiMappingIssue[]
+  rulePackage: RulePackageV2 | null
+  details?: string[]
+}
+
 type UseFinalizeRulePackageExportOptions = {
   projectId: Ref<number | null>
   projectName: Ref<string>
@@ -32,25 +48,13 @@ type UseFinalizeRulePackageExportOptions = {
   conditionFields: Ref<CanonicalConditionField[]>
   onBlockedCards?: (cards: FinalizeCard[]) => void | Promise<void>
   onExportIssue?: (issue: { title: string; summary: string; details?: string }) => void
-  onKmaiMappingsRequired?: (
-    issues: KmaiMappingIssue[],
-    rulePackage: Record<string, unknown>,
-  ) => Promise<boolean>
+  onExportReviewRequired?: (review: RulePackageExportReview) => Promise<boolean>
   onExportedVersion?: (version: number, meta?: { schemaVersion: string; status: string }) => void
   onWorkflowConflict?: () => void | Promise<void>
 }
 
 function safeFilenamePart(value: string) {
   return value.replace(/[\/:*?"<>|]/g, '_')
-}
-
-function formatValidationErrors(validation: {
-  errors?: Array<{ message?: string } | string>
-}) {
-  return (validation.errors || [])
-    .map((item) => (typeof item === 'string' ? item : item.message || ''))
-    .filter(Boolean)
-    .join('\n')
 }
 
 function getKmaiMappingIssues(errors: Array<any> = []): KmaiMappingIssue[] {
@@ -67,6 +71,56 @@ function getKmaiMappingIssues(errors: Array<any> = []): KmaiMappingIssue[] {
       suggested_existing_factors: issue.suggested_existing_factors || [],
       can_create_manual_factor: issue.can_create_manual_factor ?? true,
     }))
+}
+
+function isKmaiMappingError(issue: { code?: string }) {
+  return issue.code === 'kmai_mapping_required' || issue.code === 'kmai_unmapped_value'
+}
+
+function buildExportReview(
+  compiled: CompileRulePackageResponse,
+  projectName: string,
+): RulePackageExportReview {
+  const mappingIssues = getKmaiMappingIssues(compiled.kmai_compatibility?.errors)
+  const hasNonMappingKmaiError = (compiled.kmai_compatibility?.errors || [])
+    .some(issue => !isKmaiMappingError(issue))
+  const status: RulePackageExportReviewStatus = !compiled.validation?.valid
+    || hasNonMappingKmaiError
+    || (!compiled.kmai_compatibility?.valid && !mappingIssues.length)
+    ? 'blocked'
+    : mappingIssues.length
+      ? 'mapping_required'
+      : 'ready'
+  return {
+    status,
+    projectName: projectName || '未命名任务',
+    processCount: compiled.package.route_catalog.processes.length,
+    ruleCount: compiled.package.route_rules.rules.length
+      + (compiled.package.route_rules.process_relations?.length || 0),
+    validation: compiled.validation,
+    kmaiCompatibility: compiled.kmai_compatibility,
+    mappingIssues,
+    rulePackage: compiled.package,
+  }
+}
+
+function buildLocalBlockedReview(options: {
+  projectName: string
+  processCount: number
+  ruleCount: number
+  details: string[]
+}): RulePackageExportReview {
+  return {
+    status: 'blocked',
+    projectName: options.projectName || '未命名任务',
+    processCount: options.processCount,
+    ruleCount: options.ruleCount,
+    validation: null,
+    kmaiCompatibility: null,
+    mappingIssues: [],
+    rulePackage: null,
+    details: options.details,
+  }
 }
 
 function getManualKmaiFactors(files: Record<string, Record<string, unknown>>) {
@@ -98,7 +152,12 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
       return
     }
     if (!options.conditionFields.value.length) {
-      reportExportIssue('字段库尚未加载', '请稍后刷新页面，待标准字段库加载完成后再导出规则包。')
+      await options.onExportReviewRequired?.(buildLocalBlockedReview({
+        projectName: options.projectName.value,
+        processCount: options.segmentCards.value.length,
+        ruleCount: 0,
+        details: ['标准字段库尚未加载，请稍后刷新页面再重新审核。'],
+      }))
       return
     }
     const compileRequest = buildCompileRequestFromCards({
@@ -114,45 +173,26 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
     })
 
     if (!compileRequest.processes.length) {
-      reportExportIssue('没有可导出的工序', '请先返回规则分析，确认路线中至少包含一道工序。')
+      await options.onExportReviewRequired?.(buildLocalBlockedReview({
+        projectName: options.projectName.value,
+        processCount: 0,
+        ruleCount: (compileRequest.rules?.length || 0) + (compileRequest.process_relations?.length || 0),
+        details: ['当前没有可导出的工序，请先返回规则分析确认路线内容。'],
+      }))
       return
     }
 
     exportingRulePackage.value = true
     try {
       let compiled = await compileRulePackage(compileRequest)
-      if (!compiled.validation?.valid) {
-        const detail = formatValidationErrors(compiled.validation) || '规则包校验未通过'
-        reportExportIssue('规则包还不能导出', '请先修正未通过校验的规则，再重新导出。', detail)
-        return
-      }
-      if (!compiled.kmai_compatibility?.valid) {
-        const mappingIssues = getKmaiMappingIssues(compiled.kmai_compatibility.errors)
-        if (mappingIssues.length) {
-          const resolved = await options.onKmaiMappingsRequired?.(
-            mappingIssues,
-            compiled.package as unknown as Record<string, unknown>,
-          )
-          if (!resolved) return
+      while (true) {
+        const review = buildExportReview(compiled, options.projectName.value)
+        const confirmed = await options.onExportReviewRequired?.(review)
+        if (!confirmed || review.status === 'blocked') return
+        if (review.status === 'ready') break
 
-          // A persisted mapping changes the compiled rule package and KmAI files.
-          compiled = await compileRulePackage(compileRequest)
-          if (!compiled.validation?.valid) {
-            const detail = formatValidationErrors(compiled.validation) || 'Rule package validation failed after resolving mappings.'
-            reportExportIssue('Rule package cannot be exported', 'Fix the validation errors and export again.', detail)
-            return
-          }
-          if (!compiled.kmai_compatibility?.valid) {
-            const detail = JSON.stringify(compiled.kmai_compatibility?.errors || [], null, 2)
-            reportExportIssue('KmAI package is still incompatible', 'The saved mappings did not resolve every KmAI compatibility issue.', detail)
-            return
-          }
-        }
-        if (!compiled.kmai_compatibility?.valid) {
-          const detail = formatValidationErrors(compiled.kmai_compatibility) || 'KmAI compatibility validation failed.'
-          reportExportIssue('规则包暂不兼容 KmAI', '当前规则中有 KmAI 尚不支持的表达，请根据检查详情调整后再导出。', detail)
-          return
-        }
+        // Persisted mappings change both the compiled package and KmAI files.
+        compiled = await compileRulePackage(compileRequest)
       }
 
       const ruleReport = buildRuleReportFromV2Package({
