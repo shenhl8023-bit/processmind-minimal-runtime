@@ -34,6 +34,7 @@ dist-offline/
 # Local test and agent workspaces
 .test-tmp/
 .superpowers/
+.worktrees/
 
 # Logs and local OS files
 .playwright-cli/
