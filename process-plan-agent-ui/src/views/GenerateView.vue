@@ -379,7 +379,11 @@ onDeactivated(() => {
   --generate-panel: #f8fafc;
   --generate-accent: #4f46e5;
   --generate-accent-soft: #eef2ff;
-  height: calc(100vh - 118px);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
   color: var(--generate-ink);
 }
 
@@ -596,8 +600,10 @@ onDeactivated(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
-  align-items: start;
-  height: calc(100vh - 178px);
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+  height: auto;
 }
 
 .empty-panel {
@@ -648,6 +654,12 @@ onDeactivated(() => {
 }
 
 @media (max-width: 900px) {
+  .generate-view {
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+  }
+
   .generate-header-card {
     flex-direction: column;
     align-items: stretch;

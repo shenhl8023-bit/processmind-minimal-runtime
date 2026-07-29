@@ -870,11 +870,15 @@ onBeforeUnmount(() => {
 
 .tag-neutral { background: #eef2f7; color: #475569; }
 
+.extract-view {
+  height: 100%;
+  min-height: 0;
+}
+
 .results-area {
   display: flex;
   flex-direction: column;
-  /* 与第4步一致：填满 main-area（topbar 48 + pad-top 14 + pad-bottom 92） */
-  height: calc(100vh - 118px);
+  height: 100%;
   min-height: 0;
   overflow: hidden;
 }

@@ -170,14 +170,10 @@ onMounted(() => {
   --page-padding-x: 24px;
 }
 
-html {
-  /* 预留滚动条槽，避免 fixed 底栏与文档流主内容因滚动条宽度错位 */
-  scrollbar-gutter: stable;
-}
-
 html, body {
   height: 100%;
-  overflow-x: hidden;
+  /* The workflow shell owns vertical scrolling through .main-area. */
+  overflow: hidden;
   /* Inter 负责拉丁字符和数字，PingFang SC 优先渲染汉字（macOS 原生，与 Inter 字重感知最接近）
      Noto Sans SC 作为跨平台兜底，Noto 比 PingFang 字冠更大但两者感知接近 */
   font-family: 'Inter', 'PingFang SC', 'Noto Sans SC', -apple-system, BlinkMacSystemFont,
@@ -197,7 +193,9 @@ html, body {
 .app-shell {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* ===== Top Bar ===== */
@@ -214,6 +212,7 @@ html, body {
   position: sticky;
   top: 0;
   z-index: 100;
+  flex-shrink: 0;
 }
 
 .brand {
@@ -420,12 +419,15 @@ html, body {
 /* ===== Main Content ===== */
 .main-area {
   flex: 1;
-  padding: 14px var(--page-padding-x) 56px;
+  /* Keep the workflow content close to the fixed bottom navigation. */
+  padding: 14px var(--page-padding-x) 32px;
   max-width: var(--page-max-width);
   width: 100%;
   min-width: 0;
+  min-height: 0;
   margin: 0 auto;
   overflow-x: hidden;
+  overflow-y: auto;
 }
 
 /* ===== Footer ===== */
@@ -436,6 +438,7 @@ html, body {
   color: var(--text-muted);
   border-top: 1px solid var(--border-light);
   background: var(--bg-card);
+  flex-shrink: 0;
 }
 
 /* ===== Shared Card Styles ===== */

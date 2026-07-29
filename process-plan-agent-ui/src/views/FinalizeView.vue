@@ -1129,8 +1129,12 @@ onDeactivated(() => {
 <style scoped>
 .finalize-view {
   --workflow-nav-right-inset: 0px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
   padding: 0;
-  min-height: calc(100vh - 128px);
+  overflow: hidden;
   background: #f8fafc;
 }
 
@@ -1462,8 +1466,9 @@ onDeactivated(() => {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
   gap: 14px;
-  /* 使用 CSS 变量代替魔法数字，高度自适应不同屏幕 */
-  height: calc(100vh - var(--top-bar-h, 48px) - var(--footer-h, 38px) - var(--page-header-h, 60px) - 28px);
+  flex: 1;
+  min-height: 0;
+  height: auto;
 }
 
 .finalize-results {
@@ -1566,6 +1571,9 @@ onDeactivated(() => {
 @media (max-width: 900px) {
   .finalize-view {
     --workflow-nav-right-inset: 0px;
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
   }
 
   .analysis-style-header {
