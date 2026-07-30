@@ -261,7 +261,6 @@ class TemplateGroupMappingOperationIn(BaseModel):
     step_items: List[str] = Field(default_factory=list)
     rule_evidence: List[str] = Field(default_factory=list)
     rule_reasons: List[str] = Field(default_factory=list)
-    candidates: List[TemplateGroupMappingCandidateIn] = Field(default_factory=list)
 
 
 class TemplateGroupMappingSuggestRequest(BaseModel):

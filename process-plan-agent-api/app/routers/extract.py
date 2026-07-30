@@ -128,8 +128,11 @@ router = APIRouter(prefix="/api/extract", tags=["规则提炼"])
 
 
 @router.post("/template-group-mappings/suggest", response_model=TemplateGroupMappingSuggestResponse)
-async def suggest_template_group_mappings(body: TemplateGroupMappingSuggestRequest):
-    return await resolve_template_group_mappings(body)
+async def suggest_template_group_mappings(
+    body: TemplateGroupMappingSuggestRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return await resolve_template_group_mappings(db, body)
 
 
 async def _ensure_project_exists(project_id: int, db: AsyncSession) -> Project:
