@@ -186,6 +186,7 @@
         :project-id="Number(projectId || 0)"
         :operations="templateMappingOperations"
         :aliases="templateGroupAliases"
+        :template-tree="projectGroupTemplateTree"
         @save="saveTemplateGroupMappings"
       />
       </template>
@@ -221,15 +222,17 @@ import {
 } from '@/composables/useRouteMergeResultWorkspace'
 import { useRouteMergeWorkspace } from '@/composables/useRouteMergeWorkspace'
 import { useRouteRulesFlow } from '@/composables/useRouteRulesFlow'
+import { useProjectGroupTemplate } from '@/composables/useProjectGroupTemplate'
 import { useRouteMergeInteractionActions } from '@/composables/useRouteMergeInteractionActions'
 import { useRouteMergeDisplayHelpers } from '@/composables/useRouteMergeDisplayHelpers'
 import {
   aliasesFromRouteSegments,
-  hasTemplateGroupAliasDraft,
+  hasTemplateGroupMappingDraft,
   inferTemplateStepFamilyFromOperation,
   isTemplateMappableOperation,
-  loadTemplateGroupAliases,
-  saveTemplateGroupAliases,
+  loadTemplateGroupMappingDraft,
+  migrateLegacyAliasesByPath,
+  saveTemplateGroupMappingDraft,
   serializeAliasesForRouteSegment,
   type TemplateAliasBinding,
   type TemplateOperation,
@@ -367,6 +370,11 @@ const templateGroupMappingVisible = ref(false)
 const showTemplateAliasDetails = ref(false)
 const templateGroupAliases = ref<Record<string, TemplateAliasBinding>>({})
 const templateAliasesHydratedProjectId = ref<number | null>(null)
+const projectGroupTemplate = useProjectGroupTemplate(
+  computed(() => Number(projectId.value || 0)),
+  templateGroupAliases,
+)
+const projectGroupTemplateTree = computed(() => projectGroupTemplate.template.value?.tree || [])
 const templateOperationFamilyById = computed(() => {
   const families = new Map<number, string>()
   routeMergeGroupsSorted.value.forEach((group) => {
@@ -437,36 +445,66 @@ function scopedTemplateGroupAliases(aliases: Record<string, TemplateAliasBinding
     .map(([operationId, binding]) => [operationId, {
       source_operation_id: Number(binding.source_operation_id),
       alias: String(binding.alias || ''),
+      template_group_key: String(binding.template_group_key || binding.template_group_id || ''),
       template_group_id: String(binding.template_group_id || ''),
+      template_group_name: String(binding.template_group_name || ''),
       template_group_path: [...(binding.template_group_path || [])],
+      feature_selections: [...(binding.feature_selections || [])],
     }])) as Record<string, TemplateAliasBinding>
+}
+
+function projectFormalTemplateAliases() {
+  return Object.fromEntries((projectGroupTemplate.template.value?.mappings || []).map(binding => [
+    String(binding.source_operation_id),
+    {
+      source_operation_id: Number(binding.source_operation_id),
+      alias: String(binding.alias || ''),
+      template_group_key: String(binding.template_group_key || binding.template_group_id || ''),
+      template_group_id: String(binding.template_group_key || binding.template_group_id || ''),
+      template_group_name: String(binding.template_group_name || ''),
+      template_group_path: [...(binding.template_group_path || [])],
+      feature_selections: [...(binding.feature_selections || [])],
+    },
+  ])) as Record<string, TemplateAliasBinding>
 }
 
 function hydrateTemplateGroupAliases() {
   const currentProjectId = Number(projectId.value || 0)
   if (!currentProjectId || !templateMappableOperations.value.length) return
   if (templateAliasesHydratedProjectId.value === currentProjectId) return
+  const currentTemplate = projectGroupTemplate.template.value
+  if (!currentTemplate) return
 
-  const hasLocalDraft = hasTemplateGroupAliasDraft(currentProjectId)
-  const localAliases = loadTemplateGroupAliases(currentProjectId, templateMappableOperations.value)
+  const formalAliases = projectFormalTemplateAliases()
+  const hasLocalDraft = hasTemplateGroupMappingDraft(currentProjectId)
+  const localAliases = loadTemplateGroupMappingDraft(
+    currentProjectId,
+    currentTemplate.template_revision,
+    formalAliases,
+    currentTemplate.tree,
+  )
   const savedAliases = aliasesFromRouteSegments(routeMergeNormalizedSegments.value)
-  const aliases = scopedTemplateGroupAliases(hasLocalDraft ? localAliases : (
-    Object.keys(savedAliases).length ? savedAliases : localAliases
-  ))
+  const migratedSavedAliases = migrateLegacyAliasesByPath(savedAliases, currentTemplate.tree).migrated
+  const aliases = scopedTemplateGroupAliases(Object.keys(localAliases).length ? localAliases : migratedSavedAliases)
   templateGroupAliases.value = aliases
   templateAliasesHydratedProjectId.value = currentProjectId
   if (!hasLocalDraft && Object.keys(aliases).length) {
-    saveTemplateGroupAliases(currentProjectId, aliases, undefined, templateAliasRouteFingerprint.value)
+    saveTemplateGroupMappingDraft(
+      currentProjectId,
+      currentTemplate.template_revision,
+      aliases,
+      templateAliasRouteFingerprint.value,
+    )
   }
 }
 
 function saveTemplateGroupMappings(aliases: Record<string, TemplateAliasBinding>) {
   if (!projectId.value) return
   templateGroupAliases.value = scopedTemplateGroupAliases(aliases)
-  saveTemplateGroupAliases(
+  saveTemplateGroupMappingDraft(
     projectId.value,
+    projectGroupTemplate.templateRevision.value,
     templateGroupAliases.value,
-    undefined,
     templateAliasRouteFingerprint.value,
   )
   routeMergeNotice.value = Object.keys(templateGroupAliases.value).length
@@ -488,6 +526,13 @@ watch(projectId, (nextProjectId, previousProjectId) => {
 watch([projectId, templateAliasRouteFingerprint], () => {
   hydrateTemplateGroupAliases()
 }, { flush: 'post' })
+
+watch(templateGroupMappingVisible, async (visible) => {
+  if (!visible || !projectId.value) return
+  await projectGroupTemplate.load()
+  templateAliasesHydratedProjectId.value = null
+  hydrateTemplateGroupAliases()
+})
 
 const {
   buildRoutePreviewStats,

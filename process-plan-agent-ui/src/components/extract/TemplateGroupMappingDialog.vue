@@ -41,47 +41,47 @@
               <span class="tgmd-count">{{ mappedCount }} 项已映射</span>
             </header>
             <div class="tgmd-template-scroll">
-              <div v-for="root in templateRoots" :key="root.id" class="tgmd-root-group">
+              <div v-for="root in templateRoots" :key="root.key" class="tgmd-root-group">
                 <button
                   class="tgmd-root-button"
-                  :class="{ 'tgmd-root-button-active': expandedRootIds.has(root.id) }"
+                  :class="{ 'tgmd-root-button-active': expandedRootIds.has(root.key) }"
                   type="button"
-                  @click="toggleRoot(root.id)"
+                  @click="toggleRoot(root.key)"
                 >
-                  <span class="tgmd-chevron" :class="{ 'tgmd-chevron-open': expandedRootIds.has(root.id) }">›</span>
+                  <span class="tgmd-chevron" :class="{ 'tgmd-chevron-open': expandedRootIds.has(root.key) }">›</span>
                   <FolderOpened class="tgmd-root-icon" />
                   <span>{{ root.name }}</span>
                 </button>
 
-                <div v-if="expandedRootIds.has(root.id)" class="tgmd-leaf-list">
-                  <div v-for="leaf in root.children || []" :key="leaf.id" class="tgmd-leaf-block">
+                <div v-if="expandedRootIds.has(root.key)" class="tgmd-leaf-list">
+                  <div v-for="leaf in root.children || []" :key="leaf.key" class="tgmd-leaf-block">
                     <button
                       class="tgmd-leaf-button"
-                      :class="{ 'tgmd-leaf-button-active': activeGroupId === leaf.id }"
+                      :class="{ 'tgmd-leaf-button-active': activeGroupId === leaf.key }"
                       type="button"
-                      @click="activeGroupId = leaf.id"
+                      @click="activeGroupId = leaf.key"
                     >
                       <CollectionTag class="tgmd-leaf-icon" />
                       <span class="tgmd-leaf-label">{{ leaf.name }}</span>
-                      <span v-if="mappedOperationsForGroup(leaf.id).length" class="tgmd-leaf-count">
-                        {{ mappedOperationsForGroup(leaf.id).length }}
+                      <span v-if="mappedOperationsForGroup(leaf.key).length" class="tgmd-leaf-count">
+                        {{ mappedOperationsForGroup(leaf.key).length }}
                       </span>
                       <!-- One-click clear all items under this leaf group -->
                       <button
-                        v-if="mappedOperationsForGroup(leaf.id).length"
+                        v-if="mappedOperationsForGroup(leaf.key).length"
                         class="tgmd-leaf-clear"
                         type="button"
                         title="清空该分组下的所有工序"
-                        @click.stop="clearGroupMappings(leaf.id)"
+                        @click.stop="clearGroupMappings(leaf.key)"
                       >
                         <Delete />
                       </button>
                     </button>
 
                     <!-- Mapped items under this group -->
-                    <div v-if="mappedOperationsForGroup(leaf.id).length" class="tgmd-mapped-list">
+                    <div v-if="mappedOperationsForGroup(leaf.key).length" class="tgmd-mapped-list">
                       <div
-                        v-for="operation in mappedOperationsForGroup(leaf.id)"
+                        v-for="operation in mappedOperationsForGroup(leaf.key)"
                         :key="operationId(operation)"
                         class="tgmd-mapped-operation"
                       >
@@ -234,14 +234,14 @@ import { computed, ref, watch } from 'vue'
 import { ArrowLeft, Close, CollectionTag, Delete, FolderOpened, Link, MagicStick, Search } from '@element-plus/icons-vue'
 import { suggestTemplateGroupMappings } from '@/api/extract'
 import {
-  BUSHING_11_TEMPLATE_TREE,
   buildTemplateGroupMappingSuggestions,
   createTemplateAliasBinding,
-  findTemplateGroupById,
+  findTemplateGroupByKey,
   isTrustedTemplateGroupChoice,
   isTemplateMappableOperation,
   type TemplateAliasBinding,
   type TemplateGroupMappingCandidate,
+  type TemplateGroupNode,
   type TemplateOperation,
 } from '@/composables/templateGroupMapping'
 
@@ -250,6 +250,7 @@ const props = defineProps<{
   projectId: number
   operations: TemplateOperation[]
   aliases: Record<string, TemplateAliasBinding>
+  templateTree: TemplateGroupNode[]
 }>()
 
 const emit = defineEmits<{
@@ -280,8 +281,8 @@ type MappingReviewSuggestion = {
 
 const mappingSuggestions = ref<Record<string, MappingReviewSuggestion>>({})
 
-const templateRoots = computed(() => BUSHING_11_TEMPLATE_TREE.children || [])
-const activeGroup = computed(() => findTemplateGroupById(activeGroupId.value))
+const templateRoots = computed(() => props.templateTree)
+const activeGroup = computed(() => findTemplateGroupByKey(props.templateTree, activeGroupId.value))
 const mappableOperations = computed(() => {
   const seen = new Set<number>()
   return props.operations
@@ -326,12 +327,12 @@ watch(() => props.modelValue, (visible) => {
   mappingSuggestions.value = {}
   mappingWarnings.value = []
   mappingSummary.value = null
-  const rootIds = templateRoots.value.map(root => root.id)
+  const rootIds = templateRoots.value.map(root => root.key)
   expandedRootIds.value = new Set(rootIds)
   const firstLeaf = templateRoots.value.flatMap(root => root.children || [])[0]
-  activeGroupId.value = findTemplateGroupById(activeGroupId.value)?.children?.length
-    ? firstLeaf?.id || ''
-    : activeGroupId.value || firstLeaf?.id || ''
+  activeGroupId.value = findTemplateGroupByKey(props.templateTree, activeGroupId.value)?.children?.length
+    ? firstLeaf?.key || ''
+    : activeGroupId.value || firstLeaf?.key || ''
 }, { immediate: true })
 
 function operationId(operation: TemplateOperation) {
@@ -342,8 +343,11 @@ function cloneAliases(aliases: Record<string, TemplateAliasBinding>) {
   return Object.fromEntries(Object.entries(aliases).map(([id, binding]) => [id, {
     source_operation_id: Number(binding.source_operation_id),
     alias: String(binding.alias || ''),
+    template_group_key: String(binding.template_group_key || binding.template_group_id || ''),
     template_group_id: String(binding.template_group_id || ''),
+    template_group_name: String(binding.template_group_name || ''),
     template_group_path: [...(binding.template_group_path || [])],
+    feature_selections: [...(binding.feature_selections || [])],
   }]))
 }
 
@@ -414,7 +418,7 @@ function quickMap(operation: TemplateOperation) {
 }
 
 function applyCandidate(operation: TemplateOperation, groupId: string) {
-  const group = findTemplateGroupById(groupId)
+  const group = findTemplateGroupByKey(props.templateTree, groupId)
   if (!group || draftAliases.value[String(operationId(operation))]) return false
   const binding = createTemplateAliasBinding(operation, group)
   if (!binding) return false
@@ -441,7 +445,7 @@ async function autoMapOperations() {
   mappingWarnings.value = []
 
   const operations = [...unmappedOperations.value]
-  const deterministic = buildTemplateGroupMappingSuggestions(operations)
+  const deterministic = buildTemplateGroupMappingSuggestions(operations, props.templateTree)
   const deterministicById = new Map(deterministic.map(item => [item.operation_id, item]))
   const operationById = new Map(operations.map(item => [operationId(item), item]))
   let autoMapped = 0
