@@ -1,0 +1,326 @@
+<?xml version="1.0" encoding="GB2312" ?>
+<Kmsoft>
+    <Item type="Part_Template">
+        <GridPropList>
+            <GridProp name="节点配置">
+                <Item name="原点" title="原点" value="" data_type="" visible="1" edit="1" type="String" defaultval="" respath="cad" />
+                <Item name="主方向1" title="主方向1" value="" data_type="" visible="1" edit="1" type="String" defaultval="" respath="cad" />
+                <Item name="有主轴线" title="有主轴线" value="" data_type="" visible="1" edit="1" type="Multi" defaultval="是|是;否" respath="" />
+            </GridProp>
+        </GridPropList>
+    </Item>
+    <Item type="Group_Template">
+        <GridPropList>
+            <GridProp name="节点配置">
+                <Item name="依赖方向" title="依赖方向" value="" data_type="" visible="1" edit="1" type="Multi" defaultval="任意方向|任意方向;从父;未配置;主方向1;主方向2;主方向3;任意方向" respath="" />
+                <Item name="依赖方式" title="依赖方式" value="" data_type="" visible="1" edit="1" type="Multi" defaultval="|无;相同;相反;平行;平行且在同侧;平行且在反侧;垂直;不平行;接近;接近反向;" respath="" />
+                <Item name="主轴线上特征" title="主轴线上特征" value="" data_type="" visible="1" edit="1" type="Multi" defaultval="是|无关;是;不是" respath="" />
+                <Item name="特征选择" title="特征选择" value="" data_type="" visible="1" edit="1" type="String" defaultval="" respath="kmfeatype" />
+            </GridProp>
+        </GridPropList>
+    </Item>
+    <Item id="728b2dc939a54120909b9d36f3cd3e5" type="Part" filename="衬套.prt">
+        <Params>
+            <param name="原点" value="" />
+            <param name="主方向1" value="" />
+            <param name="有主轴线" value="是" />
+        </Params>
+        <Item id="deb6f62f9e5548e7b3d73c48ebc6390" type="Group" stageOrders="" sourceIds="">
+            <Params>
+                <param name="名称" value="A测" />
+                <param name="依赖方向" value="主方向1" />
+                <param name="依赖方式" value="相同" />
+                <param name="主轴线上特征" value="是" />
+                <param name="特征选择" value="" />
+            </Params>
+            <Item id="e9e3b798b9b4e769a29aa741101410" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="端面" />
+                    <param name="依赖方向" value="从父" />
+                    <param name="依赖方式" value="无" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="轴端面" />
+                </Params>
+            </Item>
+            <Item id="ef9edbc37068402e85d2f294fd3fa56d" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="外圆" />
+                    <param name="依赖方向" value="从父" />
+                    <param name="依赖方式" value="" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="外圆柱面" />
+                </Params>
+                <Item id="a8cbd9f3a6af43b6ae22b4836179bbc" type="Group" stageOrders="" sourceIds="">
+                    <Params>
+                        <param name="名称" value="外圆车" />
+                        <param name="依赖方向" value="任意方向" />
+                        <param name="依赖方式" value="" />
+                        <param name="主轴线上特征" value="是" />
+                        <param name="特征选择" value="" />
+                    </Params>
+                </Item>
+                <Item id="6e0b189a6a4645ada115493861884" type="Group" stageOrders="" sourceIds="">
+                    <Params>
+                        <param name="名称" value="外圆磨" />
+                        <param name="依赖方向" value="任意方向" />
+                        <param name="依赖方式" value="" />
+                        <param name="主轴线上特征" value="是" />
+                        <param name="特征选择" value="" />
+                    </Params>
+                </Item>
+            </Item>
+            <Item id="7c59b872a454fc49255d419a99ea23" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="外环槽" />
+                    <param name="依赖方向" value="主方向1" />
+                    <param name="依赖方式" value="平行且在同侧" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="U形外环槽" />
+                </Params>
+                <Item id="51d0613336954cd29349717bcf42ca6b" type="Group" stageOrders="" sourceIds="">
+                    <Params>
+                        <param name="名称" value="U形外环槽车" />
+                        <param name="依赖方向" value="任意方向" />
+                        <param name="依赖方式" value="" />
+                        <param name="主轴线上特征" value="是" />
+                        <param name="特征选择" value="" />
+                    </Params>
+                </Item>
+                <Item id="e81e053112b54c2684f960c527ac62b3" type="Group" stageOrders="" sourceIds="">
+                    <Params>
+                        <param name="名称" value="U形外环槽磨" />
+                        <param name="依赖方向" value="任意方向" />
+                        <param name="依赖方式" value="" />
+                        <param name="主轴线上特征" value="是" />
+                        <param name="特征选择" value="" />
+                    </Params>
+                </Item>
+            </Item>
+            <Item id="665b32d5ae6744db92f1f2da341024" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="孔" />
+                    <param name="依赖方向" value="从父" />
+                    <param name="依赖方式" value="相同" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="孔,内圆柱面" />
+                </Params>
+                <Item id="5e8fb05166ed45c8817484eba52cbe47" type="Group" stageOrders="" sourceIds="">
+                    <Params>
+                        <param name="名称" value="大孔" />
+                        <param name="依赖方向" value="任意方向" />
+                        <param name="依赖方式" value="" />
+                        <param name="主轴线上特征" value="是" />
+                        <param name="特征选择" value="" />
+                    </Params>
+                </Item>
+                <Item id="4b11acd8ba454a909f684caaa9a616cc" type="Group" stageOrders="" sourceIds="">
+                    <Params>
+                        <param name="名称" value="小孔" />
+                        <param name="依赖方向" value="任意方向" />
+                        <param name="依赖方式" value="" />
+                        <param name="主轴线上特征" value="是" />
+                        <param name="特征选择" value="" />
+                    </Params>
+                </Item>
+            </Item>
+            <Item id="9d6ebf4de6844bfab79f4a60f1292d98" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="内环槽" />
+                    <param name="依赖方向" value="主方向1" />
+                    <param name="依赖方式" value="平行且在同侧" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="U形内环槽" />
+                </Params>
+            </Item>
+            <Item id="4442564ec3244dc582bac84093916b9" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="倒圆倒角" />
+                    <param name="依赖方向" value="主方向1" />
+                    <param name="依赖方式" value="平行且在同侧" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="外倒角,回转面倒圆" />
+                </Params>
+                <Item id="16ba33e992be4b5fba47c23a819ef8ca" type="Group" stageOrders="" sourceIds="">
+                    <Params>
+                        <param name="名称" value="倒圆" />
+                        <param name="依赖方向" value="任意方向" />
+                        <param name="依赖方式" value="" />
+                        <param name="主轴线上特征" value="是" />
+                        <param name="特征选择" value="" />
+                    </Params>
+                </Item>
+                <Item id="3729c2925bbe4585a233247b886d4e3f" type="Group" stageOrders="" sourceIds="">
+                    <Params>
+                        <param name="名称" value="倒角" />
+                        <param name="依赖方向" value="任意方向" />
+                        <param name="依赖方式" value="" />
+                        <param name="主轴线上特征" value="是" />
+                        <param name="特征选择" value="" />
+                    </Params>
+                </Item>
+            </Item>
+        </Item>
+        <Item id="59e362ef89104bc494c41aaba8e6ad6" type="Group" stageOrders="" sourceIds="">
+            <Params>
+                <param name="名称" value="B测" />
+                <param name="依赖方向" value="主方向1" />
+                <param name="依赖方式" value="相反" />
+                <param name="主轴线上特征" value="是" />
+                <param name="特征选择" value="" />
+            </Params>
+            <Item id="7544532dce73426d92c1afa7a619a3e" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="端面" />
+                    <param name="依赖方向" value="从父" />
+                    <param name="依赖方式" value="" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="轴端面" />
+                </Params>
+            </Item>
+            <Item id="73321c726eda45e58ca288f71e04ba" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="外圆" />
+                    <param name="依赖方向" value="从父" />
+                    <param name="依赖方式" value="" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="外圆柱面" />
+                </Params>
+            </Item>
+            <Item id="a8fce6c31c67405c96ba5aad8e8dbe9c" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="外环槽" />
+                    <param name="依赖方向" value="任意方向" />
+                    <param name="依赖方式" value="" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="" />
+                </Params>
+            </Item>
+            <Item id="cf2cd40d1de440929fdd5824dfcac7f6" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="孔" />
+                    <param name="依赖方向" value="从父" />
+                    <param name="依赖方式" value="" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="孔,内圆柱面" />
+                </Params>
+            </Item>
+            <Item id="cb6a52524f2d4e3cbb18782dba7d55a9" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="内环槽" />
+                    <param name="依赖方向" value="任意方向" />
+                    <param name="依赖方式" value="" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="" />
+                </Params>
+            </Item>
+            <Item id="d3ad7647a2864f28915b8638c07ba67d" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="倒圆倒角" />
+                    <param name="依赖方向" value="主方向1" />
+                    <param name="依赖方式" value="平行且在反侧" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="外倒角,回转面倒圆" />
+                </Params>
+                <Item id="17ed98cbc6314f87be307e102b98b7bb" type="Group" stageOrders="" sourceIds="">
+                    <Params>
+                        <param name="名称" value="倒圆" />
+                        <param name="依赖方向" value="任意方向" />
+                        <param name="依赖方式" value="" />
+                        <param name="主轴线上特征" value="是" />
+                        <param name="特征选择" value="" />
+                    </Params>
+                </Item>
+                <Item id="ed53563efb6d468e87a1528e30d63980" type="Group" stageOrders="" sourceIds="">
+                    <Params>
+                        <param name="名称" value="倒角" />
+                        <param name="依赖方向" value="任意方向" />
+                        <param name="依赖方式" value="" />
+                        <param name="主轴线上特征" value="是" />
+                        <param name="特征选择" value="" />
+                    </Params>
+                </Item>
+            </Item>
+        </Item>
+        <Item id="460104f73a7040f7987155bf2f60cb51" type="Group" stageOrders="" sourceIds="">
+            <Params>
+                <param name="名称" value="周边" />
+                <param name="依赖方向" value="任意方向" />
+                <param name="依赖方式" value="" />
+                <param name="主轴线上特征" value="无关" />
+                <param name="特征选择" value="" />
+            </Params>
+            <Item id="704355a9cf7c40809d10f4daa2ab27a8" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="平面与凹槽" />
+                    <param name="依赖方向" value="任意方向" />
+                    <param name="依赖方式" value="" />
+                    <param name="主轴线上特征" value="无关" />
+                    <param name="特征选择" value="单纯底凹槽,矩形底凹槽,通槽,同回转面下陷通槽,侧壁,U形直槽" />
+                </Params>
+                <Item id="eda1899dd31f4443ac8753363cf94f7" type="Group" stageOrders="" sourceIds="">
+                    <Params>
+                        <param name="名称" value="同回转面下陷通槽" />
+                        <param name="依赖方向" value="任意方向" />
+                        <param name="依赖方式" value="" />
+                        <param name="主轴线上特征" value="无关" />
+                        <param name="特征选择" value="" />
+                    </Params>
+                </Item>
+                <Item id="501824f1633544eaafe6bb10f0d1d4db" type="Group" stageOrders="" sourceIds="">
+                    <Params>
+                        <param name="名称" value="矩形底凹槽" />
+                        <param name="依赖方向" value="任意方向" />
+                        <param name="依赖方式" value="" />
+                        <param name="主轴线上特征" value="无关" />
+                        <param name="特征选择" value="" />
+                    </Params>
+                </Item>
+                <Item id="12e581882e14ad796316e61d98baa" type="Group" stageOrders="" sourceIds="">
+                    <Params>
+                        <param name="名称" value="侧壁" />
+                        <param name="依赖方向" value="任意方向" />
+                        <param name="依赖方式" value="" />
+                        <param name="主轴线上特征" value="无关" />
+                        <param name="特征选择" value="" />
+                    </Params>
+                </Item>
+                <Item id="fd46b89b34b5429588b8fdf94fb08752" type="Group" stageOrders="" sourceIds="">
+                    <Params>
+                        <param name="名称" value="通槽" />
+                        <param name="依赖方向" value="任意方向" />
+                        <param name="依赖方式" value="" />
+                        <param name="主轴线上特征" value="无关" />
+                        <param name="特征选择" value="" />
+                    </Params>
+                </Item>
+            </Item>
+            <Item id="588e3814fb7941c98d9c168fa19a897d" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="孔" />
+                    <param name="依赖方向" value="任意方向" />
+                    <param name="依赖方式" value="" />
+                    <param name="主轴线上特征" value="无关" />
+                    <param name="特征选择" value="孔,孔系" />
+                </Params>
+                <Item id="bfa96d62f97e4f0e9d1eb1984107cf" type="Group" stageOrders="" sourceIds="">
+                    <Params>
+                        <param name="名称" value="直孔" />
+                        <param name="依赖方向" value="任意方向" />
+                        <param name="依赖方式" value="" />
+                        <param name="主轴线上特征" value="无关" />
+                        <param name="特征选择" value="" />
+                    </Params>
+                </Item>
+                <Item id="be2bc489c7d443789bc4c9a8afbef81f" type="Group" stageOrders="" sourceIds="">
+                    <Params>
+                        <param name="名称" value="斜孔" />
+                        <param name="依赖方向" value="任意方向" />
+                        <param name="依赖方式" value="" />
+                        <param name="主轴线上特征" value="无关" />
+                        <param name="特征选择" value="" />
+                    </Params>
+                </Item>
+            </Item>
+        </Item>
+    </Item>
+</Kmsoft>

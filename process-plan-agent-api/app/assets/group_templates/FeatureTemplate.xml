@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<FeatureSelect>
+    <Item name='六面'/>
+    <Item name='平面'/>
+    <Item name='轴端面'/>
+    <Item name='外圆柱面'/>
+    <Item name='U形外环槽'/>
+    <Item name='U形内环槽'/>
+	<Item name='各类孔特征'>
+		<Item name='孔'/>
+		<Item name='孔(盲孔)'/>
+		<Item name='孔(通孔)'/>
+		<Item name='内圆柱面'/>
+		<Item name='孔系'/>
+		<Item name='同轴孔系'/>
+	</Item>
+	<Item name='凹槽特征'>
+		<Item name='单纯底凹槽'/>
+		<Item name='矩形底凹槽'/>
+		<Item name='通槽'/>
+		<Item name='同回转面下陷通槽'/>
+		<Item name='T形截面通槽'/>
+		<Item name='切口'/>
+		<Item name='沟槽'/>
+		<Item name='L形端面环槽'/>
+		<Item name='侧壁'/>
+		<Item name='U形直槽'/>
+		<Item name='台阶'/>
+		<Item name='反向台阶'/>
+		<Item name='矩形截面特种加工槽'/>
+	</Item>
+	<Item name='倒圆倒角特征'>
+		<Item name='边倒角'/>
+		<Item name='内倒角'/>
+		<Item name='外倒角'/>
+		<Item name='倒角'/>
+		<Item name='倒圆'/>
+		<Item name='回转面倒圆'/>
+	</Item>
+</FeatureSelect>

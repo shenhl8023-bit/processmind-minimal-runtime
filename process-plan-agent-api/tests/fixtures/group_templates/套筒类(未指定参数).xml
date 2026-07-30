@@ -1,0 +1,1422 @@
+<?xml version="1.0" encoding="GB2312" ?>
+<Kmsoft>
+    <Item type="Part_Template">
+        <GridPropList>
+            <GridProp name="节点配置">
+                <Item name="原点" title="原点" value="" data_type="" visible="1" edit="1" type="String" defaultval="" respath="cad" />
+                <Item name="主方向1" title="主方向1" value="" data_type="" visible="1" edit="1" type="String" defaultval="" respath="cad" />
+                <Item name="有主轴线" title="有主轴线" value="是" data_type="" visible="1" edit="1" type="Multi" defaultval="是|是;不是" respath="" />
+            </GridProp>
+        </GridPropList>
+    </Item>
+    <Item type="Group_Template">
+        <GridPropList>
+            <GridProp name="节点配置">
+                <Item name="依赖方向" title="依赖方向" value="" data_type="" visible="1" edit="1" type="Multi" defaultval="任意方向|从父;主方向1;任意方向" respath="" />
+                <Item name="依赖方式" title="依赖方式" value="" data_type="" visible="1" edit="1" type="Multi" defaultval="|无;相同;相反;平行;平行且在同侧;平行且在反侧;垂直;不平行;接近;接近反向" respath="" />
+                <Item name="主轴线上特征" title="主轴线上特征" value="" data_type="" visible="1" edit="1" type="Multi" defaultval="无关|无关;是;不是" respath="" />
+                <Item name="特征选择" title="特征选择" value="" data_type="" visible="1" edit="1" type="String" defaultval="" respath="kmfeatype" />
+            </GridProp>
+        </GridPropList>
+    </Item>
+    <Item id="e7fdee2cb91542d1886a54b8da31f3a4" type="Part" filename="衬套.prt">
+        <Params>
+            <param name="原点" value="" />
+            <param name="主方向1" value="" />
+            <param name="有主轴线" value="是" />
+        </Params>
+        <Item id="95420f73c7a245a1aeed97d89a5489b3" type="Group" stageOrders="" sourceIds="">
+            <Params>
+                <param name="名称" value="中间通孔" />
+                <param name="依赖方向" value="任意方向" />
+                <param name="依赖方式" value="无" />
+                <param name="主轴线上特征" value="无关" />
+                <param name="特征选择" value="孔(通孔)" />
+            </Params>
+        </Item>
+        <Item id="58ca807053814d7a9c95977b7fc5eece" type="Group" stageOrders="" sourceIds="">
+            <Params>
+                <param name="名称" value="A侧" />
+                <param name="依赖方向" value="主方向1" />
+                <param name="依赖方式" value="相同" />
+                <param name="主轴线上特征" value="是" />
+                <param name="特征选择" value="" />
+            </Params>
+            <Item id="4cb338b6ddde4a96ba8eec7c5d474cf9" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="端面" />
+                    <param name="依赖方向" value="从父" />
+                    <param name="依赖方式" value="" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="轴端面" />
+                </Params>
+            </Item>
+            <Item id="892df827cbef4703b0d9acfe3027bc0" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="外圆" />
+                    <param name="依赖方向" value="从父" />
+                    <param name="依赖方式" value="" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="外圆柱面" />
+                </Params>
+            </Item>
+            <Item id="3358f0f62d04abb99d35dec48ef73e1" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="外环槽" />
+                    <param name="依赖方向" value="主方向1" />
+                    <param name="依赖方式" value="平行且在同侧" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="U形外环槽" />
+                </Params>
+            </Item>
+            <Item id="a8af618bdcbc4ba78cb5969c687b2988" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="孔" />
+                    <param name="依赖方向" value="从父" />
+                    <param name="依赖方式" value="" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="孔(盲孔)" />
+                </Params>
+            </Item>
+            <Item id="7be3a8eb257f483691f1c551e5169415" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="内环槽" />
+                    <param name="依赖方向" value="主方向1" />
+                    <param name="依赖方式" value="平行且在同侧" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="U形内环槽" />
+                </Params>
+            </Item>
+            <Item id="467047205d02401992c36f4569dc3a1a" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="倒角倒圆" />
+                    <param name="依赖方向" value="主方向1" />
+                    <param name="依赖方式" value="平行且在同侧" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="外倒角,回转面倒圆" />
+                </Params>
+            </Item>
+        </Item>
+        <Item id="dd1e94d99b344aa68c7085b244dcaabd" type="Group" stageOrders="" sourceIds="">
+            <Params>
+                <param name="名称" value="B侧" />
+                <param name="依赖方向" value="主方向1" />
+                <param name="依赖方式" value="相反" />
+                <param name="主轴线上特征" value="是" />
+                <param name="特征选择" value="" />
+            </Params>
+            <Item id="c40fd63faa734d47b41e4b8c8fae19c7" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="端面" />
+                    <param name="依赖方向" value="从父" />
+                    <param name="依赖方式" value="" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="轴端面" />
+                </Params>
+            </Item>
+            <Item id="9cb45045a2548b0ba7444856444c890" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="外圆" />
+                    <param name="依赖方向" value="从父" />
+                    <param name="依赖方式" value="" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="外圆柱面" />
+                </Params>
+            </Item>
+            <Item id="7745857899d54d6483d23ef668ac3a6" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="外环槽" />
+                    <param name="依赖方向" value="主方向1" />
+                    <param name="依赖方式" value="平行且在反侧" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="U形外环槽" />
+                </Params>
+            </Item>
+            <Item id="1de0e4c267d741f79ab578adc473f6" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="孔" />
+                    <param name="依赖方向" value="从父" />
+                    <param name="依赖方式" value="" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="孔(盲孔)" />
+                </Params>
+            </Item>
+            <Item id="fa1477d6c75e4013b2e2efb62b87fa" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="内环槽" />
+                    <param name="依赖方向" value="主方向1" />
+                    <param name="依赖方式" value="平行且在反侧" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="U形内环槽" />
+                </Params>
+            </Item>
+            <Item id="44bce9924ef3465185924b22986bd5d" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="倒角倒圆" />
+                    <param name="依赖方向" value="主方向1" />
+                    <param name="依赖方式" value="平行且在反侧" />
+                    <param name="主轴线上特征" value="是" />
+                    <param name="特征选择" value="内倒角,外倒角,回转面倒圆" />
+                </Params>
+            </Item>
+        </Item>
+        <Item id="69eeee18c6b34091a1f9effdc14c9be" type="Group" stageOrders="" sourceIds="">
+            <Params>
+                <param name="名称" value="周边" />
+                <param name="依赖方向" value="任意方向" />
+                <param name="依赖方式" value="" />
+                <param name="主轴线上特征" value="不是" />
+                <param name="特征选择" value="" />
+            </Params>
+            <Item id="3cc17ff1dc74c57b6b9366011ac115" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="平面和凹槽" />
+                    <param name="依赖方向" value="任意方向" />
+                    <param name="依赖方式" value="" />
+                    <param name="主轴线上特征" value="不是" />
+                    <param name="特征选择" value="平面,单纯底凹槽,矩形底凹槽,通槽,同回转面下陷通槽,T形截面通槽,切口,侧壁,U形直槽,台阶" />
+                </Params>
+            </Item>
+            <Item id="e83310d574a04a1185523357d836e666" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="孔" />
+                    <param name="依赖方向" value="任意方向" />
+                    <param name="依赖方式" value="无" />
+                    <param name="主轴线上特征" value="不是" />
+                    <param name="特征选择" value="孔,孔系" />
+                </Params>
+            </Item>
+        </Item>
+    </Item>
+    <Item id="22e3ac84f0554517b163d3d7d9c6b2" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="备料" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="10" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="8408546249ee46bab0eb295bbd66d72" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="正常化" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="20" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="fc814e80ad104101affdd038fb91dcd" type="Step" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="车A侧" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="30" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+        <Item id="b9662e1175ed43ecbcf794c3301c167d" type="Action" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+            <Params>
+                <param name="名称" title="名称" value="粗车端面" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="序号" title="序号" value="0" visible="1" edit="1" type="Int" defaultval="" respath="" />
+                <param name="工步内容" title="工步内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="设备" title="设备" value="" visible="1" edit="1" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备" />
+                <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            </Params>
+            <Item id="1fdb7216378e46b0a34b5e8e173ce1b9" type="ProcMech" refid="" refidVec="" ref_groupid="4cb338b6ddde4a96ba8eec7c5d474cf9" method="粗车" arrangeName="粗车端面" arrangeCompareName="粗车端面" arrangeNum="0" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="粗车" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+        </Item>
+        <Item id="6ffda129a3f0401ca514351c71d2f76" type="Action" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+            <Params>
+                <param name="名称" title="名称" value="粗车外圆" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="序号" title="序号" value="0" visible="1" edit="1" type="Int" defaultval="" respath="" />
+                <param name="工步内容" title="工步内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="设备" title="设备" value="" visible="1" edit="1" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备" />
+                <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            </Params>
+            <Item id="ca2d99709a7c4e2297bbc327bac64a3" type="ProcMech" refid="" refidVec="" ref_groupid="892df827cbef4703b0d9acfe3027bc0" method="粗车" arrangeName="粗车外圆" arrangeCompareName="粗车外圆" arrangeNum="1" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="粗车" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+        </Item>
+        <Item id="7ada78b234cd4ad68eefc349ef762b" type="Action" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+            <Params>
+                <param name="名称" title="名称" value="粗车外环槽" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="序号" title="序号" value="0" visible="1" edit="1" type="Int" defaultval="" respath="" />
+                <param name="工步内容" title="工步内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="设备" title="设备" value="" visible="1" edit="1" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备" />
+                <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            </Params>
+            <Item id="da86a09ad17c413d9272446bfaf258e4" type="ProcMech" refid="" refidVec="" ref_groupid="3358f0f62d04abb99d35dec48ef73e1" method="粗车" arrangeName="粗车外环槽" arrangeCompareName="粗车外环槽" arrangeNum="2" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="粗车" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+        </Item>
+        <Item id="5c87fb5f6a744dc68eaea87eccaab80" type="Action" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+            <Params>
+                <param name="名称" title="名称" value="钻孔" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="序号" title="序号" value="0" visible="1" edit="1" type="Int" defaultval="" respath="" />
+                <param name="工步内容" title="工步内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="设备" title="设备" value="" visible="1" edit="1" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备" />
+                <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            </Params>
+            <Item id="fd2c81b89db3425794dfd0f77df44b4" type="ProcMech" refid="" refidVec="" ref_groupid="a8af618bdcbc4ba78cb5969c687b2988" method="钻" arrangeName="钻孔" arrangeCompareName="钻孔" arrangeNum="3" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="钻" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+            <Item id="12209a00c32845a7b072e5266e0ddaa" type="ProcMech" refid="" refidVec="" ref_groupid="a8af618bdcbc4ba78cb5969c687b2988" method="钻入口一段" arrangeCompareName="钻孔" arrangeNum="4" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="钻入口一段" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+        </Item>
+        <Item id="e97e2ead6666481188be399695e973f" type="Action" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+            <Params>
+                <param name="名称" title="名称" value="粗车内环槽" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="序号" title="序号" value="0" visible="1" edit="1" type="Int" defaultval="" respath="" />
+                <param name="工步内容" title="工步内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="设备" title="设备" value="" visible="1" edit="1" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备" />
+                <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            </Params>
+            <Item id="f3e088d6a0564520a8f686a911f8c5d9" type="ProcMech" refid="" refidVec="" ref_groupid="7be3a8eb257f483691f1c551e5169415" method="粗车" arrangeName="粗车内环槽" arrangeCompareName="粗车内环槽" arrangeNum="5" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="粗车" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+        </Item>
+        <Item id="52cac38e23a34048a9a2a3ca9855ba4f" type="Action" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+            <Params>
+                <param name="名称" title="名称" value="半精车端面" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="序号" title="序号" value="0" visible="1" edit="1" type="Int" defaultval="" respath="" />
+                <param name="工步内容" title="工步内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="设备" title="设备" value="" visible="1" edit="1" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备" />
+                <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            </Params>
+            <Item id="b8ae4062d85646c1925042b59233ca40" type="ProcMech" refid="" refidVec="" ref_groupid="4cb338b6ddde4a96ba8eec7c5d474cf9" method="半精车" arrangeName="半精车端面" arrangeCompareName="半精车端面" arrangeNum="5" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="半精车" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+        </Item>
+        <Item id="c66e8d2eb7b14fdab9a799fe287c9050" type="Action" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+            <Params>
+                <param name="名称" title="名称" value="半精车外圆" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="序号" title="序号" value="0" visible="1" edit="1" type="Int" defaultval="" respath="" />
+                <param name="工步内容" title="工步内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="设备" title="设备" value="" visible="1" edit="1" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备" />
+                <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            </Params>
+            <Item id="193e19ce740f482ebb81de3d7cab86ad" type="ProcMech" refid="" refidVec="" ref_groupid="892df827cbef4703b0d9acfe3027bc0" method="半精车" arrangeName="半精车外圆" arrangeCompareName="半精车外圆" arrangeNum="6" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="半精车" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+        </Item>
+        <Item id="f90690ba58db40c28b254c9f84b8959d" type="Action" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+            <Params>
+                <param name="名称" title="名称" value="半精车外环槽" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="序号" title="序号" value="0" visible="1" edit="1" type="Int" defaultval="" respath="" />
+                <param name="工步内容" title="工步内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="设备" title="设备" value="" visible="1" edit="1" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备" />
+                <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            </Params>
+            <Item id="7687b7b4d21f4643b9562f27fd3811b" type="ProcMech" refid="" refidVec="" ref_groupid="3358f0f62d04abb99d35dec48ef73e1" method="半精车" arrangeName="半精车外环槽" arrangeCompareName="半精车外环槽" arrangeNum="7" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="半精车" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+        </Item>
+        <Item id="8afbc86539714d4db4d255b687446c6" type="Action" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+            <Params>
+                <param name="名称" title="名称" value="倒角倒圆" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="序号" title="序号" value="0" visible="1" edit="1" type="Int" defaultval="" respath="" />
+                <param name="工步内容" title="工步内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="设备" title="设备" value="" visible="1" edit="1" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备" />
+                <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            </Params>
+            <Item id="5ee385ea256f4bb0958bef82818db45f" type="ProcMech" refid="" refidVec="" ref_groupid="467047205d02401992c36f4569dc3a1a" method="倒角" arrangeName="倒角倒圆" arrangeCompareName="倒角倒圆" arrangeNum="8" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="倒角" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+            <Item id="47c49e013a684730b5c212d091a378e8" type="ProcMech" refid="" refidVec="" ref_groupid="467047205d02401992c36f4569dc3a1a" method="倒圆" arrangeCompareName="倒角倒圆" arrangeNum="9" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="倒圆" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+        </Item>
+        <Item id="3e3e65d8d5694b169f8923eedf2af15" type="Action" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+            <Params>
+                <param name="名称" title="名称" value="半精车孔" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="序号" title="序号" value="0" visible="1" edit="1" type="Int" defaultval="" respath="" />
+                <param name="工步内容" title="工步内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="设备" title="设备" value="" visible="1" edit="1" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备" />
+                <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            </Params>
+            <Item id="3ec68be9d79b48019ad319b6899d83e2" type="ProcMech" refid="" refidVec="" ref_groupid="a8af618bdcbc4ba78cb5969c687b2988" method="半精车" arrangeName="半精车孔" arrangeCompareName="半精车孔" arrangeNum="10" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="半精车" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+        </Item>
+        <Item id="219347dd61b147ad8f9e6e6451845d1f" type="Action" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+            <Params>
+                <param name="名称" title="名称" value="半精车内换成" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="序号" title="序号" value="1" visible="1" edit="1" type="Int" defaultval="" respath="" />
+                <param name="工步内容" title="工步内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="设备" title="设备" value="" visible="1" edit="1" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备" />
+                <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            </Params>
+            <Item id="2831a5dc23ee49349bd3678275cd3953" type="ProcMech" refid="" refidVec="" ref_groupid="7be3a8eb257f483691f1c551e5169415" method="半精车" arrangeName="半精车内换成" arrangeCompareName="半精车内换成" arrangeNum="11" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="半精车" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+        </Item>
+    </Item>
+    <Item id="67a5c5c4e53441899bdfa5b59138b1" type="Step" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="车B侧" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="40" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+        <Item id="15cb462d58a9416e8f27a1e68a1b195" type="Action" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+            <Params>
+                <param name="名称" title="名称" value="粗车端面" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="序号" title="序号" value="0" visible="1" edit="1" type="Int" defaultval="" respath="" />
+                <param name="工步内容" title="工步内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="设备" title="设备" value="" visible="1" edit="1" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备" />
+                <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            </Params>
+            <Item id="144f188bf3ac476fb67898946a64cf2f" type="ProcMech" refid="" refidVec="" ref_groupid="c40fd63faa734d47b41e4b8c8fae19c7" method="粗车" arrangeName="粗车端面" arrangeCompareName="粗车端面" arrangeNum="0" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="粗车" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+        </Item>
+        <Item id="5223029c2e8a419e9e35365f704be4cd" type="Action" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+            <Params>
+                <param name="名称" title="名称" value="粗车外圆" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="序号" title="序号" value="0" visible="1" edit="1" type="Int" defaultval="" respath="" />
+                <param name="工步内容" title="工步内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="设备" title="设备" value="" visible="1" edit="1" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备" />
+                <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            </Params>
+            <Item id="60b1d21b9b4c4150867d2178e1f7efb6" type="ProcMech" refid="" refidVec="" ref_groupid="9cb45045a2548b0ba7444856444c890" method="粗车" arrangeName="粗车外圆" arrangeCompareName="粗车外圆" arrangeNum="1" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="粗车" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+        </Item>
+        <Item id="6cf370c77b374f6b96b223f5d868b99" type="Action" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+            <Params>
+                <param name="名称" title="名称" value="粗车外环槽" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="序号" title="序号" value="0" visible="1" edit="1" type="Int" defaultval="" respath="" />
+                <param name="工步内容" title="工步内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="设备" title="设备" value="" visible="1" edit="1" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备" />
+                <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            </Params>
+            <Item id="4835df1a1fd54713ac70f2eadd1d1c6" type="ProcMech" refid="" refidVec="" ref_groupid="7745857899d54d6483d23ef668ac3a6" method="粗车" arrangeName="粗车外环槽" arrangeCompareName="粗车外环槽" arrangeNum="2" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="粗车" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+        </Item>
+        <Item id="35275d8f82f94291b3ba25c4a318ec3" type="Action" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+            <Params>
+                <param name="名称" title="名称" value="钻孔" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="序号" title="序号" value="0" visible="1" edit="1" type="Int" defaultval="" respath="" />
+                <param name="工步内容" title="工步内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="设备" title="设备" value="" visible="1" edit="1" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备" />
+                <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            </Params>
+            <Item id="511349bfdc7545cd93f43e2a8060fa7" type="ProcMech" refid="" refidVec="" ref_groupid="a8af618bdcbc4ba78cb5969c687b2988" method="钻其余深度" arrangeName="钻孔" arrangeCompareName="钻孔" arrangeNum="3" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="钻其余深度" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+            <Item id="b6aee7eacc3a48488ef0d3972bdc4c95" type="ProcMech" refid="" refidVec="" ref_groupid="1de0e4c267d741f79ab578adc473f6" method="钻" arrangeCompareName="钻孔" arrangeNum="4" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="钻" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+        </Item>
+        <Item id="254343b7729748a08aa285e8fe27ed8" type="Action" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+            <Params>
+                <param name="名称" title="名称" value="粗车内环槽" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="序号" title="序号" value="0" visible="1" edit="1" type="Int" defaultval="" respath="" />
+                <param name="工步内容" title="工步内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="设备" title="设备" value="" visible="1" edit="1" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备" />
+                <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            </Params>
+            <Item id="2ab3a4e9324249e5a3f6dde8e8f77a7" type="ProcMech" refid="" refidVec="" ref_groupid="fa1477d6c75e4013b2e2efb62b87fa" method="粗车" arrangeName="粗车内环槽" arrangeCompareName="粗车内环槽" arrangeNum="5" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="粗车" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+        </Item>
+        <Item id="e811a745b367455096b3ba7d987c9fc" type="Action" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+            <Params>
+                <param name="名称" title="名称" value="半精车端面" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="序号" title="序号" value="0" visible="1" edit="1" type="Int" defaultval="" respath="" />
+                <param name="工步内容" title="工步内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="设备" title="设备" value="" visible="1" edit="1" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备" />
+                <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            </Params>
+            <Item id="21edc5a56e848889dcfe5f725d66b98" type="ProcMech" refid="" refidVec="" ref_groupid="c40fd63faa734d47b41e4b8c8fae19c7" method="半精车" arrangeName="半精车端面" arrangeCompareName="半精车端面" arrangeNum="5" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="半精车" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+        </Item>
+        <Item id="cd1624a942bf42278f4c749f7dc5a412" type="Action" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+            <Params>
+                <param name="名称" title="名称" value="半精车外圆" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="序号" title="序号" value="0" visible="1" edit="1" type="Int" defaultval="" respath="" />
+                <param name="工步内容" title="工步内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="设备" title="设备" value="" visible="1" edit="1" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备" />
+                <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            </Params>
+            <Item id="6df2969ca9024b1791a643262b4fe644" type="ProcMech" refid="" refidVec="" ref_groupid="9cb45045a2548b0ba7444856444c890" method="半精车" arrangeName="半精车外圆" arrangeCompareName="半精车外圆" arrangeNum="6" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="半精车" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+        </Item>
+        <Item id="3bdfb65464494d428e8827c046d3bc53" type="Action" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+            <Params>
+                <param name="名称" title="名称" value="半精车外环槽" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="序号" title="序号" value="0" visible="1" edit="1" type="Int" defaultval="" respath="" />
+                <param name="工步内容" title="工步内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="设备" title="设备" value="" visible="1" edit="1" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备" />
+                <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            </Params>
+            <Item id="52a8707053014081a0f99cca9b7c479a" type="ProcMech" refid="" refidVec="" ref_groupid="7745857899d54d6483d23ef668ac3a6" method="半精车" arrangeName="半精车外环槽" arrangeCompareName="半精车外环槽" arrangeNum="8" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="半精车" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+        </Item>
+        <Item id="e23da773b11042858d544adb61acd7d" type="Action" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+            <Params>
+                <param name="名称" title="名称" value="倒角倒圆" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="序号" title="序号" value="0" visible="1" edit="1" type="Int" defaultval="" respath="" />
+                <param name="工步内容" title="工步内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="设备" title="设备" value="" visible="1" edit="1" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备" />
+                <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            </Params>
+            <Item id="7ba57ebf4c4c47a587175718e685782" type="ProcMech" refid="" refidVec="" ref_groupid="44bce9924ef3465185924b22986bd5d" method="倒角" arrangeName="倒角倒圆" arrangeCompareName="倒角倒圆" arrangeNum="9" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="倒角" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+            <Item id="ad8a0d8b91cd4437a118f52e424e7c1a" type="ProcMech" refid="" refidVec="" ref_groupid="44bce9924ef3465185924b22986bd5d" method="倒圆" arrangeCompareName="倒角倒圆" arrangeNum="10" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="倒圆" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+        </Item>
+        <Item id="a7e6a73662e1472bbe50df52bc6d977" type="Action" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+            <Params>
+                <param name="名称" title="名称" value="半精车孔" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="序号" title="序号" value="0" visible="1" edit="1" type="Int" defaultval="" respath="" />
+                <param name="工步内容" title="工步内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="设备" title="设备" value="" visible="1" edit="1" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备" />
+                <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            </Params>
+            <Item id="78c1fec94e249e8bc493a649c75a2e" type="ProcMech" refid="" refidVec="" ref_groupid="1de0e4c267d741f79ab578adc473f6" method="半精车" arrangeName="半精车孔" arrangeCompareName="半精车孔" arrangeNum="11" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="半精车" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+        </Item>
+        <Item id="8cf1aaad127d4b4e85c4d7e7317b603e" type="Action" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+            <Params>
+                <param name="名称" title="名称" value="半精车内环槽" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="序号" title="序号" value="1" visible="1" edit="1" type="Int" defaultval="" respath="" />
+                <param name="工步内容" title="工步内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+                <param name="设备" title="设备" value="" visible="1" edit="1" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备" />
+                <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            </Params>
+            <Item id="8b7d3a5c132c4b08a514396b2c1eb313" type="ProcMech" refid="" refidVec="" ref_groupid="fa1477d6c75e4013b2e2efb62b87fa" method="半精车" arrangeName="半精车内环槽" arrangeCompareName="半精车内环槽" arrangeNum="12" compareType="1" isAssist="0" isRefBefore="0">
+                <Params>
+                    <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                    <param name="名称" title="名称" value="半精车" visible="1" edit="1" type="String" defaultval="" respath="" />
+                </Params>
+            </Item>
+        </Item>
+    </Item>
+    <Item id="8b07fff5a9064330b34bd0a27454eca" type="Step" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="铣周边平面和槽" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="50" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+        <Item id="69787d5f28a94c6bb39c35bf2db6640" type="ProcMech" refid="" refidVec="" ref_groupid="3cc17ff1dc74c57b6b9366011ac115" method="粗铣" arrangeNum="-1" compareType="1" isAssist="0" isRefBefore="0">
+            <Params>
+                <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                <param name="名称" title="名称" value="粗铣" visible="1" edit="1" type="String" defaultval="" respath="" />
+            </Params>
+        </Item>
+        <Item id="beec3dd8c5748e4bf34c4d481ee41b9" type="ProcMech" refid="" refidVec="" ref_groupid="3cc17ff1dc74c57b6b9366011ac115" method="半精铣" arrangeNum="0" compareType="1" isAssist="0" isRefBefore="0">
+            <Params>
+                <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                <param name="名称" title="名称" value="半精铣" visible="1" edit="1" type="String" defaultval="" respath="" />
+            </Params>
+        </Item>
+    </Item>
+    <Item id="e1441b272554c8898e0e0c272a735d" type="Step" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="钻铣周边孔" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="60" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+        <Item id="67a46f7d22d243b1b1653915a427c4" type="ProcMech" refid="" refidVec="" ref_groupid="e83310d574a04a1185523357d836e666" method="钻" arrangeNum="0" compareType="1" isAssist="0" isRefBefore="0">
+            <Params>
+                <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                <param name="名称" title="名称" value="钻" visible="1" edit="1" type="String" defaultval="" respath="" />
+            </Params>
+        </Item>
+    </Item>
+    <Item id="8ca84fc8904a42cc81a3332a0aab9c8" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="去毛刺" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="70" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="939ef350f63f4871aff5792d6ca37177" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="去应力" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="80" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+        <Item id="d63e2331cb614ebb89da3c8fc4f827e5" type="ProcMech" refid="" refidVec="" ref_groupid="a8af618bdcbc4ba78cb5969c687b2988" method="精车" arrangeNum="0" compareType="1" isAssist="0" isRefBefore="0">
+            <Params>
+                <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                <param name="名称" title="名称" value="精车" visible="1" edit="1" type="String" defaultval="" respath="" />
+            </Params>
+        </Item>
+    </Item>
+    <Item id="2e57c0ce786b46819493d8687547379" type="Step" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="精车孔" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="90" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+        <Item id="b7cb5c43d7e4bff9693406caea4b943" type="ProcMech" refid="" refidVec="" ref_groupid="a8af618bdcbc4ba78cb5969c687b2988" method="精车" arrangeNum="0" compareType="1" isAssist="0" isRefBefore="0">
+            <Params>
+                <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                <param name="名称" title="名称" value="精车" visible="1" edit="1" type="String" defaultval="" respath="" />
+            </Params>
+        </Item>
+    </Item>
+    <Item id="bea01b7f99824c749736596398662d9b" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="去毛刺" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="100" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="866fbe40536b454d88e1e67aebf58be" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="去应力" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="110" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="cd71293a61434b42bcf9819cdfb2493d" type="Step" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="珩孔" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="120" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+        <Item id="7425cf3c24c441a0b2a9a1bf1344b5a9" type="ProcMech" refid="" refidVec="" ref_groupid="a8af618bdcbc4ba78cb5969c687b2988" method="珩磨" arrangeNum="0" compareType="1" isAssist="0" isRefBefore="0">
+            <Params>
+                <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                <param name="名称" title="名称" value="珩磨" visible="1" edit="1" type="String" defaultval="" respath="" />
+            </Params>
+        </Item>
+    </Item>
+    <Item id="d0e776af787e4fed8bfc237b59845ce" type="Step" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="研孔" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="130" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+        <Item id="8e817f4c8a2e445f8643dc48df56da1f" type="ProcMech" refid="" refidVec="" ref_groupid="a8af618bdcbc4ba78cb5969c687b2988" method="研磨" arrangeNum="0" compareType="1" isAssist="0" isRefBefore="0">
+            <Params>
+                <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                <param name="名称" title="名称" value="研磨" visible="1" edit="1" type="String" defaultval="" respath="" />
+            </Params>
+        </Item>
+    </Item>
+    <Item id="48ee08534c2c40b5993d6260c4a86845" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="清洗" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="140" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="15231949e2b84bb5bb5bd55a5136c429" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="检验" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="150" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="dc09010157d4984991f8859295b83bb" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="镀铜" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="160" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="cd6ce34db5e24bc19c7ce0cf902d6582" type="Step" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="珩孔" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="170" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="cbbe6fc6b6c2415db46b2af369ece051" type="Step" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="研孔" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="180" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="643ae3ab83c48fea21634e5c0221daa" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="清洗" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="190" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="5b71b5e81a5e4a76a04023c34e5c766c" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="检验" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="200" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="38d0db683a024b2d8ffc7f561cf76d4" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="渗氮" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="210" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="b7c07b44b847438ca1ffd35d91ed824f" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="除铜" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="220" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="b9bcb97e8cad4f02853f1844e966c663" type="Step" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="精车外圆" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="230" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+        <Item id="3b76f2e0de0d44288456ee95d6fbf0bf" type="ProcMech" refid="" refidVec="" ref_groupid="a8af618bdcbc4ba78cb5969c687b2988" method="精车" arrangeNum="0" compareType="1" isAssist="0" isRefBefore="0">
+            <Params>
+                <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                <param name="名称" title="名称" value="精车" visible="1" edit="1" type="String" defaultval="" respath="" />
+            </Params>
+        </Item>
+    </Item>
+    <Item id="21e7c185a0f4ec0b5e4336fc644fb4c" type="Step" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="线切割型孔" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="240" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+        <Item id="22b019e0488d47fbb7c31574cc2d3cf" type="ProcMech" refid="" refidVec="" ref_groupid="3cc17ff1dc74c57b6b9366011ac115" method="线切割" arrangeNum="0" compareType="1" isAssist="0" isRefBefore="0">
+            <Params>
+                <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                <param name="名称" title="名称" value="线切割" visible="1" edit="1" type="String" defaultval="" respath="" />
+            </Params>
+        </Item>
+    </Item>
+    <Item id="abd60c93198b43fa94855885c0543f3e" type="Step" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="磨外圆" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="250" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+        <Item id="5e70a7d9be074c51a7d457dd577582f" type="ProcMech" refid="" refidVec="" ref_groupid="892df827cbef4703b0d9acfe3027bc0" method="半精磨" arrangeNum="0" compareType="1" isAssist="0" isRefBefore="0">
+            <Params>
+                <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                <param name="名称" title="名称" value="半精磨" visible="1" edit="1" type="String" defaultval="" respath="" />
+            </Params>
+        </Item>
+        <Item id="6c2935064e244bdf86e995a17739e23f" type="ProcMech" refid="" refidVec="" ref_groupid="9cb45045a2548b0ba7444856444c890" method="半精磨" arrangeNum="1" compareType="1" isAssist="0" isRefBefore="0">
+            <Params>
+                <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                <param name="名称" title="名称" value="半精磨" visible="1" edit="1" type="String" defaultval="" respath="" />
+            </Params>
+        </Item>
+    </Item>
+    <Item id="7ad25718a08e461688147df7ffcc4b" type="Step" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="磨外环槽" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="260" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+        <Item id="f3f2551a3b6f44748ae59713839d412" type="ProcMech" refid="" refidVec="" ref_groupid="3358f0f62d04abb99d35dec48ef73e1" method="半精磨" arrangeNum="0" compareType="1" isAssist="0" isRefBefore="0">
+            <Params>
+                <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                <param name="名称" title="名称" value="半精磨" visible="1" edit="1" type="String" defaultval="" respath="" />
+            </Params>
+        </Item>
+        <Item id="ddf1727e80c46bfaade76f68de1f9a" type="ProcMech" refid="" refidVec="" ref_groupid="7745857899d54d6483d23ef668ac3a6" method="半精磨" arrangeNum="1" compareType="1" isAssist="0" isRefBefore="0">
+            <Params>
+                <param name="推理" title="推理" value="" visible="1" edit="0" type="Check" defaultval="" respath="" />
+                <param name="名称" title="名称" value="半精磨" visible="1" edit="1" type="String" defaultval="" respath="" />
+            </Params>
+        </Item>
+    </Item>
+    <Item id="37ce0d32b72546e9b076aecddb986d50" type="Step" isAssist="0" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="去毛刺" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="270" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="7d183f134b0745019fcb8ed96c179c4" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="清洗" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="280" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="c9c6915f52404802b032ba2cc2bdfc5d" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="渗透检验" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="290" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="a9e73639e11845839f391f53cff66b8" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="清洗" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="300" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="24a3387fb3534764aa154f19e431c65" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="珩孔" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="310" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="eb11920be20d489aab4cf76f74153b4a" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="磨粒流去毛刺" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="320" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="22fccef162db4db3b040705fa413815" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="清洗" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="330" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="f4fdd5d6b84243aa8acb8d80229162ac" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="研孔" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="340" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="7e12033ce13f4b42b7b5e746cddcf02c" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="清洗" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="350" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="49afd70fe1504d9a8faaf966ee4b5551" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="检验" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="360" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+    <Item id="4dd51915dd0043f5a57b98271d68757" type="Step" isAssist="1" isRefBefore="0" isAddAssemble="0" stepColor="255">
+        <Params>
+            <param name="名称" title="名称" value="油封" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="序号" title="序号" value="370" visible="1" edit="1" type="Int" defaultval="" respath="" />
+            <param name="内容" title="内容" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工序号" title="工序号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品型号" title="产品型号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="产品名称" title="产品名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件图号" title="零件图号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="零件名称" title="零件名称" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="车间" title="车间" value="总装车间" visible="1" edit="1" type="Multi" defaultval="总装车间|总装车间;热处理车间;机加车间" respath="" />
+            <param name="材料牌号" title="材料牌号" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="毛坯种类" title="毛坯种类" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="设备名称" title="设备名称" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:设备种类" />
+            <param name="设备" title="设备型号" value="" visible="1" edit="0" type="String" defaultval="" respath="KMRES::开目CAPP工艺资源库\开目机加工艺知识库\设备\设备主电动机功率:型号" />
+            <param name="检验工序" title="检验工序" value="否" visible="1" edit="1" type="Multi" defaultval="否|是;否" respath="" />
+            <param name="检验标准" title="检验标准" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="工艺方式" title="工艺方式" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+            <param name="编制单位" title="编制单位" value="" visible="1" edit="1" type="String" defaultval="" respath="" />
+        </Params>
+    </Item>
+</Kmsoft>

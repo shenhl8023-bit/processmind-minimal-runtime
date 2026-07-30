@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="GB2312" ?>
+<Kmsoft>
+    <Item type="Part_Template">
+        <GridPropList>
+            <GridProp name="节点配置" />
+        </GridPropList>
+    </Item>
+    <Item type="Group_Template">
+        <GridPropList>
+            <GridProp name="节点配置" />
+        </GridPropList>
+    </Item>
+    <Item id="3152486c7c146d085c242e798a7c5d" type="Part" filename="不定向台阶立面-1.prt">
+        <Params />
+        <Item id="31ff4cf6a57f45f68fc0afad60bbfeb" type="Group" stageOrders="" sourceIds="">
+            <Params>
+                <param name="名称" value="A面" />
+            </Params>
+            <Item id="221c23e259b14815ae1b029265437b8" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="大平面" />
+                </Params>
+            </Item>
+            <Item id="e20583736c304d14b2613648dcbb49c8" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="底面" />
+                </Params>
+            </Item>
+            <Item id="57776f415a10402eb5885bb1289540b2" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="直立面" />
+                </Params>
+            </Item>
+            <Item id="201f1afb833d4062b465454e5b5c19d" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="斜立面" />
+                </Params>
+            </Item>
+            <Item id="f36ebac0820444d7b4f3ea81c4df2d89" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="变方向斜立面" />
+                </Params>
+            </Item>
+            <Item id="fa0d05162be94a6ca619fb863e59f626" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="筋高面" />
+                </Params>
+                <Item id="6fcbec22798944dbaf63cfdec1be1fa4" type="Group" stageOrders="" sourceIds="">
+                    <Params>
+                        <param name="名称" value="平面" />
+                    </Params>
+                </Item>
+                <Item id="ccfb7861804e4d4eb04c792c98021e7" type="Group" stageOrders="" sourceIds="">
+                    <Params>
+                        <param name="名称" value="曲面" />
+                    </Params>
+                </Item>
+            </Item>
+        </Item>
+        <Item id="fe410eee164c42b78259f54513a654ef" type="Group" stageOrders="" sourceIds="">
+            <Params>
+                <param name="名称" value="B面" />
+            </Params>
+            <Item id="90357f1176374bf7be24883695f46fbe" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="大平面" />
+                </Params>
+            </Item>
+            <Item id="1e505a2a366747ff868710f05be5feff" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="底面" />
+                </Params>
+            </Item>
+            <Item id="877c8f52f6524a78a9291765fb9b4f1" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="直立面" />
+                </Params>
+            </Item>
+            <Item id="353c7fe553b14e3db198fa36c7b7368e" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="斜立面" />
+                </Params>
+            </Item>
+            <Item id="14fe4f0c6f3a45f9b673cc1b750276" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="变方向斜立面" />
+                </Params>
+            </Item>
+            <Item id="cf381a54bf6b4b6e961a1ea0d1de7b0" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="筋高面" />
+                </Params>
+                <Item id="fa753575a55a4d23ba3ff6e61088f314" type="Group" stageOrders="" sourceIds="">
+                    <Params>
+                        <param name="名称" value="平面" />
+                    </Params>
+                </Item>
+            </Item>
+        </Item>
+        <Item id="503f00b9418145a99fb224f287c1f6f9" type="Group" stageOrders="" sourceIds="">
+            <Params>
+                <param name="名称" value="周边" />
+            </Params>
+            <Item id="f1cbe21fe3324c92b2803f5638e056ef" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="直立面" />
+                </Params>
+            </Item>
+            <Item id="9a9d8039be547f987debaa4fed27d14" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="斜立面" />
+                </Params>
+            </Item>
+            <Item id="235c84ac4e464e87952da9458b4da69" type="Group" stageOrders="" sourceIds="">
+                <Params>
+                    <param name="名称" value="变方向斜立面" />
+                </Params>
+            </Item>
+        </Item>
+    </Item>
+</Kmsoft>
