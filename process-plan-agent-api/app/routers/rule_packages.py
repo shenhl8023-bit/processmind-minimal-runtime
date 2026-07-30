@@ -25,10 +25,9 @@ from app.services.rule_packages.contracts import (
 from app.services.rule_packages.planner import RoutePlanningError
 from app.services.rule_packages.input_validation import input_validation_error_detail, validate_inputs
 from app.services.rule_packages.loader import load_published_rule_package
-from app.services.rule_packages.lifecycle import load_registry_for_package, v2_package_from_row
+from app.services.rule_packages.lifecycle import load_legacy_mapping_snapshot_for_package, v2_package_from_row
 from app.services.rule_packages.kmai_compatibility_runner import compare_kmai_v1
 from app.services.rule_packages.kmai_export import build_kmai_compatibility_export
-from app.services.rule_packages.kmai_mapping_registry import load_effective_mapping_registry
 from app.services.rule_packages.condition_contracts import (
     ConditionFieldRegistryResponse,
     ConfirmRuleConditionRequest,
@@ -109,12 +108,11 @@ async def compile_v2_rule_package(
             status_code=422,
             detail={"message": "标准因子绑定校验未通过", "issues": serialized_issues},
         ) from error
-    mapping_registry = await load_effective_mapping_registry(db, package.manifest.project_id)
     return CompileRulePackageResponse(
         package=package,
         content_hash=rule_package_content_hash(package),
         validation=validate_rule_package(package),
-        kmai_compatibility=build_kmai_compatibility_export(package, mapping_registry=mapping_registry),
+        kmai_compatibility=build_kmai_compatibility_export(package),
     )
 
 
@@ -159,8 +157,12 @@ async def test_kmai_compatibility(
     input_errors = validate_inputs(package.input_schema, body.inputs)
     if input_errors:
         raise HTTPException(422, detail=input_validation_error_detail(input_errors))
-    mapping_registry = await load_registry_for_package(db, package_row.id)
-    comparison = compare_kmai_v1(package, body.inputs, mapping_registry=mapping_registry)
+    legacy_mapping_snapshot = await load_legacy_mapping_snapshot_for_package(db, package_row)
+    comparison = compare_kmai_v1(
+        package,
+        body.inputs,
+        legacy_mapping_snapshot=legacy_mapping_snapshot,
+    )
     return KmaiCompatibilityTestResponse(
         project_id=body.project_id,
         package_id=package_row.id,

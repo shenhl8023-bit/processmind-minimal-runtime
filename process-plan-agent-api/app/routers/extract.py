@@ -64,10 +64,6 @@ from app.services.rule_packages.confirmation_validation import require_confirmed
 from app.services.rule_packages.loader import load_published_rule_package
 from app.services.rule_packages.validator import validate_rule_package
 from app.services.rule_packages.kmai_export import build_kmai_compatibility_export
-from app.services.rule_packages.kmai_mapping_store import (
-    record_mapping_usage,
-)
-from app.services.rule_packages.kmai_mapping_registry import load_effective_mapping_registry
 from app.services.process_tree_builder import build_superset_process_tree
 from app.services.route_merge.config import ROUTE_MERGE_ALGO_VERSION
 from app.services.extraction_tasks import set_extraction_task_state
@@ -495,25 +491,17 @@ async def save_finalized_rule_package(
             db=db,
         )
         content_hash = rule_package_content_hash(package_v2)
-        mapping_registry = await load_effective_mapping_registry(db, body.project_id)
-        kmai_compatibility = build_kmai_compatibility_export(
-            package_v2,
-            mapping_registry=mapping_registry,
-        )
+        kmai_compatibility = build_kmai_compatibility_export(package_v2)
         if not kmai_compatibility.valid:
             raise HTTPException(
                 status_code=422,
                 detail={
-                    "message": "KmAI compatibility validation failed; mapping resolution is required before publishing.",
+                    "message": "KmAI compatibility validation failed; return to standard-factor review before publishing.",
                     "kmai_compatibility": kmai_compatibility.model_dump(mode="json"),
                 },
             )
         server_validation["kmai_compatibility"] = {
-            "mapping_signature": kmai_compatibility.mapping_signature,
-            "mapping_snapshot": [
-                snapshot.model_dump(mode="json")
-                for snapshot in kmai_compatibility.mapping_usages
-            ],
+            "factor_catalog_version": kmai_compatibility.factor_catalog_version,
         }
     else:
         content_hash = legacy_rule_package_content_hash(
@@ -566,8 +554,6 @@ async def save_finalized_rule_package(
         db.add(row)
         try:
             await db.flush()
-            if schema_version == "2.0":
-                await record_mapping_usage(db, row.id, kmai_compatibility.mapping_usages)
             await publish_rule_package(row, db, actor=row.created_by)
             await db.commit()
             await db.refresh(row)

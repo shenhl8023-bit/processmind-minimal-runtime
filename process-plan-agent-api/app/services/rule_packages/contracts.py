@@ -324,8 +324,7 @@ class KmaiCompatibilityExport(StrictModel):
     errors: list[KmaiCompatibilityIssue] = Field(default_factory=list)
     warnings: list[KmaiCompatibilityIssue] = Field(default_factory=list)
     files: dict[str, dict[str, Any]] = Field(default_factory=dict)
-    mapping_signature: str = ""
-    mapping_usages: list[KmaiMappingUsageSnapshot] = Field(default_factory=list)
+    factor_catalog_version: str = ""
 
 
 class CompileRulePackageResponse(StrictModel):

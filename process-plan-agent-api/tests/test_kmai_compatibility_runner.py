@@ -10,8 +10,7 @@ import pytest
 
 from app.services.rule_packages.contracts import ProcessRelationV2
 from app.services.rule_packages.kmai_compatibility_runner import compare_kmai_v1
-from app.services.rule_packages.kmai_mapping_contracts import KmaiMappingSnapshot
-from app.services.rule_packages.kmai_mapping_registry import KmaiMappingRegistry
+from app.services.rule_packages.kmai_export import LegacyFactorAdapterEntry
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -297,69 +296,50 @@ def test_kmai_compatibility_runner_reports_relation_gap(rule_package_v2):
     assert result["semantic_gaps"]
 
 
-def test_kmai_compatibility_runner_requires_manual_override_for_manual_mapping(rule_package_v2):
-    registry = KmaiMappingRegistry(
-        [
-            KmaiMappingSnapshot(
-                mapping_id=7,
-                mapping_identity="project:7",
-                revision=1,
-                scope="project",
-                project_id=12,
-                source_field="cad.features",
-                source_value="\u69fd\u7c7b\u7279\u5f81",
-                mapping_mode="manual_factor",
-                target_factor_key="processmind_manual_slot",
-                target_factor_name="Manual slot",
-                target_factor_category="custom",
-            )
-        ]
+def _legacy_manual_slot(rule_package_v2, factor_key="processmind_manual_slot"):
+    package = rule_package_v2.model_copy(deep=True)
+    package.route_rules.rules[1].when.factor_id = None
+    return package, LegacyFactorAdapterEntry(
+        source_field="cad.features",
+        source_value="\u69fd\u7c7b\u7279\u5f81",
+        mapping_mode="manual_factor",
+        target_factor_key=factor_key,
+        target_factor_name="Manual slot",
+        target_factor_category="custom",
     )
 
+
+def test_kmai_compatibility_runner_requires_manual_override_for_historical_mapping(rule_package_v2):
+    package, snapshot = _legacy_manual_slot(rule_package_v2)
+
     result = compare_kmai_v1(
-        rule_package_v2,
+        package,
         {
             "material": {"grade": "9Cr18"},
             "cad": {"features": ["\u69fd\u7c7b\u7279\u5f81"]},
             "target_hardness_hrc": 58,
         },
-        mapping_registry=registry,
+        legacy_mapping_snapshot=[snapshot],
     )
 
     assert result["manual_factors"]["processmind_manual_slot"] is False
     assert any("processmind_manual_slot" in gap for gap in result["semantic_gaps"])
 
 
-def test_persisted_manual_mapping_provenance_ignores_spoofed_name_and_category(
+def test_historical_manual_mapping_preserves_captured_factor_definition(
     rule_package_v2,
 ):
-    registry = KmaiMappingRegistry(
-        [
-            KmaiMappingSnapshot(
-                mapping_id=8,
-                mapping_identity="project:8",
-                revision=3,
-                scope="project",
-                project_id=12,
-                source_field="cad.features",
-                source_value="\u69fd\u7c7b\u7279\u5f81",
-                mapping_mode="manual_factor",
-                target_factor_key="processmind_manual_spoofed",
-                target_factor_name="特殊要求：clean room",
-                target_factor_category="processmind_special_requirement",
-            )
-        ]
-    )
+    package, snapshot = _legacy_manual_slot(rule_package_v2, "processmind_manual_spoofed")
 
     result = compare_kmai_v1(
-        rule_package_v2,
+        package,
         {
             "material": {"grade": "9Cr18"},
             "cad": {"features": ["\u69fd\u7c7b\u7279\u5f81"]},
             "special": {"requirements": ["clean room"]},
             "target_hardness_hrc": 58,
         },
-        mapping_registry=registry,
+        legacy_mapping_snapshot=[snapshot],
     )
 
     assert result["manual_factors"]["processmind_manual_spoofed"] is False
@@ -367,34 +347,18 @@ def test_persisted_manual_mapping_provenance_ignores_spoofed_name_and_category(
     assert any("processmind_manual_spoofed" in gap for gap in result["semantic_gaps"])
 
 
-def test_kmai_compatibility_runner_applies_manual_factor_override(rule_package_v2):
-    registry = KmaiMappingRegistry(
-        [
-            KmaiMappingSnapshot(
-                mapping_id=7,
-                mapping_identity="project:7",
-                revision=1,
-                scope="project",
-                project_id=12,
-                source_field="cad.features",
-                source_value="\u69fd\u7c7b\u7279\u5f81",
-                mapping_mode="manual_factor",
-                target_factor_key="processmind_manual_slot",
-                target_factor_name="Manual slot",
-                target_factor_category="custom",
-            )
-        ]
-    )
+def test_kmai_compatibility_runner_applies_historical_manual_override(rule_package_v2):
+    package, snapshot = _legacy_manual_slot(rule_package_v2)
 
     result = compare_kmai_v1(
-        rule_package_v2,
+        package,
         {
             "material": {"grade": "9Cr18"},
             "cad": {"features": ["\u69fd\u7c7b\u7279\u5f81"]},
             "target_hardness_hrc": 58,
             "manual": {"factor_overrides": {"processmind_manual_slot": True}},
         },
-        mapping_registry=registry,
+        legacy_mapping_snapshot=[snapshot],
     )
 
     assert result["manual_factors"]["processmind_manual_slot"] is True
@@ -410,33 +374,17 @@ def test_boolean_manual_factor_rejects_non_boolean_override_before_simulation(
     rule_package_v2,
     invalid_override,
 ):
-    registry = KmaiMappingRegistry(
-        [
-            KmaiMappingSnapshot(
-                mapping_id=7,
-                mapping_identity="project:7",
-                revision=1,
-                scope="project",
-                project_id=12,
-                source_field="cad.features",
-                source_value="\u69fd\u7c7b\u7279\u5f81",
-                mapping_mode="manual_factor",
-                target_factor_key="processmind_manual_slot",
-                target_factor_name="Manual slot",
-                target_factor_category="manual_override",
-            )
-        ]
-    )
+    package, snapshot = _legacy_manual_slot(rule_package_v2)
 
     result = compare_kmai_v1(
-        rule_package_v2,
+        package,
         {
             "material": {"grade": "9Cr18"},
             "cad": {"features": ["\u69fd\u7c7b\u7279\u5f81"]},
             "target_hardness_hrc": 58,
             "manual": {"factor_overrides": {"processmind_manual_slot": invalid_override}},
         },
-        mapping_registry=registry,
+        legacy_mapping_snapshot=[snapshot],
     )
 
     assert result["manual_factors"]["processmind_manual_slot"] is False
@@ -451,12 +399,13 @@ def test_kmai_compatibility_runner_preserves_special_requirement_simulation(rule
     package = rule_package_v2.model_copy(deep=True)
     package.route_rules.rules[1].when.field = "special.requirements"
     package.route_rules.rules[1].when.op = "contains"
-    package.route_rules.rules[1].when.value = "clean room"
+    package.route_rules.rules[1].when.value = "\u65e0\u635f\u68c0\u6d4b\u8981\u6c42"
+    package.route_rules.rules[1].when.factor_id = "requirement.nondestructive_testing"
     result = compare_kmai_v1(
         package,
         {
             "material": {"grade": "9Cr18"},
-            "special": {"requirements": ["clean room"]},
+            "special": {"requirements": ["\u65e0\u635f\u68c0\u6d4b\u8981\u6c42"]},
             "target_hardness_hrc": 58,
         },
     )

@@ -6,17 +6,13 @@ ProcessMind user can see semantic differences before copying files to KmAI.
 
 from __future__ import annotations
 
-import hashlib
 from typing import Any
 
 from app.services.rule_packages.contracts import RulePackageV2
 from app.services.rule_packages.expression_engine import MISSING, resolve_field
-from app.services.rule_packages.kmai_export import build_kmai_compatibility_export
-from app.services.rule_packages.kmai_mapping_registry import (
-    KmaiMappingRegistry,
-    builtin_mapping_registry,
-)
+from app.services.rule_packages.kmai_export import LegacyFactorAdapterEntry, build_kmai_compatibility_export
 from app.services.rule_packages.planner import plan_route
+from app.services.rule_packages.standard_factors import standard_factors
 
 
 def _response_issues(issues) -> list[dict[str, Any]]:
@@ -50,14 +46,9 @@ def _manual_factors(
     package: RulePackageV2,
     inputs: dict[str, Any],
     factor_schema: dict[str, Any],
-    mapping_registry: KmaiMappingRegistry,
+    legacy_mapping_snapshot: list[LegacyFactorAdapterEntry] | None,
 ) -> tuple[dict[str, Any], set[str], list[str]]:
     factors: dict[str, Any] = {}
-    persisted_manual_keys = {
-        snapshot.target_factor_key
-        for snapshot in mapping_registry.snapshots
-        if snapshot.mapping_mode == "manual_factor"
-    }
     for definition in factor_schema.get("factors", []):
         key = str(definition.get("factor_key") or "")
         if not key:
@@ -65,30 +56,34 @@ def _manual_factors(
         default = definition.get("default_value")
         factors[key] = default if default is not None else (False if definition.get("value_type") == "boolean" else None)
 
-    material = resolve_field(inputs, "material.grade")
-    if material is not MISSING:
-        factors["material_grade"] = material
+    for definition in standard_factors():
+        if definition.kmai_factor_key not in factors:
+            continue
+        if definition.kmai_value_mode == "presence":
+            value = resolve_field(inputs, definition.source_field)
+            values = value if isinstance(value, list) else []
+            factors[definition.kmai_factor_key] = definition.canonical_value in values
+            continue
+        value = resolve_field(inputs, definition.source_field)
+        if value is MISSING:
+            for alias in definition.source_field_aliases:
+                value = resolve_field(inputs, alias)
+                if value is not MISSING:
+                    break
+        if value is not MISSING:
+            factors[definition.kmai_factor_key] = value
 
-    for field_key in ("cad.features", "precision.grades", "special.requirements"):
-        value = resolve_field(inputs, field_key)
-        values = value if isinstance(value, list) else []
-        for item in values:
-            snapshot = mapping_registry.resolve(field_key, str(item))
-            if snapshot:
-                factors[snapshot.target_factor_key] = snapshot.mapping_mode == "existing_factor"
-
-    selected_requirements = resolve_field(inputs, "special.requirements")
-    if isinstance(selected_requirements, list):
-        for requirement in selected_requirements:
-            digest = hashlib.sha256(str(requirement).encode("utf-8")).hexdigest()[:12]
-            factor_key = f"processmind_special_{digest}"
-            if factor_key in factors and factor_key not in persisted_manual_keys:
-                factors[factor_key] = True
+    manual_keys: set[str] = set()
+    for snapshot in legacy_mapping_snapshot or []:
+        value = resolve_field(inputs, snapshot.source_field)
+        values = value if isinstance(value, list) else [value]
+        if snapshot.mapping_mode == "existing_factor" and snapshot.source_value in values:
+            factors[snapshot.target_factor_key] = True
+        if snapshot.mapping_mode == "manual_factor":
+            manual_keys.add(snapshot.target_factor_key)
 
     for definition in factor_schema.get("factors", []):
         key = str(definition.get("factor_key") or "")
-        if key in persisted_manual_keys:
-            continue
         description = str(definition.get("description") or "")
         if "ProcessMind 字段 " in description and definition.get("category") == "processmind_input":
             field_key = description.rsplit("ProcessMind 字段 ", 1)[-1].strip(" 。")
@@ -113,12 +108,6 @@ def _manual_factors(
                 continue
             factors[key] = value
 
-    manual_keys = persisted_manual_keys | {
-        str(definition.get("factor_key") or "")
-        for definition in factor_schema.get("factors", [])
-        if definition.get("source_mode") == "manual_override"
-        and definition.get("category") not in {"processmind_input", "processmind_special_requirement"}
-    }
     missing_overrides = {
         key for key in manual_keys
         if key not in explicit_overrides
@@ -158,10 +147,12 @@ def compare_kmai_v1(
     package: RulePackageV2,
     inputs: dict[str, Any],
     *,
-    mapping_registry: KmaiMappingRegistry | None = None,
+    legacy_mapping_snapshot: list[LegacyFactorAdapterEntry] | None = None,
 ) -> dict[str, Any]:
-    registry = mapping_registry or builtin_mapping_registry()
-    exported = build_kmai_compatibility_export(package, mapping_registry=registry)
+    exported = build_kmai_compatibility_export(
+        package,
+        legacy_mapping_snapshot=legacy_mapping_snapshot,
+    )
     v2_plan = plan_route(package, inputs)
     if not exported.valid:
         return {
@@ -183,7 +174,7 @@ def compare_kmai_v1(
         package,
         inputs,
         files["factor_schema.json"],
-        registry,
+        legacy_mapping_snapshot,
     )
     kmai_process_ids, kmai_rule_ids = _run_v1(files["route_catalog.json"], files["route_rules.json"], factors)
     v2_ids = list(v2_plan.selected_process_ids)

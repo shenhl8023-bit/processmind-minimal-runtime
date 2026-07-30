@@ -10,10 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.models import FinalizedRulePackage, KmaiFactorMappingUsage, utcnow
 from app.services.finalized_rule_package_helpers import json_loads, json_loads_list
 from app.services.rule_packages.contracts import RulePackageV2, RulePackageValidationReport
-from app.services.rule_packages.kmai_mapping_contracts import KmaiMappingSnapshot
-from app.services.rule_packages.kmai_mapping_registry import (
-    KmaiMappingRegistry,
-    builtin_mapping_registry,
+from app.services.rule_packages.kmai_export import (
+    LegacyFactorAdapterEntry,
+    builtin_legacy_mapping_snapshot,
+    legacy_mapping_snapshot_from_validation_report,
 )
 from app.services.rule_packages.validator import validate_rule_package
 
@@ -55,30 +55,47 @@ def v2_package_from_row(row: FinalizedRulePackage) -> RulePackageV2:
     })
 
 
-async def load_registry_for_package(
+async def load_legacy_mapping_snapshot_for_package(
     db: AsyncSession,
-    package_id: int,
-) -> KmaiMappingRegistry:
-    """Rebuild the mapping context captured when a published package was made."""
+    package: FinalizedRulePackage,
+) -> list[LegacyFactorAdapterEntry]:
+    """Load historical package mappings without consulting active mapping state."""
+    try:
+        report = json.loads(package.validation_report_json or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        report = {}
+    compatibility = report.get("kmai_compatibility", {}) if isinstance(report, dict) else {}
+    if isinstance(compatibility, dict) and "mapping_snapshot" in compatibility:
+        return legacy_mapping_snapshot_from_validation_report(package.validation_report_json)
+
+    # Temporary fallback for packages published before snapshots were embedded.
     rows = (
         await db.execute(
             select(KmaiFactorMappingUsage)
-            .where(KmaiFactorMappingUsage.package_id == package_id)
+            .where(KmaiFactorMappingUsage.package_id == package.id)
             .order_by(KmaiFactorMappingUsage.id)
         )
     ).scalars().all()
     if not rows:
-        return builtin_mapping_registry()
+        return builtin_legacy_mapping_snapshot()
 
-    snapshots = []
+    snapshots: list[LegacyFactorAdapterEntry] = []
     for row in rows:
         try:
+            snapshot = json.loads(row.mapping_snapshot_json)
             snapshots.append(
-                KmaiMappingSnapshot.model_validate(json.loads(row.mapping_snapshot_json))
+                LegacyFactorAdapterEntry(
+                    source_field=str(snapshot["source_field"]),
+                    source_value=str(snapshot["source_value"]),
+                    mapping_mode=str(snapshot["mapping_mode"]),
+                    target_factor_key=str(snapshot["target_factor_key"]),
+                    target_factor_name=str(snapshot["target_factor_name"]),
+                    target_factor_category=str(snapshot["target_factor_category"]),
+                )
             )
-        except (TypeError, ValueError, json.JSONDecodeError):
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
             continue
-    return KmaiMappingRegistry(snapshots) if snapshots else builtin_mapping_registry()
+    return snapshots or builtin_legacy_mapping_snapshot()
 
 
 async def publish_rule_package(

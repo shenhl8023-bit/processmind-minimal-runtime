@@ -3,25 +3,29 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
+from dataclasses import dataclass
 from itertools import product
-from typing import Any
+from typing import Any, Literal, Sequence
 
 from app.services.rule_packages.contracts import (
     ConditionNode,
     KmaiCompatibilityExport,
     KmaiCompatibilityIssue,
-    KmaiMappingUsageSnapshot,
     RulePackageV2,
     ValidationIssue,
 )
 from app.services.rule_packages.kmai_mapping_registry import (
     BUILTIN_FACTOR_SPECS as _FACTOR_SPECS,
-    KmaiMappingRegistry,
-    builtin_factor_catalog,
-    builtin_mapping_registry,
+    BUILTIN_VALUE_FACTOR_MAP,
     normalize_mapping_value,
+)
+from app.services.rule_packages.standard_factors import (
+    STANDARD_FACTOR_CATALOG_VERSION,
+    standard_factor_map,
+    validate_factor_bindings,
 )
 
 KMAI_TARGET_DIRECTORY = r"KmMpsMcpServer\skills\process-route-generator\references\v1"
@@ -51,23 +55,48 @@ def _issue(
     return KmaiCompatibilityIssue(code=code, path=path, message=message, **details)
 
 
-class _UnmappedMappingValue(ValueError):
-    def __init__(self, field: str, value: str):
-        self.field = field
-        self.value = value
-        super().__init__(f"KmAI mapping is required for {field}: {value}")
+class StandardFactorExportError(ValueError):
+    def __init__(self, code: Literal["standard_factor_unbound", "standard_factor_mismatch"], message: str):
+        self.code = code
+        super().__init__(message)
 
 
-class _IncompatibleMappingTarget(ValueError):
-    def __init__(self, field: str, value: str, factor_key: str, value_type: str):
-        self.field = field
-        self.value = value
-        self.factor_key = factor_key
-        self.value_type = value_type
-        super().__init__(
-            f"KmAI presence mapping {field}={value} cannot target "
-            f"{factor_key} ({value_type}); a boolean factor is required"
+@dataclass(frozen=True)
+class LegacyFactorAdapterEntry:
+    source_field: str
+    source_value: str
+    mapping_mode: Literal["existing_factor", "manual_factor"]
+    target_factor_key: str
+    target_factor_name: str
+    target_factor_category: str
+
+
+def legacy_mapping_snapshot_from_validation_report(
+    raw_json: str | None,
+) -> list[LegacyFactorAdapterEntry]:
+    """Load immutable historical mappings from a package validation report."""
+    report = json.loads(raw_json or "{}")
+    snapshots = report.get("kmai_compatibility", {}).get("mapping_snapshot", [])
+    if not isinstance(snapshots, list):
+        return []
+    entries: list[LegacyFactorAdapterEntry] = []
+    for item in snapshots:
+        if not isinstance(item, dict):
+            raise ValueError("invalid historical mapping snapshot")
+        mode = str(item.get("mapping_mode") or "")
+        if mode not in {"existing_factor", "manual_factor"}:
+            raise ValueError(f"unsupported historical mapping mode: {mode}")
+        entries.append(
+            LegacyFactorAdapterEntry(
+                source_field=str(item["source_field"]),
+                source_value=str(item["source_value"]),
+                mapping_mode=mode,
+                target_factor_key=str(item["target_factor_key"]),
+                target_factor_name=str(item["target_factor_name"]),
+                target_factor_category=str(item["target_factor_category"]),
+            )
         )
+    return entries
 
 
 def _field_options(package: RulePackageV2, key: str) -> list[str]:
@@ -437,76 +466,128 @@ def _mapped_manual_factor(snapshot: Any, dynamic_factors: dict[str, dict[str, An
     return factor_key
 
 
-def _leaf_condition(
+def _legacy_adapter_key(source_field: str, source_value: object) -> tuple[str, str]:
+    return source_field, normalize_mapping_value(source_value)
+
+
+def _builtin_legacy_adapter() -> dict[tuple[str, str], LegacyFactorAdapterEntry]:
+    metadata = {
+        factor_key: (name, category)
+        for _, factor_key, name, category, _ in _FACTOR_SPECS
+    }
+    return {
+        _legacy_adapter_key(field, value): LegacyFactorAdapterEntry(
+            source_field=field,
+            source_value=value,
+            mapping_mode="existing_factor",
+            target_factor_key=factor_key,
+            target_factor_name=metadata[factor_key][0],
+            target_factor_category=metadata[factor_key][1],
+        )
+        for (field, value), factor_key in BUILTIN_VALUE_FACTOR_MAP.items()
+    }
+
+
+def builtin_legacy_mapping_snapshot() -> list[LegacyFactorAdapterEntry]:
+    """Return the six code-owned adapters available to snapshot-less packages."""
+    return sorted(
+        _builtin_legacy_adapter().values(),
+        key=lambda item: (item.source_field, item.source_value),
+    )
+
+
+def _manual_process_condition(node: ConditionNode) -> bool:
+    return (
+        bool(node.field)
+        and node.field.startswith("project_factor.manual_process_")
+        and node.op == "eq"
+        and type(node.value) is bool
+        and node.factor_id is None
+    )
+
+
+def _fixed_leaf_condition(
     package: RulePackageV2,
     node: ConditionNode,
     dynamic_factors: dict[str, dict[str, Any]],
     warnings: list[ValidationIssue],
     path: str,
-    mapping_registry: KmaiMappingRegistry,
-    mapping_usages: dict[str, KmaiMappingUsageSnapshot],
+    legacy_adapters: dict[tuple[str, str], LegacyFactorAdapterEntry] | None,
 ) -> list[list[dict[str, Any]]]:
+    if _manual_process_condition(node):
+        field = node.field or ""
+        factor_key = _dynamic_factor(package, field, dynamic_factors)
+        dynamic_factors[factor_key].update(
+            value_type="boolean",
+            multiple=False,
+            default_value=False,
+            source_mode="manual_override",
+        )
+        warnings.append(_issue("kmai_manual_override_required", f"manual Boolean factor requires override: {factor_key}", path))
+        return [[{"factor_key": factor_key, "op": "=", "value": node.value}]]
+
+    if node.factor_id is not None:
+        definition = standard_factor_map().get(node.factor_id)
+        binding_issues = validate_factor_bindings(node)
+        if definition is None:
+            raise StandardFactorExportError("standard_factor_unbound", "condition has no known standard factor")
+        if binding_issues:
+            raise StandardFactorExportError("standard_factor_mismatch", binding_issues[0].message)
+        if definition.kmai_value_mode == "presence":
+            return [[{"factor_key": definition.kmai_factor_key, "op": "=", "value": True}]]
+        mapped = _OPERATOR_MAP.get(node.op or "")
+        if not mapped:
+            raise ValueError(f"Unsupported KmAI V1 operator: {node.op}")
+        if definition.factor_id == "material.grade":
+            return [[{"factor_key": definition.kmai_factor_key, "op": mapped, "value": node.value}]]
+        factor_key = _dynamic_factor(package, definition.source_field, dynamic_factors)
+        warnings.append(_issue("kmai_manual_override_required", f"field {definition.source_field} requires KmAI manual.factor_overrides input: {factor_key}", path))
+        return [[{"factor_key": factor_key, "op": mapped, "value": node.value}]]
+
+    if legacy_adapters is None:
+        raise StandardFactorExportError("standard_factor_unbound", "condition has no bound standard factor")
+
     field = node.field or ""
     op = node.op or ""
     if field == "material.grade":
         mapped = _OPERATOR_MAP.get(op)
         if mapped:
             return [[{"factor_key": "material_grade", "op": mapped, "value": node.value}]]
+    if field not in {"cad.features", "precision.grades", "special.requirements"}:
+        raise StandardFactorExportError("standard_factor_unbound", f"historical condition is not covered by an immutable adapter: {field}")
+    values = node.value if isinstance(node.value, list) else [node.value]
+    leaves: list[dict[str, Any]] = []
+    for value in values:
+        entry = legacy_adapters.get(_legacy_adapter_key(field, value))
+        if entry is None:
+            raise StandardFactorExportError("standard_factor_unbound", f"historical condition is not covered by an immutable adapter: {field}")
+        if entry.mapping_mode == "manual_factor":
+            _mapped_manual_factor(entry, dynamic_factors)
+            warnings.append(_issue("kmai_manual_override_required", f"historical manual factor requires override: {entry.target_factor_key}", path))
+        leaves.append({"factor_key": entry.target_factor_key, "op": "=", "value": True})
+    if op in {"contains", "eq", "contains_all"}:
+        return [leaves]
+    if op in {"contains_any", "in"}:
+        return [[leaf] for leaf in leaves]
+    raise ValueError(f"Unsupported KmAI V1 operator: {op}")
 
-    if field in {"cad.features", "precision.grades", "special.requirements"}:
-        values = node.value if isinstance(node.value, list) else [node.value]
-        factor_keys: list[str] = []
-        catalog_by_key = {item.factor_key: item for item in builtin_factor_catalog()}
-        for value in values:
-            snapshot = mapping_registry.resolve(field, str(value))
-            factor_key = snapshot.target_factor_key if snapshot is not None else None
-            if snapshot is not None:
-                if snapshot.mapping_mode == "existing_factor":
-                    catalog_item = catalog_by_key.get(snapshot.target_factor_key)
-                    value_type = catalog_item.value_type if catalog_item is not None else "unknown"
-                    if value_type != "boolean":
-                        raise _IncompatibleMappingTarget(
-                            field,
-                            normalize_mapping_value(value),
-                            snapshot.target_factor_key,
-                            value_type,
-                        )
-                mapping_usages[snapshot.mapping_identity] = KmaiMappingUsageSnapshot.model_validate(
-                    snapshot.model_dump(mode="json")
-                )
-                if snapshot.mapping_mode == "manual_factor":
-                    _mapped_manual_factor(snapshot, dynamic_factors)
-            if not factor_key and field == "special.requirements":
-                factor_key = _dynamic_special_requirement_factor(str(value), dynamic_factors)
-                warnings.append(
-                    _issue(
-                        "kmai_manual_override_required",
-                        f"特殊要求“{value}”将作为 KmAI 手工布尔因子 {factor_key} 输入。",
-                        path,
-                    )
-                )
-            if not factor_key:
-                raise _UnmappedMappingValue(field, normalize_mapping_value(value))
-            factor_keys.append(factor_key)
-        leaves = [{"factor_key": factor_key, "op": "=", "value": True} for factor_key in factor_keys]
-        if op in {"contains", "eq", "contains_all"}:
-            return [leaves]
-        if op in {"contains_any", "in"}:
-            return [[leaf] for leaf in leaves]
-        raise ValueError(f"字段 {field} 不支持转换操作符：{op}")
 
-    mapped = _OPERATOR_MAP.get(op)
-    if not mapped:
-        raise ValueError(f"KmAI V1 不支持操作符：{op}")
-    factor_key = _dynamic_factor(package, field, dynamic_factors)
-    warnings.append(
-        _issue(
-            "kmai_manual_override_required",
-            f"字段 {field} 需由 KmAI manual.factor_overrides 提供，因素键为 {factor_key}",
-            path,
-        )
+def _leaf_condition(
+    package: RulePackageV2,
+    node: ConditionNode,
+    dynamic_factors: dict[str, dict[str, Any]],
+    warnings: list[ValidationIssue],
+    path: str,
+    legacy_adapters: dict[tuple[str, str], LegacyFactorAdapterEntry] | None,
+) -> list[list[dict[str, Any]]]:
+    return _fixed_leaf_condition(
+        package,
+        node,
+        dynamic_factors,
+        warnings,
+        path,
+        legacy_adapters,
     )
-    return [[{"factor_key": factor_key, "op": mapped, "value": node.value}]]
 
 
 def _condition_dnf(
@@ -515,8 +596,7 @@ def _condition_dnf(
     dynamic_factors: dict[str, dict[str, Any]],
     warnings: list[ValidationIssue],
     path: str,
-    mapping_registry: KmaiMappingRegistry,
-    mapping_usages: dict[str, KmaiMappingUsageSnapshot],
+    legacy_adapters: dict[tuple[str, str], LegacyFactorAdapterEntry] | None,
 ) -> list[list[dict[str, Any]]]:
     if node.field is not None:
         return _leaf_condition(
@@ -525,8 +605,7 @@ def _condition_dnf(
             dynamic_factors,
             warnings,
             path,
-            mapping_registry,
-            mapping_usages,
+            legacy_adapters,
         )
     if node.all_conditions is not None:
         groups = [
@@ -536,8 +615,7 @@ def _condition_dnf(
                 dynamic_factors,
                 warnings,
                 f"{path}.all[{index}]",
-                mapping_registry,
-                mapping_usages,
+                legacy_adapters,
             )
             for index, child in enumerate(node.all_conditions)
         ]
@@ -555,8 +633,7 @@ def _condition_dnf(
                     dynamic_factors,
                     warnings,
                     f"{path}.any[{index}]",
-                    mapping_registry,
-                    mapping_usages,
+                    legacy_adapters,
                 )
             )
         return clauses
@@ -596,54 +673,6 @@ def _condition_expansion_size(node: ConditionNode) -> tuple[int, int]:
     raise ValueError("KmAI V1 暂不支持 not 条件，请先在 ProcessMind 中改写为正向条件")
 
 
-def _collect_unmapped_mapping_values(
-    node: ConditionNode,
-    mapping_registry: KmaiMappingRegistry,
-    unmapped_mappings: dict[tuple[str, str], dict[str, Any]],
-    rule_id: str,
-) -> bool:
-    """Collect every unresolved CAD/precision value before converting a rule."""
-    if node.field is not None:
-        if node.field not in {"cad.features", "precision.grades"}:
-            return False
-        values = node.value if isinstance(node.value, list) else [node.value]
-        unresolved = False
-        for value in values:
-            normalized_value = normalize_mapping_value(value)
-            if mapping_registry.resolve(node.field, normalized_value) is not None:
-                continue
-            details = unmapped_mappings.setdefault(
-                (node.field, normalized_value),
-                {"occurrences": 0, "rule_refs": set()},
-            )
-            details["occurrences"] += 1
-            details["rule_refs"].add(rule_id)
-            unresolved = True
-        return unresolved
-
-    children = node.all_conditions or node.any_conditions
-    if children is not None:
-        return any(
-            [
-                _collect_unmapped_mapping_values(
-                    child,
-                    mapping_registry,
-                    unmapped_mappings,
-                    rule_id,
-                )
-                for child in children
-            ]
-        )
-    if node.not_condition is not None:
-        return _collect_unmapped_mapping_values(
-            node.not_condition,
-            mapping_registry,
-            unmapped_mappings,
-            rule_id,
-        )
-    return False
-
-
 def _configured_max_combinations() -> int:
     raw_value = os.getenv(KMAI_MAX_COMBINATIONS_ENV, "").strip()
     if not raw_value:
@@ -674,22 +703,13 @@ def _route_rules(
     warnings: list[ValidationIssue],
     max_combinations: int,
     max_condition_objects: int,
-    mapping_registry: KmaiMappingRegistry,
-    mapping_usages: dict[str, KmaiMappingUsageSnapshot],
-    unmapped_mappings: dict[tuple[str, str], dict[str, Any]],
+    legacy_adapters: dict[tuple[str, str], LegacyFactorAdapterEntry] | None,
 ) -> dict[str, Any]:
     rules: list[dict[str, Any]] = []
     generated_combination_count = 0
     generated_condition_object_count = 0
     for rule_index, rule in enumerate(package.route_rules.rules):
         path = f"route_rules.rules[{rule_index}]"
-        if _collect_unmapped_mapping_values(
-            rule.when,
-            mapping_registry,
-            unmapped_mappings,
-            rule.rule_id,
-        ):
-            continue
         try:
             combination_count, condition_object_count = _condition_expansion_size(rule.when)
         except ValueError as exc:
@@ -736,27 +756,10 @@ def _route_rules(
                 dynamic_factors,
                 warnings,
                 f"{path}.when",
-                mapping_registry,
-                mapping_usages,
+                legacy_adapters,
             )
-        except _UnmappedMappingValue as exc:
-            details = unmapped_mappings.setdefault(
-                (exc.field, exc.value),
-                {"occurrences": 0, "rule_refs": set()},
-            )
-            details["occurrences"] += 1
-            details["rule_refs"].add(rule.rule_id)
-            continue
-        except _IncompatibleMappingTarget as exc:
-            errors.append(
-                _issue(
-                    "kmai_mapping_factor_type_incompatible",
-                    str(exc),
-                    f"{path}.when",
-                    field=exc.field,
-                    value=exc.value,
-                )
-            )
+        except StandardFactorExportError as exc:
+            errors.append(_issue(exc.code, str(exc), f"{path}.when"))
             continue
         except ValueError as exc:
             errors.append(_issue("kmai_condition_unsupported", str(exc), f"{path}.when"))
@@ -806,17 +809,22 @@ def _route_rules(
 
 def build_kmai_compatibility_export(
     package: RulePackageV2,
-    mapping_registry: KmaiMappingRegistry | None = None,
     *,
+    legacy_mapping_snapshot: Sequence[LegacyFactorAdapterEntry] | None = None,
     max_combinations: int | None = None,
     max_condition_objects: int | None = None,
 ) -> KmaiCompatibilityExport:
     errors: list[ValidationIssue] = []
     warnings: list[ValidationIssue] = []
     dynamic_factors: dict[str, dict[str, Any]] = {}
-    registry = mapping_registry or builtin_mapping_registry()
-    mapping_usages: dict[str, KmaiMappingUsageSnapshot] = {}
-    unmapped_mappings: dict[tuple[str, str], dict[str, Any]] = {}
+    legacy_adapters = (
+        {
+            _legacy_adapter_key(entry.source_field, entry.source_value): entry
+            for entry in legacy_mapping_snapshot
+        }
+        if legacy_mapping_snapshot is not None
+        else None
+    )
     combination_limit = max_combinations or _configured_max_combinations()
     if combination_limit <= 0:
         combination_limit = DEFAULT_KMAI_MAX_COMBINATIONS
@@ -832,9 +840,7 @@ def build_kmai_compatibility_export(
         warnings,
         combination_limit,
         condition_object_limit,
-        registry,
-        mapping_usages,
-        unmapped_mappings,
+        legacy_adapters,
     )
     factor_schema = _factor_schema(package, dynamic_factors)
     factor_expansion_rules = _factor_expansion_rules(package)
@@ -851,25 +857,6 @@ def build_kmai_compatibility_export(
                     )
                 )
 
-    suggested_existing_factors = [
-        item.factor_key
-        for item in builtin_factor_catalog()
-        if item.value_type == "boolean"
-    ]
-    for (field, value), details in sorted(unmapped_mappings.items()):
-        errors.append(
-            _issue(
-                "kmai_mapping_required",
-                f"字段 {field} 存在需要映射到 KmAI 因素的值：{value}",
-                field=field,
-                value=value,
-                occurrences=details["occurrences"],
-                rule_refs=sorted(details["rule_refs"]),
-                suggested_existing_factors=suggested_existing_factors,
-                can_create_manual_factor=True,
-            )
-        )
-
     files = {
         "factor_schema.json": factor_schema,
         "factor_expansion_rules.json": factor_expansion_rules,
@@ -882,6 +869,5 @@ def build_kmai_compatibility_export(
         errors=errors,
         warnings=warnings,
         files=files,
-        mapping_signature=registry.signature,
-        mapping_usages=sorted(mapping_usages.values(), key=lambda item: item.mapping_identity),
+        factor_catalog_version=STANDARD_FACTOR_CATALOG_VERSION,
     )
