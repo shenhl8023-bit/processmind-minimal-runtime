@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import hashlib
 import logging
 import os
 import re
@@ -27,6 +26,7 @@ from app.services.rule_packages.condition_registry import (
 )
 from app.services.rule_packages.contracts import ConditionNode, RuleAction
 from app.services.rule_packages.expression_engine import iter_condition_fields
+from app.services.rule_packages.standard_factors import bind_unambiguous_factor_ids
 
 CONDITION_PARSER_VERSION = "2026.07.27.2"
 logger = logging.getLogger(__name__)
@@ -301,57 +301,6 @@ def _leaf_from_clause(clause: str) -> ConditionNode | None:
     return None
 
 
-def _project_factor_key(label: str) -> str:
-    normalized = re.sub(r"\s+", "", str(label or "").strip()).casefold()
-    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:12]
-    return f"project_factor.{digest}"
-
-
-def _dynamic_categorical_condition(
-    source_text: str,
-) -> tuple[ConditionNode, CanonicalConditionField] | None:
-    text = str(source_text or "").strip()
-    if not text or not re.search(r"纳入|加入|安排|设置|增加|出现|进行|执行|实施|排除|不纳入|取消", text):
-        return None
-    if re.search(r"前面|此前|之前|之后|完成后|依赖|前置|互斥|不能同时|不得同时", text):
-        return None
-    match = re.search(
-        r"(?:当|如果|若)?\s*(?:零件|产品|工件)?\s*"
-        r"(?P<label>[\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z0-9_／/\-]{1,23}?)\s*"
-        r"(?:为|是|等于|属于)\s*[“\"']?"
-        r"(?P<value>[^，,。；;\s时则]{1,30})[”\"']?\s*"
-        r"(?:时|则|情况下|，|,|。|；|;)",
-        text,
-    )
-    if not match:
-        return None
-    label = match.group("label").strip()
-    raw_value = match.group("value").strip(" “'\"”")
-    values = [item.strip() for item in re.split(r"或者|或是|或|、", raw_value) if item.strip()]
-    if not label or not values or label in {"该工序", "此工序", "当前工序"}:
-        return None
-    if label in {"零件", "产品", "工件"}:
-        label = f"{label}类型"
-    key = _project_factor_key(label)
-    category = "材料" if re.search(r"材料|材质", label) else "用户因素"
-    definition = CanonicalConditionField(
-        key=key,
-        label=label,
-        category=category,
-        type="single_select",
-        operators=["eq", "neq", "in"],
-        aliases=[],
-        source="用户条件",
-        options=[{"value": value, "label": value} for value in values],
-        allow_custom=True,
-    )
-    return ConditionNode(
-        field=key,
-        op="in" if len(values) > 1 else "eq",
-        value=values if len(values) > 1 else values[0],
-    ), definition
-
-
 def _known_special_requirement(text: str, current_process_name: str) -> str | None:
     if re.search(r"无损|磁粉|裂纹|荧光|探伤", text):
         return "无损检测要求"
@@ -493,10 +442,8 @@ def _parse_locally(
     processes: list[RuleConditionProcessOption],
 ) -> RuleConditionCandidate | None:
     special_requirement = _known_special_requirement(source_text, current_process_name)
-    dynamic_condition = None if special_requirement else _dynamic_categorical_condition(source_text)
     when = ConditionNode(field="special.requirements", op="contains", value=special_requirement) if special_requirement else (
         _parse_condition_tree(source_text)
-        or (dynamic_condition[0] if dynamic_condition else None)
         or _generic_tag_condition(source_text)
     )
     if not when:
@@ -516,11 +463,24 @@ def _parse_locally(
         kind="condition",
         when=when,
         then=action,
-        field_definitions=[dynamic_condition[1]] if dynamic_condition and when.field == dynamic_condition[0].field else [],
-        preview=condition_preview(
-            when,
-            {dynamic_condition[1].key: dynamic_condition[1]} if dynamic_condition and when.field == dynamic_condition[0].field else None,
-        ),
+        preview=condition_preview(when),
+    )
+
+
+def _bind_candidate_factors(
+    candidate: RuleConditionCandidate,
+) -> tuple[RuleConditionCandidate, list[str]]:
+    if candidate.kind != "condition" or candidate.when is None:
+        return candidate, []
+    bound, binding_issues = bind_unambiguous_factor_ids(candidate.when)
+    return candidate.model_copy(update={"when": bound}), [issue.message for issue in binding_issues]
+
+
+def _has_unregistered_project_factor(candidate: RuleConditionCandidate) -> bool:
+    return any(
+        field.key.startswith("project_factor.")
+        and not field.key.startswith("project_factor.manual_process_")
+        for field in candidate.field_definitions
     )
 
 
@@ -671,7 +631,8 @@ async def parse_rule_condition(
         relation_issues = validate_candidate(local_relation_candidate, processes)
         if not relation_issues:
             logger.info("rule_condition_parse_source source=local_relation")
-            return local_relation_candidate, 0.9, []
+            bound_candidate, binding_issues = _bind_candidate_factors(local_relation_candidate)
+            return bound_candidate, 0.9, binding_issues
 
     if local_condition_candidate and (
         local_condition_candidate.field_definitions
@@ -680,7 +641,8 @@ async def parse_rule_condition(
         local_issues = validate_candidate(local_condition_candidate, processes)
         if not local_issues:
             logger.info("rule_condition_parse_source source=local_condition")
-            return local_condition_candidate, 0.9, []
+            bound_candidate, binding_issues = _bind_candidate_factors(local_condition_candidate)
+            return bound_candidate, 0.9, binding_issues
 
     candidate, confidence, issues = await _parse_with_llm(
         source_text,
@@ -694,6 +656,8 @@ async def parse_rule_condition(
         assert candidate is not None
         candidate = _convert_boolean_fields_to_special_requirements(candidate)
         validation_issues = validate_candidate(candidate, processes)
+        if _has_unregistered_project_factor(candidate):
+            validation_issues.append("未注册的类别条件不能创建项目因素，请选择标准因子或使用人工 Bool 条件。")
         expected_special_requirement = (
             None if local_relation_candidate else _known_special_requirement(source_text, current_process_name)
         )
@@ -708,7 +672,8 @@ async def parse_rule_condition(
             local_relation_candidate and candidate.kind != "process_relation"
         ) and not (expected_special_requirement and not model_uses_expected_special_requirement):
             logger.info("rule_condition_parse_source source=llm")
-            return candidate, confidence, issues
+            bound_candidate, binding_issues = _bind_candidate_factors(candidate)
+            return bound_candidate, confidence, [*issues, *binding_issues]
         issues.extend(validation_issues)
         if local_relation_candidate and candidate.kind != "process_relation":
             issues.append("模型候选与明确的工序关系语义不一致，已改用关联工序候选。")
@@ -722,7 +687,8 @@ async def parse_rule_condition(
         if not relation_issues:
             fallback_note = "已使用内置规则解析器生成候选结果，请重点核对。" if issues else ""
             logger.info("rule_condition_parse_source source=local_relation_fallback")
-            return local_relation_candidate, 0.9, [*issues, *([fallback_note] if fallback_note else [])]
+            bound_candidate, binding_issues = _bind_candidate_factors(local_relation_candidate)
+            return bound_candidate, 0.9, [*issues, *binding_issues, *([fallback_note] if fallback_note else [])]
         issues.extend(relation_issues)
 
     local_candidate = local_condition_candidate
@@ -731,7 +697,8 @@ async def parse_rule_condition(
         if not local_issues:
             fallback_note = "已使用内置规则解析器生成候选结果，请重点核对。" if issues else ""
             logger.info("rule_condition_parse_source source=local_condition_fallback")
-            return local_candidate, 0.65, [*issues, *([fallback_note] if fallback_note else [])]
+            bound_candidate, binding_issues = _bind_candidate_factors(local_candidate)
+            return bound_candidate, 0.65, [*issues, *binding_issues, *([fallback_note] if fallback_note else [])]
         issues.extend(local_issues)
 
     logger.info("rule_condition_parse_source source=unresolved")

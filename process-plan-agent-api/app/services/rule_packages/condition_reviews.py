@@ -32,6 +32,12 @@ from app.services.rule_packages.condition_parser import (
     validate_candidate,
 )
 from app.services.rule_packages.condition_registry import FIELD_REGISTRY_VERSION, condition_preview
+from app.services.rule_packages.standard_factors import (
+    STANDARD_FACTOR_CATALOG_VERSION,
+    bind_unambiguous_factor_ids,
+    normalize_factor_leaves,
+    validate_factor_bindings,
+)
 from app.services.project_workflow_lifecycle import acquire_workflow_revision
 
 logger = logging.getLogger(__name__)
@@ -71,6 +77,55 @@ def _loads_issues(raw: str | None) -> list[str]:
     except Exception:
         return []
     return [str(item) for item in payload] if isinstance(payload, list) else []
+
+
+def _candidate_json(candidate: RuleConditionCandidate) -> str:
+    return json.dumps(candidate.model_dump(mode="json", by_alias=True), ensure_ascii=False)
+
+
+def _route_process_options(route: NormalizedRouteVersion) -> list[RuleConditionProcessOption]:
+    try:
+        route_items = json.loads(route.route_json or "[]")
+    except Exception:
+        route_items = []
+    options: list[RuleConditionProcessOption] = []
+    for item in route_items:
+        if not isinstance(item, dict):
+            continue
+        process_id = str(item.get("id") or "").strip()
+        if not process_id:
+            continue
+        display_name = str(
+            item.get("normalized_step_name") or item.get("process_name") or process_id
+        ).strip() or process_id
+        options.append(RuleConditionProcessOption(process_id=process_id, display_name=display_name))
+    return options
+
+
+def _migrate_review_candidate(
+    candidate: RuleConditionCandidate,
+    processes: list[RuleConditionProcessOption],
+) -> tuple[RuleConditionCandidate, list[str]]:
+    if candidate.kind != "condition" or candidate.when is None:
+        return candidate, validate_candidate(candidate, processes)
+    normalized = normalize_factor_leaves(candidate.when)
+    selected_binding_issues = [
+        issue
+        for issue in validate_factor_bindings(
+            normalized,
+            {field.key: field for field in candidate.field_definitions},
+        )
+        if issue.code == "factor_mismatch"
+    ]
+    bound, binding_issues = bind_unambiguous_factor_ids(normalized)
+    migrated = candidate.model_copy(update={"when": bound})
+    candidate_issues = validate_candidate(migrated, processes)
+    all_issues = [
+        *(f"{issue.path}: {issue.message}" if issue.path else issue.message for issue in selected_binding_issues),
+        *(f"{issue.path}: {issue.message}" if issue.path else issue.message for issue in binding_issues),
+        *candidate_issues,
+    ]
+    return migrated, list(dict.fromkeys(all_issues))
 
 
 def _special_requirement_for_legacy_boolean(field) -> str:
@@ -218,6 +273,79 @@ async def migrate_legacy_boolean_requirement_reviews(
         )
         review.condition_field_registry_version = FIELD_REGISTRY_VERSION
         changed = True
+    if changed:
+        await db.commit()
+    return changed
+
+
+async def migrate_legacy_standard_factor_reviews(
+    route: NormalizedRouteVersion,
+    db: AsyncSession,
+) -> bool:
+    """Safely recheck every unpublished condition review against the immutable catalog."""
+    reviews = (
+        await db.execute(
+            select(NormalizedRouteSegmentRuleReview).where(
+                NormalizedRouteSegmentRuleReview.route_version_id == route.id,
+            )
+        )
+    ).scalars().all()
+    processes = _route_process_options(route)
+    changed = False
+    for review in reviews:
+        candidate = _loads_candidate(review.condition_candidate_json)
+        confirmed = _loads_candidate(review.condition_confirmed_json)
+        if candidate is None and confirmed is None:
+            continue
+
+        migrated_candidate, candidate_issues = _migrate_review_candidate(
+            candidate or confirmed,
+            processes,
+        )
+        migrated_confirmed = None
+        confirmed_issues: list[str] = []
+        if confirmed is not None:
+            migrated_confirmed, confirmed_issues = _migrate_review_candidate(confirmed, processes)
+        all_issues = list(dict.fromkeys([*candidate_issues, *confirmed_issues]))
+
+        next_status = review.condition_status
+        next_candidate_json = _candidate_json(migrated_candidate)
+        next_confirmed_json = review.condition_confirmed_json
+        next_confirmed_by = review.condition_confirmed_by
+        next_confirmed_at = review.condition_confirmed_at
+        next_issues_json = review.condition_issues_json or "[]"
+        if confirmed is not None:
+            if all_issues:
+                next_status = "pending_confirmation"
+                next_confirmed_json = None
+                next_confirmed_by = None
+                next_confirmed_at = None
+                next_issues_json = json.dumps(all_issues, ensure_ascii=False)
+            else:
+                next_status = "confirmed"
+                next_confirmed_json = _candidate_json(migrated_confirmed or migrated_candidate)
+                next_issues_json = "[]"
+        elif all_issues:
+            next_status = "pending_confirmation"
+            next_issues_json = json.dumps(all_issues, ensure_ascii=False)
+
+        if (
+            review.condition_status != next_status
+            or review.condition_candidate_json != next_candidate_json
+            or review.condition_confirmed_json != next_confirmed_json
+            or review.condition_confirmed_by != next_confirmed_by
+            or review.condition_confirmed_at != next_confirmed_at
+            or review.condition_issues_json != next_issues_json
+            or review.condition_field_registry_version != STANDARD_FACTOR_CATALOG_VERSION
+        ):
+            review.condition_status = next_status
+            review.condition_candidate_json = next_candidate_json
+            review.condition_confirmed_json = next_confirmed_json
+            review.condition_confirmed_by = next_confirmed_by
+            review.condition_confirmed_at = next_confirmed_at
+            review.condition_issues_json = next_issues_json
+            review.condition_field_registry_version = STANDARD_FACTOR_CATALOG_VERSION
+            changed = True
     if changed:
         await db.commit()
     return changed
@@ -429,6 +557,14 @@ async def confirm_condition_review(
     issues = validate_candidate(candidate, body.processes)
     if issues:
         raise HTTPException(422, {"message": "候选规则校验未通过", "issues": issues})
+    if candidate.kind == "condition" and candidate.when is not None:
+        definitions = {field.key: field for field in candidate.field_definitions}
+        binding_issues = validate_factor_bindings(candidate.when, definitions)
+        if binding_issues:
+            raise HTTPException(422, {
+                "message": "标准因子绑定校验未通过",
+                "issues": [issue.model_dump(mode="json") for issue in binding_issues],
+            })
 
     if candidate.kind == "condition" and candidate.when is not None:
         candidate.preview = condition_preview(candidate.when)
@@ -481,6 +617,15 @@ async def set_manual_condition_review(
     )
     if not valid_manual_shape:
         raise HTTPException(422, "人工 Bool 条件必须只控制当前工序，并使用固定的用户开关字段。")
+    binding_issues = validate_factor_bindings(
+        candidate.when,
+        {field.key: field for field in candidate.field_definitions},
+    )
+    if binding_issues:
+        raise HTTPException(422, {
+            "message": "人工设定的规则校验未通过",
+            "issues": [issue.model_dump(mode="json") for issue in binding_issues],
+        })
 
     candidate.preview = condition_preview(candidate.when, {field.key: field for field in candidate.field_definitions})
     candidate_json = json.dumps(candidate.model_dump(mode="json", by_alias=True), ensure_ascii=False)

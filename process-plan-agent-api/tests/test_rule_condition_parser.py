@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.database import Base
-from app.models.models import NormalizedRouteSegmentRuleReview, NormalizedRouteVersion, Project
+from app.models.models import KmaiFactorMapping, NormalizedRouteSegmentRuleReview, NormalizedRouteVersion, Project
 from app.services.rule_packages import condition_parser
 from app.services.rule_packages.condition_contracts import (
     ConfirmRuleConditionRequest,
@@ -22,6 +22,8 @@ from app.services.rule_packages.condition_reviews import (
     confirm_condition_review,
     invalidate_legacy_nondestructive_relation_reviews,
     migrate_legacy_boolean_requirement_reviews,
+    migrate_legacy_standard_factor_reviews,
+    serialize_condition_review,
     set_manual_condition_review,
     parse_condition_review,
     save_condition_draft,
@@ -87,6 +89,23 @@ async def test_parses_it_grade_into_controlled_numeric_field():
     assert candidate.then.include_process_ids == ["process_grind_outer"]
     assert "IT8" in candidate.evidence
     assert confidence == 0.9
+    assert issues == []
+
+
+@pytest.mark.asyncio
+async def test_parser_binds_an_exact_standard_factor():
+    """A parser regression that drops catalog IDs would make the candidate unconfirmable."""
+    candidate, confidence, issues = await condition_parser.parse_rule_condition(
+        "当存在顶尖孔时，纳入磨外圆工序",
+        "process_grind_outer",
+        "磨外圆",
+        PROCESSES,
+    )
+
+    assert candidate is not None
+    assert candidate.when is not None
+    assert candidate.when.factor_id == "feature.center_hole_location"
+    assert confidence >= 0.85
     assert issues == []
 
 
@@ -205,11 +224,11 @@ async def test_partial_compound_condition_uses_llm_instead_of_dropping_unknown_c
         "cad.features",
     ]
     assert confidence == 0.9
-    assert issues == []
+    assert any("标准因子" in issue for issue in issues)
 
 
 @pytest.mark.asyncio
-async def test_creates_project_factor_for_unregistered_categorical_field():
+async def test_unregistered_categorical_field_stays_unresolved():
     candidate, confidence, issues = await condition_parser.parse_rule_condition(
         "当材料类别为不锈钢时，纳入渗氮工序",
         "process_nitriding",
@@ -217,30 +236,13 @@ async def test_creates_project_factor_for_unregistered_categorical_field():
         [RuleConditionProcessOption(process_id="process_nitriding", display_name="渗氮")],
     )
 
-    assert candidate is not None
-    assert candidate.kind == "condition"
-    assert candidate.when is not None
-    assert candidate.when.op == "eq"
-    assert candidate.when.value == "不锈钢"
-    assert candidate.when.field.startswith("project_factor.")
-    assert candidate.then is not None
-    assert candidate.then.include_process_ids == ["process_nitriding"]
-    assert len(candidate.field_definitions) == 1
-    definition = candidate.field_definitions[0]
-    assert definition.key == candidate.when.field
-    assert definition.label == "材料类别"
-    assert definition.type == "single_select"
-    assert definition.operators == ["eq", "neq", "in"]
-    assert definition.options == [{"value": "不锈钢", "label": "不锈钢"}]
-    assert definition.allow_custom is True
-    assert "材料类别" in candidate.preview
-    assert "不锈钢" in candidate.preview
-    assert confidence == 0.9
-    assert issues == []
+    assert candidate is None
+    assert confidence is None
+    assert any("无法可靠映射" in issue for issue in issues)
 
 
 @pytest.mark.asyncio
-async def test_creates_one_project_factor_with_multiple_user_authored_categories():
+async def test_unregistered_categorical_values_do_not_create_project_factor():
     candidate, confidence, issues = await condition_parser.parse_rule_condition(
         "当材料类别为不锈钢或高温合金时，纳入渗氮工序",
         "process_nitriding",
@@ -248,16 +250,9 @@ async def test_creates_one_project_factor_with_multiple_user_authored_categories
         [RuleConditionProcessOption(process_id="process_nitriding", display_name="渗氮")],
     )
 
-    assert candidate is not None
-    assert candidate.when is not None
-    assert candidate.when.op == "in"
-    assert candidate.when.value == ["不锈钢", "高温合金"]
-    assert candidate.field_definitions[0].options == [
-        {"value": "不锈钢", "label": "不锈钢"},
-        {"value": "高温合金", "label": "高温合金"},
-    ]
-    assert confidence == 0.9
-    assert issues == []
+    assert candidate is None
+    assert confidence is None
+    assert any("无法可靠映射" in issue for issue in issues)
 
 
 @pytest.mark.asyncio
@@ -295,7 +290,7 @@ async def test_process_name_inside_requirement_is_not_treated_as_relation():
     assert candidate.when.field == "special.requirements"
     assert candidate.when.value == "镀铜要求"
     assert confidence == 0.65
-    assert issues == []
+    assert any("标准因子" in issue for issue in issues)
 
 
 @pytest.mark.asyncio
@@ -429,7 +424,7 @@ async def test_parses_generic_surface_requirement_as_special_requirement():
     assert candidate.when.op == "contains"
     assert candidate.when.value == "镀铜要求"
     assert candidate.field_definitions == []
-    assert issues == []
+    assert any("标准因子" in issue for issue in issues)
 
 
 @pytest.mark.asyncio
@@ -449,8 +444,9 @@ async def test_maps_unseen_structural_feature_to_extensible_cad_tag():
     assert candidate.when.value == "异形凸台"
     assert candidate.then is not None
     assert candidate.then.include_process_ids == ["process_mill_boss"]
+    assert candidate.when.factor_id is None
     assert confidence == 0.65
-    assert issues == []
+    assert any("标准因子" in issue for issue in issues)
 
 
 @pytest.mark.asyncio
@@ -468,7 +464,8 @@ async def test_maps_unseen_process_requirement_to_extensible_special_tag():
     assert candidate.when.field == "special.requirements"
     assert candidate.when.op == "contains"
     assert candidate.when.value == "真空清洗要求"
-    assert issues == []
+    assert candidate.when.factor_id is None
+    assert any("标准因子" in issue for issue in issues)
 
 
 @pytest.mark.asyncio
@@ -486,7 +483,7 @@ async def test_does_not_invent_a_tag_for_vague_condition_text():
 
 
 @pytest.mark.asyncio
-async def test_creates_project_factor_for_unknown_part_category_instead_of_special_requirement():
+async def test_unknown_part_category_stays_unresolved_instead_of_creating_project_factor():
     processes = [RuleConditionProcessOption(process_id="process_optional", display_name="辅助加工")]
     candidate, _, issues = await condition_parser.parse_rule_condition(
         "当零件属于A类时，安排辅助加工工序",
@@ -495,15 +492,8 @@ async def test_creates_project_factor_for_unknown_part_category_instead_of_speci
         processes,
     )
 
-    assert candidate is not None
-    assert candidate.when is not None
-    assert candidate.when.field.startswith("project_factor.")
-    assert candidate.when.op == "eq"
-    assert candidate.when.value == "A类"
-    assert candidate.when.field != "special.requirements"
-    assert candidate.field_definitions[0].label == "零件类型"
-    assert candidate.field_definitions[0].options == [{"value": "A类", "label": "A类"}]
-    assert issues == []
+    assert candidate is None
+    assert any("无法可靠映射" in issue for issue in issues)
 
 
 @pytest.mark.asyncio
@@ -614,7 +604,7 @@ async def test_llm_evidence_is_replaced_when_it_is_not_an_exact_source_excerpt(m
     assert candidate.evidence in source_text
     assert candidate.evidence != "图纸明确标注复杂异形轮廓"
     assert confidence == 0.92
-    assert issues == []
+    assert any("标准因子" in issue for issue in issues)
 
 
 @pytest.mark.asyncio
@@ -736,8 +726,124 @@ async def test_manual_boolean_rule_is_confirmed_without_model_parsing():
         assert response.review.confirmed is not None
         assert response.review.confirmed.when is not None
         assert response.review.confirmed.when.field == "project_factor.manual_process_487e1c0a"
+        assert response.review.confirmed.when.factor_id is None
         assert response.review.confirmed_by == "用户直接设定"
 
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_confirm_rejects_unknown_unbound_standard_value():
+    """Changing confirmation to skip binding checks would permit an unmapped condition."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    source_text = "当精度等级包含未知精加工时，纳入磨外圆工序"
+    candidate = condition_parser.RuleConditionCandidate.model_validate({
+        "kind": "condition",
+        "when": {"field": "precision.grades", "op": "contains", "value": "未知精加工"},
+        "then": {"include_process_ids": ["process_grind_outer"], "exclude_process_ids": []},
+    })
+
+    async with session_factory() as session:
+        session.add(NormalizedRouteVersion(
+            id=1,
+            project_id=7,
+            version=1,
+            route_json='[{"id":"process_grind_outer"}]',
+        ))
+        session.add(NormalizedRouteSegmentRuleReview(
+            project_id=7,
+            route_version_id=1,
+            segment_id="process_grind_outer",
+            decision="accepted",
+            note="",
+            summary_json="[]",
+            question_trail_json="[]",
+            condition_status="pending_confirmation",
+            condition_source_text=source_text,
+            condition_source_hash=condition_source_hash(source_text),
+            condition_candidate_json=json.dumps(candidate.model_dump(mode="json"), ensure_ascii=False),
+        ))
+        await session.commit()
+
+        with pytest.raises(HTTPException) as error:
+            await confirm_condition_review(
+                ConfirmRuleConditionRequest(
+                    project_id=7,
+                    route_id=1,
+                    segment_id="process_grind_outer",
+                    source_text=source_text,
+                    source_hash=condition_source_hash(source_text),
+                    candidate=candidate,
+                    processes=[RuleConditionProcessOption(process_id="process_grind_outer", display_name="磨外圆")],
+                    confirmed_by="测试用户",
+                ),
+                session,
+            )
+
+    assert error.value.status_code == 422
+    assert "标准因子" in str(error.value.detail)
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_confirm_rejects_the_second_unbound_compound_leaf():
+    """The second branch must not be hidden when the first branch is bound."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    source_text = "孔精加工且未知精加工时，纳入磨外圆工序"
+    candidate = condition_parser.RuleConditionCandidate.model_validate({
+        "kind": "condition",
+        "when": {"all": [
+            {"field": "precision.grades", "op": "contains", "value": "孔精加工", "factor_id": "precision.hole_finish"},
+            {"field": "precision.grades", "op": "contains", "value": "未知精加工"},
+        ]},
+        "then": {"include_process_ids": ["process_grind_outer"], "exclude_process_ids": []},
+    })
+
+    async with session_factory() as session:
+        session.add(NormalizedRouteVersion(
+            id=1,
+            project_id=7,
+            version=1,
+            route_json='[{"id":"process_grind_outer"}]',
+        ))
+        session.add(NormalizedRouteSegmentRuleReview(
+            project_id=7,
+            route_version_id=1,
+            segment_id="process_grind_outer",
+            decision="accepted",
+            note="",
+            summary_json="[]",
+            question_trail_json="[]",
+            condition_status="pending_confirmation",
+            condition_source_text=source_text,
+            condition_source_hash=condition_source_hash(source_text),
+            condition_candidate_json=json.dumps(candidate.model_dump(mode="json"), ensure_ascii=False),
+        ))
+        await session.commit()
+
+        with pytest.raises(HTTPException) as error:
+            await confirm_condition_review(
+                ConfirmRuleConditionRequest(
+                    project_id=7,
+                    route_id=1,
+                    segment_id="process_grind_outer",
+                    source_text=source_text,
+                    source_hash=condition_source_hash(source_text),
+                    candidate=candidate,
+                    processes=[RuleConditionProcessOption(process_id="process_grind_outer", display_name="磨外圆")],
+                    confirmed_by="测试用户",
+                ),
+                session,
+            )
+
+    assert error.value.status_code == 422
+    assert error.value.detail["issues"][0]["path"] == "all[1]"
     await engine.dispose()
 
 
@@ -1214,6 +1320,123 @@ async def test_migrates_legacy_boolean_requirement_to_special_requirement():
         assert migrated["when"] == {"all": None, "any": None, "not": None, "field": "special.requirements", "op": "contains", "value": "追溯标印"}
         assert migrated["field_definitions"] == []
 
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_migrates_only_valid_unpublished_standard_factor_reviews():
+    """A migration regression must not retain confirmations for unmapped leaves or removed actions."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    def condition(when, include_process_id):
+        return {
+            "kind": "condition",
+            "when": when,
+            "then": {"include_process_ids": [include_process_id], "exclude_process_ids": []},
+        }
+
+    async with session_factory() as session:
+        project = Project(id=7, name="标准因子迁移")
+        route = NormalizedRouteVersion(
+            id=1,
+            project_id=7,
+            version=1,
+            route_json=json.dumps([
+                {"id": "process_keep", "normalized_step_name": "保留工序"},
+                {"id": "process_unknown", "normalized_step_name": "未知条件工序"},
+                {"id": "process_compound", "normalized_step_name": "复合条件工序"},
+                {"id": "process_changed", "normalized_step_name": "目标已改变"},
+            ], ensure_ascii=False),
+        )
+        known_payload = condition(
+            {"field": "precision.grades", "op": "contains", "value": "孔精加工"},
+            "process_keep",
+        )
+        unknown_payload = condition(
+            {"field": "precision.grades", "op": "contains", "value": "未知精加工"},
+            "process_unknown",
+        )
+        compound_payload = condition(
+            {"all": [
+                {"field": "precision.grades", "op": "contains", "value": "孔精加工"},
+                {"field": "precision.grades", "op": "contains", "value": "未知精加工"},
+            ]},
+            "process_compound",
+        )
+        removed_target_payload = condition(
+            {"field": "precision.grades", "op": "contains", "value": "孔精加工"},
+            "process_removed",
+        )
+
+        def review(segment_id, payload):
+            raw = json.dumps(payload, ensure_ascii=False)
+            return NormalizedRouteSegmentRuleReview(
+                project_id=7,
+                route_version_id=1,
+                segment_id=segment_id,
+                decision="accepted",
+                note="",
+                summary_json="[]",
+                question_trail_json="[]",
+                condition_status="confirmed",
+                condition_candidate_json=raw,
+                condition_confirmed_json=raw,
+                condition_confirmed_by="旧确认用户",
+                condition_confirmed_at=None,
+                condition_field_registry_version="2025.01",
+            )
+
+        known_row = review("process_keep", known_payload)
+        unknown_row = review("process_unknown", unknown_payload)
+        compound_row = review("process_compound", compound_payload)
+        removed_target_row = review("process_changed", removed_target_payload)
+        obsolete_mapping = KmaiFactorMapping(
+            scope="project",
+            project_id=7,
+            source_field="precision.grades",
+            source_value="未知精加工",
+            mapping_mode="existing_factor",
+            target_factor_key="legacy_unknown_finish",
+            target_factor_name="旧的未知精加工映射",
+            target_factor_category="精度要求",
+        )
+        session.add_all([
+            project,
+            route,
+            known_row,
+            unknown_row,
+            compound_row,
+            removed_target_row,
+            obsolete_mapping,
+        ])
+        await session.commit()
+
+        assert await migrate_legacy_standard_factor_reviews(route, session) is True
+        assert await migrate_legacy_standard_factor_reviews(route, session) is False
+
+        known = serialize_condition_review(known_row)
+        unknown = serialize_condition_review(unknown_row)
+        compound = serialize_condition_review(compound_row)
+        removed_target = serialize_condition_review(removed_target_row)
+
+    assert known.status == "confirmed"
+    assert known.confirmed is not None
+    assert known.confirmed.when is not None
+    assert known.confirmed.when.factor_id == "precision.hole_finish"
+    assert known.field_registry_version == "2026.11"
+    for review in (unknown, compound, removed_target):
+        assert review.status == "pending_confirmation"
+        assert review.confirmed is None
+        assert review.candidate is not None
+        assert review.issues
+    assert unknown.candidate.when is not None
+    assert unknown.candidate.when.factor_id is None
+    assert any("标准因子" in issue for issue in unknown.issues)
+    assert any("all[1]" in issue for issue in compound.issues)
+    assert any("当前路线中不存在" in issue for issue in removed_target.issues)
     await engine.dispose()
 
 

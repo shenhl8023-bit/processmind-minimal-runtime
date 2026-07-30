@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.services.rule_packages.contracts import (
     CompileRulePackageRequest,
+    FactorBindingIssue,
     RulePackageManifestV2,
     RulePackageV2,
     InputSchemaV2,
@@ -11,9 +12,23 @@ from app.services.rule_packages.contracts import (
     RouteCatalogV2,
     RouteRulesV2,
 )
+from app.services.rule_packages.validator import validate_rule_factor_bindings
+
+
+class RulePackageCompilationError(Exception):
+    def __init__(self, issues: list[FactorBindingIssue]):
+        super().__init__("标准因子绑定校验未通过")
+        self.issues = issues
 
 
 def compile_rule_package(request: CompileRulePackageRequest) -> RulePackageV2:
+    binding_issues = validate_rule_factor_bindings(
+        request.rules,
+        request.fields,
+        path_prefix="rules",
+    )
+    if binding_issues:
+        raise RulePackageCompilationError(binding_issues)
     return RulePackageV2(
         manifest=RulePackageManifestV2(
             package_name=request.package_name,

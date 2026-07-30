@@ -11,6 +11,7 @@ from app.services.rule_packages import (
     rule_package_content_hash,
     validate_rule_package,
 )
+from app.services.rule_packages.compiler import RulePackageCompilationError
 from app.services.rule_packages.contracts import (
     CompileRulePackageRequest,
     CompileRulePackageResponse,
@@ -100,7 +101,14 @@ async def compile_v2_rule_package(
     body: CompileRulePackageRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    package = compile_rule_package(body)
+    try:
+        package = compile_rule_package(body)
+    except RulePackageCompilationError as error:
+        serialized_issues = [issue.model_dump(mode="json") for issue in error.issues]
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "标准因子绑定校验未通过", "issues": serialized_issues},
+        ) from error
     mapping_registry = await load_effective_mapping_registry(db, package.manifest.project_id)
     return CompileRulePackageResponse(
         package=package,

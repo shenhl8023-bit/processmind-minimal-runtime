@@ -18,6 +18,18 @@ def test_valid_package_runs_embedded_cases(rule_package_v2):
     assert [result.passed for result in report.test_results] == [True]
 
 
+def test_historical_package_without_factor_ids_still_deserializes(rule_package_v2_payload):
+    """Binding enforcement belongs to new compile/save boundaries, not historical reads."""
+    historical = deepcopy(rule_package_v2_payload)
+    historical["route_rules"]["rules"][0]["when"]["all"][0].pop("factor_id", None)
+    historical["route_rules"]["rules"][0]["when"]["all"][1].pop("factor_id", None)
+    historical["route_rules"]["rules"][1]["when"].pop("factor_id", None)
+
+    package = RulePackageV2.model_validate(historical)
+
+    assert package.manifest.schema_version == "2.0"
+
+
 def test_plan_uses_stable_ids_and_dependency_order(rule_package_v2):
     plan = plan_route(
         rule_package_v2,

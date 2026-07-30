@@ -109,8 +109,8 @@
         "enabled": true,
         "when": {
           "all": [
-            {"field": "material.grade", "op": "in", "value": ["9Cr18", "95Cr18"]},
-            {"field": "target_hardness_hrc", "op": "gte", "value": 55}
+            {"field": "material.grade", "op": "in", "value": ["9Cr18", "95Cr18"], "factor_id": "material.grade"},
+            {"field": "target_hardness_hrc", "op": "gte", "value": 55, "factor_id": "measurement.hardness_hrc"}
           ]
         },
         "then": {"include_process_ids": ["process_quench"], "exclude_process_ids": [], "reason": "材料和硬度要求"}
@@ -119,7 +119,7 @@
         "rule_id": "feature.slot.mill",
         "priority": 90,
         "enabled": true,
-        "when": {"field": "cad.features", "op": "contains", "value": "槽类特征"},
+        "when": {"field": "cad.features", "op": "contains", "value": "槽类特征", "factor_id": "feature.slot"},
         "then": {"include_process_ids": ["process_mill_slot"], "exclude_process_ids": [], "reason": "CAD 槽特征"}
       }
     ]

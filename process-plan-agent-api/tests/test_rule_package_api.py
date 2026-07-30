@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.database import Base, get_db
 from app.main import app
+from app.models.models import NormalizedRouteVersion, Project
 from app.services.db_schema_maintenance import ensure_project_schema
 from app.services.rule_packages.standard_factors import STANDARD_FACTOR_CATALOG_VERSION
 
@@ -36,6 +37,17 @@ def isolated_rule_package_db(tmp_path):
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
             await ensure_project_schema(conn)
+        async with session_factory() as session:
+            session.add_all([
+                Project(id=12, name="规则包 API 测试", status="ROUTE_SET_READY"),
+                NormalizedRouteVersion(
+                    id=31,
+                    project_id=12,
+                    version=1,
+                    route_json="[]",
+                ),
+            ])
+            await session.commit()
 
     asyncio.run(setup())
 
@@ -61,6 +73,21 @@ def _compile_payload(package_payload):
         "processes": package_payload["route_catalog"]["processes"],
         "rules": package_payload["route_rules"]["rules"],
         "test_cases": package_payload["test_cases"],
+    }
+
+
+def _v2_save_payload(package_payload):
+    return {
+        "project_id": package_payload["manifest"]["project_id"],
+        "route_version_id": package_payload["manifest"]["route_version_id"],
+        "package_name": package_payload["manifest"]["package_name"],
+        "schema_version": "2.0",
+        "manifest": package_payload["manifest"],
+        "input_schema": package_payload["input_schema"],
+        "route_catalog": package_payload["route_catalog"],
+        "route_rules": package_payload["route_rules"],
+        "test_cases": package_payload["test_cases"],
+        "rule_report_md": "# 标准因子校验测试",
     }
 
 
@@ -107,6 +134,41 @@ def test_compile_validate_and_simulate_endpoints(rule_package_v2_payload):
         "process_mill_slot",
         "process_quench",
     ]
+
+
+def test_compile_rejects_a_factor_id_that_does_not_match_the_leaf(rule_package_v2_payload):
+    """A compiler regression must not materialize a rule bound to a different factor."""
+    payload = _compile_payload(rule_package_v2_payload)
+    payload["rules"][0]["when"] = {
+        "field": "precision.grades",
+        "op": "contains",
+        "value": "孔精加工",
+        "factor_id": "feature.center_hole_location",
+    }
+
+    response = client.post("/api/extract/finalized-rule-packages/compile", json=payload)
+
+    assert response.status_code == 422
+    assert "factor_mismatch" in response.text
+
+
+def test_v2_save_rejects_a_factor_id_that_does_not_match_the_leaf(rule_package_v2_payload):
+    """A save-path regression must not persist a package the compiler would reject."""
+    payload = rule_package_v2_payload
+    payload["route_rules"]["rules"][0]["when"] = {
+        "field": "precision.grades",
+        "op": "contains",
+        "value": "孔精加工",
+        "factor_id": "feature.center_hole_location",
+    }
+
+    response = client.post(
+        "/api/extract/finalized-rule-packages",
+        json=_v2_save_payload(payload),
+    )
+
+    assert response.status_code == 422
+    assert "factor_mismatch" in response.text
 
 
 def test_contract_rejects_unknown_condition_operator(rule_package_v2_payload):

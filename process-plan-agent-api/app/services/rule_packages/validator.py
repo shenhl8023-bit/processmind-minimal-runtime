@@ -6,7 +6,10 @@ import json
 from collections import Counter, defaultdict
 
 from app.services.rule_packages.contracts import (
+    FactorBindingIssue,
+    InputField,
     RulePackageV2,
+    RuleV2,
     RulePackageValidationReport,
     TestCaseResult,
     ValidationIssue,
@@ -14,6 +17,7 @@ from app.services.rule_packages.contracts import (
 from app.services.rule_packages.expression_engine import iter_condition_fields
 from app.services.rule_packages.input_validation import validate_inputs
 from app.services.rule_packages.planner import RoutePlanningError, plan_route
+from app.services.rule_packages.standard_factors import validate_factor_bindings
 
 
 def _duplicates(values: list[str]) -> set[str]:
@@ -74,6 +78,32 @@ def _is_manual_process_exclusion(rule, process_id: str, manual_field_keys: set[s
         and rule.when.op == "eq"
         and rule.when.value is False
         and process_id in rule.then.exclude_process_ids
+    )
+
+
+def validate_rule_factor_bindings(
+    rules: list[RuleV2],
+    fields: list[InputField],
+    *,
+    path_prefix: str,
+) -> list[FactorBindingIssue]:
+    """Return all unbound or mismatched leaves without changing historical packages."""
+    additional_fields = {field.key: field for field in fields}
+    issues: list[FactorBindingIssue] = []
+    for index, rule in enumerate(rules):
+        for issue in validate_factor_bindings(rule.when, additional_fields):
+            path = f"{path_prefix}[{index}].when"
+            if issue.path:
+                path = f"{path}.{issue.path}"
+            issues.append(issue.model_copy(update={"path": path}))
+    return issues
+
+
+def validate_rule_package_factor_bindings(package: RulePackageV2) -> list[FactorBindingIssue]:
+    return validate_rule_factor_bindings(
+        package.route_rules.rules,
+        package.input_schema.fields,
+        path_prefix="route_rules.rules",
     )
 
 

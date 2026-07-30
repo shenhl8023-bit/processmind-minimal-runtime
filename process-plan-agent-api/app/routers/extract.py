@@ -54,6 +54,7 @@ from app.services.finalized_rule_package_helpers import (
     serialize_finalized_rule_package,
 )
 from app.services.rule_packages.contracts import RulePackageV2
+from app.services.rule_packages.validator import validate_rule_package_factor_bindings
 from app.services.rule_packages.hashing import (
     legacy_rule_package_content_hash,
     rule_package_content_hash,
@@ -466,6 +467,15 @@ async def save_finalized_rule_package(
             raise HTTPException(422, "manifest.project_id 与请求 project_id 不一致")
         if package_v2.manifest.package_name != package_name:
             raise HTTPException(422, "manifest.package_name 与请求 package_name 不一致")
+        binding_issues = validate_rule_package_factor_bindings(package_v2)
+        if binding_issues:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": "标准因子绑定校验未通过",
+                    "issues": [issue.model_dump(mode="json") for issue in binding_issues],
+                },
+            )
         validation = validate_rule_package(package_v2)
         server_validation = validation.model_dump(mode="json")
         if not validation.valid:
