@@ -366,6 +366,33 @@ def test_kmai_compatibility_runner_applies_historical_manual_override(rule_packa
     assert not any("processmind_manual_slot" in gap for gap in result["semantic_gaps"])
 
 
+def test_historical_existing_factor_replay_normalizes_snapshot_and_input_values(rule_package_v2):
+    package = rule_package_v2.model_copy(deep=True)
+    package.route_rules.rules[1].when.factor_id = None
+    package.route_rules.rules[1].when.value = "legacy feature"
+    snapshot = LegacyFactorAdapterEntry(
+        source_field="cad.features",
+        source_value="legacy feature",
+        mapping_mode="existing_factor",
+        target_factor_key="has_slot_feature",
+        target_factor_name="Slot",
+        target_factor_category="feature",
+    )
+
+    result = compare_kmai_v1(
+        package,
+        {
+            "material": {"grade": "9Cr18"},
+            "cad": {"features": ["\u3000legacy\tfeature  "]},
+            "target_hardness_hrc": 58,
+        },
+        legacy_mapping_snapshot=[snapshot],
+    )
+
+    assert result["manual_factors"]["has_slot_feature"] is True
+    assert "feature.slot.mill" in result["kmai_matched_rule_ids"]
+
+
 @pytest.mark.parametrize(
     "invalid_override",
     [pytest.param(1, id="number"), pytest.param("true", id="string")],

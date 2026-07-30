@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base, get_db
@@ -14,6 +14,7 @@ from app.services.db_schema_maintenance import ensure_project_schema
 from app.services.rule_packages.contracts import RulePackageV2
 from app.services.rule_packages.kmai_compatibility_runner import compare_kmai_v1
 from app.services.rule_packages.kmai_export import builtin_legacy_mapping_snapshot
+from app.services.rule_packages.lifecycle import publish_rule_package
 
 
 @pytest.fixture
@@ -208,3 +209,71 @@ def test_snapshotless_historical_package_uses_only_fixed_legacy_builtins(lifecyc
         legacy_mapping_snapshot=builtin_legacy_mapping_snapshot(),
     )
     assert [issue["code"] for issue in blocked["errors"]] == ["standard_factor_unbound"]
+
+
+def test_migration_backfills_legacy_version_status_and_hash(tmp_path):
+    database_path = tmp_path / "legacy.db"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
+
+    async def run_migration():
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            await conn.execute(text("DROP TABLE finalized_rule_packages"))
+            await conn.execute(text("""
+                CREATE TABLE finalized_rule_packages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project_id INTEGER NOT NULL, route_version_id INTEGER,
+                    version INTEGER NOT NULL, package_name VARCHAR(255) NOT NULL,
+                    input_schema_json TEXT, route_catalog_json TEXT, route_rules_json TEXT,
+                    rule_report_md TEXT, validation_report_json TEXT, created_by VARCHAR(100), created_at DATETIME
+                )
+            """))
+            await conn.execute(text("""
+                INSERT INTO finalized_rule_packages
+                    (project_id, version, package_name, input_schema_json, route_catalog_json, route_rules_json, rule_report_md, created_by, created_at)
+                VALUES (1, 1, 'rules-v1', '{}', '{}', '{}', '# v1', 'user', CURRENT_TIMESTAMP),
+                       (1, 2, 'rules-v2', '{}', '{}', '{}', '# v2', 'user', CURRENT_TIMESTAMP)
+            """))
+            await ensure_project_schema(conn)
+            rows = (await conn.execute(text("""
+                SELECT version, status, schema_version, content_hash
+                FROM finalized_rule_packages ORDER BY version
+            """))).mappings().all()
+        await engine.dispose()
+        return rows
+
+    rows = asyncio.run(run_migration())
+
+    assert [row["status"] for row in rows] == ["superseded", "published"]
+    assert [row["schema_version"] for row in rows] == ["1.0", "1.0"]
+    assert all(len(row["content_hash"]) == 64 for row in rows)
+
+
+def test_publish_helper_does_not_commit_before_caller(lifecycle_client, rule_package_v2_payload):
+    async def exercise():
+        async with lifecycle_client.lifecycle_session_factory() as db:
+            row = FinalizedRulePackage(
+                project_id=12,
+                route_version_id=31,
+                version=1,
+                package_name="transactional",
+                schema_version="2.0",
+                status="draft",
+                manifest_json=json.dumps(rule_package_v2_payload["manifest"]),
+                input_schema_json=json.dumps(rule_package_v2_payload["input_schema"]),
+                route_catalog_json=json.dumps(rule_package_v2_payload["route_catalog"]),
+                route_rules_json=json.dumps(rule_package_v2_payload["route_rules"]),
+                test_cases_json=json.dumps(rule_package_v2_payload["test_cases"]),
+                rule_report_md="# report",
+                validation_report_json="{}",
+                content_hash="x" * 64,
+                created_by="tester",
+            )
+            db.add(row)
+            await db.flush()
+            await publish_rule_package(row, db, actor="tester")
+            await db.rollback()
+        async with lifecycle_client.lifecycle_session_factory() as db:
+            return (await db.execute(select(FinalizedRulePackage))).scalars().all()
+
+    assert asyncio.run(exercise()) == []

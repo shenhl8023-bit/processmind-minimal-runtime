@@ -10,7 +10,11 @@ from typing import Any
 
 from app.services.rule_packages.contracts import RulePackageV2
 from app.services.rule_packages.expression_engine import MISSING, resolve_field
-from app.services.rule_packages.kmai_export import LegacyFactorAdapterEntry, build_kmai_compatibility_export
+from app.services.rule_packages.kmai_export import (
+    LegacyFactorAdapterEntry,
+    build_kmai_compatibility_export,
+    normalize_legacy_adapter_value,
+)
 from app.services.rule_packages.planner import plan_route
 from app.services.rule_packages.standard_factors import standard_factors
 
@@ -77,7 +81,12 @@ def _manual_factors(
     for snapshot in legacy_mapping_snapshot or []:
         value = resolve_field(inputs, snapshot.source_field)
         values = value if isinstance(value, list) else [value]
-        if snapshot.mapping_mode == "existing_factor" and snapshot.source_value in values:
+        normalized_snapshot_value = normalize_legacy_adapter_value(snapshot.source_value)
+        if snapshot.mapping_mode == "existing_factor" and any(
+            normalize_legacy_adapter_value(item) == normalized_snapshot_value
+            for item in values
+            if item is not MISSING
+        ):
             factors[snapshot.target_factor_key] = True
         if snapshot.mapping_mode == "manual_factor":
             manual_keys.add(snapshot.target_factor_key)

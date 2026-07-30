@@ -118,9 +118,8 @@ def test_historical_unbound_leaf_uses_only_explicit_snapshot(rule_package_v2_pay
     }]
     factor = next(item for item in exported.files["factor_schema.json"]["factors"] if item["factor_key"] == "processmind_manual_abc123def456")
     assert factor["name"] == "Legacy feature"
+    assert factor["category"] == "custom"
     assert factor["source_mode"] == "manual_override"
-
-
 def test_kmai_export_has_drop_in_runtime_contract(rule_package_v2):
     exported = build_kmai_compatibility_export(rule_package_v2)
 
@@ -141,6 +140,37 @@ def test_kmai_export_has_drop_in_runtime_contract(rule_package_v2):
     slot_rule = next(rule for rule in rules if rule["rule_id"] == "feature.slot.mill")
     assert slot_rule["when"]["all"] == [{"factor_key": "has_slot_feature", "op": "=", "value": True}]
     assert any(item["factor_key"] == "has_center_through_hole" for item in exported.files["factor_schema.json"]["factors"])
+
+
+def test_kmai_export_preserves_template_group_aliases_as_optional_metadata(rule_package_v2_payload):
+    payload = deepcopy(rule_package_v2_payload)
+    process = next(item for item in payload["route_catalog"]["processes"] if item["process_id"] == "process_mill_slot")
+    process["template_group_aliases"] = [{
+        "source_operation_id": 100,
+        "alias": "\u94e3\u69fd (A side)",
+        "template_group_id": "3358f0f62d04abb99d35dec48ef73e1",
+        "template_group_path": ["A side", "outer groove"],
+    }]
+
+    exported = build_kmai_compatibility_export(RulePackageV2.model_validate(payload))
+
+    kmai_process = next(
+        item for item in exported.files["route_catalog.json"]["processes"]
+        if item["process_key"] == "process_mill_slot"
+    )
+    assert kmai_process["template_group_aliases"] == process["template_group_aliases"]
+
+
+def test_kmai_export_rejects_not_condition(rule_package_v2_payload):
+    payload = deepcopy(rule_package_v2_payload)
+    payload["route_rules"]["rules"][0]["when"] = {
+        "not": {"field": "material.grade", "op": "eq", "value": "9Cr18"}
+    }
+
+    exported = build_kmai_compatibility_export(RulePackageV2.model_validate(payload))
+
+    assert exported.valid is False
+    assert exported.errors[0].code == "kmai_condition_unsupported"
 
 
 def _expanded_rule(any_width: int, all_depth: int):
@@ -175,6 +205,29 @@ def test_kmai_export_preserves_dnf_limits(rule_package_v2_payload):
 
     assert exported.valid is True
     assert len(exported.files["route_rules.json"]["rules"]) == 4
+
+
+def test_kmai_export_applies_condition_object_limit_across_rules(rule_package_v2_payload):
+    payload = deepcopy(rule_package_v2_payload)
+    first_rule = _expanded_rule(any_width=2, all_depth=2)
+    second_rule = _expanded_rule(any_width=2, all_depth=2)
+    first_rule["rule_id"] = "expanded.first"
+    second_rule["rule_id"] = "expanded.second"
+    payload["route_rules"]["rules"] = [first_rule, second_rule]
+
+    exported = build_kmai_compatibility_export(
+        RulePackageV2.model_validate(payload),
+        max_combinations=8,
+        max_condition_objects=15,
+    )
+
+    assert exported.valid is False
+    rules = exported.files["route_rules.json"]["rules"]
+    assert len(rules) == 4
+    assert all(rule["rule_id"].startswith("expanded.first.") for rule in rules)
+    issue = next(error for error in exported.errors if error.code == "kmai_condition_object_limit_exceeded")
+    assert "expanded.second" in issue.message
+    assert "16" in issue.message
 
 
 def test_kmai_export_rejects_dnf_before_materializing(rule_package_v2_payload):
