@@ -491,28 +491,9 @@ function registryFieldToInputField(field: CanonicalConditionField): CompileRuleP
   }
 }
 
-function specialRequirementForLegacyBoolean(field: CanonicalConditionField) {
-  const text = [field.label, ...(field.aliases || [])].join(' ')
-  if (/追溯|编号|批次.{0,6}标识/.test(text)) return '追溯标印'
-  const label = String(field.label || '').replace(/^(?:是否需要|是否具备|是否)/, '').trim() || '特殊工艺'
-  return /要求$/.test(label) ? label : `${label}要求`
-}
-
-function normalizeLegacyBooleanCondition(
-  condition: RulePackageCondition,
-  definitions: Map<string, CanonicalConditionField>,
-  standardFactors: StandardFactorDefinition[],
-): RulePackageCondition {
+function normalizeConditionForCompile(condition: RulePackageCondition): RulePackageCondition {
   const node = condition as unknown as Record<string, unknown>
   if (typeof node.field === 'string' && node.field) {
-    const field = definitions.get(node.field)
-    if (field?.type === 'boolean' && node.field.startsWith('custom.requirements.')) {
-      const value = specialRequirementForLegacyBoolean(field)
-      const leaf: RulePackageCondition = { field: 'special.requirements', op: 'contains', value }
-      const matches = matchingStandardFactors(leaf, standardFactors)
-      if (matches.length !== 1) throw new Error(`兼容条件「${value}」无法唯一绑定标准因子`)
-      return { ...leaf, factor_id: matches[0]!.factor_id }
-    }
     return {
       field: node.field,
       op: typeof node.op === 'string' ? node.op : 'eq',
@@ -525,13 +506,13 @@ function normalizeLegacyBooleanCondition(
     }
   }
   if (Array.isArray(node.all)) {
-    return { all: node.all.map(item => normalizeLegacyBooleanCondition(item as RulePackageCondition, definitions, standardFactors)) }
+    return { all: node.all.map(item => normalizeConditionForCompile(item as RulePackageCondition)) }
   }
   if (Array.isArray(node.any)) {
-    return { any: node.any.map(item => normalizeLegacyBooleanCondition(item as RulePackageCondition, definitions, standardFactors)) }
+    return { any: node.any.map(item => normalizeConditionForCompile(item as RulePackageCondition)) }
   }
   if (node.not && typeof node.not === 'object') {
-    return { not: normalizeLegacyBooleanCondition(node.not as RulePackageCondition, definitions, standardFactors) }
+    return { not: normalizeConditionForCompile(node.not as RulePackageCondition) }
   }
   return condition
 }
@@ -683,11 +664,7 @@ export function buildCompileRequestFromCards(args: {
     .filter(item => (item.conditionReview.confirmed.kind || 'condition') === 'condition')
     .flatMap((item) => {
       const confirmed = item.conditionReview.confirmed
-      const normalizedWhen = normalizeLegacyBooleanCondition(
-        confirmed.when!,
-        confirmedFieldDefinitions,
-        args.standardFactors,
-      )
+      const normalizedWhen = normalizeConditionForCompile(confirmed.when!)
       const binding = factorBindingState(normalizedWhen, args.standardFactors)
       if (!binding.complete) {
         const issue = binding.issues[0]!

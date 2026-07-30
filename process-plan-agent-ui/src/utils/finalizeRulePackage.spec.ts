@@ -1029,78 +1029,50 @@ describe('V2 compile DTO from finalize cards', () => {
     })])
   })
 
-  it('converts a reviewed legacy Bool requirement into the existing special requirement', () => {
-    const sourceText = '当零件需要追溯、编号或批次标识时，安排标记工序'
-    const card = {
-      ...finalizeItem({ id: 'process_mark', sequence: 30, normalized_step_name: '标记', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
-      conditionText: sourceText,
-      edited: true,
-      conditionReview: {
-        source_text: sourceText,
-        source_hash: 'c'.repeat(64),
-        status: 'confirmed',
-        candidate: {
-          kind: 'condition',
-          when: { field: 'custom.requirements.traceability_marking_required', op: 'eq', value: true },
-          then: { include_process_ids: ['process_mark'], exclude_process_ids: [], reason: '用户审核' },
-          field_definitions: [{
-            key: 'custom.requirements.traceability_marking_required',
-            label: '是否需要追溯标识',
-            category: '特殊要求',
-            type: 'boolean',
-            operators: ['eq', 'neq'],
-            aliases: ['追溯', '编号', '批次标识'],
-            source: '人工补充/图样技术要求',
-            options: [],
-            allow_custom: false,
-          }],
-          preview: '是否需要追溯标识 等于 是',
-        },
-        confirmed: {
-          kind: 'condition',
-          when: { field: 'custom.requirements.traceability_marking_required', op: 'eq', value: true },
-          then: { include_process_ids: ['process_mark'], exclude_process_ids: [], reason: '用户审核' },
-          field_definitions: [{
-            key: 'custom.requirements.traceability_marking_required',
-            label: '是否需要追溯标识',
-            category: '特殊要求',
-            type: 'boolean',
-            operators: ['eq', 'neq'],
-            aliases: ['追溯', '编号', '批次标识'],
-            source: '人工补充/图样技术要求',
-            options: [],
-            allow_custom: false,
-          }],
-          preview: '是否需要追溯标识 等于 是',
-        },
-        confidence: 0.9,
-        issues: [],
-        field_registry_version: '2026.08',
-        confirmed_by: '测试用户',
-        confirmed_at: '2026-07-21T02:00:00Z',
-      },
-    }
-    const request = buildCompileRequestFromCards({
-      projectId: 12,
-      packageName: 'boolean_requirement_rules',
-      routeVersionId: 3,
-      cards: [finalizeItem(), card],
-      displayName: segment => segment.normalized_step_name,
-      phaseLabel: () => 'machining',
-      primarySteps: () => ['主工步'],
-      attachedSteps: () => [],
-      conditionFields: baseConditionFields(),
-      standardFactors: factors,
-    })
 
-    expect(request.fields.some(field => field.key === 'custom.requirements.traceability_marking_required')).toBe(false)
-    const specialRequirements = request.fields.find(field => field.key === 'special.requirements')
-    expect(specialRequirements?.options?.map(option => option.value)).toContain('追溯标印')
-    expect(specialRequirements?.options?.map(option => option.value)).toEqual(['追溯标印'])
-    expect(request.rules?.some(rule => rule.rule_id === 'special.追溯标印')).toBe(false)
-    expect(request.rules?.find(rule => rule.source === 'user_confirmed')?.when).toEqual({
-      field: 'special.requirements', op: 'contains', value: '追溯标印', factor_id: 'requirement.traceability_marking',
-    })
+  it('blocks a legacy Boolean requirement until the user selects a standard factor', () => {
+    const legacyWhen = {
+      field: 'custom.requirements.traceability_marking_required', op: 'eq', value: true,
+    }
+    const legacyFactor = presenceFactor(
+      'requirement.traceability_marking',
+      'Traceability marking required',
+      'Special requirements',
+      'special.requirements',
+      `Traceability marking required${String.fromCodePoint(0x8981, 0x6c42)}`,
+    )
+    const candidate = {
+      kind: 'condition' as const,
+      when: legacyWhen,
+      then: { include_process_ids: ['process_mark'], exclude_process_ids: [] },
+      field_definitions: [{
+        key: 'custom.requirements.traceability_marking_required',
+        label: 'Traceability marking required',
+        category: 'Special requirements',
+        type: 'boolean' as const,
+        operators: ['eq', 'neq'],
+        aliases: ['traceability', 'batch marking'],
+        source: 'legacy import',
+        options: [],
+        allow_custom: false,
+      }],
+      preview: 'Traceability marking required',
+    }
+    const item: any = {
+      ...finalizeItem({ id: 'process_mark', normalized_step_name: 'Marking' }),
+      conditionText: 'legacy traceability requirement',
+      edited: true,
+      conditionReview: confirmedReview(legacyWhen, {
+        source_text: 'legacy traceability requirement',
+        candidate,
+        confirmed: JSON.parse(JSON.stringify(candidate)),
+      }),
+    }
+
+    expect(() => buildCompileRequestFromCards(compileArgs([item], [...factors, legacyFactor])))
+      .toThrow(/process_mark/)
+    expect(item.conditionReview.candidate.when).toEqual(legacyWhen)
+    expect(item.conditionReview.confirmed.when).toEqual(legacyWhen)
   })
 
   it('clarifies the generic IT field when a specific dimensional IT field is also required', () => {
