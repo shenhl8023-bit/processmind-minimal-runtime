@@ -482,9 +482,16 @@ export function clearTemplateGroupMappingDraft(
 
 export function hasTemplateGroupMappingDraft(
   projectId: number | string,
+  templateRevision?: number,
   storage: Storage = globalThis.localStorage,
 ) {
-  return Boolean(parseStoredPayload(storage.getItem(draftStorageKey(projectId))))
+  const payload = parseStoredPayload(storage.getItem(draftStorageKey(projectId)))
+  return Boolean(
+    payload
+    && Number(payload.schemaVersion) === TEMPLATE_GROUP_MAPPING_VERSION
+    && Number(payload.projectId) === Number(projectId)
+    && (templateRevision === undefined || Number(payload.templateRevision) === Number(templateRevision)),
+  )
 }
 
 export function useTemplateGroupMapping(

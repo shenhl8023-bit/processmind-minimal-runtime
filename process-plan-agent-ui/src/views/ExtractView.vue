@@ -186,7 +186,6 @@
         :project-id="Number(projectId || 0)"
         :operations="templateMappingOperations"
         :aliases="templateGroupAliases"
-        :template-tree="projectGroupTemplateTree"
         @save="saveTemplateGroupMappings"
       />
       </template>
@@ -374,7 +373,6 @@ const projectGroupTemplate = useProjectGroupTemplate(
   computed(() => Number(projectId.value || 0)),
   templateGroupAliases,
 )
-const projectGroupTemplateTree = computed(() => projectGroupTemplate.template.value?.tree || [])
 const templateOperationFamilyById = computed(() => {
   const families = new Map<number, string>()
   routeMergeGroupsSorted.value.forEach((group) => {

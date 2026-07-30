@@ -6,6 +6,7 @@ import {
   findTemplateGroupByKey,
   findTemplateGroupByPath,
   flattenTemplateGroups,
+  hasTemplateGroupMappingDraft,
   inferTemplateStepFamilyFromOperation,
   inferTemplateStepFamilyFromOperationName,
   isTemplateMappableOperation,
@@ -199,6 +200,13 @@ describe('templateGroupMapping', () => {
     })
     clearTemplateGroupMappingDraft(28, storage)
     expect(storage.getItem('template_group_mapping_draft:28')).toBeNull()
+  })
+
+  it('distinguishes an intentionally empty current draft from a stale draft', () => {
+    saveTemplateGroupMappingDraft(28, 4, {}, 'route-a', storage)
+
+    expect(hasTemplateGroupMappingDraft(28, 4, storage)).toBe(true)
+    expect(hasTemplateGroupMappingDraft(28, 5, storage)).toBe(false)
   })
 
   it('serializes enriched mappings by source operation id', () => {
