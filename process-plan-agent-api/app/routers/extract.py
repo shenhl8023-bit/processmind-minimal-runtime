@@ -38,6 +38,8 @@ from app.schemas.schemas import (
     SaveSegmentRuleReviewRequest,
     SaveNormalizedSupersetRouteRequest,
     SupersetRouteOut,
+    TemplateGroupMappingSuggestRequest,
+    TemplateGroupMappingSuggestResponse,
     WorkflowResetOut,
     WorkflowResetRequest,
 )
@@ -109,8 +111,14 @@ from app.services.project_workflow_lifecycle import (
     acquire_workflow_revision,
     invalidate_project_workflow,
 )
+from app.services.template_group_mapping import resolve_template_group_mappings
 
 router = APIRouter(prefix="/api/extract", tags=["规则提炼"])
+
+
+@router.post("/template-group-mappings/suggest", response_model=TemplateGroupMappingSuggestResponse)
+async def suggest_template_group_mappings(body: TemplateGroupMappingSuggestRequest):
+    return await resolve_template_group_mappings(body)
 
 
 async def _ensure_project_exists(project_id: int, db: AsyncSession) -> Project:

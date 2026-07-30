@@ -7,10 +7,12 @@ import {
   inferTemplateStepFamilyFromOperation,
   inferTemplateStepFamilyFromOperationName,
   isTemplateMappableOperation,
+  isTrustedTemplateGroupChoice,
   loadTemplateGroupAliases,
   migrateTemplateGroupAliases,
   saveTemplateGroupAliases,
   serializeAliasesForRouteSegment,
+  suggestTemplateGroupsForOperation,
   templateGroupsForOperation,
 } from './templateGroupMapping'
 
@@ -85,5 +87,80 @@ describe('templateGroupMapping', () => {
   it('persists and loads versioned aliases', () => {
     saveTemplateGroupAliases(3, { '11': { source_operation_id: 11, alias: '铣扁（A侧/外环槽）', template_group_id: '3358f0f62d04abb99d35dec48ef73e1', template_group_path: ['A侧', '外环槽'] } }, storage)
     expect(loadTemplateGroupAliases(3, storage)['11']?.template_group_id).toBe('3358f0f62d04abb99d35dec48ef73e1')
+  })
+
+  it('keeps a plain hole operation unresolved across every legal hole position', () => {
+    const suggestion = suggestTemplateGroupsForOperation({ id: 360, name: '打孔' })
+
+    expect(suggestion.recommended_group_id).toBeNull()
+    expect(suggestion.confidence).toBe('medium')
+    expect(suggestion.candidates.map(candidate => candidate.path.join('/'))).toEqual([
+      'A侧/孔',
+      'B侧/孔',
+      '周边/孔',
+    ])
+  })
+
+  it('does not guess a side for an outer-diameter operation', () => {
+    const suggestion = suggestTemplateGroupsForOperation({ id: 190, name: '磨外圆' })
+
+    expect(suggestion.recommended_group_id).toBeNull()
+    expect(suggestion.candidates.map(candidate => candidate.path.join('/'))).toEqual([
+      'A侧/外圆',
+      'B侧/外圆',
+    ])
+  })
+
+  it('recommends a unique group only when both side and feature are explicit', () => {
+    const suggestion = suggestTemplateGroupsForOperation({ id: 50, name: '车A侧端面' })
+
+    expect(suggestion.confidence).toBe('high')
+    expect(suggestion.recommended_group_id).toBe('4cb338b6ddde4a96ba8eec7c5d474cf9')
+    expect(suggestion.candidates.map(candidate => candidate.path.join('/'))).toEqual(['A侧/端面'])
+    expect(suggestion.evidence).toEqual(['A侧', '端面'])
+  })
+
+  it('keeps a compound side-specific turning operation unresolved across every detected feature', () => {
+    const suggestion = suggestTemplateGroupsForOperation({
+      id: 50,
+      name: '车削加工（A侧）',
+      step_items: ['平端面', '车外圆', '车槽', '锐边磨圆', '钻镗孔', '倒角'],
+    })
+
+    expect(suggestion.recommended_group_id).toBeNull()
+    expect(suggestion.confidence).toBe('medium')
+    expect(suggestion.requires_manual_confirmation).toBe(true)
+    expect(suggestion.candidates.map(candidate => candidate.path.join('/'))).toEqual([
+      'A侧/端面',
+      'A侧/外圆',
+      'A侧/孔',
+      'A侧/倒角倒圆',
+    ])
+    expect(suggestion.reasons).toEqual(['该工序同时加工多个特征，需要人工确认目标分组。'])
+  })
+
+  it('returns no template candidates for a non-feature route operation', () => {
+    const suggestion = suggestTemplateGroupsForOperation({ id: 900, name: '清洗' })
+
+    expect(suggestion.confidence).toBe('low')
+    expect(suggestion.recommended_group_id).toBeNull()
+    expect(suggestion.candidates).toEqual([])
+  })
+
+  it('only trusts a high-confidence model choice from the legal candidate set', () => {
+    const suggestion = suggestTemplateGroupsForOperation({ id: 360, name: '打孔' })
+
+    expect(isTrustedTemplateGroupChoice({
+      group_id: suggestion.candidates[0]!.group_id,
+      confidence: 0.92,
+    }, suggestion.candidates)).toBe(true)
+    expect(isTrustedTemplateGroupChoice({
+      group_id: suggestion.candidates[0]!.group_id,
+      confidence: 0.89,
+    }, suggestion.candidates)).toBe(false)
+    expect(isTrustedTemplateGroupChoice({
+      group_id: 'hallucinated-group-id',
+      confidence: 0.99,
+    }, suggestion.candidates)).toBe(false)
   })
 })

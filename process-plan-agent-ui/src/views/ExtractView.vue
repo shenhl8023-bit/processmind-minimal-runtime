@@ -183,6 +183,7 @@
       />
       <TemplateGroupMappingDialog
         v-model="templateGroupMappingVisible"
+        :project-id="Number(projectId || 0)"
         :operations="templateMappingOperations"
         :aliases="templateGroupAliases"
         @save="saveTemplateGroupMappings"

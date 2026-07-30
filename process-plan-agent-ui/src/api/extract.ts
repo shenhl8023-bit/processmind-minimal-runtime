@@ -120,6 +120,45 @@ export interface TemplateGroupAliasBinding {
   template_group_path: string[]
 }
 
+export interface TemplateGroupMappingCandidateInput {
+  group_id: string
+  path: string[]
+  score: number
+  reason: string
+}
+
+export interface TemplateGroupMappingOperationInput {
+  operation_id: number
+  operation_name: string
+  step_items: string[]
+  rule_evidence: string[]
+  rule_reasons: string[]
+  candidates: TemplateGroupMappingCandidateInput[]
+}
+
+export interface TemplateGroupMappingSuggestRequest {
+  project_id: number
+  operations: TemplateGroupMappingOperationInput[]
+}
+
+export interface TemplateGroupMappingSuggestionResult {
+  operation_id: number
+  group_id?: string | null
+  confidence: number
+  source: 'llm' | 'unresolved' | string
+  evidence: string[]
+  reason: string
+  warnings: string[]
+  candidate_group_ids: string[]
+}
+
+export interface TemplateGroupMappingSuggestResponse {
+  project_id: number
+  model_used: boolean
+  suggestions: TemplateGroupMappingSuggestionResult[]
+  warnings: string[]
+}
+
 export interface NormalizedRouteSegment {
   id: string
   sequence: number
@@ -447,6 +486,11 @@ export async function getSavedNormalizedRoute(projectId: number, forceRefresh = 
   const result = data as SavedNormalizedRouteVersionResult
   setWorkflowDataCache(cacheKey, result, requestRevision)
   return result
+}
+
+export async function suggestTemplateGroupMappings(body: TemplateGroupMappingSuggestRequest) {
+  const { data } = await api.post('/api/extract/template-group-mappings/suggest', body)
+  return data as TemplateGroupMappingSuggestResponse
 }
 
 export async function saveNormalizedSupersetRoute(body: {

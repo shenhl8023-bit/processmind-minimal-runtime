@@ -166,6 +166,45 @@ class TemplateGroupAliasBinding(BaseModel):
     template_group_path: List[str] = Field(default_factory=list)
 
 
+class TemplateGroupMappingCandidateIn(BaseModel):
+    group_id: str = Field(min_length=1)
+    path: List[str] = Field(min_length=1)
+    score: float = Field(default=0.0, ge=0.0, le=1.0)
+    reason: str = ""
+
+
+class TemplateGroupMappingOperationIn(BaseModel):
+    operation_id: int = Field(gt=0)
+    operation_name: str = Field(min_length=1)
+    step_items: List[str] = Field(default_factory=list)
+    rule_evidence: List[str] = Field(default_factory=list)
+    rule_reasons: List[str] = Field(default_factory=list)
+    candidates: List[TemplateGroupMappingCandidateIn] = Field(default_factory=list)
+
+
+class TemplateGroupMappingSuggestRequest(BaseModel):
+    project_id: int = Field(gt=0)
+    operations: List[TemplateGroupMappingOperationIn] = Field(default_factory=list)
+
+
+class TemplateGroupMappingSuggestionOut(BaseModel):
+    operation_id: int
+    group_id: Optional[str] = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    source: str = "unresolved"
+    evidence: List[str] = Field(default_factory=list)
+    reason: str = ""
+    warnings: List[str] = Field(default_factory=list)
+    candidate_group_ids: List[str] = Field(default_factory=list)
+
+
+class TemplateGroupMappingSuggestResponse(BaseModel):
+    project_id: int
+    model_used: bool = False
+    suggestions: List[TemplateGroupMappingSuggestionOut] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+
+
 class MergeSuggestionOut(BaseModel):
     suggestion_id: str
     target_group_id: str

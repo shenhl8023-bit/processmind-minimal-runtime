@@ -32,6 +32,33 @@ export type TemplateAliasBinding = {
   template_group_path: string[]
 }
 
+export type TemplateGroupMappingConfidence = 'high' | 'medium' | 'low'
+
+export type TemplateGroupMappingCandidate = {
+  group_id: string
+  path: string[]
+  score: number
+  reason: string
+}
+
+export type TemplateGroupMappingSuggestion = {
+  operation_id: number
+  operation_name: string
+  feature: string
+  position: string
+  confidence: TemplateGroupMappingConfidence
+  requires_manual_confirmation: boolean
+  recommended_group_id: string | null
+  candidates: TemplateGroupMappingCandidate[]
+  evidence: string[]
+  reasons: string[]
+}
+
+export type TemplateGroupModelChoice = {
+  group_id?: string | null
+  confidence?: number | null
+}
+
 export type RouteSegmentWithAliases = {
   source_operation_ids?: number[]
   operation_ids?: number[]
@@ -117,6 +144,145 @@ export function flattenTemplateGroups(root: TemplateGroupNode = BUSHING_11_TEMPL
 
 export function templateLeafGroups(root: TemplateGroupNode = BUSHING_11_TEMPLATE_TREE) {
   return flattenTemplateGroups(root).filter(group => !(group.children || []).length)
+}
+
+type TemplateFeature = 'end_face' | 'outer_diameter' | 'outer_slot' | 'hole' | 'inner_slot' | 'chamfer' | 'planar_slot'
+
+function inferTemplatePosition(text: string) {
+  if (/(?:^|[^a-z])a\s*(?:侧|面|端)/i.test(text)) return { value: 'A侧', evidence: 'A侧' }
+  if (/(?:^|[^a-z])b\s*(?:侧|面|端)/i.test(text)) return { value: 'B侧', evidence: 'B侧' }
+  if (/(周边|外周)/.test(text)) return { value: '周边', evidence: text.match(/周边|外周/)?.[0] || '周边' }
+  return { value: '', evidence: '' }
+}
+
+function inferTemplateFeatures(text: string): Array<{ value: TemplateFeature; evidence: string }> {
+  const rules: Array<{ value: TemplateFeature; pattern: RegExp }> = [
+    { value: 'outer_slot', pattern: /(外环槽|外槽)/ },
+    { value: 'inner_slot', pattern: /(内环槽|内槽)/ },
+    { value: 'chamfer', pattern: /(倒角|倒圆|锐边)/ },
+    { value: 'end_face', pattern: /(端面|车端|磨端|研端)/ },
+    { value: 'outer_diameter', pattern: /(外圆|车外|磨外|研外)/ },
+    { value: 'hole', pattern: /(型孔|异形孔|孔|钻|镗|铰|攻丝|攻螺纹|锪|珩|内圆)/ },
+    { value: 'planar_slot', pattern: /(平面|凹槽|铣扁|扁位|扁|键槽|花键|割型|型面|铣槽|挖槽)/ },
+  ]
+  const matches: Array<{ value: TemplateFeature; evidence: string }> = []
+  for (const rule of rules) {
+    const evidence = text.match(rule.pattern)?.[0]
+    if (evidence) matches.push({ value: rule.value, evidence })
+  }
+  return matches
+}
+
+function templateGroupFeature(name: string): TemplateFeature | '' {
+  if (name === '端面') return 'end_face'
+  if (name === '外圆') return 'outer_diameter'
+  if (name === '外环槽') return 'outer_slot'
+  if (name === '孔') return 'hole'
+  if (name === '内环槽') return 'inner_slot'
+  if (name === '倒角倒圆') return 'chamfer'
+  if (name === '平面和凹槽') return 'planar_slot'
+  return ''
+}
+
+export function suggestTemplateGroupsForOperation(
+  operation: TemplateOperation,
+  root: TemplateGroupNode = BUSHING_11_TEMPLATE_TREE,
+): TemplateGroupMappingSuggestion {
+  const operationId = cleanId(operation.source_operation_id || operation.id)
+  const operationName = cleanText(operation.name)
+  const text = [operationName, ...(operation.step_items || []).map(cleanText)].filter(Boolean).join('；')
+  const base = {
+    operation_id: operationId,
+    operation_name: operationName,
+  }
+  if (!isTemplateMappableOperation(operation)) {
+    return {
+      ...base,
+      feature: '',
+      position: '',
+      confidence: 'low',
+      requires_manual_confirmation: true,
+      recommended_group_id: null,
+      candidates: [],
+      evidence: [],
+      reasons: ['该工序不是可映射到零件特征的加工工序。'],
+    }
+  }
+
+  const features = inferTemplateFeatures(text)
+  const position = inferTemplatePosition(text)
+  const evidence = [position.evidence, ...features.map(feature => feature.evidence)].filter(Boolean)
+  if (!features.length) {
+    return {
+      ...base,
+      feature: '',
+      position: position.value,
+      confidence: 'low',
+      requires_manual_confirmation: true,
+      recommended_group_id: null,
+      candidates: [],
+      evidence,
+      reasons: ['未能从工序名称或工步中识别具体加工特征。'],
+    }
+  }
+
+  const matchedGroups = templateLeafGroups(root).filter(group => (
+    features.some(feature => templateGroupFeature(group.name) === feature.value)
+    && (!position.value || group.path[0] === position.value)
+  ))
+  const isCompound = features.length > 1
+  const candidates = matchedGroups.map((group) => {
+    const feature = features.find(item => templateGroupFeature(group.name) === item.value)!
+    return {
+      group_id: group.id,
+      path: [...group.path],
+      score: position.value && !isCompound ? 1 : 0.72,
+      reason: isCompound
+        ? `工序包含“${feature.evidence}”，同时还加工其他特征。`
+        : position.value
+          ? `工序明确包含“${position.evidence}”和“${feature.evidence}”。`
+          : `已识别“${feature.evidence}”特征，但缺少 A侧、B侧或周边位置。`,
+    }
+  })
+  const isUnique = Boolean(position.value && !isCompound && candidates.length === 1)
+  return {
+    ...base,
+    feature: features.map(feature => feature.value).join(','),
+    position: position.value,
+    confidence: isUnique ? 'high' : candidates.length ? 'medium' : 'low',
+    requires_manual_confirmation: isCompound,
+    recommended_group_id: isUnique ? candidates[0]!.group_id : null,
+    candidates,
+    evidence,
+    reasons: candidates.length
+      ? [
+          isCompound
+            ? '该工序同时加工多个特征，需要人工确认目标分组。'
+            : isUnique
+              ? '位置与加工特征均明确。'
+              : '加工特征明确，但加工位置仍需确认。',
+        ]
+      : ['模板中没有与当前位置和加工特征同时匹配的分组。'],
+  }
+}
+
+export function buildTemplateGroupMappingSuggestions(
+  operations: TemplateOperation[],
+  root: TemplateGroupNode = BUSHING_11_TEMPLATE_TREE,
+) {
+  return operations.map(operation => suggestTemplateGroupsForOperation(operation, root))
+}
+
+export function isTrustedTemplateGroupChoice(
+  choice: TemplateGroupModelChoice,
+  candidates: TemplateGroupMappingCandidate[],
+  minimumConfidence = 0.9,
+) {
+  const groupId = cleanText(choice.group_id)
+  const confidence = Number(choice.confidence || 0)
+  return Number.isFinite(confidence)
+    && confidence >= minimumConfidence
+    && candidates.some(candidate => candidate.group_id === groupId)
 }
 
 export function findTemplateGroupById(groupId: string, root: TemplateGroupNode = BUSHING_11_TEMPLATE_TREE) {
