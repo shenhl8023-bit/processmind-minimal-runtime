@@ -120,6 +120,73 @@ export interface TemplateGroupAliasBinding {
   template_group_path: string[]
 }
 
+export interface GroupTemplateValidationIssue {
+  code: string
+  message: string
+  path: string[]
+  value: string
+}
+
+export interface GroupTemplateNode {
+  key: string
+  source_id: string
+  name: string
+  path: string[]
+  feature_selections: string[]
+  params: Record<string, string>
+  children: GroupTemplateNode[]
+}
+
+export interface GroupTemplateMappingInput {
+  source_operation_id: number
+  alias: string
+  template_group_path: string[]
+}
+
+export interface GroupTemplateMapping extends GroupTemplateMappingInput {
+  template_group_key: string
+  template_group_id: string
+  template_group_name: string
+  feature_selections: string[]
+}
+
+export interface GroupTemplatePreview {
+  original_filename: string
+  source_encoding: string
+  part_filename: string
+  content_hash: string
+  feature_dictionary_version: string
+  tree: GroupTemplateNode[]
+  validation_issues: GroupTemplateValidationIssue[]
+  group_count: number
+  feature_selection_count: number
+  can_confirm: boolean
+}
+
+export interface ProjectGroupTemplate {
+  project_id: number
+  original_filename: string
+  source_encoding: string
+  part_filename: string
+  content_hash: string
+  feature_dictionary_version: string
+  tree: GroupTemplateNode[]
+  validation_issues: GroupTemplateValidationIssue[]
+  mappings: GroupTemplateMapping[]
+  template_revision: number
+  group_count: number
+  feature_selection_count: number
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface GroupTemplateMigrationResult {
+  kept_source_operation_ids: number[]
+  invalidated: GroupTemplateMapping[]
+}
+
+export interface GroupTemplateCommitResult extends ProjectGroupTemplate, GroupTemplateMigrationResult {}
+
 export interface TemplateGroupMappingCandidateInput {
   group_id: string
   path: string[]
@@ -489,8 +556,59 @@ export async function getSavedNormalizedRoute(projectId: number, forceRefresh = 
 }
 
 export async function suggestTemplateGroupMappings(body: TemplateGroupMappingSuggestRequest) {
-  const { data } = await api.post('/api/extract/template-group-mappings/suggest', body)
+  const { data } = await api.post('/api/extract/template-group-mappings/suggest', {
+    project_id: body.project_id,
+    operations: body.operations.map(({ operation_id, operation_name, step_items, rule_evidence, rule_reasons }) => ({
+      operation_id,
+      operation_name,
+      step_items,
+      rule_evidence,
+      rule_reasons,
+    })),
+  })
   return data as TemplateGroupMappingSuggestResponse
+}
+
+export async function previewGroupTemplate(file: File): Promise<GroupTemplatePreview> {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await api.post('/api/extract/group-templates/preview', form)
+  return data as GroupTemplatePreview
+}
+
+export async function getCurrentGroupTemplate(projectId: number): Promise<ProjectGroupTemplate> {
+  const { data } = await api.get('/api/extract/group-templates/current', {
+    params: { project_id: projectId },
+  })
+  return data as ProjectGroupTemplate
+}
+
+export async function commitGroupTemplate(
+  projectId: number,
+  file: File,
+  expectedHash: string,
+  expectedRevision: number,
+): Promise<GroupTemplateCommitResult> {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('project_id', String(projectId))
+  form.append('expected_content_hash', expectedHash)
+  form.append('expected_template_revision', String(expectedRevision))
+  const { data } = await api.put('/api/extract/group-templates/current', form)
+  return data as GroupTemplateCommitResult
+}
+
+export async function saveGroupTemplateMappings(
+  projectId: number,
+  revision: number,
+  mappings: GroupTemplateMappingInput[],
+): Promise<ProjectGroupTemplate> {
+  const { data } = await api.put('/api/extract/group-templates/mappings', {
+    project_id: projectId,
+    expected_template_revision: revision,
+    mappings,
+  })
+  return data as ProjectGroupTemplate
 }
 
 export async function saveNormalizedSupersetRoute(body: {
