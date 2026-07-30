@@ -102,6 +102,28 @@ def _route_process_options(route: NormalizedRouteVersion) -> list[RuleConditionP
     return options
 
 
+def _binding_issue_text(issue) -> str:
+    return f"{issue.path or 'when'}: {issue.message}"
+
+
+def _selected_factor_paths(node: ConditionNode, path: str = "") -> set[str]:
+    if node.field is not None:
+        return {path} if node.factor_id is not None else set()
+    if node.all_conditions is not None:
+        return {
+            selected_path
+            for index, child in enumerate(node.all_conditions)
+            for selected_path in _selected_factor_paths(child, f"{path + '.' if path else ''}all[{index}]")
+        }
+    if node.any_conditions is not None:
+        return {
+            selected_path
+            for index, child in enumerate(node.any_conditions)
+            for selected_path in _selected_factor_paths(child, f"{path + '.' if path else ''}any[{index}]")
+        }
+    return _selected_factor_paths(node.not_condition, f"{path + '.' if path else ''}not")
+
+
 def _migrate_review_candidate(
     candidate: RuleConditionCandidate,
     processes: list[RuleConditionProcessOption],
@@ -109,20 +131,21 @@ def _migrate_review_candidate(
     if candidate.kind != "condition" or candidate.when is None:
         return candidate, validate_candidate(candidate, processes)
     normalized = normalize_factor_leaves(candidate.when)
+    selected_paths = _selected_factor_paths(normalized)
     selected_binding_issues = [
         issue
         for issue in validate_factor_bindings(
             normalized,
             {field.key: field for field in candidate.field_definitions},
         )
-        if issue.code == "factor_mismatch"
+        if issue.path in selected_paths
     ]
     bound, binding_issues = bind_unambiguous_factor_ids(normalized)
     migrated = candidate.model_copy(update={"when": bound})
     candidate_issues = validate_candidate(migrated, processes)
     all_issues = [
-        *(f"{issue.path}: {issue.message}" if issue.path else issue.message for issue in selected_binding_issues),
-        *(f"{issue.path}: {issue.message}" if issue.path else issue.message for issue in binding_issues),
+        *(_binding_issue_text(issue) for issue in selected_binding_issues),
+        *(_binding_issue_text(issue) for issue in binding_issues),
         *candidate_issues,
     ]
     return migrated, list(dict.fromkeys(all_issues))
@@ -328,6 +351,8 @@ async def migrate_legacy_standard_factor_reviews(
         elif all_issues:
             next_status = "pending_confirmation"
             next_issues_json = json.dumps(all_issues, ensure_ascii=False)
+        else:
+            next_issues_json = "[]"
 
         if (
             review.condition_status != next_status

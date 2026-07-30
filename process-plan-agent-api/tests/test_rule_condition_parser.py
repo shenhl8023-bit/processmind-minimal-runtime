@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 
 import pytest
 from fastapi import HTTPException
@@ -1437,6 +1438,110 @@ async def test_migrates_only_valid_unpublished_standard_factor_reviews():
     assert any("标准因子" in issue for issue in unknown.issues)
     assert any("all[1]" in issue for issue in compound.issues)
     assert any("当前路线中不存在" in issue for issue in removed_target.issues)
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_standard_factor_migration_clears_stale_pending_issues_and_preserves_selected_ids():
+    """Migration must clear repaired draft errors but invalidate a removed selected factor."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    confirmed_at = datetime(2026, 1, 2, tzinfo=timezone.utc)
+
+    def candidate(factor_id=None):
+        when = {"field": "precision.grades", "op": "contains", "value": "孔精加工"}
+        if factor_id is not None:
+            when["factor_id"] = factor_id
+        return {
+            "kind": "condition",
+            "when": when,
+            "then": {"include_process_ids": ["process_target"], "exclude_process_ids": []},
+        }
+
+    async with session_factory() as session:
+        route = NormalizedRouteVersion(
+            id=1,
+            project_id=7,
+            version=1,
+            route_json='[{"id":"process_target","normalized_step_name":"目标工序"}]',
+        )
+
+        def review(segment_id, payload, *, status, confirmed, issues, confirmed_by=None, confirmed_time=None):
+            raw = json.dumps(payload, ensure_ascii=False)
+            return NormalizedRouteSegmentRuleReview(
+                project_id=7,
+                route_version_id=1,
+                segment_id=segment_id,
+                decision="accepted",
+                note="",
+                summary_json="[]",
+                question_trail_json="[]",
+                condition_status=status,
+                condition_candidate_json=raw,
+                condition_confirmed_json=raw if confirmed else None,
+                condition_issues_json=json.dumps(issues, ensure_ascii=False),
+                condition_field_registry_version="2025.01",
+                condition_confirmed_by=confirmed_by,
+                condition_confirmed_at=confirmed_time,
+            )
+
+        pending = review(
+            "pending",
+            candidate(),
+            status="pending_confirmation",
+            confirmed=False,
+            issues=["条件尚未绑定标准因子"],
+        )
+        still_valid = review(
+            "valid",
+            candidate("precision.hole_finish"),
+            status="confirmed",
+            confirmed=True,
+            issues=[],
+            confirmed_by="旧确认用户",
+            confirmed_time=confirmed_at,
+        )
+        removed = review(
+            "removed",
+            candidate("precision.removed_factor"),
+            status="confirmed",
+            confirmed=True,
+            issues=[],
+            confirmed_by="旧确认用户",
+            confirmed_time=confirmed_at,
+        )
+        session.add_all([route, pending, still_valid, removed])
+        await session.commit()
+
+        assert await migrate_legacy_standard_factor_reviews(route, session) is True
+        pending_view = serialize_condition_review(pending)
+        valid_view = serialize_condition_review(still_valid)
+        removed_view = serialize_condition_review(removed)
+
+    assert pending_view.status == "pending_confirmation"
+    assert pending_view.confirmed is None
+    assert pending_view.candidate is not None
+    assert pending_view.candidate.when is not None
+    assert pending_view.candidate.when.factor_id == "precision.hole_finish"
+    assert pending_view.issues == []
+    assert pending_view.field_registry_version == "2026.11"
+
+    assert valid_view.status == "confirmed"
+    assert valid_view.confirmed is not None
+    assert valid_view.confirmed.when is not None
+    assert valid_view.confirmed.when.factor_id == "precision.hole_finish"
+    assert valid_view.confirmed_by == "旧确认用户"
+    assert valid_view.confirmed_at == confirmed_at.isoformat()
+    assert valid_view.field_registry_version == "2026.11"
+
+    assert removed_view.status == "pending_confirmation"
+    assert removed_view.confirmed is None
+    assert removed_view.candidate is not None
+    assert removed_view.confirmed_by == ""
+    assert removed_view.confirmed_at == ""
+    assert any(issue.startswith("when:") for issue in removed_view.issues)
     await engine.dispose()
 
 
