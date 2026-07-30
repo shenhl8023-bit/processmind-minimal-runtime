@@ -37,6 +37,7 @@ from app.services.rule_packages.condition_contracts import (
     SaveRuleConditionDraftRequest,
 )
 from app.services.rule_packages.condition_registry import FIELD_REGISTRY_VERSION, condition_fields
+from app.services.rule_packages.standard_factors import standard_factors
 from app.services.rule_packages.condition_reviews import (
     confirm_condition_review,
     set_manual_condition_review,
@@ -51,7 +52,11 @@ router = APIRouter(prefix="/api/extract/finalized-rule-packages", tags=["规则�
 
 @router.get("/condition-fields", response_model=ConditionFieldRegistryResponse)
 async def get_condition_fields():
-    return ConditionFieldRegistryResponse(version=FIELD_REGISTRY_VERSION, fields=condition_fields())
+    return ConditionFieldRegistryResponse(
+        version=FIELD_REGISTRY_VERSION,
+        fields=condition_fields(),
+        factors=standard_factors(),
+    )
 
 
 @router.post("/rule-conditions/draft", response_model=RuleConditionReviewResponse)

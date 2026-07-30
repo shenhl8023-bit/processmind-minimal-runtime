@@ -6,7 +6,13 @@ from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
-from app.services.rule_packages.contracts import ConditionNode, ProcessRelationType, RuleAction, StrictModel
+from app.services.rule_packages.contracts import (
+    ConditionNode,
+    ProcessRelationType,
+    RuleAction,
+    StandardFactorDefinition,
+    StrictModel,
+)
 
 
 class CanonicalConditionField(StrictModel):
@@ -109,3 +115,4 @@ class RuleConditionReviewResponse(StrictModel):
 class ConditionFieldRegistryResponse(StrictModel):
     version: str
     fields: list[CanonicalConditionField]
+    factors: list[StandardFactorDefinition]

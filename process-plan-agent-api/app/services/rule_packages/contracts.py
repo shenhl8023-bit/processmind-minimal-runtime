@@ -110,6 +110,7 @@ class ConditionNode(StrictModel):
     field: str | None = None
     op: ConditionOperator | None = None
     value: Any = None
+    factor_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def validate_shape(self):
@@ -134,7 +135,29 @@ class ConditionNode(StrictModel):
                 raise ValueError("between requires a two-item list value")
             if self.op in {"in", "contains_any", "contains_all"} and not isinstance(self.value, list):
                 raise ValueError(f"operator {self.op} requires a list value")
+        elif self.factor_id is not None:
+            raise ValueError("logical condition cannot carry factor_id")
         return self
+
+
+class StandardFactorDefinition(StrictModel):
+    factor_id: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    category: str = Field(min_length=1)
+    source_field: str = Field(min_length=1)
+    source_field_aliases: list[str] = Field(default_factory=list)
+    canonical_value: Any = None
+    allowed_operators: list[ConditionOperator] = Field(min_length=1)
+    kmai_factor_key: str = Field(min_length=1)
+    kmai_value_mode: Literal["presence", "condition_value"]
+    runtime_source: Literal["computed", "manual_override"] = "computed"
+
+
+class FactorBindingIssue(StrictModel):
+    code: Literal["factor_unbound", "factor_ambiguous", "factor_mismatch"]
+    path: str
+    message: str
+    candidate_factor_ids: list[str] = Field(default_factory=list)
 
 
 class RuleAction(StrictModel):

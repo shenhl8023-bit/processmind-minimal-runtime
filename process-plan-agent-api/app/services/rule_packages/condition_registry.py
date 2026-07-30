@@ -6,9 +6,10 @@ from typing import Any
 
 from app.services.rule_packages.condition_contracts import CanonicalConditionField
 from app.services.rule_packages.contracts import ConditionNode, InputField, InputOption, InputValidation
+from app.services.rule_packages.standard_factors import STANDARD_FACTOR_CATALOG_VERSION
 
 
-FIELD_REGISTRY_VERSION = "2026.10"
+FIELD_REGISTRY_VERSION = STANDARD_FACTOR_CATALOG_VERSION
 
 
 _FIELDS = [

@@ -7,9 +7,24 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.database import Base, get_db
 from app.main import app
 from app.services.db_schema_maintenance import ensure_project_schema
+from app.services.rule_packages.standard_factors import STANDARD_FACTOR_CATALOG_VERSION
 
 
 client = TestClient(app)
+
+
+def test_condition_field_registry_returns_versioned_standard_factors():
+    """Fails if the sole confirmation registry omits its standard-factor contract."""
+    response = client.get("/api/extract/finalized-rule-packages/condition-fields")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["version"] == STANDARD_FACTOR_CATALOG_VERSION
+    assert body["factors"]
+    center = next(item for item in body["factors"] if item["factor_id"] == "feature.center_hole_location")
+    assert center["source_field"] == "cad.features"
+    assert center["canonical_value"] == "顶尖孔"
+    assert center["kmai_factor_key"] == "uses_center_hole_location"
 
 
 @pytest.fixture(autouse=True)
