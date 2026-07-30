@@ -164,6 +164,32 @@ async def test_rejects_unknown_or_low_confidence_model_group(mapping_store, monk
 
 
 @pytest.mark.asyncio
+async def test_high_confidence_model_cannot_choose_for_compound_candidates(mapping_store, monkeypatch):
+    sessions, _ = mapping_store
+
+    async def overconfident_llm(*args, **kwargs):
+        payload = json.loads(args[1])
+        return json.dumps({"suggestions": [{
+            "operation_id": 360,
+            "group_id": payload["operations"][0]["candidates"][0]["group_id"],
+            "confidence": 0.99,
+            "reason": "选择其中一个。",
+        }]})
+
+    monkeypatch.setattr(template_group_mapping, "call_llm", overconfident_llm)
+    request = _request(
+        name="车削加工（A侧）",
+        step_items=["平端面", "车外圆", "钻孔"],
+    )
+    async with sessions() as db:
+        result = await template_group_mapping.resolve_template_group_mappings(db, request)
+
+    assert len(result.suggestions[0].candidate_group_ids) == 3
+    assert result.suggestions[0].group_id is None
+    assert any("多个候选" in warning for warning in result.suggestions[0].warnings)
+
+
+@pytest.mark.asyncio
 async def test_model_failure_preserves_server_candidates(mapping_store, monkeypatch):
     sessions, tree = mapping_store
 

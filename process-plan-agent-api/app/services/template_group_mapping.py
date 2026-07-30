@@ -184,6 +184,14 @@ def _validated_model_result(
             reason=reason,
             warnings=["模型返回的分组不在当前工序候选范围内，已忽略。"],
         )
+    if len(candidates) != 1:
+        return _base_unresolved(
+            operation,
+            candidates,
+            confidence=confidence,
+            reason=reason,
+            warnings=["当前工序存在多个候选分组，必须由用户确认。"],
+        )
     if confidence < MIN_ACCEPTED_CONFIDENCE:
         return _base_unresolved(
             operation,
