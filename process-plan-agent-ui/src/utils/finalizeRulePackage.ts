@@ -225,17 +225,27 @@ function normalizeTemplateGroupAliases(value: unknown): TemplateGroupAliasBindin
     if (!item || typeof item !== 'object') return null
     const sourceOperationId = Number((item as any).source_operation_id || 0)
     const alias = String((item as any).alias || '').trim()
-    const templateGroupId = String((item as any).template_group_id || '').trim()
+    const templateGroupKey = String((item as any).template_group_key || (item as any).template_group_id || '').trim()
+    const templateGroupName = String((item as any).template_group_name || '').trim()
     const templateGroupPath = Array.isArray((item as any).template_group_path)
       ? (item as any).template_group_path.map((part: unknown) => String(part || '').trim()).filter(Boolean)
       : []
-    if (sourceOperationId <= 0 || !alias || !templateGroupId || !templateGroupPath.length) return null
-    return {
+    const featureSelections = Array.isArray((item as any).feature_selections)
+      ? (item as any).feature_selections.map((feature: unknown) => String(feature || '').trim()).filter(Boolean)
+      : []
+    if (sourceOperationId <= 0 || !alias || !templateGroupKey || !templateGroupPath.length) return null
+    const normalized: TemplateGroupAliasBinding = {
       source_operation_id: sourceOperationId,
       alias,
-      template_group_id: templateGroupId,
+      template_group_id: templateGroupKey,
       template_group_path: templateGroupPath,
     }
+    if (templateGroupName || featureSelections.length || (item as any).template_group_key) {
+      normalized.template_group_key = templateGroupKey
+      if (templateGroupName) normalized.template_group_name = templateGroupName
+      if (featureSelections.length) normalized.feature_selections = featureSelections
+    }
+    return normalized
   }).filter((item): item is TemplateGroupAliasBinding => Boolean(item))
 }
 

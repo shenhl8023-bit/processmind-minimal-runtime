@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import {
+  aliasesFromRouteSegments,
   clearTemplateGroupMappingDraft,
   createTemplateAliasBinding,
   findTemplateGroupByKey,
@@ -168,6 +169,25 @@ describe('templateGroupMapping', () => {
       source_operation_id: 12,
       template_group_path: ['壳体', '外槽'],
     })])
+  })
+
+  it('resolves a legacy route alias by path without trusting its old UUID', () => {
+    const legacy = aliasesFromRouteSegments([{
+      source_operation_ids: [13],
+      template_group_aliases: [{
+        source_operation_id: 13,
+        alias: '旧钻孔名称',
+        template_group_id: 'old-xml-uuid',
+        template_group_path: ['壳体', '内腔', '盲孔'],
+      }],
+    }])
+
+    expect(migrateLegacyAliasesByPath(legacy, tree).migrated['13']).toEqual(expect.objectContaining({
+      alias: '旧钻孔名称',
+      template_group_key: 'grp_blind_hole',
+      template_group_id: 'grp_blind_hole',
+      feature_selections: ['孔(盲孔)'],
+    }))
   })
 
   it('uses formal mappings instead of a browser draft when formal mappings exist', () => {

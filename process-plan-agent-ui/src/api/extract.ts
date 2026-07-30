@@ -117,7 +117,10 @@ export interface TemplateGroupAliasBinding {
   source_operation_id: number
   alias: string
   template_group_id: string
+  template_group_key?: string
+  template_group_name?: string
   template_group_path: string[]
+  feature_selections?: string[]
 }
 
 export interface GroupTemplateValidationIssue {

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 
 class StrictModel(BaseModel):
@@ -66,7 +66,18 @@ class TemplateGroupAliasBinding(StrictModel):
     source_operation_id: int = Field(gt=0)
     alias: str = Field(min_length=1)
     template_group_id: str = Field(min_length=1)
+    template_group_key: str = ""
+    template_group_name: str = ""
     template_group_path: list[str] = Field(default_factory=list)
+    feature_selections: list[str] = Field(default_factory=list)
+
+    @model_serializer(mode="wrap")
+    def serialize_compatible_alias(self, handler):
+        payload = handler(self)
+        for field_name in ("template_group_key", "template_group_name", "feature_selections"):
+            if not payload.get(field_name):
+                payload.pop(field_name, None)
+        return payload
 
 
 class ProcessV2(StrictModel):

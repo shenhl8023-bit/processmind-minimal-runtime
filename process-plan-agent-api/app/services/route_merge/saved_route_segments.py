@@ -65,12 +65,22 @@ def _template_group_aliases_for_route_item(
         if source_operation_id not in valid_source_operation_ids:
             continue
         path = entry.get("template_group_path") or []
-        aliases.append({
+        alias = {
             "source_operation_id": source_operation_id,
             "alias": str(entry.get("alias") or ""),
             "template_group_id": str(entry.get("template_group_id") or ""),
             "template_group_path": [str(part or "") for part in path] if isinstance(path, list) else [],
-        })
+        }
+        template_group_key = str(entry.get("template_group_key") or "")
+        template_group_name = str(entry.get("template_group_name") or "")
+        feature_selections = entry.get("feature_selections") or []
+        if template_group_key:
+            alias["template_group_key"] = template_group_key
+        if template_group_name:
+            alias["template_group_name"] = template_group_name
+        if isinstance(feature_selections, list) and feature_selections:
+            alias["feature_selections"] = [str(feature or "") for feature in feature_selections]
+        aliases.append(alias)
     return aliases
 
 

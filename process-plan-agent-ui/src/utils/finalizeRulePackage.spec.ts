@@ -458,9 +458,12 @@ describe('V2 compile DTO from finalize cards', () => {
           normalized_step_name: '钻孔',
           template_group_aliases: [{
             source_operation_id: 80,
-            alias: '钻孔（A侧/外环槽）',
-            template_group_id: '3358f0f62d04abb99d35dec48ef73e1',
-            template_group_path: ['A侧', '外环槽'],
+            alias: '钻孔（A侧/孔）',
+            template_group_id: 'grp_blind_hole',
+            template_group_key: 'grp_blind_hole',
+            template_group_name: '孔',
+            template_group_path: ['A侧', '孔'],
+            feature_selections: ['孔(盲孔)'],
           }],
         }),
       ],
@@ -475,9 +478,12 @@ describe('V2 compile DTO from finalize cards', () => {
     expect(process.display_name).toBe('钻孔')
     expect(process.template_group_aliases).toEqual([{
       source_operation_id: 80,
-      alias: '钻孔（A侧/外环槽）',
-      template_group_id: '3358f0f62d04abb99d35dec48ef73e1',
-      template_group_path: ['A侧', '外环槽'],
+      alias: '钻孔（A侧/孔）',
+      template_group_id: 'grp_blind_hole',
+      template_group_key: 'grp_blind_hole',
+      template_group_name: '孔',
+      template_group_path: ['A侧', '孔'],
+      feature_selections: ['孔(盲孔)'],
     }])
   })
 

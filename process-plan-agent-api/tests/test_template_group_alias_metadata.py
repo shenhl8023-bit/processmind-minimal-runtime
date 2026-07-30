@@ -10,6 +10,7 @@ from app.schemas.schemas import (
 )
 from app.services.route_analysis_helpers import serialize_saved_normalized_route_version
 from app.services.route_merge.saved_route_segments import build_saved_route_version_segments
+from app.services.rule_packages.contracts import ProcessV2
 
 
 def test_template_group_aliases_default_to_empty_for_legacy_route_items():
@@ -35,20 +36,29 @@ def test_template_group_aliases_round_trip_without_changing_operation_names():
         {
             "source_operation_id": 201,
             "alias": "钻孔（A侧/外环槽）",
-            "template_group_id": "outer-groove-a",
+            "template_group_id": "grp_outer_groove_a",
+            "template_group_key": "grp_outer_groove_a",
+            "template_group_name": "外环槽",
             "template_group_path": ["A侧", "外环槽"],
+            "feature_selections": ["U形外环槽"],
         },
         {
             "source_operation_id": 202,
             "alias": "铣扁（A侧/外环槽）",
-            "template_group_id": "outer-groove-a",
+            "template_group_id": "grp_outer_groove_a",
+            "template_group_key": "grp_outer_groove_a",
+            "template_group_name": "外环槽",
             "template_group_path": ["A侧", "外环槽"],
+            "feature_selections": ["U形外环槽"],
         },
         {
             "source_operation_id": 999,
             "alias": "已移回右侧的工序（A侧/外环槽）",
-            "template_group_id": "outer-groove-a",
+            "template_group_id": "grp_outer_groove_a",
+            "template_group_key": "grp_outer_groove_a",
+            "template_group_name": "外环槽",
             "template_group_path": ["A侧", "外环槽"],
+            "feature_selections": ["U形外环槽"],
         },
     ]
     item = NormalizedRouteSegmentSaveItem(
@@ -103,3 +113,29 @@ def test_template_group_alias_contract_preserves_stable_group_metadata():
         "template_group_path": ["A侧", "孔"],
         "feature_selections": ["孔(盲孔)"],
     }
+
+
+def test_rule_package_process_alias_preserves_stable_group_metadata():
+    process = ProcessV2(
+        process_id="process_drill",
+        display_name="钻孔",
+        template_group_aliases=[{
+            "source_operation_id": 201,
+            "alias": "钻孔（A侧/孔）",
+            "template_group_id": "grp_abc",
+            "template_group_key": "grp_abc",
+            "template_group_name": "孔",
+            "template_group_path": ["A侧", "孔"],
+            "feature_selections": ["孔(盲孔)"],
+        }],
+    )
+
+    assert process.model_dump()["template_group_aliases"] == [{
+        "source_operation_id": 201,
+        "alias": "钻孔（A侧/孔）",
+        "template_group_id": "grp_abc",
+        "template_group_key": "grp_abc",
+        "template_group_name": "孔",
+        "template_group_path": ["A侧", "孔"],
+        "feature_selections": ["孔(盲孔)"],
+    }]

@@ -289,17 +289,17 @@ const props = defineProps<{
   modelValue: boolean
   projectId: number
   operations: TemplateOperation[]
-  aliases: Record<string, TemplateAliasBinding>
+  legacyAliases: Record<string, TemplateAliasBinding>
 }>()
 
 const emit = defineEmits<{
   (event: 'update:modelValue', value: boolean): void
-  (event: 'save', aliases: Record<string, TemplateAliasBinding>, templateRevision: number): void
+  (event: 'save', payload: { mappings: Record<string, TemplateAliasBinding>; templateRevision: number }): void
 }>()
 
 const model = useProjectGroupTemplate(
   computed(() => props.projectId),
-  computed(() => props.aliases),
+  computed(() => props.legacyAliases),
 )
 const fileInput = ref<HTMLInputElement | null>(null)
 const pendingFile = ref<File | null>(null)
@@ -420,7 +420,7 @@ function syncDraftFromTemplate() {
   const hasCurrentDraft = hasTemplateGroupMappingDraft(props.projectId, template.template_revision)
   draftAliases.value = Object.keys(restoredDraft).length || hasCurrentDraft
     ? restoredDraft
-    : migrateLegacyAliasesByPath(props.aliases, template.tree).migrated
+    : migrateLegacyAliasesByPath(props.legacyAliases, template.tree).migrated
   const activeStillExists = findTemplateGroupByKey(template.tree, activeGroupKey.value)
   activeGroupKey.value = activeStillExists?.key || template.tree[0]?.key || ''
 }
@@ -672,7 +672,7 @@ async function saveMappings() {
   })))
   draftAliases.value = aliases
   clearTemplateGroupMappingDraft(props.projectId)
-  emit('save', aliases, model.templateRevision.value)
+  emit('save', { mappings: aliases, templateRevision: model.templateRevision.value })
   closeDialog()
 }
 
