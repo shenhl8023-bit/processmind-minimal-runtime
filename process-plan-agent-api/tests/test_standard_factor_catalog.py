@@ -162,3 +162,12 @@ def test_manual_process_boolean_has_no_standard_factor_binding():
     assert bound.factor_id is None
     assert issues == []
     assert validate_factor_bindings(bound) == []
+
+
+def test_prefixed_non_boolean_manual_process_condition_remains_unbound():
+    """Fails if a prefix alone bypasses fourth-step factor confirmation."""
+    node = ConditionNode(
+        field="project_factor.manual_process_nitriding", op="eq", value="yes",
+    )
+
+    assert [issue.code for issue in validate_factor_bindings(node)] == ["factor_unbound"]

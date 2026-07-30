@@ -169,8 +169,12 @@ def _is_manual_process_leaf(
 ) -> bool:
     if not node.field or not node.field.startswith("project_factor.manual_process_"):
         return False
-    field = (additional_fields or {}).get(node.field)
-    return field is None or field.type == "boolean"
+    if node.op != "eq" or not isinstance(node.value, bool):
+        return False
+    if additional_fields is None:
+        return True
+    field = additional_fields.get(node.field)
+    return field is not None and field.type == "boolean"
 
 
 def _binding_issue(
