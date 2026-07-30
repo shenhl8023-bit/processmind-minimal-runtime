@@ -49,6 +49,36 @@ class Project(Base):
         uselist=False,
         passive_deletes=True,
     )
+    group_template = relationship(
+        "ProjectGroupTemplate",
+        back_populates="project",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class ProjectGroupTemplate(Base):
+    __tablename__ = "project_group_templates"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, unique=True)
+    original_filename = Column(String(255), nullable=False)
+    source_encoding = Column(String(32), nullable=False)
+    part_filename = Column(String(255), nullable=False)
+    content_hash = Column(String(64), nullable=False)
+    feature_dictionary_version = Column(String(64), nullable=False)
+    source_xml = Column(Text, nullable=False)
+    tree_json = Column(Text, nullable=False)
+    validation_json = Column(Text, nullable=False, default="[]")
+    mappings_json = Column(Text, nullable=False, default="[]")
+    template_revision = Column(Integer, nullable=False, default=1, server_default="1")
+    group_count = Column(Integer, nullable=False, default=0)
+    feature_selection_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+    project = relationship("Project", back_populates="group_template")
 
 
 class ExtractionTaskState(Base):

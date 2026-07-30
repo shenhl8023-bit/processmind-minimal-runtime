@@ -53,6 +53,31 @@ async def ensure_project_schema(conn):
     await ensure_column("projects", "rule_engine", "rule_engine VARCHAR(20) DEFAULT 'auto'")
     await ensure_column("projects", "workflow_revision", "workflow_revision INTEGER NOT NULL DEFAULT 0")
     await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS project_group_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL UNIQUE,
+            original_filename VARCHAR(255) NOT NULL,
+            source_encoding VARCHAR(32) NOT NULL,
+            part_filename VARCHAR(255) NOT NULL,
+            content_hash VARCHAR(64) NOT NULL,
+            feature_dictionary_version VARCHAR(64) NOT NULL,
+            source_xml TEXT NOT NULL,
+            tree_json TEXT NOT NULL,
+            validation_json TEXT NOT NULL DEFAULT '[]',
+            mappings_json TEXT NOT NULL DEFAULT '[]',
+            template_revision INTEGER NOT NULL DEFAULT 1,
+            group_count INTEGER NOT NULL DEFAULT 0,
+            feature_selection_count INTEGER NOT NULL DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+        )
+    """))
+    await conn.execute(text("""
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_project_group_templates_project
+        ON project_group_templates(project_id)
+    """))
+    await conn.execute(text("""
         CREATE TABLE IF NOT EXISTS schema_migrations (
             name VARCHAR(100) PRIMARY KEY,
             applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
