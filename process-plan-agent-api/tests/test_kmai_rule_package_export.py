@@ -142,6 +142,51 @@ def test_kmai_export_has_drop_in_runtime_contract(rule_package_v2):
     assert any(item["factor_key"] == "has_center_through_hole" for item in exported.files["factor_schema.json"]["factors"])
 
 
+def test_kmai_export_preserves_fixed_factor_schema_metadata(rule_package_v2):
+    exported = build_kmai_compatibility_export(rule_package_v2)
+
+    factors = exported.files["factor_schema.json"]["factors"]
+    assert [
+        (
+            factor["factor_id"],
+            factor["factor_key"],
+            factor["name"],
+            factor["category"],
+            factor["value_type"],
+        )
+        for factor in factors
+        if factor["factor_id"].startswith("F0")
+    ] == [
+        ("F001", "material_grade", "\u6750\u6599\u724c\u53f7", "material", "enum"),
+        ("F002", "part_type", "\u96f6\u4ef6\u7c7b\u578b", "part", "enum"),
+        ("F003", "has_flat_or_plane", "\u6241\u4f4d/\u5e73\u9762", "feature", "boolean"),
+        ("F004", "has_slot_feature", "\u69fd\u7c7b\u7279\u5f81", "feature", "boolean"),
+        ("F005", "has_standard_or_aux_hole", "\u666e\u901a\u5b54/\u8f85\u52a9\u5b54", "feature", "boolean"),
+        ("F005A", "has_center_through_hole", "\u4e2d\u95f4\u901a\u5b54", "feature", "boolean"),
+        ("F006", "has_reamed_or_precision_hole", "\u94f0\u5b54/\u7cbe\u5b54", "feature", "boolean"),
+        ("F007", "has_shaped_hole_or_cut_flat", "\u578b\u5b54/\u5272\u6241", "feature", "boolean"),
+        ("F008", "has_post_stage_added_hole", "\u540e\u6bb5\u8865\u5145\u5b54", "feature", "boolean"),
+        ("F009", "has_hole_finish_machining", "\u5b54\u7cbe\u52a0\u5de5", "precision", "boolean"),
+        ("F010", "requires_honing", "\u73e9\u5b54\u8981\u6c42", "precision", "boolean"),
+        ("F011", "requires_hole_lapping", "\u7814\u5b54\u8981\u6c42", "precision", "boolean"),
+        ("F012", "requires_outer_diameter_grinding", "\u5916\u5706\u78e8\u524a", "precision", "boolean"),
+        ("F013", "requires_end_face_grinding", "\u7aef\u9762\u78e8\u524a", "precision", "boolean"),
+        ("F014", "requires_slot_grinding", "\u69fd\u78e8\u524a", "precision", "boolean"),
+        ("F015", "requires_outer_diameter_lapping", "\u7814\u5916\u5706", "precision", "boolean"),
+        ("F016", "uses_center_hole_location", "\u9876\u5c16\u5b54\u5b9a\u4f4d", "precision", "boolean"),
+        ("F017", "needs_stress_relief", "\u53bb\u5e94\u529b", "heat_treatment", "boolean"),
+        ("F018", "needs_quenching", "\u6dec\u706b", "heat_treatment", "boolean"),
+        ("F019", "needs_vacuum_quenching", "\u771f\u7a7a\u6dec\u706b", "heat_treatment", "boolean"),
+        ("F020", "has_nitrided_layer", "\u6e17\u6c2e\u5c42", "heat_treatment", "boolean"),
+        ("F021", "needs_chromic_acid_anodizing", "\u94ec\u9178\u9633\u6781\u5316", "surface_treatment", "boolean"),
+        ("F022", "needs_hard_anodizing", "\u786c\u8d28\u9633\u6781\u5316", "surface_treatment", "boolean"),
+        ("F023", "needs_marking", "\u6807\u5370/\u6807\u523b", "inspection_marking", "boolean"),
+        ("F024", "needs_crack_inspection", "\u88c2\u7eb9\u68c0\u6d4b", "inspection_marking", "boolean"),
+        ("F025", "needs_burn_inspection", "\u70e7\u4f24\u68c0\u67e5", "inspection_marking", "boolean"),
+        ("F026", "needs_ndt_inspection", "\u65e0\u635f\u68c0\u6d4b", "inspection_marking", "boolean"),
+    ]
+
+
 def test_kmai_export_preserves_template_group_aliases_as_optional_metadata(rule_package_v2_payload):
     payload = deepcopy(rule_package_v2_payload)
     process = next(item for item in payload["route_catalog"]["processes"] if item["process_id"] == "process_mill_slot")
