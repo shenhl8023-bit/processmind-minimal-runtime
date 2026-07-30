@@ -173,6 +173,46 @@ describe('useProjectGroupTemplate', () => {
     expect(model.error.value).toBe('分组模板已在其他页面更新，已重新加载最新内容。')
   })
 
+  it('shows the stale conflict while the latest template is still loading', async () => {
+    let finishReload!: (value: ReturnType<typeof template>) => void
+    const reload = new Promise<ReturnType<typeof template>>((resolve) => {
+      finishReload = resolve
+    })
+    getCurrentGroupTemplateMock
+      .mockResolvedValueOnce(template(2))
+      .mockReturnValueOnce(reload)
+    previewGroupTemplateMock.mockResolvedValue(preview())
+    commitGroupTemplateMock.mockRejectedValue({ response: { status: 409 } })
+    const model = useProjectGroupTemplate(ref(28), ref({}))
+    await model.load()
+    model.beginReplacement()
+    await model.selectFile(xmlFile)
+
+    const confirmation = model.confirmTemplate()
+    await vi.waitFor(() => expect(getCurrentGroupTemplateMock).toHaveBeenCalledTimes(2))
+
+    expect(model.error.value).toBe('分组模板已在其他页面更新，正在重新加载最新内容。')
+    finishReload(template(3))
+    await confirmation
+    expect(model.error.value).toBe('分组模板已在其他页面更新，已重新加载最新内容。')
+  })
+
+  it('reports a failed stale reload instead of claiming the latest template was loaded', async () => {
+    getCurrentGroupTemplateMock
+      .mockResolvedValueOnce(template(2))
+      .mockRejectedValueOnce({ response: { status: 503, data: { detail: '服务暂不可用' } } })
+    previewGroupTemplateMock.mockResolvedValue(preview())
+    commitGroupTemplateMock.mockRejectedValue({ response: { status: 409 } })
+    const model = useProjectGroupTemplate(ref(28), ref({}))
+    await model.load()
+    model.beginReplacement()
+    await model.selectFile(xmlFile)
+
+    await model.confirmTemplate()
+
+    expect(model.error.value).toBe('分组模板已在其他页面更新，但重新加载失败：服务暂不可用')
+  })
+
   it('confirms a replacement against the current revision and uses server migration results', async () => {
     getCurrentGroupTemplateMock.mockResolvedValue(template(7, [mapping()]))
     previewGroupTemplateMock.mockResolvedValue(preview(true, [node([' A侧 ', '孔'])]))
@@ -242,5 +282,71 @@ describe('useProjectGroupTemplate', () => {
     }])
     expect(model.template.value?.mappings).toEqual([])
     expect(saveGroupTemplateMappingsMock).not.toHaveBeenCalled()
+  })
+
+  it('does not pair a failed new file with the previous successful preview', async () => {
+    previewGroupTemplateMock
+      .mockResolvedValueOnce(preview())
+      .mockRejectedValueOnce({ response: { status: 422, data: { detail: '文件无法解析' } } })
+    commitGroupTemplateMock.mockResolvedValue({
+      ...template(1),
+      kept_source_operation_ids: [],
+      invalidated: [],
+    })
+    const model = useProjectGroupTemplate(ref(28), ref({}))
+    await model.selectFile(xmlFile)
+
+    await model.selectFile(new File(['broken'], 'broken.xml', { type: 'application/xml' }))
+    await model.confirmTemplate()
+
+    expect(model.preview.value).toBeNull()
+    expect(model.error.value).toBe('文件无法解析')
+    expect(commitGroupTemplateMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps only the newest preview when file requests finish out of order', async () => {
+    let finishFirst!: (value: ReturnType<typeof preview>) => void
+    let finishSecond!: (value: ReturnType<typeof preview>) => void
+    previewGroupTemplateMock
+      .mockReturnValueOnce(new Promise(resolve => { finishFirst = resolve }))
+      .mockReturnValueOnce(new Promise(resolve => { finishSecond = resolve }))
+    const model = useProjectGroupTemplate(ref(28), ref({}))
+    const firstFile = new File(['first'], 'first.xml', { type: 'application/xml' })
+    const secondFile = new File(['second'], 'second.xml', { type: 'application/xml' })
+
+    const firstRequest = model.selectFile(firstFile)
+    const secondRequest = model.selectFile(secondFile)
+    expect(model.loading.value).toBe(true)
+    finishSecond({ ...preview(), original_filename: 'second.xml', content_hash: 'second-hash' })
+    await secondRequest
+    finishFirst({ ...preview(), original_filename: 'first.xml', content_hash: 'first-hash' })
+    await firstRequest
+
+    expect(model.preview.value?.original_filename).toBe('second.xml')
+    expect(model.loading.value).toBe(false)
+  })
+
+  it('runs first-load legacy migration again after the reactive project changes', async () => {
+    const projectId = ref(28)
+    const aliases = ref<Record<string, any>>({
+      11: { source_operation_id: 11, alias: '钻孔（A侧/孔）', template_group_path: ['A侧', '孔'] },
+    })
+    getCurrentGroupTemplateMock
+      .mockResolvedValueOnce(template(1))
+      .mockResolvedValueOnce({ ...template(1), project_id: 29 })
+    const model = useProjectGroupTemplate(projectId, aliases)
+
+    await model.load()
+    projectId.value = 29
+    aliases.value = {
+      12: { source_operation_id: 12, alias: '钻孔（A侧/孔）', template_group_path: ['A侧', '孔'] },
+    }
+    await model.load()
+
+    expect(model.draftMappings.value).toEqual([{
+      source_operation_id: 12,
+      alias: '钻孔（A侧/孔）',
+      template_group_path: ['A侧', '孔'],
+    }])
   })
 })

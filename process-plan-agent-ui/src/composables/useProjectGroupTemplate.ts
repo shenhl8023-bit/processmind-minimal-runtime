@@ -115,7 +115,8 @@ export function useProjectGroupTemplate(
   const replacementImpact = ref<GroupTemplateMigrationResult | null>(null)
   const templateRevision = computed(() => template.value?.template_revision ?? 0)
   let selectedFile: File | null = null
-  let legacyMigrationChecked = false
+  let legacyMigrationProjectId: number | null = null
+  let previewRequestId = 0
 
   function applyTemplate(snapshot: ProjectGroupTemplate) {
     template.value = snapshot
@@ -123,19 +124,21 @@ export function useProjectGroupTemplate(
     state.value = 'workspace'
   }
 
-  async function load() {
+  async function load(options: { preserveError?: boolean } = {}) {
+    const currentProjectId = unref(projectId)
     loading.value = true
-    error.value = ''
+    if (!options.preserveError) error.value = ''
     try {
-      const current = await getCurrentGroupTemplate(unref(projectId))
+      const current = await getCurrentGroupTemplate(currentProjectId)
       applyTemplate(current)
       preview.value = null
       selectedFile = null
       replacementImpact.value = null
-      if (!legacyMigrationChecked && current.mappings.length === 0) {
+      if (legacyMigrationProjectId !== currentProjectId && current.mappings.length === 0) {
         draftMappings.value = migratedLegacyMappings(unref(legacyAliases), current)
       }
-      legacyMigrationChecked = true
+      legacyMigrationProjectId = currentProjectId
+      return true
     } catch (cause) {
       if (errorStatus(cause) === 404) {
         state.value = 'empty'
@@ -144,30 +147,46 @@ export function useProjectGroupTemplate(
         selectedFile = null
         draftMappings.value = []
         replacementImpact.value = null
-        return
+        legacyMigrationProjectId = currentProjectId
+        return true
       }
-      error.value = errorMessage(cause)
+      const message = errorMessage(cause)
+      error.value = options.preserveError
+        ? `分组模板已在其他页面更新，但重新加载失败：${message}`
+        : message
+      return false
     } finally {
       loading.value = false
     }
   }
 
   async function selectFile(file: File) {
+    const requestId = ++previewRequestId
     saving.value = false
+    loading.value = true
     error.value = ''
-    selectedFile = file
+    state.value = 'preview'
+    selectedFile = null
+    preview.value = null
+    replacementImpact.value = null
     try {
       const nextPreview = await previewGroupTemplate(file)
+      if (requestId !== previewRequestId) return
+      selectedFile = file
       preview.value = nextPreview
-      state.value = 'preview'
       replacementImpact.value = template.value ? previewMigration(template.value, nextPreview) : null
     } catch (cause) {
+      if (requestId !== previewRequestId) return
       error.value = errorMessage(cause)
+    } finally {
+      if (requestId === previewRequestId) loading.value = false
     }
   }
 
   function beginReplacement() {
     if (!template.value) return
+    previewRequestId += 1
+    loading.value = false
     state.value = 'preview'
     preview.value = null
     selectedFile = null
@@ -176,6 +195,8 @@ export function useProjectGroupTemplate(
   }
 
   function cancelPreview() {
+    previewRequestId += 1
+    loading.value = false
     state.value = template.value ? 'workspace' : 'empty'
     preview.value = null
     selectedFile = null
@@ -184,8 +205,9 @@ export function useProjectGroupTemplate(
   }
 
   async function recoverFromConflict() {
-    await load()
-    error.value = '分组模板已在其他页面更新，已重新加载最新内容。'
+    error.value = '分组模板已在其他页面更新，正在重新加载最新内容。'
+    const reloaded = await load({ preserveError: true })
+    if (reloaded) error.value = '分组模板已在其他页面更新，已重新加载最新内容。'
   }
 
   async function confirmTemplate() {

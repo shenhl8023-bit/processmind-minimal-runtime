@@ -187,20 +187,12 @@ export interface GroupTemplateMigrationResult {
 
 export interface GroupTemplateCommitResult extends ProjectGroupTemplate, GroupTemplateMigrationResult {}
 
-export interface TemplateGroupMappingCandidateInput {
-  group_id: string
-  path: string[]
-  score: number
-  reason: string
-}
-
 export interface TemplateGroupMappingOperationInput {
   operation_id: number
   operation_name: string
   step_items: string[]
   rule_evidence: string[]
   rule_reasons: string[]
-  candidates: TemplateGroupMappingCandidateInput[]
 }
 
 export interface TemplateGroupMappingSuggestRequest {

@@ -490,7 +490,6 @@ async function autoMapOperations() {
           step_items: operation.step_items || [],
           rule_evidence: suggestion.evidence,
           rule_reasons: suggestion.reasons,
-          candidates: suggestion.candidates,
         }
       }),
     })
