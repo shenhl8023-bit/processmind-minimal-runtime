@@ -1,4 +1,5 @@
 import asyncio
+from copy import deepcopy
 
 import pytest
 from fastapi.testclient import TestClient
@@ -91,6 +92,49 @@ def _v2_save_payload(package_payload):
     }
 
 
+def _compile_payload_with_manual_pair(package_payload, process_id="process_nitriding"):
+    payload = deepcopy(package_payload)
+    payload["test_cases"] = []
+    hash_value = 0x811C9DC5
+    for character in process_id:
+        hash_value ^= ord(character)
+        hash_value = (hash_value * 0x01000193) & 0xFFFFFFFF
+    manual_field = f"project_factor.manual_process_{hash_value:08x}"
+    payload["input_schema"]["fields"].append({
+        "key": manual_field,
+        "label": "是否需要渗氮",
+        "type": "boolean",
+        "required": False,
+        "source": "用户直接设定",
+        "options": [],
+        "allow_custom": False,
+    })
+    audit = {
+        "priority": 2000,
+        "enabled": True,
+        "source": "user_confirmed",
+        "source_segment_id": process_id,
+        "source_text": "用户确认是否需要渗氮",
+        "confirmed_by": "用户直接设定",
+        "confirmed_at": "2026-07-30T10:00:00+00:00",
+    }
+    payload["route_rules"]["rules"].extend([
+        {
+            **audit,
+            "rule_id": f"user.{process_id}.manual.true",
+            "when": {"field": manual_field, "op": "eq", "value": True},
+            "then": {"include_process_ids": [process_id], "exclude_process_ids": []},
+        },
+        {
+            **audit,
+            "rule_id": f"user.{process_id}.manual.false",
+            "when": {"field": manual_field, "op": "eq", "value": False},
+            "then": {"include_process_ids": [], "exclude_process_ids": [process_id]},
+        },
+    ])
+    return _compile_payload(payload)
+
+
 def test_compile_validate_and_simulate_endpoints(rule_package_v2_payload):
     compiled = client.post(
         "/api/extract/finalized-rule-packages/compile",
@@ -134,6 +178,18 @@ def test_compile_validate_and_simulate_endpoints(rule_package_v2_payload):
         "process_mill_slot",
         "process_quench",
     ]
+
+
+def test_compile_accepts_mutually_exclusive_manual_boolean_rules(rule_package_v2_payload):
+    response = client.post(
+        "/api/extract/finalized-rule-packages/compile",
+        json=_compile_payload_with_manual_pair(rule_package_v2_payload),
+    )
+
+    assert response.status_code == 200
+    validation = response.json()["validation"]
+    assert validation["valid"] is True
+    assert "same_priority_action_conflict" not in [issue["code"] for issue in validation["errors"]]
 
 
 def test_compile_rejects_a_factor_id_that_does_not_match_the_leaf(rule_package_v2_payload):

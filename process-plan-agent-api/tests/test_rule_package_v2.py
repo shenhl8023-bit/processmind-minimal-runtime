@@ -8,6 +8,7 @@ from app.services.generate_route_result_builder import build_generate_output_jso
 from app.services.rule_packages.contracts import RulePackageV2
 from app.services.rule_packages.hashing import rule_package_content_hash
 from app.services.rule_packages.planner import plan_route
+from app.services.rule_packages import validator as rule_package_validator
 from app.services.rule_packages.validator import validate_rule_package
 
 
@@ -270,3 +271,236 @@ def test_manual_boolean_false_overrides_mainline_and_trigger_inclusion(rule_pack
 
     assert report.valid is True
     assert "process_nitriding" not in plan.selected_process_ids
+
+
+_MANUAL_PROCESS_CASES = [
+    ("process_quench", "淬火"),
+    ("process_nitriding", "渗氮"),
+    ("process_ndt", "无损检查"),
+    ("process_deburr", "去毛刺"),
+]
+
+
+def _manual_process_field_key(process_id: str) -> str:
+    hash_value = 0x811C9DC5
+    for character in process_id:
+        hash_value ^= ord(character)
+        hash_value = (hash_value * 0x01000193) & 0xFFFFFFFF
+    return f"project_factor.manual_process_{hash_value:08x}"
+
+
+def _manual_pair_payload(rule_package_v2_payload, process_id: str, label: str = "手工工序"):
+    payload = deepcopy(rule_package_v2_payload)
+    payload["test_cases"] = []
+    if not any(item["process_id"] == process_id for item in payload["route_catalog"]["processes"]):
+        payload["route_catalog"]["processes"].append({
+            "process_id": process_id,
+            "process_code": process_id.removeprefix("process_").upper(),
+            "display_name": label,
+            "phase": "manual",
+            "default_sequence": 500,
+            "main": False,
+            "steps": [],
+            "constraints": {
+                "requires": [],
+                "must_run_after": [],
+                "must_run_before": [],
+                "conflicts_with": [],
+            },
+        })
+
+    manual_field = _manual_process_field_key(process_id)
+    payload["input_schema"]["fields"].append({
+        "key": manual_field,
+        "label": f"是否需要{label}",
+        "type": "boolean",
+        "required": False,
+        "source": "用户直接设定",
+        "options": [],
+        "allow_custom": False,
+    })
+    audit = {
+        "priority": 2000,
+        "enabled": True,
+        "source": "user_confirmed",
+        "source_segment_id": process_id,
+        "source_text": f"用户确认是否需要{label}",
+        "confirmed_by": "用户直接设定",
+        "confirmed_at": "2026-07-30T10:00:00+00:00",
+    }
+    payload["route_rules"]["rules"].extend([
+        {
+            **audit,
+            "rule_id": f"user.{process_id}.manual.true",
+            "when": {"field": manual_field, "op": "eq", "value": True},
+            "then": {
+                "include_process_ids": [process_id],
+                "exclude_process_ids": [],
+                "reason": f"用户选择需要{label}",
+            },
+        },
+        {
+            **audit,
+            "rule_id": f"user.{process_id}.manual.false",
+            "when": {"field": manual_field, "op": "eq", "value": False},
+            "then": {
+                "include_process_ids": [],
+                "exclude_process_ids": [process_id],
+                "reason": f"用户选择不需要{label}",
+            },
+        },
+    ])
+    return payload, manual_field
+
+
+@pytest.mark.parametrize(("process_id", "label"), _MANUAL_PROCESS_CASES)
+def test_confirmed_manual_true_false_pair_is_not_a_conflict(
+    rule_package_v2_payload,
+    process_id,
+    label,
+):
+    payload, manual_field = _manual_pair_payload(rule_package_v2_payload, process_id, label)
+    package = RulePackageV2.model_validate(payload)
+
+    report = validate_rule_package(package)
+    yes_plan = plan_route(package, {"project_factor": {manual_field.removeprefix("project_factor."): True}})
+    no_plan = plan_route(package, {"project_factor": {manual_field.removeprefix("project_factor."): False}})
+
+    assert "same_priority_action_conflict" not in [issue.code for issue in report.errors]
+    assert process_id in yes_plan.selected_process_ids
+    assert process_id not in no_plan.selected_process_ids
+
+
+def _mutate_manual_pair_boundary(payload, boundary: str, process_id: str, manual_field: str):
+    include_rule, exclude_rule = payload["route_rules"]["rules"][-2:]
+    if boundary == "field":
+        other_field = f"{manual_field}_other"
+        payload["input_schema"]["fields"].append({
+            **payload["input_schema"]["fields"][-1],
+            "key": other_field,
+        })
+        exclude_rule["when"]["field"] = other_field
+    elif boundary == "field_type":
+        payload["input_schema"]["fields"][-1]["type"] = "string"
+    elif boundary == "field_source":
+        payload["input_schema"]["fields"][-1]["source"] = "CAD"
+    elif boundary == "field_prefix":
+        other_field = manual_field.replace("manual_process_", "optional_process_", 1)
+        payload["input_schema"]["fields"][-1]["key"] = other_field
+        include_rule["when"]["field"] = other_field
+        exclude_rule["when"]["field"] = other_field
+    elif boundary == "source_segment":
+        exclude_rule["source_segment_id"] = "process_other_segment"
+    elif boundary == "priority":
+        exclude_rule["priority"] = include_rule["priority"] - 1
+    elif boundary == "target_process":
+        include_rule["then"]["include_process_ids"].append("process_rough_machine")
+    elif boundary == "source":
+        exclude_rule["source"] = "system_static"
+    elif boundary == "compound_true":
+        include_rule["when"] = {
+            "all": [
+                include_rule["when"],
+                {"field": "material.grade", "op": "eq", "value": "9Cr18"},
+            ],
+        }
+    elif boundary == "any_true":
+        include_rule["when"] = {
+            "any": [
+                include_rule["when"],
+                {"field": "material.grade", "op": "eq", "value": "9Cr18"},
+            ],
+        }
+    elif boundary == "not_true":
+        include_rule["when"] = {
+            "not": {"field": manual_field, "op": "eq", "value": False},
+        }
+    elif boundary == "false_operator":
+        exclude_rule["when"] = {"field": manual_field, "op": "neq", "value": True}
+    elif boundary == "factor_id":
+        include_rule["when"]["factor_id"] = "manual.factor.must_not_exist"
+    elif boundary == "actions":
+        exclude_rule["then"]["include_process_ids"] = ["process_rough_machine"]
+    elif boundary == "extra_rule":
+        extra_rule = deepcopy(include_rule)
+        extra_rule["rule_id"] = f"{include_rule['rule_id']}.extra"
+        payload["route_rules"]["rules"].append(extra_rule)
+    else:
+        raise AssertionError(f"unknown boundary: {boundary}")
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    [
+        "field",
+        "field_type",
+        "field_source",
+        "field_prefix",
+        "source_segment",
+        "target_process",
+        "source",
+        "compound_true",
+        "any_true",
+        "not_true",
+        "false_operator",
+        "factor_id",
+        "actions",
+        "extra_rule",
+    ],
+)
+def test_non_exact_manual_pair_still_reports_same_priority_conflict(
+    rule_package_v2_payload,
+    boundary,
+):
+    process_id = "process_nitriding"
+    payload, manual_field = _manual_pair_payload(rule_package_v2_payload, process_id, "渗氮")
+    _mutate_manual_pair_boundary(payload, boundary, process_id, manual_field)
+
+    report = validate_rule_package(RulePackageV2.model_validate(payload))
+    conflicts = [issue for issue in report.errors if issue.code == "same_priority_action_conflict"]
+
+    assert conflicts
+    assert any(process_id in issue.message for issue in conflicts)
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    [
+        "field",
+        "field_type",
+        "field_source",
+        "field_prefix",
+        "source_segment",
+        "priority",
+        "target_process",
+        "source",
+        "compound_true",
+        "any_true",
+        "not_true",
+        "false_operator",
+        "factor_id",
+        "actions",
+    ],
+)
+def test_manual_pair_predicate_rejects_every_non_exact_boundary(
+    rule_package_v2_payload,
+    boundary,
+):
+    process_id = "process_nitriding"
+    payload, manual_field = _manual_pair_payload(rule_package_v2_payload, process_id, "渗氮")
+    _mutate_manual_pair_boundary(payload, boundary, process_id, manual_field)
+    package = RulePackageV2.model_validate(payload)
+    include_rule, exclude_rule = package.route_rules.rules[-2:]
+    predicate = getattr(rule_package_validator, "_is_mutually_exclusive_manual_pair", None)
+    manual_field_keys = {
+        field.key
+        for field in package.input_schema.fields
+        if (
+            field.type == "boolean"
+            and field.source == "用户直接设定"
+            and field.key.startswith("project_factor.manual_process_")
+        )
+    }
+
+    assert predicate is not None
+    assert predicate(include_rule, exclude_rule, process_id, manual_field_keys) is False

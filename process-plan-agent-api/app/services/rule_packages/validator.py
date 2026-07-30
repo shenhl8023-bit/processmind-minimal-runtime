@@ -6,6 +6,7 @@ import json
 from collections import Counter, defaultdict
 
 from app.services.rule_packages.contracts import (
+    ConditionNode,
     FactorBindingIssue,
     InputField,
     RulePackageV2,
@@ -78,6 +79,45 @@ def _is_manual_process_exclusion(rule, process_id: str, manual_field_keys: set[s
         and rule.when.op == "eq"
         and rule.when.value is False
         and process_id in rule.then.exclude_process_ids
+    )
+
+
+def _sole_boolean_leaf(condition: ConditionNode) -> tuple[str, bool] | None:
+    if (
+        condition.all_conditions is not None
+        or condition.any_conditions is not None
+        or condition.not_condition is not None
+        or not condition.field
+        or condition.op != "eq"
+        or not isinstance(condition.value, bool)
+        or condition.factor_id is not None
+    ):
+        return None
+    return condition.field, condition.value
+
+
+def _is_mutually_exclusive_manual_pair(
+    include_rule: RuleV2,
+    exclude_rule: RuleV2,
+    process_id: str,
+    manual_field_keys: set[str],
+) -> bool:
+    include_leaf = _sole_boolean_leaf(include_rule.when)
+    exclude_leaf = _sole_boolean_leaf(exclude_rule.when)
+    if not include_leaf or include_leaf[0] not in manual_field_keys:
+        return False
+    manual_field = include_leaf[0]
+    return bool(
+        include_rule.source == exclude_rule.source == "user_confirmed"
+        and include_rule.source_segment_id
+        and include_rule.source_segment_id == exclude_rule.source_segment_id
+        and include_rule.priority == exclude_rule.priority
+        and include_leaf == (manual_field, True)
+        and exclude_leaf == (manual_field, False)
+        and include_rule.then.include_process_ids == [process_id]
+        and include_rule.then.exclude_process_ids == []
+        and exclude_rule.then.include_process_ids == []
+        and exclude_rule.then.exclude_process_ids == [process_id]
     )
 
 
@@ -177,7 +217,9 @@ def validate_rule_package(package: RulePackageV2) -> RulePackageValidationReport
     if cycle:
         error("dependency_cycle", f"工序依赖存在环：{' -> '.join(cycle)}", "route_catalog.processes")
 
-    opposing_actions: dict[tuple[int, str], dict[str, list[str]]] = defaultdict(lambda: {"include": [], "exclude": []})
+    opposing_actions: dict[tuple[int, str], dict[str, list[RuleV2]]] = defaultdict(
+        lambda: {"include": [], "exclude": []}
+    )
     for index, rule in enumerate(package.route_rules.rules):
         path = f"route_rules.rules[{index}]"
         if rule.source == "user_confirmed":
@@ -192,7 +234,7 @@ def validate_rule_package(package: RulePackageV2) -> RulePackageValidationReport
             if process_id not in process_set:
                 error("unknown_process_action", f"规则 {rule.rule_id} 引用了不存在的工序 {process_id}", f"{path}.then")
             if rule.enabled:
-                opposing_actions[(rule.priority, process_id)]["include"].append(rule.rule_id)
+                opposing_actions[(rule.priority, process_id)]["include"].append(rule)
         for process_id in rule.then.exclude_process_ids:
             if process_id not in process_set:
                 error("unknown_process_action", f"规则 {rule.rule_id} 引用了不存在的工序 {process_id}", f"{path}.then")
@@ -203,7 +245,7 @@ def validate_rule_package(package: RulePackageV2) -> RulePackageValidationReport
             ):
                 error("exclude_main_process", f"规则 {rule.rule_id} 不能排除主线工序 {process_id}", f"{path}.then")
             if rule.enabled:
-                opposing_actions[(rule.priority, process_id)]["exclude"].append(rule.rule_id)
+                opposing_actions[(rule.priority, process_id)]["exclude"].append(rule)
 
     for index, relation in enumerate(package.route_rules.process_relations):
         path = f"route_rules.process_relations[{index}]"
@@ -249,6 +291,18 @@ def validate_rule_package(package: RulePackageV2) -> RulePackageValidationReport
 
     for (priority, process_id), actions in opposing_actions.items():
         if actions["include"] and actions["exclude"]:
+            exact_manual_pair = (
+                len(actions["include"]) == 1
+                and len(actions["exclude"]) == 1
+                and _is_mutually_exclusive_manual_pair(
+                    actions["include"][0],
+                    actions["exclude"][0],
+                    process_id,
+                    manual_field_keys,
+                )
+            )
+            if exact_manual_pair:
+                continue
             error(
                 "same_priority_action_conflict",
                 f"优先级 {priority} 对工序 {process_id} 同时存在 include 和 exclude 规则",

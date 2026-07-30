@@ -608,16 +608,21 @@ describe('V2 compile DTO from finalize cards', () => {
       type: 'boolean',
       required: false,
     }))
-    expect(request.rules).toContainEqual(expect.objectContaining({
-      source: 'user_confirmed',
-      when: first.when,
-      then: expect.objectContaining({ include_process_ids: ['process_mark'] }),
-    }))
-    expect(request.rules).toContainEqual(expect.objectContaining({
-      source: 'user_confirmed',
-      when: { field: 'project_factor.manual_process_487e1c0a', op: 'eq', value: false },
-      then: expect.objectContaining({ exclude_process_ids: ['process_mark'], include_process_ids: [] }),
-    }))
+    const trueRule = request.rules?.find(rule => rule.rule_id.endsWith('.manual.true'))!
+    const falseRule = request.rules?.find(rule => rule.rule_id.endsWith('.manual.false'))!
+    expect(trueRule.source).toBe('user_confirmed')
+    expect(falseRule.source).toBe('user_confirmed')
+    expect(trueRule.source_segment_id).toBe('process_mark')
+    expect(falseRule.source_segment_id).toBe(trueRule.source_segment_id)
+    expect(falseRule.priority).toBe(trueRule.priority)
+    expect(trueRule.when).toEqual(first.when)
+    expect(falseRule.when).toEqual({
+      field: 'project_factor.manual_process_487e1c0a', op: 'eq', value: false,
+    })
+    expect(trueRule.then.include_process_ids).toEqual(['process_mark'])
+    expect(trueRule.then.exclude_process_ids).toEqual([])
+    expect(falseRule.then.include_process_ids).toEqual([])
+    expect(falseRule.then.exclude_process_ids).toEqual(['process_mark'])
   })
 
   it('keeps manual mode actions available on every non-editing card', () => {
