@@ -98,7 +98,7 @@ def parse_group_template_xml(filename: str, payload: bytes) -> GroupTemplatePars
     if root.tag != "Kmsoft":
         return _add_issue(result, "invalid_root", "The root node must be Kmsoft.")
 
-    root_items = root.findall("./Item")
+    root_items = [item for item in root.iter("Item")]
     if not any(item.get("type") == "Part_Template" for item in root_items):
         return _add_issue(result, "missing_part_template", "Part_Template is required.")
     if not any(item.get("type") == "Group_Template" for item in root_items):
@@ -161,7 +161,7 @@ def parse_group_template_xml(filename: str, payload: bytes) -> GroupTemplatePars
 
         children: list[dict[str, object]] = []
         sibling_names: set[str] = set()
-        for child in group.findall("./Item[@type='Group']"):
+        for child in _logical_group_children(group):
             child_name = normalize_name(next(
                 (param.get("value", "") for param in child.findall("./Params/param") if param.get("name") == "名称"),
                 "",
@@ -192,7 +192,7 @@ def parse_group_template_xml(filename: str, payload: bytes) -> GroupTemplatePars
 
     tree: list[dict[str, object]] = []
     sibling_names: set[str] = set()
-    for group in part.findall("./Item[@type='Group']"):
+    for group in _logical_group_children(part):
         group_name = normalize_name(next(
             (param.get("value", "") for param in group.findall("./Params/param") if param.get("name") == "名称"),
             "",
@@ -226,6 +226,8 @@ def _decode_xml(payload: bytes) -> tuple[str | None, str]:
     match = _ENCODING_DECLARATION.search(payload[:4096])
     declared_encoding = match.group(1).decode("ascii") if match else ""
     candidates = [declared_encoding] if declared_encoding else ["utf-8", "gb18030"]
+    if declared_encoding and declared_encoding.lower() != "utf-8":
+        candidates.append("utf-8")
     for candidate in candidates:
         codec = {"gb2312": "gb18030", "gbk": "gb18030"}.get(candidate.lower(), candidate)
         try:
@@ -249,8 +251,26 @@ def _feature_dictionary_version() -> str:
 
 def _load_feature_dictionary() -> set[str] | None:
     try:
+        source_xml, _ = _decode_xml(FEATURE_DICTIONARY_PATH.read_bytes())
+        if source_xml is None:
+            return None
         parser = etree.XMLParser(resolve_entities=False, load_dtd=False, no_network=True, recover=False, huge_tree=False)
-        root = etree.fromstring(FEATURE_DICTIONARY_PATH.read_bytes(), parser=parser)
-    except (OSError, etree.XMLSyntaxError):
+        root = etree.fromstring(_normalize_xml_declaration(source_xml).encode("utf-8"), parser=parser)
+    except (OSError, etree.XMLSyntaxError, UnicodeError):
         return None
     return {normalize_name(item.get("name")) for item in root.findall(".//Item") if normalize_name(item.get("name"))}
+
+
+def _logical_group_children(parent: etree._Element) -> list[etree._Element]:
+    parent_group = parent if parent.get("type") == "Group" else None
+    children: list[etree._Element] = []
+    for item in parent.iter("Item"):
+        if item is parent or item.get("type") != "Group":
+            continue
+        nearest_group_ancestor = next(
+            (ancestor for ancestor in item.iterancestors("Item") if ancestor.get("type") == "Group"),
+            None,
+        )
+        if nearest_group_ancestor is parent_group:
+            children.append(item)
+    return children

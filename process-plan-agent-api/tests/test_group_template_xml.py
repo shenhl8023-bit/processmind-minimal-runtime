@@ -94,6 +94,34 @@ def test_duplicate_normalized_sibling_name_blocks_confirmation():
     assert result.issues[0].code == "duplicate_sibling_name"
 
 
+def test_rejects_a_second_part_anywhere_in_the_document():
+    nested_second_part = '''<?xml version="1.0" encoding="UTF-8"?>
+    <Kmsoft>
+      <Item type="Part_Template" /><Item type="Group_Template" />
+      <Item type="Part"><Item type="Group"><Params><param name="名称" value="A侧" /></Params></Item></Item>
+      <Item type="Wrapper"><Item type="Part" /></Item>
+    </Kmsoft>'''.encode("utf-8")
+    result = parse_group_template_xml("multiple-parts.xml", nested_second_part)
+
+    assert result.can_confirm is False
+    assert any(issue.code == "invalid_part_count" for issue in result.issues)
+
+
+def test_discovers_a_group_descendant_behind_a_non_group_wrapper():
+    wrapped_group = '''<?xml version="1.0" encoding="UTF-8"?>
+    <Kmsoft>
+      <Item type="Part_Template" /><Item type="Group_Template" />
+      <Item type="Part" filename="wrapped.prt"><Item type="Wrapper">
+        <Item type="Group" id="wrapped-group"><Params><param name="名称" value="A侧" /></Params></Item>
+      </Item></Item>
+    </Kmsoft>'''.encode("utf-8")
+    result = parse_group_template_xml("wrapped-group.xml", wrapped_group)
+
+    assert result.can_confirm is True
+    assert result.group_count == 1
+    assert result.tree[0]["path"] == ["A侧"]
+
+
 @pytest.mark.parametrize("filename,payload,code", [
     ("template.txt", xml_bytes(), "invalid_file_extension"),
     ("template.xml", b"x" * (5 * 1024 * 1024 + 1), "payload_too_large"),
