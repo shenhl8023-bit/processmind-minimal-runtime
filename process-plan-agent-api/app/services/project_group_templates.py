@@ -11,7 +11,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Project, ProjectGroupTemplate
-from app.services.group_template_xml import GroupTemplateParseResult
+from app.services.group_template_xml import GroupTemplateParseResult, normalize_name
 
 
 REVISION_CONFLICT_DETAIL = "分组模板已在其他页面更新，请重新加载。"
@@ -53,7 +53,8 @@ class TemplateCommitResult(ProjectTemplateSnapshot):
 
 
 def _canonical_path(path: list[str]) -> str:
-    return json.dumps(path, ensure_ascii=False, separators=(",", ":"))
+    normalized_path = [normalize_name(part) for part in path]
+    return json.dumps(normalized_path, ensure_ascii=False, separators=(",", ":"))
 
 
 def _json_dump(value: object) -> str:

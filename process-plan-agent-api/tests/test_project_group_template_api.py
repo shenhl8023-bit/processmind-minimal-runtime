@@ -138,6 +138,29 @@ async def test_replacement_preserves_only_an_exact_path_and_refreshes_server_met
 
 
 @pytest.mark.asyncio
+async def test_mapping_path_is_trimmed_and_unicode_normalized_before_lookup(template_store):
+    _, sessions = template_store
+    project_id = await _create_project(sessions)
+    composed_name = "孔\u00e9"
+
+    async with sessions() as db:
+        await commit_project_group_template(
+            db,
+            project_id,
+            _parsed("normalized.xml", child_name=composed_name, feature=""),
+            expected_revision=0,
+        )
+        mapped = await replace_project_group_mappings(
+            db,
+            project_id,
+            [_mapping([" A侧 ", "孔e\u0301 "])],
+            expected_revision=1,
+        )
+
+    assert mapped.mappings[0].template_group_path == ["A侧", composed_name]
+
+
+@pytest.mark.asyncio
 async def test_stale_or_invalid_replacement_returns_http_error_without_changing_row(template_store):
     _, sessions = template_store
     project_id = await _create_project(sessions)
