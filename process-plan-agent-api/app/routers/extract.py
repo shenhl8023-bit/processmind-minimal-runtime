@@ -5,7 +5,7 @@
 """
 import asyncio
 from dataclasses import asdict
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
@@ -29,10 +29,14 @@ from app.schemas.schemas import (
     FinalizedRulePackageListItemOut,
     FinalizedRulePackageOut,
     FinalizedRulePackageSaveRequest,
+    GroupTemplateCommitOut,
+    GroupTemplateMappingsUpdateRequest,
+    GroupTemplatePreviewOut,
     MergeSuggestionListOut,
     MergeSuggestionReviewRequest,
     NormalizedSupersetRouteOut,
     OperationOut,
+    ProjectGroupTemplateOut,
     SegmentRuleReviewSaveOut,
     SavedNormalizedRouteVersionOut,
     SaveSegmentRuleReviewRequest,
@@ -112,6 +116,13 @@ from app.services.project_workflow_lifecycle import (
     invalidate_project_workflow,
 )
 from app.services.template_group_mapping import resolve_template_group_mappings
+from app.services.group_template_xml import MAX_GROUP_TEMPLATE_BYTES, parse_group_template_xml
+from app.services.project_group_templates import (
+    commit_project_group_template,
+    get_project_group_template,
+    replace_project_group_mappings,
+    serialize_project_group_template,
+)
 
 router = APIRouter(prefix="/api/extract", tags=["规则提炼"])
 
@@ -126,6 +137,99 @@ async def _ensure_project_exists(project_id: int, db: AsyncSession) -> Project:
     if not project:
         raise HTTPException(404, "任务不存在")
     return project
+
+
+def _group_template_preview_payload(parsed):
+    return {
+        "original_filename": parsed.original_filename,
+        "source_encoding": parsed.source_encoding,
+        "part_filename": parsed.part_filename,
+        "content_hash": parsed.content_hash,
+        "feature_dictionary_version": parsed.feature_dictionary_version,
+        "tree": parsed.tree,
+        "validation_issues": [asdict(issue) for issue in parsed.issues],
+        "group_count": parsed.group_count,
+        "feature_selection_count": parsed.feature_selection_count,
+        "can_confirm": parsed.can_confirm,
+    }
+
+
+def _invalid_group_template(parsed):
+    return HTTPException(
+        422,
+        {
+            "message": "分组模板校验未通过。",
+            "issues": [asdict(issue) for issue in parsed.issues],
+        },
+    )
+
+
+@router.post("/group-templates/preview", response_model=GroupTemplatePreviewOut)
+async def preview_group_template(file: UploadFile = File(...)):
+    payload = await file.read(MAX_GROUP_TEMPLATE_BYTES + 1)
+    parsed = parse_group_template_xml(file.filename or "", payload)
+    return _group_template_preview_payload(parsed)
+
+
+@router.get("/group-templates/current", response_model=ProjectGroupTemplateOut)
+async def current_group_template(
+    project_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    await _ensure_project_exists(project_id, db)
+    row = await get_project_group_template(db, project_id)
+    if row is None:
+        raise HTTPException(404, "当前项目尚未确认分组模板。")
+    return asdict(serialize_project_group_template(row))
+
+
+@router.put("/group-templates/current", response_model=GroupTemplateCommitOut)
+async def save_current_group_template(
+    project_id: int = Form(...),
+    expected_content_hash: str = Form(...),
+    expected_template_revision: int = Form(...),
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    await _ensure_project_exists(project_id, db)
+    payload = await file.read(MAX_GROUP_TEMPLATE_BYTES + 1)
+    parsed = parse_group_template_xml(file.filename or "", payload)
+    if not parsed.can_confirm:
+        raise _invalid_group_template(parsed)
+    if parsed.content_hash != expected_content_hash:
+        raise HTTPException(422, "确认文件与预览文件内容不一致，请重新预览。")
+    try:
+        result = await commit_project_group_template(
+            db,
+            project_id,
+            parsed,
+            expected_template_revision,
+        )
+        await db.commit()
+        return asdict(result)
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.put("/group-templates/mappings", response_model=ProjectGroupTemplateOut)
+async def save_group_template_mappings(
+    body: GroupTemplateMappingsUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    await _ensure_project_exists(body.project_id, db)
+    try:
+        result = await replace_project_group_mappings(
+            db,
+            body.project_id,
+            body.mappings,
+            body.expected_template_revision,
+        )
+        await db.commit()
+        return asdict(result)
+    except Exception:
+        await db.rollback()
+        raise
 
 
 @router.post("/workflow/reset", response_model=WorkflowResetOut)

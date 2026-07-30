@@ -1,7 +1,7 @@
 """
 Pydantic 响应与请求模型
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_serializer
 
 from app.services.rule_packages.condition_contracts import RuleConditionReview
 from typing import Optional, List, Any, Dict
@@ -162,8 +162,90 @@ class MergeMatchedDetailRowOut(BaseModel):
 class TemplateGroupAliasBinding(BaseModel):
     source_operation_id: int
     alias: str
-    template_group_id: str
+    template_group_id: str = ""
+    template_group_key: str = ""
+    template_group_name: str = ""
     template_group_path: List[str] = Field(default_factory=list)
+    feature_selections: List[str] = Field(default_factory=list)
+
+    @model_serializer(mode="wrap")
+    def serialize_compatible_alias(self, handler):
+        payload = handler(self)
+        for field_name in ("template_group_key", "template_group_name", "feature_selections"):
+            if not payload.get(field_name):
+                payload.pop(field_name, None)
+        return payload
+
+
+class GroupTemplateValidationIssueOut(BaseModel):
+    code: str
+    message: str
+    path: List[str] = Field(default_factory=list)
+    value: str = ""
+
+
+class GroupTemplateNodeOut(BaseModel):
+    key: str
+    source_id: str = ""
+    name: str
+    path: List[str]
+    feature_selections: List[str] = Field(default_factory=list)
+    params: Dict[str, str] = Field(default_factory=dict)
+    children: List["GroupTemplateNodeOut"] = Field(default_factory=list)
+
+
+class GroupTemplateMappingIn(BaseModel):
+    source_operation_id: int = Field(gt=0)
+    alias: str = Field(min_length=1, max_length=500)
+    template_group_path: List[str] = Field(min_length=1)
+
+
+class GroupTemplateMappingOut(GroupTemplateMappingIn):
+    template_group_key: str
+    template_group_id: str = ""
+    template_group_name: str
+    feature_selections: List[str] = Field(default_factory=list)
+
+
+class GroupTemplatePreviewOut(BaseModel):
+    original_filename: str
+    source_encoding: str = ""
+    part_filename: str = ""
+    content_hash: str
+    feature_dictionary_version: str
+    tree: List[GroupTemplateNodeOut] = Field(default_factory=list)
+    validation_issues: List[GroupTemplateValidationIssueOut] = Field(default_factory=list)
+    group_count: int = 0
+    feature_selection_count: int = 0
+    can_confirm: bool = False
+
+
+class ProjectGroupTemplateOut(BaseModel):
+    project_id: int
+    original_filename: str
+    source_encoding: str
+    part_filename: str
+    content_hash: str
+    feature_dictionary_version: str
+    tree: List[GroupTemplateNodeOut] = Field(default_factory=list)
+    validation_issues: List[GroupTemplateValidationIssueOut] = Field(default_factory=list)
+    mappings: List[GroupTemplateMappingOut] = Field(default_factory=list)
+    template_revision: int
+    group_count: int = 0
+    feature_selection_count: int = 0
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class GroupTemplateCommitOut(ProjectGroupTemplateOut):
+    kept_source_operation_ids: List[int] = Field(default_factory=list)
+    invalidated: List[GroupTemplateMappingOut] = Field(default_factory=list)
+
+
+class GroupTemplateMappingsUpdateRequest(BaseModel):
+    project_id: int = Field(gt=0)
+    expected_template_revision: int = Field(ge=1)
+    mappings: List[GroupTemplateMappingIn] = Field(default_factory=list)
 
 
 class TemplateGroupMappingCandidateIn(BaseModel):

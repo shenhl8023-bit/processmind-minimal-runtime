@@ -4,10 +4,12 @@ import json
 import pytest
 import pytest_asyncio
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.database import Base, configure_sqlite_engine
+from app.database import Base, configure_sqlite_engine, get_db
+from app.main import app
 from app.models.models import Project, ProjectGroupTemplate
 from app.services.db_schema_maintenance import ensure_project_schema
 from app.services.group_template_xml import parse_group_template_xml
@@ -58,6 +60,39 @@ async def template_store(tmp_path):
         await engine.dispose()
 
 
+@pytest.fixture
+def template_api_client(tmp_path):
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'template-api.db'}")
+    configure_sqlite_engine(engine)
+    sessions = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def setup():
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            await ensure_project_schema(conn)
+        async with sessions() as db:
+            project = Project(name="template-api")
+            db.add(project)
+            await db.commit()
+            return project.id
+
+    project_id = asyncio.run(setup())
+
+    async def override_get_db():
+        async with sessions() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    client.project_id = project_id
+    client.template_sessions = sessions
+    try:
+        yield client
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        asyncio.run(engine.dispose())
+
+
 async def _create_project(sessions, name="project"):
     async with sessions() as db:
         project = Project(name=name)
@@ -76,6 +111,118 @@ def _mapping(path=None):
         "template_group_name": "client-name-must-not-survive",
         "feature_selections": ["client-feature-must-not-survive"],
     }
+
+
+def test_group_template_preview_confirm_load_and_save_mappings(template_api_client):
+    client = template_api_client
+    payload = _template_xml()
+
+    preview = client.post(
+        "/api/extract/group-templates/preview",
+        files={"file": ("template.xml", payload, "application/xml")},
+    )
+    assert preview.status_code == 200
+    preview_body = preview.json()
+    assert preview_body["can_confirm"] is True
+
+    missing = client.get(
+        "/api/extract/group-templates/current",
+        params={"project_id": client.project_id},
+    )
+    assert missing.status_code == 404
+
+    created = client.put(
+        "/api/extract/group-templates/current",
+        data={
+            "project_id": str(client.project_id),
+            "expected_content_hash": preview_body["content_hash"],
+            "expected_template_revision": "0",
+        },
+        files={"file": ("template.xml", payload, "application/xml")},
+    )
+    assert created.status_code == 200
+    assert created.json()["template_revision"] == 1
+    assert "source_xml" not in created.json()
+
+    saved = client.put(
+        "/api/extract/group-templates/mappings",
+        json={
+            "project_id": client.project_id,
+            "expected_template_revision": 1,
+            "mappings": [_mapping()],
+        },
+    )
+    assert saved.status_code == 200
+    assert saved.json()["template_revision"] == 2
+    assert saved.json()["mappings"][0]["template_group_name"] == "孔"
+
+    current = client.get(
+        "/api/extract/group-templates/current",
+        params={"project_id": client.project_id},
+    )
+    assert current.status_code == 200
+    assert current.json()["mappings"] == saved.json()["mappings"]
+    assert "source_xml" not in current.json()
+
+
+def test_group_template_confirm_rejects_hash_mismatch_invalid_preview_and_stale_revision(template_api_client):
+    client = template_api_client
+    payload = _template_xml()
+
+    mismatch = client.put(
+        "/api/extract/group-templates/current",
+        data={
+            "project_id": str(client.project_id),
+            "expected_content_hash": "0" * 64,
+            "expected_template_revision": "0",
+        },
+        files={"file": ("template.xml", payload, "application/xml")},
+    )
+    assert mismatch.status_code == 422
+
+    invalid_payload = b"<Kmsoft />"
+    invalid_preview = client.post(
+        "/api/extract/group-templates/preview",
+        files={"file": ("invalid.xml", invalid_payload, "application/xml")},
+    )
+    assert invalid_preview.status_code == 200
+    assert invalid_preview.json()["can_confirm"] is False
+
+    invalid_confirm = client.put(
+        "/api/extract/group-templates/current",
+        data={
+            "project_id": str(client.project_id),
+            "expected_content_hash": invalid_preview.json()["content_hash"],
+            "expected_template_revision": "0",
+        },
+        files={"file": ("invalid.xml", invalid_payload, "application/xml")},
+    )
+    assert invalid_confirm.status_code == 422
+
+    preview = client.post(
+        "/api/extract/group-templates/preview",
+        files={"file": ("template.xml", payload, "application/xml")},
+    ).json()
+    created = client.put(
+        "/api/extract/group-templates/current",
+        data={
+            "project_id": str(client.project_id),
+            "expected_content_hash": preview["content_hash"],
+            "expected_template_revision": "0",
+        },
+        files={"file": ("template.xml", payload, "application/xml")},
+    )
+    assert created.status_code == 200
+
+    stale = client.put(
+        "/api/extract/group-templates/mappings",
+        json={
+            "project_id": client.project_id,
+            "expected_template_revision": 2,
+            "mappings": [],
+        },
+    )
+    assert stale.status_code == 409
 
 
 @pytest.mark.asyncio

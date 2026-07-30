@@ -6,6 +6,7 @@ from app.schemas.schemas import (
     NormalizedRouteSegmentOut,
     NormalizedRouteSegmentSaveItem,
     SavedNormalizedRouteSegmentOut,
+    TemplateGroupAliasBinding,
 )
 from app.services.route_analysis_helpers import serialize_saved_normalized_route_version
 from app.services.route_merge.saved_route_segments import build_saved_route_version_segments
@@ -80,3 +81,25 @@ def test_template_group_aliases_round_trip_without_changing_operation_names():
     assert response.segments[0].normalized_step_name == "钻孔"
     assert response.segments[0].source_operation_names == ["钻孔", "铣扁"]
     assert [alias.model_dump() for alias in response.segments[0].template_group_aliases] == aliases[:2]
+
+
+def test_template_group_alias_contract_preserves_stable_group_metadata():
+    alias = TemplateGroupAliasBinding(
+        source_operation_id=201,
+        alias="钻孔（A侧/孔）",
+        template_group_id="grp_abc",
+        template_group_key="grp_abc",
+        template_group_name="孔",
+        template_group_path=["A侧", "孔"],
+        feature_selections=["孔(盲孔)"],
+    )
+
+    assert alias.model_dump() == {
+        "source_operation_id": 201,
+        "alias": "钻孔（A侧/孔）",
+        "template_group_id": "grp_abc",
+        "template_group_key": "grp_abc",
+        "template_group_name": "孔",
+        "template_group_path": ["A侧", "孔"],
+        "feature_selections": ["孔(盲孔)"],
+    }
