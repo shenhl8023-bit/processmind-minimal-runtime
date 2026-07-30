@@ -11,6 +11,11 @@ import {
   requiresServerRuleConditionRefresh,
 } from './finalizeRulePackage'
 import { nestFactorValues } from '@/composables/useGenerateInputFields'
+import type {
+  RuleConditionReview,
+  RulePackageCondition,
+  StandardFactorDefinition,
+} from '@/api/rulePackages'
 
 
 function finalizeItem(overrides: Record<string, any> = {}) {
@@ -41,8 +46,313 @@ function baseConditionFields() {
   ] as any
 }
 
+function presenceFactor(
+  factorId: string,
+  label: string,
+  category: string,
+  sourceField: string,
+  canonicalValue: string,
+): StandardFactorDefinition {
+  return {
+    factor_id: factorId,
+    label,
+    category,
+    source_field: sourceField,
+    source_field_aliases: [],
+    canonical_value: canonicalValue,
+    allowed_operators: ['contains', 'eq'],
+    kmai_factor_key: factorId.replace(/\./g, '_'),
+    kmai_value_mode: 'presence',
+    runtime_source: 'computed',
+  }
+}
+
+function scalarFactor(
+  factorId: string,
+  label: string,
+  category: string,
+  sourceField: string,
+): StandardFactorDefinition {
+  return {
+    factor_id: factorId,
+    label,
+    category,
+    source_field: sourceField,
+    source_field_aliases: [],
+    canonical_value: null,
+    allowed_operators: ['eq', 'gt', 'gte', 'lt', 'lte', 'between'],
+    kmai_factor_key: sourceField.replace(/\./g, '_'),
+    kmai_value_mode: 'condition_value',
+    runtime_source: 'manual_override',
+  }
+}
+
+const factors: StandardFactorDefinition[] = [
+  {
+    factor_id: 'material.grade',
+    label: '材料牌号',
+    category: '材料',
+    source_field: 'material.grade',
+    source_field_aliases: [],
+    canonical_value: null,
+    allowed_operators: ['eq', 'neq', 'in'],
+    kmai_factor_key: 'material_grade',
+    kmai_value_mode: 'condition_value',
+    runtime_source: 'computed',
+  },
+  presenceFactor('feature.flat_or_plane', '扁位/平面', '结构特征', 'cad.features', '扁位/平面'),
+  presenceFactor('feature.slot', '槽类特征', '结构特征', 'cad.features', '槽类特征'),
+  presenceFactor('feature.standard_or_aux_hole', '普通孔/辅助孔', '结构特征', 'cad.features', '普通孔/辅助孔'),
+  presenceFactor('feature.reamed_or_precision_hole', '铰孔/精孔', '结构特征', 'cad.features', '铰孔/精孔'),
+  presenceFactor('feature.shaped_hole_or_cut_flat', '型孔/割扁', '结构特征', 'cad.features', '型孔/割扁'),
+  presenceFactor('feature.center_hole_location', '顶尖孔定位', '精度要求', 'cad.features', '顶尖孔'),
+  presenceFactor('precision.hole_finish', '孔精加工', '精度要求', 'precision.grades', '孔精加工'),
+  presenceFactor('precision.honing', '珩孔要求', '精度要求', 'precision.grades', '珩孔要求'),
+  presenceFactor('precision.hole_lapping', '研孔要求', '精度要求', 'precision.grades', '研孔要求'),
+  presenceFactor('precision.outer_diameter_grinding', '外圆磨削', '精度要求', 'precision.grades', '外圆磨削'),
+  presenceFactor('precision.end_face_grinding', '端面磨削', '精度要求', 'precision.grades', '端面磨削'),
+  presenceFactor('precision.slot_grinding', '槽磨削', '精度要求', 'precision.grades', '槽磨削'),
+  presenceFactor('precision.outer_diameter_lapping', '研外圆', '精度要求', 'precision.grades', '研外圆'),
+  presenceFactor('requirement.nitrided_layer', '渗氮层要求', '热处理', 'special.requirements', '渗氮层要求'),
+  presenceFactor('requirement.chromic_acid_anodizing', '铬酸阳极化要求', '表面处理', 'special.requirements', '铬酸阳极化要求'),
+  presenceFactor('requirement.hard_anodizing', '硬质阳极化要求', '表面处理', 'special.requirements', '硬质阳极化要求'),
+  presenceFactor('requirement.traceability_marking', '追溯标印', '检验与标识', 'special.requirements', '追溯标印'),
+  presenceFactor('requirement.nondestructive_testing', '无损检测要求', '检验与标识', 'special.requirements', '无损检测要求'),
+  presenceFactor('requirement.magnetic_particle_inspection', '磁粉检查要求', '检验与标识', 'special.requirements', '磁粉检查要求'),
+  presenceFactor('requirement.burn_inspection', '烧伤检查要求', '检验与标识', 'special.requirements', '烧伤检查要求'),
+  scalarFactor('measurement.outer_diameter_it', '外圆尺寸精度 IT', '尺寸精度', 'precision.outer_diameter_it'),
+  scalarFactor('measurement.inner_diameter_it', '内孔尺寸精度 IT', '尺寸精度', 'precision.inner_diameter_it'),
+  scalarFactor('measurement.dimension_it', '尺寸精度 IT', '尺寸精度', 'precision.dimension_it'),
+]
+
+function confirmedReview(
+  when: RulePackageCondition,
+  overrides: Partial<RuleConditionReview> = {},
+): RuleConditionReview {
+  const candidate = {
+    kind: 'condition' as const,
+    when,
+    then: { include_process_ids: ['process_hone'], exclude_process_ids: [], reason: '用户确认' },
+    preview: '标准因子条件',
+  }
+  return {
+    source_text: '当存在孔精加工要求时，纳入珩孔工序',
+    source_hash: 'a'.repeat(64),
+    status: 'confirmed',
+    candidate,
+    confirmed: JSON.parse(JSON.stringify(candidate)),
+    confidence: 0.95,
+    issues: [],
+    field_registry_version: '2026.11',
+    confirmed_by: '测试用户',
+    confirmed_at: '2026-07-30T02:00:00Z',
+    ...overrides,
+  }
+}
+
+function compileArgs(cards: any[], standardFactors = factors) {
+  return {
+    projectId: 12,
+    packageName: 'factor_bound_rules',
+    routeVersionId: 3,
+    cards,
+    displayName: (segment: any) => segment.normalized_step_name,
+    phaseLabel: () => 'machining',
+    primarySteps: () => ['主工步'],
+    attachedSteps: () => [],
+    conditionFields: baseConditionFields(),
+    standardFactors,
+  }
+}
+
 
 describe('V2 compile DTO from finalize cards', () => {
+  it('treats an in-card semantic edit as pending until candidate and confirmed signatures match', () => {
+    const sourceText = '当存在孔精加工要求时，纳入珩孔工序'
+    const item: any = {
+      ...finalizeItem({ id: 'process_hone', normalized_step_name: '珩孔', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: sourceText,
+      factorNames: [],
+      conditionReview: confirmedReview({
+        field: 'precision.grades',
+        op: 'contains',
+        value: '孔精加工',
+        factor_id: 'precision.hole_finish',
+      }),
+    }
+
+    expect(hasCurrentConfirmedUserRule(item, '2026.11')).toBe(true)
+    item.conditionReview.candidate.when = {
+      field: 'precision.grades',
+      op: 'contains',
+      value: '珩孔要求',
+      factor_id: 'precision.honing',
+    }
+    expect(hasCurrentConfirmedUserRule(item, '2026.11')).toBe(false)
+    item.conditionReview.candidate = JSON.parse(JSON.stringify(item.conditionReview.confirmed))
+    expect(hasCurrentConfirmedUserRule(item, '2026.12')).toBe(false)
+  })
+
+  it('batch-confirms only current uniquely bound candidates, with relation and manual Boolean exceptions', () => {
+    const sourceText = '当需要追溯标印时，安排标记工序'
+    const item: any = {
+      ...finalizeItem({ id: 'process_mark', normalized_step_name: '标记', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: sourceText,
+      factorNames: [],
+      conditionReview: {
+        ...confirmedReview({
+          field: 'special.requirements',
+          op: 'contains',
+          value: '追溯标印',
+          factor_id: 'requirement.traceability_marking',
+        }, { source_text: sourceText, status: 'pending_confirmation', confirmed: null }),
+      },
+    }
+
+    expect(isSafeForBatchRuleConfirmation(item, factors, '2026.11')).toBe(true)
+    delete item.conditionReview.candidate.when.factor_id
+    expect(isSafeForBatchRuleConfirmation(item, factors, '2026.11')).toBe(false)
+    item.conditionReview.candidate.when.factor_id = 'requirement.traceability_marking'
+    expect(isSafeForBatchRuleConfirmation(item, factors, '2026.12')).toBe(false)
+
+    const relationItem: any = {
+      ...item,
+      conditionText: '淬火工序之后设置该工序',
+      conditionReview: {
+        ...item.conditionReview,
+        source_text: '淬火工序之后设置该工序',
+        field_registry_version: '2026.11',
+        candidate: {
+          kind: 'process_relation',
+          relation: {
+            relation_type: 'trigger_after',
+            source_process_ids: ['process_quench'],
+            target_process_ids: ['process_mark'],
+          },
+          preview: '淬火后标记',
+        },
+      },
+    }
+    expect(isSafeForBatchRuleConfirmation(relationItem, factors, '2026.11')).toBe(true)
+
+    const manualItem: any = {
+      ...item,
+      conditionReview: {
+        ...item.conditionReview,
+        candidate: {
+          kind: 'condition',
+          when: { field: 'project_factor.manual_process_deadbeef', op: 'eq', value: true },
+          then: { include_process_ids: ['process_mark'], exclude_process_ids: [] },
+          preview: '用户手工决定是否标记',
+        },
+      },
+    }
+    expect(isSafeForBatchRuleConfirmation(manualItem, factors, '2026.11')).toBe(true)
+  })
+
+  it('preserves standard factor ids in the V2 compile request and binds generated static leaves', () => {
+    const userItem: any = {
+      ...finalizeItem({ id: 'process_hone', sequence: 50, normalized_step_name: '珩孔', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: '当存在孔精加工要求时，纳入珩孔工序',
+      factorNames: [],
+      edited: true,
+      conditionReview: confirmedReview({
+        field: 'precision.grades', op: 'contains', value: '孔精加工', factor_id: 'precision.hole_finish',
+      }),
+    }
+    const manualCandidate = buildManualBooleanRuleCandidate({
+      ...finalizeItem({ id: 'process_manual', sequence: 60, normalized_step_name: '手工检查', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+    }, '是否需要手工检查')
+    const manualSourceText = '当用户选择“是否需要手工检查”为是时，纳入“手工检查”工序。'
+    const manualItem: any = {
+      ...finalizeItem({ id: 'process_manual', sequence: 60, normalized_step_name: '手工检查', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: manualSourceText,
+      factorNames: [],
+      edited: true,
+      conditionReview: confirmedReview(manualCandidate.when!, {
+        source_text: manualSourceText,
+        candidate: manualCandidate,
+        confirmed: JSON.parse(JSON.stringify(manualCandidate)),
+        confirmed_by: '用户直接设定',
+      }),
+    }
+    const staticItems = [
+      ['process_heat', '调质'],
+      ['process_center', '研顶尖孔'],
+      ['process_grind_hole', '磨孔'],
+      ['process_mark_static', '标记'],
+    ].map(([id, normalized_step_name], index) => ({
+      ...finalizeItem({ id, sequence: 100 + index, normalized_step_name, doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: '根据不同结构类型决定是否安排该工序',
+      factorNames: [],
+      edited: true,
+    }))
+
+    const request = buildCompileRequestFromCards(compileArgs([userItem, manualItem, ...staticItems]))
+    const userRule = request.rules!.find(rule => rule.source === 'user_confirmed' && rule.source_segment_id === 'process_hone')!
+    expect(userRule.when).toEqual({
+      field: 'precision.grades', op: 'contains', value: '孔精加工', factor_id: 'precision.hole_finish',
+    })
+
+    const leaves: Array<{ source?: string; leaf: any }> = []
+    function collectLeaves(condition: RulePackageCondition, source?: string) {
+      if ('field' in condition) {
+        leaves.push({ source, leaf: condition })
+        return
+      }
+      if ('all' in condition) condition.all.forEach(child => collectLeaves(child, source))
+      else if ('any' in condition) condition.any.forEach(child => collectLeaves(child, source))
+      else collectLeaves(condition.not, source)
+    }
+    request.rules!.forEach(rule => collectLeaves(rule.when, rule.source))
+
+    expect(leaves.some(item => item.source === 'system_static')).toBe(true)
+    leaves.forEach(({ leaf }) => {
+      if (leaf.field.startsWith('project_factor.manual_process_')) {
+        expect(leaf).not.toHaveProperty('factor_id')
+      } else {
+        expect(leaf.factor_id).toEqual(expect.any(String))
+      }
+    })
+  })
+
+  it('blocks locally when a code-owned static leaf has no unique catalog match', () => {
+    const centerHoleItem = {
+      ...finalizeItem({ id: 'process_center', normalized_step_name: '研顶尖孔', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: '根据不同结构类型决定是否安排该工序',
+      factorNames: [],
+      edited: true,
+    }
+    const withoutCenterHole = factors.filter(item => item.factor_id !== 'feature.center_hole_location')
+
+    expect(() => buildCompileRequestFromCards(compileArgs([centerHoleItem], withoutCenterHole)))
+      .toThrow(/顶尖孔.*标准因子/)
+  })
+
+  it('blocks locally when a confirmed user leaf is still unbound', () => {
+    const sourceText = '当存在孔精加工要求时，纳入珩孔工序'
+    const unbound = {
+      kind: 'condition' as const,
+      when: { field: 'precision.grades', op: 'contains', value: '孔精加工' },
+      then: { include_process_ids: ['process_hone'], exclude_process_ids: [] },
+      preview: '孔精加工',
+    }
+    const item: any = {
+      ...finalizeItem({ id: 'process_hone', normalized_step_name: '珩孔', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: sourceText,
+      factorNames: [],
+      edited: true,
+      conditionReview: confirmedReview(unbound.when, {
+        source_text: sourceText,
+        candidate: unbound,
+        confirmed: JSON.parse(JSON.stringify(unbound)),
+      }),
+    }
+
+    expect(() => buildCompileRequestFromCards(compileArgs([item])))
+      .toThrow(/process_hone.*条件.*标准因子/)
+  })
+
   it('requires re-review when the confirmed rule kind no longer matches the user text', () => {
     const relationCard: any = {
       ...finalizeItem({ id: 'process_ndt', normalized_step_name: '无损检查', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
@@ -51,9 +361,15 @@ describe('V2 compile DTO from finalize cards', () => {
       conditionReview: {
         source_text: '淬火工序之后设置该工序',
         status: 'confirmed',
+        candidate: {
+          kind: 'condition',
+          when: { field: 'special.requirements', op: 'contains', value: '无损检测要求', factor_id: 'requirement.nondestructive_testing' },
+          then: { include_process_ids: ['process_ndt'], exclude_process_ids: [] },
+          preview: '特殊要求 包含 无损检测要求',
+        },
         confirmed: {
           kind: 'condition',
-          when: { field: 'special.requirements', op: 'contains', value: '无损检测要求' },
+          when: { field: 'special.requirements', op: 'contains', value: '无损检测要求', factor_id: 'requirement.nondestructive_testing' },
           then: { include_process_ids: ['process_ndt'], exclude_process_ids: [] },
           preview: '特殊要求 包含 无损检测要求',
         },
@@ -71,6 +387,7 @@ describe('V2 compile DTO from finalize cards', () => {
       source_process_ids: ['process_quench'],
       target_process_ids: ['process_ndt'],
     }
+    relationCard.conditionReview.candidate = JSON.parse(JSON.stringify(relationCard.conditionReview.confirmed))
     expect(hasCurrentConfirmedUserRule(relationCard)).toBe(true)
   })
 
@@ -169,32 +486,33 @@ describe('V2 compile DTO from finalize cards', () => {
         issues: [],
         candidate: {
           kind: 'condition',
-          when: { field: 'special.requirements', op: 'contains', value: '追溯标印' },
+          when: { field: 'special.requirements', op: 'contains', value: '追溯标印', factor_id: 'requirement.traceability_marking' },
           then: { include_process_ids: ['process_mark'], exclude_process_ids: [] },
         },
+        field_registry_version: '2026.11',
       },
     }
 
-    expect(isSafeForBatchRuleConfirmation(item)).toBe(true)
+    expect(isSafeForBatchRuleConfirmation(item, factors, '2026.11')).toBe(true)
     item.conditionReview.confidence = 0.79
-    expect(isSafeForBatchRuleConfirmation(item)).toBe(false)
+    expect(isSafeForBatchRuleConfirmation(item, factors, '2026.11')).toBe(false)
     item.conditionReview.confidence = 0.95
     item.conditionReview.issues = ['模型候选需要重点核对']
-    expect(isSafeForBatchRuleConfirmation(item)).toBe(false)
+    expect(isSafeForBatchRuleConfirmation(item, factors, '2026.11')).toBe(false)
     item.conditionReview.confidence = 0.65
     item.conditionReview.issues = [
       'AI 返回的规则结构未通过格式校验，已尝试使用本地解析器。',
       '已使用内置规则解析器生成候选结果，请重点核对。',
     ]
-    expect(isSafeForBatchRuleConfirmation(item)).toBe(true)
+    expect(isSafeForBatchRuleConfirmation(item, factors, '2026.11')).toBe(true)
     item.conditionReview.issues = [
       '已使用内置规则解析器生成候选结果，请重点核对。',
       '条件无法可靠映射到标准字段，请补充字段、比较关系和阈值。',
     ]
-    expect(isSafeForBatchRuleConfirmation(item)).toBe(false)
+    expect(isSafeForBatchRuleConfirmation(item, factors, '2026.11')).toBe(false)
     item.conditionReview.issues = []
     item.conditionReview.source_text = '旧条件'
-    expect(isSafeForBatchRuleConfirmation(item)).toBe(false)
+    expect(isSafeForBatchRuleConfirmation(item, factors, '2026.11')).toBe(false)
   })
 
   it('refreshes pending candidates through the server before batch confirmation', () => {
@@ -281,6 +599,7 @@ describe('V2 compile DTO from finalize cards', () => {
       primarySteps: () => ['主工步'],
       attachedSteps: () => [],
       conditionFields: baseConditionFields(),
+      standardFactors: factors,
     })
 
     expect(request.fields).toContainEqual(expect.objectContaining({
@@ -315,6 +634,22 @@ describe('V2 compile DTO from finalize cards', () => {
       conditionReview: {
         source_text: '当用户选择“是否需要标记”为是时，纳入“标记”工序。',
         status: 'confirmed',
+        candidate: {
+          kind: 'condition',
+          when: { field: 'project_factor.manual_process_487e1c0a', op: 'eq', value: true },
+          then: { include_process_ids: ['process_mark'], exclude_process_ids: [] },
+          field_definitions: [{
+            key: 'project_factor.manual_process_487e1c0a',
+            label: '是否需要标记',
+            category: '可选工序',
+            type: 'boolean',
+            operators: ['eq', 'neq'],
+            aliases: [],
+            source: '用户直接设定',
+            options: [],
+            allow_custom: false,
+          }],
+        },
         confirmed: {
           kind: 'condition',
           when: { field: 'project_factor.manual_process_487e1c0a', op: 'eq', value: true },
@@ -368,6 +703,7 @@ describe('V2 compile DTO from finalize cards', () => {
       primarySteps: () => ['主工步'],
       attachedSteps: () => [],
       conditionFields: baseConditionFields(),
+      standardFactors: factors,
     })
 
     expect(request.fields.map(field => field.key)).toEqual([])
@@ -394,9 +730,15 @@ describe('V2 compile DTO from finalize cards', () => {
           source_text: sourceText,
           source_hash: 'a'.repeat(64),
           status: 'confirmed',
+          candidate: {
+            kind: 'condition',
+            when: { field: 'special.requirements', op: 'contains', value: '无损检测要求', factor_id: 'requirement.nondestructive_testing' },
+            then: { include_process_ids: ['process_ndt'], exclude_process_ids: [], reason: '用户审核' },
+            preview: '特殊要求 包含 无损检测要求',
+          },
           confirmed: {
             kind: 'condition',
-            when: { field: 'special.requirements', op: 'contains', value: '无损检测要求' },
+            when: { field: 'special.requirements', op: 'contains', value: '无损检测要求', factor_id: 'requirement.nondestructive_testing' },
             then: { include_process_ids: ['process_ndt'], exclude_process_ids: [], reason: '用户审核' },
             preview: '特殊要求 包含 无损检测要求',
           },
@@ -412,6 +754,7 @@ describe('V2 compile DTO from finalize cards', () => {
       primarySteps: () => [],
       attachedSteps: () => [],
       conditionFields: baseConditionFields(),
+      standardFactors: factors,
     })
 
     expect(request.fields.find(field => field.key === 'special.requirements')?.options).toContainEqual({
@@ -419,7 +762,7 @@ describe('V2 compile DTO from finalize cards', () => {
     })
     expect(request.rules).toContainEqual(expect.objectContaining({
       rule_id: 'user.process_ndt',
-      when: { field: 'special.requirements', op: 'contains', value: '无损检测要求' },
+      when: { field: 'special.requirements', op: 'contains', value: '无损检测要求', factor_id: 'requirement.nondestructive_testing' },
       then: expect.objectContaining({ include_process_ids: ['process_ndt'] }),
     }))
   })
@@ -441,6 +784,7 @@ describe('V2 compile DTO from finalize cards', () => {
       primarySteps: () => ['清洗'],
       attachedSteps: () => [],
       conditionFields: baseConditionFields(),
+      standardFactors: factors,
     })
 
     expect(request.processes).toEqual([expect.objectContaining({ process_id: 'process_clean', main: true })])
@@ -469,6 +813,7 @@ describe('V2 compile DTO from finalize cards', () => {
       primarySteps: () => ['钻孔'],
       attachedSteps: () => [],
       conditionFields: baseConditionFields(),
+      standardFactors: factors,
     })
 
     const process = request.processes[0]!
@@ -503,9 +848,13 @@ describe('V2 compile DTO from finalize cards', () => {
         source_text: sourceText,
         source_hash: 'a'.repeat(64),
         status: 'confirmed',
-        candidate: null,
+        candidate: {
+          when: { field: 'precision.outer_diameter_it', op: 'lte', value: 8, factor_id: 'measurement.outer_diameter_it' },
+          then: { include_process_ids: ['process_grind_outer'], exclude_process_ids: [], reason: '用户确认' },
+          preview: '外圆尺寸精度 IT ≤ 8',
+        },
         confirmed: {
-          when: { field: 'precision.outer_diameter_it', op: 'lte', value: 8 },
+          when: { field: 'precision.outer_diameter_it', op: 'lte', value: 8, factor_id: 'measurement.outer_diameter_it' },
           then: { include_process_ids: ['process_grind_outer'], exclude_process_ids: [], reason: '用户确认' },
           preview: '外圆尺寸精度 IT ≤ 8',
         },
@@ -530,11 +879,12 @@ describe('V2 compile DTO from finalize cards', () => {
         operators: ['lte'], aliases: ['外圆精度'], required: false, source: 'CAD', options: [], allow_custom: true,
         unit: null, validation: { min: 1, max: 18 },
       }],
+      standardFactors: factors,
     })
 
     const userRule = request.rules!.find(rule => rule.source === 'user_confirmed')!
     expect(userRule.priority).toBeGreaterThan(100)
-    expect(userRule.when).toEqual({ field: 'precision.outer_diameter_it', op: 'lte', value: 8 })
+    expect(userRule.when).toEqual({ field: 'precision.outer_diameter_it', op: 'lte', value: 8, factor_id: 'measurement.outer_diameter_it' })
     expect(userRule.source_segment_id).toBe('process_grind_outer')
     expect(request.fields.some(field => field.key === 'precision.outer_diameter_it')).toBe(true)
     expect(request.processes.find(process => process.process_id === 'process_grind_outer')?.main).toBe(false)
@@ -550,13 +900,28 @@ describe('V2 compile DTO from finalize cards', () => {
         source_text: sourceText,
         source_hash: 'a'.repeat(64),
         status: 'confirmed',
-        candidate: null,
+        candidate: {
+          kind: 'condition',
+          when: {
+            all: [
+              { all: null, any: null, not: null, field: 'cad.features', op: 'contains', value: '普通孔/辅助孔', factor_id: 'feature.standard_or_aux_hole' },
+              { all: null, any: null, not: null, field: 'precision.grades', op: 'contains', value: '孔精加工', factor_id: 'precision.hole_finish' },
+            ],
+            any: null,
+            not: null,
+            field: null,
+            op: null,
+            value: null,
+          },
+          then: { include_process_ids: ['process_drill'], exclude_process_ids: [], reason: '用户确认' },
+          preview: '孔类特征 且 精度/表面要求集合包含孔精加工',
+        },
         confirmed: {
           kind: 'condition',
           when: {
             all: [
-              { all: null, any: null, not: null, field: 'cad.features', op: 'contains', value: '孔类特征' },
-              { all: null, any: null, not: null, field: 'precision.grades', op: 'contains', value: '孔精加工' },
+              { all: null, any: null, not: null, field: 'cad.features', op: 'contains', value: '普通孔/辅助孔', factor_id: 'feature.standard_or_aux_hole' },
+              { all: null, any: null, not: null, field: 'precision.grades', op: 'contains', value: '孔精加工', factor_id: 'precision.hole_finish' },
             ],
             any: null,
             not: null,
@@ -584,13 +949,14 @@ describe('V2 compile DTO from finalize cards', () => {
       primarySteps: () => ['主工步'],
       attachedSteps: () => [],
       conditionFields: baseConditionFields(),
+      standardFactors: factors,
     })
 
     expect(request.fields.map(field => field.key)).toContain('precision.grades')
     expect(request.rules!.find(rule => rule.source_segment_id === 'process_drill')?.when).toEqual({
       all: [
-        { field: 'cad.features', op: 'contains', value: '孔类特征' },
-        { field: 'precision.grades', op: 'contains', value: '孔精加工' },
+        { field: 'cad.features', op: 'contains', value: '普通孔/辅助孔', factor_id: 'feature.standard_or_aux_hole' },
+        { field: 'precision.grades', op: 'contains', value: '孔精加工', factor_id: 'precision.hole_finish' },
       ],
     })
   })
@@ -610,7 +976,16 @@ describe('V2 compile DTO from finalize cards', () => {
         source_text: sourceText,
         source_hash: 'b'.repeat(64),
         status: 'confirmed',
-        candidate: null,
+        candidate: {
+          kind: 'process_relation',
+          relation: {
+            relation_type: 'trigger_after',
+            source_process_ids: ['process_quench'],
+            target_process_ids: ['process_burn_inspect'],
+            source_match: 'any',
+          },
+          preview: '淬火进入路线 → 纳入烧伤检查，并排在淬火之后',
+        },
         confirmed: {
           kind: 'process_relation',
           relation: {
@@ -642,6 +1017,7 @@ describe('V2 compile DTO from finalize cards', () => {
       primarySteps: () => ['主工步'],
       attachedSteps: () => [],
       conditionFields: baseConditionFields(),
+      standardFactors: factors,
     })
 
     expect(request.process_relations).toEqual([expect.objectContaining({
@@ -663,7 +1039,23 @@ describe('V2 compile DTO from finalize cards', () => {
         source_text: sourceText,
         source_hash: 'c'.repeat(64),
         status: 'confirmed',
-        candidate: null,
+        candidate: {
+          kind: 'condition',
+          when: { field: 'custom.requirements.traceability_marking_required', op: 'eq', value: true },
+          then: { include_process_ids: ['process_mark'], exclude_process_ids: [], reason: '用户审核' },
+          field_definitions: [{
+            key: 'custom.requirements.traceability_marking_required',
+            label: '是否需要追溯标识',
+            category: '特殊要求',
+            type: 'boolean',
+            operators: ['eq', 'neq'],
+            aliases: ['追溯', '编号', '批次标识'],
+            source: '人工补充/图样技术要求',
+            options: [],
+            allow_custom: false,
+          }],
+          preview: '是否需要追溯标识 等于 是',
+        },
         confirmed: {
           kind: 'condition',
           when: { field: 'custom.requirements.traceability_marking_required', op: 'eq', value: true },
@@ -698,6 +1090,7 @@ describe('V2 compile DTO from finalize cards', () => {
       primarySteps: () => ['主工步'],
       attachedSteps: () => [],
       conditionFields: baseConditionFields(),
+      standardFactors: factors,
     })
 
     expect(request.fields.some(field => field.key === 'custom.requirements.traceability_marking_required')).toBe(false)
@@ -706,7 +1099,7 @@ describe('V2 compile DTO from finalize cards', () => {
     expect(specialRequirements?.options?.map(option => option.value)).toEqual(['追溯标印'])
     expect(request.rules?.some(rule => rule.rule_id === 'special.追溯标印')).toBe(false)
     expect(request.rules?.find(rule => rule.source === 'user_confirmed')?.when).toEqual({
-      field: 'special.requirements', op: 'contains', value: '追溯标印',
+      field: 'special.requirements', op: 'contains', value: '追溯标印', factor_id: 'requirement.traceability_marking',
     })
   })
 
@@ -720,9 +1113,13 @@ describe('V2 compile DTO from finalize cards', () => {
         source_text: sourceText,
         source_hash: 'd'.repeat(64),
         status: 'confirmed',
-        candidate: null,
+        candidate: {
+          when: { field: 'precision.dimension_it', op: 'lte', value: 7, factor_id: 'measurement.dimension_it' },
+          then: { include_process_ids: ['process_finish'], exclude_process_ids: [], reason: '用户审核' },
+          preview: '尺寸精度 IT ≤ 7',
+        },
         confirmed: {
-          when: { field: 'precision.dimension_it', op: 'lte', value: 7 },
+          when: { field: 'precision.dimension_it', op: 'lte', value: 7, factor_id: 'measurement.dimension_it' },
           then: { include_process_ids: ['process_finish'], exclude_process_ids: [], reason: '用户审核' },
           preview: '尺寸精度 IT ≤ 7',
         },
@@ -741,9 +1138,13 @@ describe('V2 compile DTO from finalize cards', () => {
         source_text: '内孔尺寸精度达到 IT5 时，纳入珩孔工序',
         source_hash: 'e'.repeat(64),
         status: 'confirmed',
-        candidate: null,
+        candidate: {
+          when: { field: 'precision.inner_diameter_it', op: 'lte', value: 5, factor_id: 'measurement.inner_diameter_it' },
+          then: { include_process_ids: ['process_hone'], exclude_process_ids: [], reason: '用户审核' },
+          preview: '内孔尺寸精度 IT ≤ 5',
+        },
         confirmed: {
-          when: { field: 'precision.inner_diameter_it', op: 'lte', value: 5 },
+          when: { field: 'precision.inner_diameter_it', op: 'lte', value: 5, factor_id: 'measurement.inner_diameter_it' },
           then: { include_process_ids: ['process_hone'], exclude_process_ids: [], reason: '用户审核' },
           preview: '内孔尺寸精度 IT ≤ 5',
         },
@@ -776,30 +1177,37 @@ describe('V2 compile DTO from finalize cards', () => {
       primarySteps: () => ['主工步'],
       attachedSteps: () => [],
       conditionFields: [...baseConditionFields(), ...conditionFields],
+      standardFactors: factors,
     })
 
     expect(request.fields.find(field => field.key === 'precision.dimension_it')?.label).toBe('其他尺寸精度 IT')
     expect(request.fields.find(field => field.key === 'precision.inner_diameter_it')?.label).toBe('内孔尺寸精度 IT')
     expect(request.rules?.find(rule => rule.source === 'user_confirmed' && 'field' in rule.when)?.when).toEqual({
-      field: 'precision.dimension_it', op: 'lte', value: 7,
+      field: 'precision.dimension_it', op: 'lte', value: 7, factor_id: 'measurement.dimension_it',
     })
   })
 
-  it('adds user-authored feature tags to the exported input options', () => {
-    const sourceText = '当零件存在异形凸台结构时，安排铣凸台工序'
+  it('adds a bound catalog feature value to the exported input options', () => {
+    const sourceText = '当零件存在顶尖孔时，安排研顶尖孔工序'
     const card = {
-      ...finalizeItem({ id: 'process_mill_boss', sequence: 30, normalized_step_name: '铣凸台', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      ...finalizeItem({ id: 'process_center_hole', sequence: 30, normalized_step_name: '研顶尖孔', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
       conditionText: sourceText,
       edited: true,
       conditionReview: {
         source_text: sourceText,
         source_hash: 'f'.repeat(64),
         status: 'confirmed',
+        candidate: {
+          kind: 'condition',
+          when: { field: 'cad.features', op: 'contains', value: '顶尖孔', factor_id: 'feature.center_hole_location' },
+          then: { include_process_ids: ['process_center_hole'], exclude_process_ids: [], reason: '用户审核' },
+          preview: 'CAD 特征集合 包含 顶尖孔',
+        },
         confirmed: {
           kind: 'condition',
-          when: { field: 'cad.features', op: 'contains', value: '异形凸台' },
-          then: { include_process_ids: ['process_mill_boss'], exclude_process_ids: [], reason: '用户审核' },
-          preview: 'CAD 特征集合 包含 异形凸台',
+          when: { field: 'cad.features', op: 'contains', value: '顶尖孔', factor_id: 'feature.center_hole_location' },
+          then: { include_process_ids: ['process_center_hole'], exclude_process_ids: [], reason: '用户审核' },
+          preview: 'CAD 特征集合 包含 顶尖孔',
         },
         confidence: 0.65,
         issues: [],
@@ -818,10 +1226,11 @@ describe('V2 compile DTO from finalize cards', () => {
       primarySteps: () => ['主工步'],
       attachedSteps: () => [],
       conditionFields: baseConditionFields(),
+      standardFactors: factors,
     })
 
     expect(request.fields.find(field => field.key === 'cad.features')?.options).toContainEqual({
-      value: '异形凸台', label: '异形凸台',
+      value: '顶尖孔', label: '顶尖孔',
     })
   })
 
@@ -831,9 +1240,15 @@ describe('V2 compile DTO from finalize cards', () => {
       source_text: materialCondition,
       source_hash: '1'.repeat(64),
       status: 'confirmed',
+      candidate: {
+        kind: 'condition',
+        when: { field: 'material.grade', op: 'eq', value: '9Cr18', factor_id: 'material.grade' },
+        then: { include_process_ids: [processId], exclude_process_ids: [], reason: '用户审核' },
+        preview: '材料牌号 等于 9Cr18',
+      },
       confirmed: {
         kind: 'condition',
-        when: { field: 'material.grade', op: 'eq', value: '9Cr18' },
+        when: { field: 'material.grade', op: 'eq', value: '9Cr18', factor_id: 'material.grade' },
         then: { include_process_ids: [processId], exclude_process_ids: [], reason: '用户审核' },
         preview: '材料牌号 等于 9Cr18',
       },
@@ -876,6 +1291,7 @@ describe('V2 compile DTO from finalize cards', () => {
             ],
           }
         : field),
+      standardFactors: factors,
     })
 
     const materialField = request.fields.find(field => field.key === 'material.grade')
@@ -883,8 +1299,8 @@ describe('V2 compile DTO from finalize cards', () => {
     expect(request.rules?.some(rule => rule.rule_id === 'material.9Cr18.heat')).toBe(false)
   })
 
-  it('merges all user-authored values for the same project factor', () => {
-    const fieldKey = 'project_factor.material_category'
+  it('merges all user-authored values for the same bound standard factor', () => {
+    const fieldKey = 'material.grade'
     const dynamicCard = (processId: string, processName: string, value: string, sequence: number) => {
       const sourceText = `当材料类别为${value}时，纳入${processName}工序`
       return {
@@ -895,22 +1311,39 @@ describe('V2 compile DTO from finalize cards', () => {
           source_text: sourceText,
           source_hash: String(sequence).repeat(64).slice(0, 64),
           status: 'confirmed',
-          confirmed: {
+          candidate: {
             kind: 'condition',
-            when: { field: fieldKey, op: 'eq', value },
+            when: { field: fieldKey, op: 'eq', value, factor_id: 'material.grade' },
             then: { include_process_ids: [processId], exclude_process_ids: [], reason: '用户审核' },
             field_definitions: [{
               key: fieldKey,
-              label: '材料类别',
+              label: '材料牌号',
               category: '材料',
               type: 'single_select',
               operators: ['eq', 'neq', 'in'],
               aliases: [],
-              source: '用户条件',
+              source: 'CAD/PLM',
               options: [{ value, label: value }],
               allow_custom: true,
             }],
-            preview: `材料类别 等于 ${value}`,
+            preview: `材料牌号 等于 ${value}`,
+          },
+          confirmed: {
+            kind: 'condition',
+            when: { field: fieldKey, op: 'eq', value, factor_id: 'material.grade' },
+            then: { include_process_ids: [processId], exclude_process_ids: [], reason: '用户审核' },
+            field_definitions: [{
+              key: fieldKey,
+              label: '材料牌号',
+              category: '材料',
+              type: 'single_select',
+              operators: ['eq', 'neq', 'in'],
+              aliases: [],
+              source: 'CAD/PLM',
+              options: [{ value, label: value }],
+              allow_custom: true,
+            }],
+            preview: `材料牌号 等于 ${value}`,
           },
           confidence: 0.9,
           issues: [],
@@ -926,23 +1359,24 @@ describe('V2 compile DTO from finalize cards', () => {
       routeVersionId: 3,
       cards: [
         finalizeItem(),
-        dynamicCard('process_nitriding', '渗氮', '不锈钢', 20),
-        dynamicCard('process_solution', '固溶处理', '高温合金', 30),
+        dynamicCard('process_nitriding', '渗氮', '9Cr18', 20),
+        dynamicCard('process_solution', '固溶处理', '95Cr18', 30),
       ],
       displayName: segment => segment.normalized_step_name,
       phaseLabel: () => 'heat_treatment',
       primarySteps: () => ['主工步'],
       attachedSteps: () => [],
       conditionFields: baseConditionFields(),
+      standardFactors: factors,
     })
 
     expect(request.fields.find(field => field.key === fieldKey)).toEqual(expect.objectContaining({
-      label: '材料类别',
+      label: '材料牌号',
       type: 'single_select',
       allow_custom: true,
       options: [
-        { value: '不锈钢', label: '不锈钢' },
-        { value: '高温合金', label: '高温合金' },
+        { value: '9Cr18', label: '9Cr18' },
+        { value: '95Cr18', label: '95Cr18' },
       ],
     }))
   })

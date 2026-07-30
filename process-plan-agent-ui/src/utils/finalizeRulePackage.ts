@@ -7,8 +7,14 @@ import type {
   RulePackageProcessRelation,
   RulePackageRule,
   RuleConditionCandidate,
+  StandardFactorDefinition,
 } from '@/api/rulePackages'
 import type { TemplateGroupAliasBinding } from '@/api'
+import {
+  factorBindingState,
+  matchingStandardFactors,
+  ruleConfirmationSignature,
+} from '@/utils/standardFactorBindings'
 
 export function normalizeExportProcessName(name: string) {
   const text = String(name || '').trim()
@@ -79,14 +85,20 @@ export function requiresConfirmedUserRule(item: any) {
   return finalizeRuleMode(item) !== 'mainline'
 }
 
-export function hasCurrentConfirmedUserRule(item: any) {
+export function hasCurrentConfirmedUserRule(item: any, registryVersion?: string) {
   const review = item.conditionReview
   const expectedKind = finalizeRuleMode(item) === 'relation' ? 'process_relation' : 'condition'
+  const currentRegistryVersion = registryVersion ?? review?.field_registry_version ?? ''
   return Boolean(
     review?.status === 'confirmed'
+    && review?.candidate
     && review?.confirmed
     && String(review.source_text || '').trim() === String(item.conditionText || '').trim()
-    && (review.confirmed.kind || 'condition') === expectedKind,
+    && (!registryVersion || review.field_registry_version === registryVersion)
+    && (review.candidate.kind || 'condition') === expectedKind
+    && (review.confirmed.kind || 'condition') === expectedKind
+    && ruleConfirmationSignature(review.candidate, review.source_text, currentRegistryVersion)
+      === ruleConfirmationSignature(review.confirmed, review.source_text, currentRegistryVersion)
   )
 }
 
@@ -102,17 +114,27 @@ export function isAdvisoryParserIssue(issue: unknown) {
   return Boolean(text) && ADVISORY_PARSE_ISSUE_PATTERNS.some(pattern => pattern.test(text))
 }
 
-export function isSafeForBatchRuleConfirmation(item: any) {
+export function isSafeForBatchRuleConfirmation(
+  item: any,
+  factors: StandardFactorDefinition[] = [],
+  registryVersion = '',
+) {
   const review = item.conditionReview
   const expectedKind = finalizeRuleMode(item) === 'relation' ? 'process_relation' : 'condition'
   const issues = Array.isArray(review?.issues) ? review.issues : []
   const hasOnlyAdvisoryFallbackIssues = issues.length > 0 && issues.every(isAdvisoryParserIssue)
   const confidence = Number(review?.confidence || 0)
+  const candidateKind = review?.candidate?.kind || 'condition'
+  const completeBinding = candidateKind === 'process_relation'
+    || Boolean(review?.candidate?.when && factorBindingState(review.candidate.when, factors).complete)
   return Boolean(
     review?.status === 'pending_confirmation'
     && review?.candidate
     && String(review.source_text || '').trim() === String(item.conditionText || '').trim()
-    && (review.candidate.kind || 'condition') === expectedKind
+    && candidateKind === expectedKind
+    && Boolean(registryVersion)
+    && review.field_registry_version === registryVersion
+    && completeBinding
     && (
       (confidence >= 0.85 && issues.length === 0)
       || (confidence >= 0.65 && hasOnlyAdvisoryFallbackIssues)
@@ -122,8 +144,8 @@ export function isSafeForBatchRuleConfirmation(item: any) {
 
 // The server owns parser and field-registry freshness. Every unconfirmed
 // candidate must pass through its version-aware cache before batch confirmation.
-export function requiresServerRuleConditionRefresh(item: any) {
-  return !hasCurrentConfirmedUserRule(item)
+export function requiresServerRuleConditionRefresh(item: any, registryVersion?: string) {
+  return !hasCurrentConfirmedUserRule(item, registryVersion)
 }
 
 function manualProcessFieldKey(processId: string) {
@@ -249,8 +271,8 @@ function mergeTemplateGroupAliases(target: TemplateGroupAliasBinding[], incoming
   })
 }
 
-function leafCondition(field: string, op: string, value: unknown): RulePackageCondition {
-  return { field, op, value }
+function leafCondition(field: string, op: string, value: unknown, factorId?: string): RulePackageCondition {
+  return { field, op, value, ...(factorId ? { factor_id: factorId } : {}) }
 }
 
 const PROCESS_CAPABILITY_ALIASES: Record<string, string[]> = {
@@ -272,8 +294,25 @@ function resolveProcessIdsByName(
     .map((item) => item.process_id)
 }
 
-function buildStaticV2Rules(processes: Array<{ process_id: string; display_name: string }>) {
+function buildStaticV2Rules(
+  processes: Array<{ process_id: string; display_name: string }>,
+  standardFactors: StandardFactorDefinition[],
+) {
   const rules: RulePackageRule[] = []
+
+  const boundStaticLeaf = (
+    field: string,
+    op: string,
+    value: unknown,
+    expectedFactorId?: string,
+  ) => {
+    const leaf = leafCondition(field, op, value)
+    const matches = matchingStandardFactors(leaf, standardFactors)
+    if (matches.length !== 1 || (expectedFactorId && matches[0]?.factor_id !== expectedFactorId)) {
+      throw new Error(`静态条件「${String(value)}」无法唯一绑定标准因子`)
+    }
+    return leafCondition(field, op, value, matches[0]!.factor_id)
+  }
 
   const pushNamed = (
     ruleId: string,
@@ -303,14 +342,14 @@ function buildStaticV2Rules(processes: Array<{ process_id: string; display_name:
   pushNamed(
     'material.9Cr18.heat',
     100,
-    leafCondition('material.grade', 'in', ['9Cr18', '95Cr18']),
+    boundStaticLeaf('material.grade', 'in', ['9Cr18', '95Cr18'], 'material.grade'),
     ['调质', '淬火'],
     '9Cr18 材料规则',
   )
   pushNamed(
     'material.4Cr14.normalize',
     100,
-    leafCondition('material.grade', 'in', ['4Cr14Ni14W2Mo']),
+    boundStaticLeaf('material.grade', 'in', ['4Cr14Ni14W2Mo'], 'material.grade'),
     ['正常化'],
     '4Cr14 材料规则',
   )
@@ -327,7 +366,7 @@ function buildStaticV2Rules(processes: Array<{ process_id: string; display_name:
     pushNamed(
       `feature.${feature}`,
       90,
-      leafCondition('cad.features', 'contains', feature),
+      boundStaticLeaf('cad.features', 'contains', feature),
       processNames,
       `CAD 特征 ${feature}`,
     )
@@ -346,7 +385,7 @@ function buildStaticV2Rules(processes: Array<{ process_id: string; display_name:
     pushNamed(
       `precision.${precision}`,
       80,
-      leafCondition('precision.grades', 'contains', precision),
+      boundStaticLeaf('precision.grades', 'contains', precision),
       processNames,
       `精度要求 ${precision}`,
     )
@@ -365,7 +404,7 @@ function buildStaticV2Rules(processes: Array<{ process_id: string; display_name:
     pushNamed(
       `special.${requirement}`,
       70,
-      leafCondition('special.requirements', 'contains', requirement),
+      boundStaticLeaf('special.requirements', 'contains', requirement),
       processNames,
       `特殊要求 ${requirement}`,
     )
@@ -462,12 +501,17 @@ function specialRequirementForLegacyBoolean(field: CanonicalConditionField) {
 function normalizeLegacyBooleanCondition(
   condition: RulePackageCondition,
   definitions: Map<string, CanonicalConditionField>,
+  standardFactors: StandardFactorDefinition[],
 ): RulePackageCondition {
   const node = condition as unknown as Record<string, unknown>
   if (typeof node.field === 'string' && node.field) {
     const field = definitions.get(node.field)
     if (field?.type === 'boolean' && node.field.startsWith('custom.requirements.')) {
-      return { field: 'special.requirements', op: 'contains', value: specialRequirementForLegacyBoolean(field) }
+      const value = specialRequirementForLegacyBoolean(field)
+      const leaf: RulePackageCondition = { field: 'special.requirements', op: 'contains', value }
+      const matches = matchingStandardFactors(leaf, standardFactors)
+      if (matches.length !== 1) throw new Error(`兼容条件「${value}」无法唯一绑定标准因子`)
+      return { ...leaf, factor_id: matches[0]!.factor_id }
     }
     return {
       field: node.field,
@@ -475,16 +519,19 @@ function normalizeLegacyBooleanCondition(
       ...(Object.prototype.hasOwnProperty.call(node, 'value') && node.value !== null
         ? { value: node.value }
         : {}),
+      ...(typeof node.factor_id === 'string' && node.factor_id
+        ? { factor_id: node.factor_id }
+        : {}),
     }
   }
   if (Array.isArray(node.all)) {
-    return { all: node.all.map(item => normalizeLegacyBooleanCondition(item as RulePackageCondition, definitions)) }
+    return { all: node.all.map(item => normalizeLegacyBooleanCondition(item as RulePackageCondition, definitions, standardFactors)) }
   }
   if (Array.isArray(node.any)) {
-    return { any: node.any.map(item => normalizeLegacyBooleanCondition(item as RulePackageCondition, definitions)) }
+    return { any: node.any.map(item => normalizeLegacyBooleanCondition(item as RulePackageCondition, definitions, standardFactors)) }
   }
   if (node.not && typeof node.not === 'object') {
-    return { not: normalizeLegacyBooleanCondition(node.not as RulePackageCondition, definitions) }
+    return { not: normalizeLegacyBooleanCondition(node.not as RulePackageCondition, definitions, standardFactors) }
   }
   return condition
 }
@@ -555,6 +602,7 @@ export function buildCompileRequestFromCards(args: {
   primarySteps: (segment: any) => string[]
   attachedSteps: (segment: any) => string[]
   conditionFields?: CanonicalConditionField[]
+  standardFactors: StandardFactorDefinition[]
 }): CompileRulePackageRequest {
   const processMap = new Map<string, any>()
   args.cards.forEach((item) => {
@@ -608,8 +656,9 @@ export function buildCompileRequestFromCards(args: {
   )
   const staticRules = buildStaticV2Rules(
     processes.map((item) => ({ process_id: item.process_id, display_name: item.display_name })),
+    args.standardFactors,
   )
-  const confirmedCards = args.cards.filter(hasCurrentConfirmedUserRule)
+  const confirmedCards = args.cards.filter(item => hasCurrentConfirmedUserRule(item))
   const confirmedFieldDefinitions = new Map<string, CanonicalConditionField>()
   confirmedCards.forEach((item) => {
     item.conditionReview.confirmed.field_definitions?.forEach((field: CanonicalConditionField) => {
@@ -634,6 +683,18 @@ export function buildCompileRequestFromCards(args: {
     .filter(item => (item.conditionReview.confirmed.kind || 'condition') === 'condition')
     .flatMap((item) => {
       const confirmed = item.conditionReview.confirmed
+      const normalizedWhen = normalizeLegacyBooleanCondition(
+        confirmed.when!,
+        confirmedFieldDefinitions,
+        args.standardFactors,
+      )
+      const binding = factorBindingState(normalizedWhen, args.standardFactors)
+      if (!binding.complete) {
+        const issue = binding.issues[0]!
+        throw new Error(
+          `工序 ${String(item.segment.id || item.segment.sequence)} 的条件 ${issue.path || '根节点'}：${issue.message}`,
+        )
+      }
       const baseRule = {
         rule_id: `user.${String(item.segment.id || item.segment.sequence).replace(/[^a-zA-Z0-9_.-]+/g, '_')}`,
         priority: 1000 + Math.max(0, 1000 - Number(item.segment.sequence || 0)),
@@ -643,7 +704,7 @@ export function buildCompileRequestFromCards(args: {
         source_text: item.conditionText,
         confirmed_by: item.conditionReview.confirmed_by || '默认用户',
         confirmed_at: item.conditionReview.confirmed_at,
-        when: normalizeLegacyBooleanCondition(confirmed.when!, confirmedFieldDefinitions),
+        when: normalizedWhen,
         then: {
           include_process_ids: confirmed.then?.include_process_ids || [],
           exclude_process_ids: confirmed.then?.exclude_process_ids || [],

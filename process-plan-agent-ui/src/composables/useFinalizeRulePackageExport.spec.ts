@@ -1,12 +1,13 @@
 import { computed, ref } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { CompileRulePackageResponse, RulePackageV2 } from '@/api'
+import type { CompileRulePackageResponse, RulePackageV2, StandardFactorDefinition } from '@/api'
 
 const mocks = vi.hoisted(() => ({
   compileRulePackage: vi.fn(),
   saveFinalizedRulePackage: vi.fn(),
   createZipBlob: vi.fn(() => new Blob()),
   downloadBlob: vi.fn(),
+  buildCompileRequestFromCards: vi.fn(),
 }))
 
 vi.mock('@/api', () => ({
@@ -21,7 +22,7 @@ vi.mock('@/utils/exportArchive', () => ({
 }))
 
 vi.mock('@/utils/finalizeRulePackage', () => ({
-  buildCompileRequestFromCards: () => ({ processes: [{ process_id: 'process_1' }] }),
+  buildCompileRequestFromCards: mocks.buildCompileRequestFromCards,
   buildRuleReportFromV2Package: () => '# report',
   hasCurrentConfirmedUserRule: () => true,
   requiresConfirmedUserRule: () => false,
@@ -41,6 +42,19 @@ const secondPackage = {
   ...firstPackage,
   manifest: { project_id: 12, package_name: 'second' },
 }
+
+const standardFactors: StandardFactorDefinition[] = [{
+  factor_id: 'material.grade',
+  label: '材料牌号',
+  category: '材料',
+  source_field: 'material.grade',
+  source_field_aliases: [],
+  canonical_value: null,
+  allowed_operators: ['eq', 'neq', 'in'],
+  kmai_factor_key: 'material_grade',
+  kmai_value_mode: 'condition_value',
+  runtime_source: 'computed',
+}]
 
 function compiled(packageValue: RulePackageV2, valid: boolean): CompileRulePackageResponse {
   return {
@@ -98,6 +112,8 @@ function savedPackage(
 function createExport(options: {
   onExportReviewRequired?: (review: unknown) => Promise<boolean>
   conditionFields?: Array<{ key: string }>
+  standardFactors?: StandardFactorDefinition[]
+  factorCatalogVersion?: string
 }) {
   return useFinalizeRulePackageExport({
     projectId: ref(12),
@@ -110,6 +126,8 @@ function createExport(options: {
     primarySteps: () => [],
     attachedSteps: () => [],
     conditionFields: ref(options.conditionFields ?? [{ key: 'cad.features' }]),
+    standardFactors: ref(options.standardFactors ?? standardFactors),
+    factorCatalogVersion: ref(options.factorCatalogVersion ?? '2026.11'),
     onExportReviewRequired: options.onExportReviewRequired,
   } as any)
 }
@@ -120,6 +138,8 @@ describe('useFinalizeRulePackageExport KmAI mapping retry', () => {
     mocks.saveFinalizedRulePackage.mockReset()
     mocks.createZipBlob.mockClear()
     mocks.downloadBlob.mockClear()
+    mocks.buildCompileRequestFromCards.mockReset()
+    mocks.buildCompileRequestFromCards.mockReturnValue({ processes: [{ process_id: 'process_1' }] })
   })
 
   it('waits for export review before saving a compatible package', async () => {
@@ -176,6 +196,40 @@ describe('useFinalizeRulePackageExport KmAI mapping retry', () => {
     expect(mocks.compileRulePackage).not.toHaveBeenCalled()
     expect(mocks.saveFinalizedRulePackage).not.toHaveBeenCalled()
     expect(mocks.downloadBlob).not.toHaveBeenCalled()
+  })
+
+  it('blocks before compile when the standard factor catalog is unavailable', async () => {
+    const review = vi.fn().mockResolvedValue(false)
+    const { downloadRuleDocument } = createExport({
+      standardFactors: [],
+      factorCatalogVersion: '',
+      onExportReviewRequired: review,
+    })
+
+    await downloadRuleDocument()
+
+    expect(review).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'blocked',
+      validation: null,
+      details: ['标准因子目录尚未加载，请重试加载后再重新审核。'],
+    }))
+    expect(mocks.compileRulePackage).not.toHaveBeenCalled()
+  })
+
+  it('shows a local blocked review when static rules cannot bind to the catalog', async () => {
+    const review = vi.fn().mockResolvedValue(false)
+    mocks.buildCompileRequestFromCards.mockImplementationOnce(() => {
+      throw new Error('静态条件「顶尖孔」无法唯一绑定标准因子')
+    })
+    const { downloadRuleDocument } = createExport({ onExportReviewRequired: review })
+
+    await downloadRuleDocument()
+
+    expect(review).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'blocked',
+      details: ['静态条件「顶尖孔」无法唯一绑定标准因子'],
+    }))
+    expect(mocks.compileRulePackage).not.toHaveBeenCalled()
   })
 
   it('recompiles after resolved mappings and archives the authoritative saved KmAI files', async () => {

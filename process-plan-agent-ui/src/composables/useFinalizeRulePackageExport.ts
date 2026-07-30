@@ -6,6 +6,7 @@ import {
   type CanonicalConditionField,
   type CompileRulePackageResponse,
   type RulePackageV2,
+  type StandardFactorDefinition,
 } from '@/api'
 import type { FinalizeCard } from '@/composables/finalizeViewHelpers'
 import { FINALIZE_EXPORT_COPY } from '@/config/finalizeRulePresentation'
@@ -46,6 +47,8 @@ type UseFinalizeRulePackageExportOptions = {
   primarySteps: (segment: any) => string[]
   attachedSteps: (segment: any) => string[]
   conditionFields: Ref<CanonicalConditionField[]>
+  standardFactors: Ref<StandardFactorDefinition[]>
+  factorCatalogVersion: Ref<string>
   onBlockedCards?: (cards: FinalizeCard[]) => void | Promise<void>
   onExportIssue?: (issue: { title: string; summary: string; details?: string }) => void
   onExportReviewRequired?: (review: RulePackageExportReview) => Promise<boolean>
@@ -145,7 +148,8 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
     const safeProjectName = safeFilenamePart(options.projectName.value || `任务_${options.projectId.value || 'unknown'}`)
     const packageName = `${safeProjectName}_${FINALIZE_EXPORT_COPY.documentNameSuffix}`
     const unconfirmedCards = options.segmentCards.value.filter(
-      item => requiresConfirmedUserRule(item) && !hasCurrentConfirmedUserRule(item),
+      item => requiresConfirmedUserRule(item)
+        && !hasCurrentConfirmedUserRule(item, options.factorCatalogVersion.value),
     )
     if (unconfirmedCards.length) {
       await options.onBlockedCards?.(unconfirmedCards)
@@ -160,17 +164,38 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
       }))
       return
     }
-    const compileRequest = buildCompileRequestFromCards({
-      projectId: options.projectId.value,
-      packageName,
-      routeVersionId: options.savedRoute.value?.route_id || null,
-      cards: options.segmentCards.value,
-      displayName: options.displayName,
-      phaseLabel: options.phaseLabel,
-      primarySteps: options.primarySteps,
-      attachedSteps: options.attachedSteps,
-      conditionFields: options.conditionFields.value,
-    })
+    if (!options.standardFactors.value.length || !options.factorCatalogVersion.value) {
+      await options.onExportReviewRequired?.(buildLocalBlockedReview({
+        projectName: options.projectName.value,
+        processCount: options.segmentCards.value.length,
+        ruleCount: 0,
+        details: ['标准因子目录尚未加载，请重试加载后再重新审核。'],
+      }))
+      return
+    }
+    let compileRequest: ReturnType<typeof buildCompileRequestFromCards>
+    try {
+      compileRequest = buildCompileRequestFromCards({
+        projectId: options.projectId.value,
+        packageName,
+        routeVersionId: options.savedRoute.value?.route_id || null,
+        cards: options.segmentCards.value,
+        displayName: options.displayName,
+        phaseLabel: options.phaseLabel,
+        primarySteps: options.primarySteps,
+        attachedSteps: options.attachedSteps,
+        conditionFields: options.conditionFields.value,
+        standardFactors: options.standardFactors.value,
+      })
+    } catch (buildError: any) {
+      await options.onExportReviewRequired?.(buildLocalBlockedReview({
+        projectName: options.projectName.value,
+        processCount: options.segmentCards.value.length,
+        ruleCount: 0,
+        details: [String(buildError?.message || buildError || '规则条件无法绑定标准因子')],
+      }))
+      return
+    }
 
     if (!compileRequest.processes.length) {
       await options.onExportReviewRequired?.(buildLocalBlockedReview({

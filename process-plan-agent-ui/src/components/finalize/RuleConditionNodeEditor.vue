@@ -1,6 +1,12 @@
 <template>
   <div class="condition-node" :class="`condition-node-${nodeKind}`">
     <template v-if="nodeKind === 'leaf'">
+      <StandardFactorPicker
+        :model-value="modelValue"
+        :factors="factors"
+        @update:model-value="value => emit('update:modelValue', value)"
+        @create-manual="emit('create-manual')"
+      />
       <select class="rule-control rule-field" :value="leafField" @change="changeField">
         <optgroup v-for="group in fieldGroups" :key="group.category" :label="group.category">
           <option v-for="field in group.fields" :key="field.key" :value="field.key">
@@ -52,7 +58,9 @@
       <RuleConditionNodeEditor
         :model-value="notChild"
         :fields="fields"
+        :factors="factors"
         @update:model-value="updateNotChild"
+        @create-manual="emit('create-manual')"
       />
     </template>
 
@@ -66,7 +74,9 @@
           :key="index"
           :model-value="child"
           :fields="fields"
+          :factors="factors"
           @update:model-value="updateGroupChild(index, $event)"
+          @create-manual="emit('create-manual')"
         />
       </div>
     </template>
@@ -75,15 +85,23 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { CanonicalConditionField, RulePackageCondition } from '@/api/rulePackages'
+import type {
+  CanonicalConditionField,
+  RulePackageCondition,
+  StandardFactorDefinition,
+} from '@/api/rulePackages'
+import StandardFactorPicker from '@/components/finalize/StandardFactorPicker.vue'
+import { withConditionValue } from '@/utils/standardFactorBindings'
 
 const props = defineProps<{
   modelValue: RulePackageCondition
   fields: CanonicalConditionField[]
+  factors: StandardFactorDefinition[]
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: RulePackageCondition]
+  'create-manual': []
 }>()
 
 const nodeKind = computed<'leaf' | 'all' | 'any' | 'not'>(() => {
@@ -131,9 +149,8 @@ function defaultValue(field: CanonicalConditionField, operator: string) {
 }
 
 function emitLeaf(field: string, op: string, value: unknown) {
-  const next: Record<string, unknown> = { field, op }
-  if (!['exists', 'not_exists'].includes(op)) next.value = value
-  emit('update:modelValue', next as RulePackageCondition)
+  const next = withConditionValue({ field, op }, value)
+  emit('update:modelValue', ['exists', 'not_exists'].includes(op) ? { field, op } : next)
 }
 
 function changeField(event: Event) {

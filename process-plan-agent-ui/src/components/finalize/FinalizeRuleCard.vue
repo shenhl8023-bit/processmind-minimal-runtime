@@ -152,6 +152,13 @@
           <div class="card-rule-compact">
             <span class="compact-status" :class="{ 'compact-confirmed': effectiveStatus === 'confirmed' }">{{ effectiveStatus === 'confirmed' ? '✓ 已审核' : '已识别' }}</span>
             <span class="compact-summary">{{ candidateSummary }}</span>
+            <span
+              v-if="candidateFactorSummary"
+              class="compact-factor-summary"
+              :title="candidateFactorIds"
+            >
+              {{ candidateFactorSummary }}
+            </span>
           </div>
 
           <div v-if="requiresManualReview" class="manual-review-note">
@@ -172,7 +179,9 @@
               v-if="candidateKind === 'condition' && editableCandidate.when"
               :model-value="editableCandidate.when"
               :fields="editorFields"
+              :factors="standardFactors"
               @update:model-value="updateWhen"
+              @create-manual="beginBooleanConversion"
             />
 
             <!-- Tag-based process selector for condition rules -->
@@ -374,8 +383,11 @@
             </div>
 
             <div class="candidate-footer">
-              <span class="editor-note">保存修改后，该规则将视为已审核。</span>
-              <button class="confirm-rule-btn" :disabled="conditionBusy || !hasRuleAction" @click="confirmCandidate">
+              <span v-if="candidateBindingIssue" class="editor-note editor-note-blocked">
+                {{ candidateBindingIssue }}
+              </span>
+              <span v-else class="editor-note">保存修改后，该规则将视为已审核。</span>
+              <button class="confirm-rule-btn" :disabled="conditionBusy || !candidateCanConfirm" @click="confirmCandidate">
                 保存修改
               </button>
             </div>
@@ -399,14 +411,17 @@ import type {
   RuleConditionCandidate,
   RuleConditionProcessOption,
   RulePackageCondition,
+  StandardFactorDefinition,
 } from '@/api/rulePackages'
 import RuleConditionNodeEditor from '@/components/finalize/RuleConditionNodeEditor.vue'
 import {
   defaultManualBooleanLabel,
   finalizeRuleMode,
+  hasCurrentConfirmedUserRule,
   isSafeForBatchRuleConfirmation,
   manualRuleModeActionState,
 } from '@/utils/finalizeRulePackage'
+import { factorBindingState } from '@/utils/standardFactorBindings'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
 
 const props = defineProps<{
@@ -420,6 +435,8 @@ const props = defineProps<{
   editLabel: string
   conditionLabel: string
   conditionFields: CanonicalConditionField[]
+  standardFactors: StandardFactorDefinition[]
+  factorCatalogVersion: string
   processOptions: RuleConditionProcessOption[]
   conditionBusy: boolean
   setInlineTextareaRef: (el: Element | null) => void
@@ -473,6 +490,9 @@ onBeforeUnmount(() => document.removeEventListener('click', handleDocumentClick)
 const effectiveStatus = computed(() => {
   const review = props.item.conditionReview
   if (!review || review.source_text.trim() !== props.item.conditionText.trim()) return 'draft'
+  if (review.status === 'confirmed' && !hasCurrentConfirmedUserRule(props.item, props.factorCatalogVersion)) {
+    return 'pending_confirmation'
+  }
   return review.status
 })
 const sourceTextChanged = computed(() => {
@@ -496,7 +516,7 @@ const candidateMatchesCardMode = computed(() => {
 })
 const requiresManualReview = computed(() => (
   effectiveStatus.value === 'pending_confirmation'
-  && !isSafeForBatchRuleConfirmation(props.item)
+  && !isSafeForBatchRuleConfirmation(props.item, props.standardFactors, props.factorCatalogVersion)
 ))
 const manualModeState = computed(() => manualRuleModeActionState(props.item, props.inlineEditing))
 const manualReviewReason = computed(() => {
@@ -534,6 +554,21 @@ const hasRuleAction = computed(() => {
   }
   return Boolean(candidate.then?.include_process_ids?.length || candidate.then?.exclude_process_ids?.length)
 })
+const candidateBinding = computed(() => {
+  if (candidateKind.value === 'process_relation') return null
+  const when = editableCandidate.value?.when
+  return when ? factorBindingState(when, props.standardFactors) : null
+})
+const candidateBindingIssue = computed(() => {
+  const issue = candidateBinding.value?.issues[0]
+  if (!issue) return ''
+  return `${issue.path ? `条件 ${issue.path}：` : ''}${issue.message}，请先选择标准因子或创建手工因子。`
+})
+const candidateCanConfirm = computed(() => Boolean(
+  hasRuleAction.value
+  && props.factorCatalogVersion
+  && (candidateKind.value === 'process_relation' || candidateBinding.value?.complete),
+))
 const candidateSummary = computed(() => {
   const candidate = editableCandidate.value
   if (!candidate) return ''
@@ -555,6 +590,16 @@ const candidateSummary = computed(() => {
   ].filter(Boolean).join('；')
   return `${candidate.preview || '已调整结构化条件'} → ${actions}`
 })
+const candidateFactorSelections = computed(() => {
+  const when = editableCandidate.value?.when
+  return when ? factorBindingState(when, props.standardFactors).selected : []
+})
+const candidateFactorSummary = computed(() => candidateFactorSelections.value
+  .map(item => `${item.factor.label} · ${item.factor.category}`)
+  .join('；'))
+const candidateFactorIds = computed(() => candidateFactorSelections.value
+  .map(item => item.factor.factor_id)
+  .join('；'))
 const candidateRecognition = computed(() => {
   const candidate = editableCandidate.value
   const text = props.item.conditionText
@@ -620,20 +665,29 @@ watch(
   () => {
     const review = props.item.conditionReview
     const sourceMatches = review?.source_text?.trim() === props.item.conditionText.trim()
-    const candidate = sourceMatches ? (review?.confirmed || review?.candidate) : null
+    const candidate = sourceMatches ? (review?.candidate || review?.confirmed) : null
     editableCandidate.value = candidate ? JSON.parse(JSON.stringify(candidate)) : null
     ruleEditorExpanded.value = false
   },
-  { immediate: true, deep: true },
+  { immediate: true },
 )
 
 function handleTextareaRef(el: Element | ComponentPublicInstance | null) {
   props.setInlineTextareaRef(el instanceof Element ? el : null)
 }
 
+function setEditedCandidate(value: RuleConditionCandidate) {
+  const cloned = JSON.parse(JSON.stringify(value)) as RuleConditionCandidate
+  editableCandidate.value = cloned
+  const review = props.item.conditionReview
+  if (review?.source_text?.trim() === props.item.conditionText.trim()) {
+    review.candidate = JSON.parse(JSON.stringify(cloned))
+  }
+}
+
 function updateWhen(value: RulePackageCondition) {
   if (!editableCandidate.value) return
-  editableCandidate.value = { ...editableCandidate.value, when: value, preview: '' }
+  setEditedCandidate({ ...editableCandidate.value, when: value, preview: '' })
 }
 
 function isActionSelected(kind: 'include' | 'exclude', processId: string) {
@@ -655,10 +709,10 @@ function selectPickerOption(kind: 'include' | 'exclude', processId: string) {
     if (excludeIds.has(processId)) { excludeIds.delete(processId) }
     else { excludeIds.add(processId); includeIds.delete(processId) }
   }
-  editableCandidate.value = {
+  setEditedCandidate({
     ...editableCandidate.value,
     then: { ...action, include_process_ids: Array.from(includeIds), exclude_process_ids: Array.from(excludeIds) },
-  }
+  })
 }
 
 function removeAction(kind: 'include' | 'exclude', processId: string) {
@@ -668,26 +722,26 @@ function removeAction(kind: 'include' | 'exclude', processId: string) {
   const excludeIds = new Set(action.exclude_process_ids || [])
   if (kind === 'include') includeIds.delete(processId)
   else excludeIds.delete(processId)
-  editableCandidate.value = {
+  setEditedCandidate({
     ...editableCandidate.value,
     then: { ...action, include_process_ids: Array.from(includeIds), exclude_process_ids: Array.from(excludeIds) },
-  }
+  })
 }
 
 function changeRelationType(event: Event) {
   if (!editableCandidate.value?.relation) return
-  editableCandidate.value = {
+  setEditedCandidate({
     ...editableCandidate.value, preview: '',
     relation: { ...editableCandidate.value.relation, relation_type: (event.target as HTMLSelectElement).value as ProcessRelationType },
-  }
+  })
 }
 
 function changeSourceMatch(event: Event) {
   if (!editableCandidate.value?.relation) return
-  editableCandidate.value = {
+  setEditedCandidate({
     ...editableCandidate.value, preview: '',
     relation: { ...editableCandidate.value.relation, source_match: (event.target as HTMLSelectElement).value as 'any' | 'all' },
-  }
+  })
 }
 
 function isRelationSelected(kind: 'source' | 'target', processId: string) {
@@ -704,10 +758,10 @@ function selectRelationOption(kind: 'source' | 'target', processId: string) {
   const opposite = kind === 'source' ? targetIds : sourceIds
   if (selected.has(processId)) { selected.delete(processId) }
   else { selected.add(processId); opposite.delete(processId) }
-  editableCandidate.value = {
+  setEditedCandidate({
     ...editableCandidate.value, preview: '',
     relation: { ...editableCandidate.value.relation, source_process_ids: Array.from(sourceIds), target_process_ids: Array.from(targetIds) },
-  }
+  })
 }
 
 function removeRelationProcess(kind: 'source' | 'target', processId: string) {
@@ -716,14 +770,14 @@ function removeRelationProcess(kind: 'source' | 'target', processId: string) {
   const targetIds = new Set(editableCandidate.value.relation.target_process_ids)
   if (kind === 'source') sourceIds.delete(processId)
   else targetIds.delete(processId)
-  editableCandidate.value = {
+  setEditedCandidate({
     ...editableCandidate.value, preview: '',
     relation: { ...editableCandidate.value.relation, source_process_ids: Array.from(sourceIds), target_process_ids: Array.from(targetIds) },
-  }
+  })
 }
 
 function confirmCandidate() {
-  if (!editableCandidate.value || !hasRuleAction.value) return
+  if (!editableCandidate.value || !candidateCanConfirm.value) return
   emit('confirm-condition', props.item, JSON.parse(JSON.stringify(editableCandidate.value)))
 }
 
@@ -1009,6 +1063,7 @@ function formatConfirmedAt(value: string) {
 .compact-status { flex-shrink: 0; font-size: 10px; font-weight: 750; color: #52647e; letter-spacing: .02em; }
 .compact-confirmed { color: #2f7554; }
 .compact-summary { flex: 1; min-width: 0; color: #475569; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compact-factor-summary { flex-shrink: 0; max-width: 260px; overflow: hidden; color: #5269a8; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ===== Editor footer ===== */
 .candidate-footer {
@@ -1124,6 +1179,7 @@ function formatConfirmedAt(value: string) {
 .candidate-editor { display: grid; gap: 11px; margin-top: 11px; }
 .candidate-footer { margin-top: 4px; }
 .editor-note { color: #78869a; font-size: 10px; }
+.editor-note-blocked { color: #a16207; }
 .confirmation-audit { margin-top: 7px; color: #5f806f; font-size: 10px; text-align: right; }
 
 /* ===== Tag-based process editor ===== */

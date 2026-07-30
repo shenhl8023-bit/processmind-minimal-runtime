@@ -58,7 +58,20 @@ export type RulePackageCondition =
   | { all: RulePackageCondition[] }
   | { any: RulePackageCondition[] }
   | { not: RulePackageCondition }
-  | { field: string; op: string; value?: unknown }
+  | { field: string; op: string; value?: unknown; factor_id?: string | null }
+
+export type StandardFactorDefinition = {
+  factor_id: string
+  label: string
+  category: string
+  source_field: string
+  source_field_aliases: string[]
+  canonical_value: unknown
+  allowed_operators: string[]
+  kmai_factor_key: string
+  kmai_value_mode: 'presence' | 'condition_value'
+  runtime_source: 'computed' | 'manual_override'
+}
 
 export type RulePackageRule = {
   rule_id: string
@@ -98,6 +111,12 @@ export type CanonicalConditionField = RulePackageInputField & {
   category: string
   operators: string[]
   aliases: string[]
+}
+
+export type ConditionFieldRegistryResponse = {
+  version: string
+  fields: CanonicalConditionField[]
+  factors: StandardFactorDefinition[]
 }
 
 export type RuleConditionProcessOption = {
@@ -233,7 +252,7 @@ export async function compileRulePackage(body: CompileRulePackageRequest) {
 
 export async function getConditionFieldRegistry() {
   const { data } = await api.get('/api/extract/finalized-rule-packages/condition-fields')
-  return data as { version: string; fields: CanonicalConditionField[] }
+  return data as ConditionFieldRegistryResponse
 }
 
 export async function saveRuleConditionDraft(body: {

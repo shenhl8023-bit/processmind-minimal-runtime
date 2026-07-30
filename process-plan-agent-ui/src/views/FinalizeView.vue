@@ -44,7 +44,7 @@
         <button
           class="ash-btn-primary ash-btn-phase-active"
           @click="handleReviewAndExport"
-          :disabled="resettingWorkflow || reviewAndExporting || batchParsing || batchReviewing || exportingRulePackage || !segmentCards.length"
+          :disabled="resettingWorkflow || reviewAndExporting || batchParsing || batchReviewing || exportingRulePackage || !segmentCards.length || !factorCatalogReady"
         >
           {{ reviewAndExportButtonLabel }}
         </button>
@@ -83,6 +83,12 @@
     </div>
 
     <div v-if="batchNotice" class="batch-notice">{{ batchNotice }}</div>
+    <div v-if="factorCatalogError" class="batch-notice factor-catalog-error" role="alert">
+      <span>{{ factorCatalogError }}</span>
+      <button class="ghost-btn" :disabled="conditionRegistryLoading" @click="retryConditionRegistry">
+        {{ conditionRegistryLoading ? '正在重试…' : '重试加载' }}
+      </button>
+    </div>
 
     <div v-if="!projectId" class="empty-state card">
       <div class="empty-mark">04</div>
@@ -151,6 +157,8 @@
           :edit-label="FINALIZE_VIEW_COPY.edit"
           :condition-label="FINALIZE_VIEW_COPY.conditionLabel"
           :condition-fields="conditionFields"
+          :standard-factors="standardFactors"
+          :factor-catalog-version="factorCatalogVersion"
           :process-options="conditionProcessOptions"
           :condition-busy="conditionBusySegmentIds.has(item.segment.id)"
           :set-inline-textarea-ref="setInlineTextareaRef"
@@ -247,6 +255,7 @@ import {
   type RuleConditionCandidate,
   type RuleConditionProcessOption,
   type RuleConditionReview,
+  type StandardFactorDefinition,
 } from '@/api/rulePackages'
 import {
   segmentDisplayMetaLabel,
@@ -279,6 +288,7 @@ import {
   normalizeExportProcessName,
   requiresServerRuleConditionRefresh,
 } from '@/utils/finalizeRulePackage'
+import { factorBindingState } from '@/utils/standardFactorBindings'
 
 const route = useRoute()
 const router = useRouter()
@@ -301,6 +311,10 @@ const activeSegmentId = ref('')
 const lastExportedRulePackageVersion = ref<number | null>(null)
 const outdatedRulePackageVersion = ref<number | null>(null)
 const conditionFields = ref<CanonicalConditionField[]>([])
+const standardFactors = ref<StandardFactorDefinition[]>([])
+const factorCatalogVersion = ref('')
+const factorCatalogError = ref('')
+const conditionRegistryLoading = ref(false)
 const conditionBusySegmentIds = ref(new Set<string>())
 const conditionBusyCounts = new Map<string, number>()
 const batchParsing = ref(false)
@@ -323,6 +337,37 @@ function setBatchNotice(msg: string) {
   if (batchNoticeTimer) clearTimeout(batchNoticeTimer)
   if (msg) {
     batchNoticeTimer = setTimeout(() => { batchNotice.value = '' }, 4000)
+  }
+}
+
+function clearConditionRegistry(message = '') {
+  conditionFields.value = []
+  standardFactors.value = []
+  factorCatalogVersion.value = ''
+  factorCatalogError.value = message
+}
+
+function applyConditionRegistry(registry: Awaited<ReturnType<typeof getConditionFieldRegistry>>) {
+  conditionFields.value = registry.fields || []
+  standardFactors.value = registry.factors || []
+  factorCatalogVersion.value = registry.version || ''
+  factorCatalogError.value = factorCatalogReady.value
+    ? ''
+    : '标准字段与因子目录不完整，请重试加载。'
+}
+
+async function retryConditionRegistry() {
+  if (conditionRegistryLoading.value) return
+  conditionRegistryLoading.value = true
+  try {
+    applyConditionRegistry(await getConditionFieldRegistry())
+  } catch (registryError: any) {
+    console.error('第四步标准因子目录加载失败', registryError)
+    clearConditionRegistry(
+      registryError?.response?.data?.detail || '标准因子目录加载失败，请重试后再审核或导出。',
+    )
+  } finally {
+    conditionRegistryLoading.value = false
   }
 }
 const exportIssue = ref<{ title: string; summary: string; details?: string; context?: string } | null>(null)
@@ -367,11 +412,16 @@ const reviewableCards = computed(() => [...conditionalCards.value, ...relationCa
 const conditionalRuleCount = computed(() => conditionalCards.value.length)
 const relationRuleCount = computed(() => relationCards.value.length)
 const reviewableRuleCount = computed(() => reviewableCards.value.length)
+const factorCatalogReady = computed(() => Boolean(
+  conditionFields.value.length
+  && standardFactors.value.length
+  && factorCatalogVersion.value,
+))
 const unresolvedRuleCount = computed(() => segmentCards.value.filter(item => finalizeRuleMode(item) === 'unresolved').length)
 const reviewFocusCards = computed(() => segmentCards.value.filter(itemNeedsPending))
 const visibleSegments = computed(() => onlyPending.value ? reviewFocusCards.value : segmentCards.value)
 const batchEligibleCards = computed(() => reviewableCards.value.filter((item) => {
-  return requiresServerRuleConditionRefresh(item)
+  return requiresServerRuleConditionRefresh(item, factorCatalogVersion.value)
 }))
 const pendingReviewCards = computed(() => reviewableCards.value.filter((item) => {
   const review = item.conditionReview
@@ -380,9 +430,11 @@ const pendingReviewCards = computed(() => reviewableCards.value.filter((item) =>
     && review.source_text.trim() === item.conditionText.trim()
     && (review.candidate?.kind || 'condition') === expectedKind
 }))
-const autoConfirmableReviewCards = computed(() => pendingReviewCards.value.filter(isSafeForBatchRuleConfirmation))
+const autoConfirmableReviewCards = computed(() => pendingReviewCards.value.filter(item => (
+  isSafeForBatchRuleConfirmation(item, standardFactors.value, factorCatalogVersion.value)
+)))
 const readyRuleCount = computed(() => reviewableCards.value.filter((item) => {
-  if (hasCurrentConfirmedUserRule(item)) return true
+  if (hasCurrentConfirmedUserRule(item, factorCatalogVersion.value)) return true
   const review = item.conditionReview
   const expectedKind = finalizeRuleMode(item) === 'relation' ? 'process_relation' : 'condition'
   return review?.status === 'pending_confirmation'
@@ -390,7 +442,8 @@ const readyRuleCount = computed(() => reviewableCards.value.filter((item) => {
     && (review.candidate?.kind || 'condition') === expectedKind
 }).length)
 const allCurrentRulesConfirmed = computed(() =>
-  reviewableCards.value.every(item => hasCurrentConfirmedUserRule(item)),
+  factorCatalogReady.value
+  && reviewableCards.value.every(item => hasCurrentConfirmedUserRule(item, factorCatalogVersion.value)),
 )
 const conditionProcessOptions = computed<RuleConditionProcessOption[]>(() => {
   const options = new Map<string, RuleConditionProcessOption>()
@@ -432,7 +485,7 @@ function itemNeedsPending(item: FinalizeCard): boolean {
   const mode = finalizeRuleMode(item)
   if (mode === 'unresolved') return true
   if (mode === 'relation' || mode === 'conditional') {
-    if (hasCurrentConfirmedUserRule(item)) return false
+    if (hasCurrentConfirmedUserRule(item, factorCatalogVersion.value)) return false
     const review = item.conditionReview
     const sourceMatches = review?.source_text?.trim() === item.conditionText.trim()
     const expectedKind = mode === 'relation' ? 'process_relation' : 'condition'
@@ -723,6 +776,21 @@ async function handleConfirmCondition(
   candidate: RuleConditionCandidate,
 ) {
   if (!projectId.value || !savedRoute.value || !item.conditionReview?.source_hash) return
+  if (!factorCatalogReady.value) {
+    factorCatalogError.value ||= '标准因子目录尚未加载，请重试后再确认规则。'
+    return
+  }
+  if ((candidate.kind || 'condition') === 'condition' && candidate.when) {
+    const binding = factorBindingState(candidate.when, standardFactors.value)
+    if (!binding.complete) {
+      showFinalizeNotice(
+        '规则尚未完整绑定标准因子',
+        '请在条件编辑器中处理所有未绑定或冲突的条件后再保存。',
+        binding.issues.map(issue => `${issue.path || '条件'}：${issue.message}`).join('\n'),
+      )
+      return
+    }
+  }
   // A quick confirm and a background candidate refresh must not submit two
   // versions of the same card at once.
   if (conditionBusySegmentIds.value.has(item.segment.id)) return
@@ -838,6 +906,8 @@ const {
   primarySteps: finalizeSegmentPrimarySteps,
   attachedSteps: finalizeSegmentAttachedSteps,
   conditionFields,
+  standardFactors,
+  factorCatalogVersion,
   onBlockedCards: async (cards) => {
     onlyPending.value = true
     await requestExportReview(createBlockedExportReview(cards))
@@ -863,6 +933,10 @@ const reviewAndExportButtonLabel = computed(() => {
 
 async function handleReviewAndExport() {
   if (reviewAndExporting.value || batchParsing.value || batchReviewing.value || exportingRulePackage.value) return
+  if (!factorCatalogReady.value) {
+    factorCatalogError.value ||= '标准因子目录尚未加载，请重试后再审核或导出。'
+    return
+  }
   reviewAndExporting.value = true
   batchNotice.value = ''
   try {
@@ -875,7 +949,8 @@ async function handleReviewAndExport() {
       await nextTick()
     }
     const remaining = segmentCards.value.filter(item =>
-      finalizeRuleMode(item) !== 'mainline' && !hasCurrentConfirmedUserRule(item),
+      finalizeRuleMode(item) !== 'mainline'
+      && !hasCurrentConfirmedUserRule(item, factorCatalogVersion.value),
     )
     if (remaining.length) {
       onlyPending.value = true
@@ -920,6 +995,7 @@ async function loadWorkspace(forceRefresh = false) {
       supersetOperations.value = []
       lastExportedRulePackageVersion.value = null
       outdatedRulePackageVersion.value = null
+      clearConditionRegistry()
       error.value = ''
       return
     }
@@ -933,18 +1009,28 @@ async function loadWorkspace(forceRefresh = false) {
     }
     const currentProject = projectList.find(project => project.id === projectId.value)
     projectName.value = currentProject?.name || `任务 #${projectId.value}`
-    const [routeResult, operationList, supersetResult, latestPackage, fieldRegistry] = await Promise.all([
+    const [routeResult, operationList, supersetResult, latestPackage, fieldRegistryResult] = await Promise.all([
       getSavedNormalizedRoute(projectId.value, forceRefresh),
       listOperations(projectId.value, forceRefresh),
       getSupersetRoute(projectId.value, forceRefresh),
       getLatestFinalizedRulePackage(projectId.value, forceRefresh).catch(() => null),
-      getConditionFieldRegistry(),
+      getConditionFieldRegistry()
+        .then(registry => ({ registry, error: null }))
+        .catch(registryError => ({ registry: null, error: registryError })),
     ])
     if (!request.isCurrent()) return
     savedRoute.value = routeResult
     operations.value = operationList
     supersetOperations.value = supersetResult.superset_route || []
-    conditionFields.value = fieldRegistry.fields || []
+    if (fieldRegistryResult.registry) {
+      applyConditionRegistry(fieldRegistryResult.registry)
+    } else {
+      console.error('第四步标准因子目录加载失败', fieldRegistryResult.error)
+      clearConditionRegistry(
+        fieldRegistryResult.error?.response?.data?.detail
+          || '标准因子目录加载失败；现有编辑已保留，请重试加载后再审核或导出。',
+      )
+    }
     readDrafts()
     activeSegmentId.value = routeResult.segments[0]?.id || ''
     await nextTick()
@@ -967,6 +1053,7 @@ async function loadWorkspace(forceRefresh = false) {
             primarySteps: finalizeSegmentPrimarySteps,
             attachedSteps: finalizeSegmentAttachedSteps,
             conditionFields: conditionFields.value,
+            standardFactors: standardFactors.value,
           }))
           if (!request.isCurrent()) return
           if (currentPackage.content_hash === latestPackage.content_hash) {
@@ -988,6 +1075,7 @@ async function loadWorkspace(forceRefresh = false) {
     supersetOperations.value = []
     lastExportedRulePackageVersion.value = null
     outdatedRulePackageVersion.value = null
+    clearConditionRegistry()
     workspaceErrorTitle.value = Number(err?.response?.status) === 404
       ? '当前任务尚未完成第三步保存'
       : FINALIZE_VIEW_COPY.errorTitle
@@ -1260,6 +1348,7 @@ onDeactivated(() => {
   font-size: 12px;
   line-height: 1.5;
 }
+.factor-catalog-error { display: flex; align-items: center; justify-content: space-between; border-color: #e6bd7a; background: #fff8e8; color: #7a5314; }
 
 .highlight-text { color: #ea580c !important; }
 
