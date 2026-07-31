@@ -6,7 +6,7 @@ import {
   getWorkflowDataRevision,
   setWorkflowDataCache,
 } from '@/composables/workflowDataCache'
-import type { KmaiCompatibilityExport } from './kmaiFactorMappings'
+import type { KmaiCompatibilityExport } from './rulePackages'
 
 export interface OperationFactor {
   id: number

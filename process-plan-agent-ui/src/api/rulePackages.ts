@@ -4,7 +4,6 @@ import type {
   FinalizedRulePackageSimulationResult,
   TemplateGroupAliasBinding,
 } from './extract'
-import type { KmaiCompatibilityExport } from './kmaiFactorMappings'
 
 export type InputFieldType = 'string' | 'number' | 'boolean' | 'single_select' | 'multi_select'
 
@@ -71,6 +70,22 @@ export type StandardFactorDefinition = {
   kmai_factor_key: string
   kmai_value_mode: 'presence' | 'condition_value'
   runtime_source: 'computed' | 'manual_override'
+}
+
+export type KmaiCompatibilityIssue = {
+  code: string
+  path?: string
+  message: string
+}
+
+export type KmaiCompatibilityExport = {
+  format: 'kmai-v1'
+  valid: boolean
+  target_directory: string
+  errors: KmaiCompatibilityIssue[]
+  warnings: KmaiCompatibilityIssue[]
+  files: Record<string, Record<string, unknown>>
+  factor_catalog_version: string
 }
 
 export type RulePackageRule = {

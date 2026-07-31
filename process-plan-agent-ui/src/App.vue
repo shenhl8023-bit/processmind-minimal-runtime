@@ -120,7 +120,7 @@ onMounted(() => {
       </div>
     </header>
 
-    <ModelSettingsDrawer v-model="settingsVisible" :project-id="currentProjectId" />
+    <ModelSettingsDrawer v-model="settingsVisible" />
 
     <!-- Main Content Area -->
     <main class="main-area">

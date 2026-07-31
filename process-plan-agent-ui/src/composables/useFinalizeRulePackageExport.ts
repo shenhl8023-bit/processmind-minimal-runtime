@@ -11,7 +11,6 @@ import {
 import type { FinalizeCard } from '@/composables/finalizeViewHelpers'
 import { FINALIZE_EXPORT_COPY } from '@/config/finalizeRulePresentation'
 import { createZipBlob, downloadBlob, textFile } from '@/utils/exportArchive'
-import type { KmaiMappingIssue } from '@/api/kmaiFactorMappings'
 import {
   buildCompileRequestFromCards,
   buildRuleReportFromV2Package,
@@ -22,7 +21,20 @@ import { isWorkflowRevisionConflict } from '@/composables/workflowResetState'
 
 type Segment = SavedNormalizedRouteVersionResult['segments'][number]
 
-export type RulePackageExportReviewStatus = 'ready' | 'mapping_required' | 'blocked'
+export type RulePackageExportReviewStatus = 'ready' | 'blocked'
+
+export type ExportBlockDetail = {
+  code: string
+  message: string
+  processName: string
+  sourceText: string
+  sourceSegmentId: string
+}
+
+export type ManualFactorSummary = {
+  key: string
+  name: string
+}
 
 export type RulePackageExportReview = {
   status: RulePackageExportReviewStatus
@@ -31,9 +43,9 @@ export type RulePackageExportReview = {
   ruleCount: number
   validation: CompileRulePackageResponse['validation'] | null
   kmaiCompatibility: CompileRulePackageResponse['kmai_compatibility'] | null
-  mappingIssues: KmaiMappingIssue[]
+  manualFactors: ManualFactorSummary[]
   rulePackage: RulePackageV2 | null
-  details?: string[]
+  details: ExportBlockDetail[]
 }
 
 type UseFinalizeRulePackageExportOptions = {
@@ -60,40 +72,61 @@ function safeFilenamePart(value: string) {
   return value.replace(/[\/:*?"<>|]/g, '_')
 }
 
-function getKmaiMappingIssues(errors: Array<any> = []): KmaiMappingIssue[] {
-  return errors
-    .filter(issue => (
-      (issue.code === 'kmai_mapping_required' || issue.code === 'kmai_unmapped_value')
-      && issue.field && issue.value
-    ))
-    .map(issue => ({
-      field: issue.field,
-      value: issue.value,
-      occurrences: issue.occurrences || 1,
-      rule_refs: issue.rule_refs || [],
-      suggested_existing_factors: issue.suggested_existing_factors || [],
-      can_create_manual_factor: issue.can_create_manual_factor ?? true,
-    }))
+type ExportReviewIssue = { code: string; path?: string; message: string }
+
+function reviewSourceForIssue(compiled: CompileRulePackageResponse, issue: ExportReviewIssue) {
+  const ruleMatch = issue.path?.match(/^route_rules\.rules\[(\d+)]/)
+  const relationMatch = issue.path?.match(/^route_rules\.process_relations\[(\d+)]/)
+  const rule = ruleMatch
+    ? compiled.package.route_rules.rules[Number(ruleMatch[1])]
+    : undefined
+  const relation = relationMatch
+    ? compiled.package.route_rules.process_relations?.[Number(relationMatch[1])]
+    : undefined
+  const source = rule || relation
+  const sourceSegmentId = source?.source_segment_id || ''
+  const relatedProcessIds = rule
+    ? [...(rule.then.include_process_ids || []), ...(rule.then.exclude_process_ids || [])]
+    : relation
+      ? [...relation.target_process_ids, ...relation.source_process_ids]
+      : []
+  const process = compiled.package.route_catalog.processes.find(item => item.process_id === sourceSegmentId)
+    || compiled.package.route_catalog.processes.find(item => relatedProcessIds.includes(item.process_id))
+
+  return {
+    processName: process?.display_name || sourceSegmentId || '规则包导出',
+    sourceText: source?.source_text || '',
+    sourceSegmentId,
+  }
 }
 
-function isKmaiMappingError(issue: { code?: string }) {
-  return issue.code === 'kmai_mapping_required' || issue.code === 'kmai_unmapped_value'
+export function buildExportBlockDetails(compiled: CompileRulePackageResponse): ExportBlockDetail[] {
+  const issues: ExportReviewIssue[] = [
+    ...(compiled.validation.errors || []),
+    ...(compiled.kmai_compatibility.errors || []),
+  ]
+  return issues.map(issue => ({
+    code: issue.code,
+    message: issue.message,
+    ...reviewSourceForIssue(compiled, issue),
+  }))
 }
 
-function buildExportReview(
+function getManualKmaiFactors(files: Record<string, Record<string, unknown>>): ManualFactorSummary[] {
+  const factorSchema = files['factor_schema.json']
+  const factors = Array.isArray(factorSchema?.factors) ? factorSchema.factors : []
+  return factors
+    .filter((factor: any) => factor?.source_mode === 'manual_override' && factor?.factor_key)
+    .map((factor: any) => ({ key: String(factor.factor_key), name: String(factor.name || factor.factor_key) }))
+}
+
+export function buildExportReview(
   compiled: CompileRulePackageResponse,
   projectName: string,
 ): RulePackageExportReview {
-  const mappingIssues = getKmaiMappingIssues(compiled.kmai_compatibility?.errors)
-  const hasNonMappingKmaiError = (compiled.kmai_compatibility?.errors || [])
-    .some(issue => !isKmaiMappingError(issue))
-  const status: RulePackageExportReviewStatus = !compiled.validation?.valid
-    || hasNonMappingKmaiError
-    || (!compiled.kmai_compatibility?.valid && !mappingIssues.length)
-    ? 'blocked'
-    : mappingIssues.length
-      ? 'mapping_required'
-      : 'ready'
+  const status: RulePackageExportReviewStatus = (
+    compiled.validation.valid && compiled.kmai_compatibility.valid
+  ) ? 'ready' : 'blocked'
   return {
     status,
     projectName: projectName || '未命名任务',
@@ -102,8 +135,9 @@ function buildExportReview(
       + (compiled.package.route_rules.process_relations?.length || 0),
     validation: compiled.validation,
     kmaiCompatibility: compiled.kmai_compatibility,
-    mappingIssues,
+    manualFactors: getManualKmaiFactors(compiled.kmai_compatibility.files),
     rulePackage: compiled.package,
+    details: buildExportBlockDetails(compiled),
   }
 }
 
@@ -111,7 +145,7 @@ function buildLocalBlockedReview(options: {
   projectName: string
   processCount: number
   ruleCount: number
-  details: string[]
+  details: ExportBlockDetail[]
 }): RulePackageExportReview {
   return {
     status: 'blocked',
@@ -120,18 +154,24 @@ function buildLocalBlockedReview(options: {
     ruleCount: options.ruleCount,
     validation: null,
     kmaiCompatibility: null,
-    mappingIssues: [],
+    manualFactors: [],
     rulePackage: null,
     details: options.details,
   }
 }
 
-function getManualKmaiFactors(files: Record<string, Record<string, unknown>>) {
-  const factorSchema = files['factor_schema.json']
-  const factors = Array.isArray(factorSchema?.factors) ? factorSchema.factors : []
-  return factors
-    .filter((factor: any) => factor?.source_mode === 'manual_override' && factor?.factor_key)
-    .map((factor: any) => ({ key: String(factor.factor_key), name: String(factor.name || factor.factor_key) }))
+function localExportBlockDetail(
+  code: string,
+  message: string,
+  sourceText = '',
+): ExportBlockDetail {
+  return {
+    code,
+    message,
+    processName: '规则包导出',
+    sourceText,
+    sourceSegmentId: '',
+  }
 }
 
 export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExportOptions) {
@@ -160,7 +200,11 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
         projectName: options.projectName.value,
         processCount: options.segmentCards.value.length,
         ruleCount: 0,
-        details: ['标准字段库尚未加载，请稍后刷新页面再重新审核。'],
+        details: [localExportBlockDetail(
+          'standard_field_registry_unavailable',
+          '标准字段库尚未加载，请稍后刷新页面再重新审核。',
+          '标准字段库',
+        )],
       }))
       return
     }
@@ -169,7 +213,11 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
         projectName: options.projectName.value,
         processCount: options.segmentCards.value.length,
         ruleCount: 0,
-        details: ['标准因子目录尚未加载，请重试加载后再重新审核。'],
+        details: [localExportBlockDetail(
+          'standard_factor_registry_unavailable',
+          '标准因子目录尚未加载，请重试加载后再重新审核。',
+          '标准因子目录',
+        )],
       }))
       return
     }
@@ -192,7 +240,11 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
         projectName: options.projectName.value,
         processCount: options.segmentCards.value.length,
         ruleCount: 0,
-        details: [String(buildError?.message || buildError || '规则条件无法绑定标准因子')],
+        details: [localExportBlockDetail(
+          'standard_factor_binding_failed',
+          String(buildError?.message || buildError || '规则条件无法绑定标准因子'),
+          '第四步规则条件',
+        )],
       }))
       return
     }
@@ -202,23 +254,21 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
         projectName: options.projectName.value,
         processCount: 0,
         ruleCount: (compileRequest.rules?.length || 0) + (compileRequest.process_relations?.length || 0),
-        details: ['当前没有可导出的工序，请先返回规则分析确认路线内容。'],
+        details: [localExportBlockDetail(
+          'no_exportable_processes',
+          '当前没有可导出的工序，请先返回规则分析确认路线内容。',
+          '第四步工序列表',
+        )],
       }))
       return
     }
 
     exportingRulePackage.value = true
     try {
-      let compiled = await compileRulePackage(compileRequest)
-      while (true) {
-        const review = buildExportReview(compiled, options.projectName.value)
-        const confirmed = await options.onExportReviewRequired?.(review)
-        if (!confirmed || review.status === 'blocked') return
-        if (review.status === 'ready') break
-
-        // Persisted mappings change both the compiled package and KmAI files.
-        compiled = await compileRulePackage(compileRequest)
-      }
+      const compiled = await compileRulePackage(compileRequest)
+      const review = buildExportReview(compiled, options.projectName.value)
+      const confirmed = await options.onExportReviewRequired?.(review)
+      if (!confirmed || review.status !== 'ready') return
 
       const ruleReport = buildRuleReportFromV2Package({
         projectName: options.projectName.value || '未命名任务',

@@ -38,11 +38,6 @@ const firstPackage: RulePackageV2 = {
   test_cases: [],
 }
 
-const secondPackage = {
-  ...firstPackage,
-  manifest: { project_id: 12, package_name: 'second' },
-}
-
 const standardFactors: StandardFactorDefinition[] = [{
   factor_id: 'material.grade',
   label: '材料牌号',
@@ -66,17 +61,13 @@ function compiled(packageValue: RulePackageV2, valid: boolean): CompileRulePacka
       valid,
       target_directory: 'rules',
       errors: valid ? [] : [{
-        code: 'kmai_mapping_required',
-        message: 'mapping required',
-        field: 'cad.features',
-        value: 'unmapped feature',
-        occurrences: 1,
-        rule_refs: ['feature.unmapped'],
+        code: 'standard_factor_unbound',
+        path: 'route_rules.rules[0].when',
+        message: '未绑定标准因子',
       }],
       warnings: [],
       files: {},
-      mapping_signature: valid ? 'second' : 'first',
-      mapping_usages: [],
+      factor_catalog_version: '2026.11',
     },
   }
 }
@@ -103,8 +94,7 @@ function savedPackage(
       errors: [],
       warnings: [],
       files,
-      mapping_signature: 'saved',
-      mapping_usages: [],
+      factor_catalog_version: '2026.11',
     },
   }
 }
@@ -132,7 +122,7 @@ function createExport(options: {
   } as any)
 }
 
-describe('useFinalizeRulePackageExport KmAI mapping retry', () => {
+describe('useFinalizeRulePackageExport', () => {
   beforeEach(() => {
     mocks.compileRulePackage.mockReset()
     mocks.saveFinalizedRulePackage.mockReset()
@@ -155,6 +145,7 @@ describe('useFinalizeRulePackageExport KmAI mapping retry', () => {
       processCount: 0,
       ruleCount: 0,
     }))
+    expect(mocks.compileRulePackage).toHaveBeenCalledTimes(1)
     expect(mocks.saveFinalizedRulePackage).not.toHaveBeenCalled()
     expect(mocks.downloadBlob).not.toHaveBeenCalled()
   })
@@ -191,7 +182,11 @@ describe('useFinalizeRulePackageExport KmAI mapping retry', () => {
     expect(review).toHaveBeenCalledWith(expect.objectContaining({
       status: 'blocked',
       validation: null,
-      details: ['标准字段库尚未加载，请稍后刷新页面再重新审核。'],
+      details: [expect.objectContaining({
+        code: 'standard_field_registry_unavailable',
+        message: '标准字段库尚未加载，请稍后刷新页面再重新审核。',
+        sourceSegmentId: '',
+      })],
     }))
     expect(mocks.compileRulePackage).not.toHaveBeenCalled()
     expect(mocks.saveFinalizedRulePackage).not.toHaveBeenCalled()
@@ -211,7 +206,11 @@ describe('useFinalizeRulePackageExport KmAI mapping retry', () => {
     expect(review).toHaveBeenCalledWith(expect.objectContaining({
       status: 'blocked',
       validation: null,
-      details: ['标准因子目录尚未加载，请重试加载后再重新审核。'],
+      details: [expect.objectContaining({
+        code: 'standard_factor_registry_unavailable',
+        message: '标准因子目录尚未加载，请重试加载后再重新审核。',
+        sourceSegmentId: '',
+      })],
     }))
     expect(mocks.compileRulePackage).not.toHaveBeenCalled()
   })
@@ -227,70 +226,67 @@ describe('useFinalizeRulePackageExport KmAI mapping retry', () => {
 
     expect(review).toHaveBeenCalledWith(expect.objectContaining({
       status: 'blocked',
-      details: ['静态条件「顶尖孔」无法唯一绑定标准因子'],
+      details: [expect.objectContaining({
+        code: 'standard_factor_binding_failed',
+        message: '静态条件「顶尖孔」无法唯一绑定标准因子',
+        sourceSegmentId: '',
+      })],
     }))
     expect(mocks.compileRulePackage).not.toHaveBeenCalled()
   })
 
-  it('recompiles after resolved mappings and archives the authoritative saved KmAI files', async () => {
+  it('compiles once, shows manual-factor guidance, and archives authoritative KmAI files', async () => {
     const review = vi.fn().mockResolvedValue(true)
-    mocks.compileRulePackage
-      .mockResolvedValueOnce(compiled(firstPackage, false))
-      .mockResolvedValueOnce(compiled(secondPackage, true))
+    const compileResult = compiled(firstPackage, true)
+    compileResult.kmai_compatibility.files = {
+      'factor_schema.json': {
+        factors: [{
+          factor_key: 'manual_requires_hone',
+          name: '需要珩孔',
+          source_mode: 'manual_override',
+        }],
+      },
+    }
+    mocks.compileRulePackage.mockResolvedValueOnce(compileResult)
     mocks.saveFinalizedRulePackage.mockResolvedValue(savedPackage(
-      secondPackage,
-      { 'route_rules.json': { source: 'saved' } },
+      firstPackage,
+      {
+        'factor_schema.json': compileResult.kmai_compatibility.files['factor_schema.json']!,
+        'route_rules.json': { source: 'saved' },
+      },
     ))
 
-    const { downloadRuleDocument } = createExport({
-      onExportReviewRequired: review,
-    })
+    const { downloadRuleDocument } = createExport({ onExportReviewRequired: review })
     await downloadRuleDocument()
 
     expect(review).toHaveBeenCalledWith(expect.objectContaining({
-      status: 'mapping_required',
-      mappingIssues: [expect.objectContaining({
-        field: 'cad.features',
-        value: 'unmapped feature',
-      })],
+      status: 'ready',
+      manualFactors: [{ key: 'manual_requires_hone', name: '需要珩孔' }],
     }))
-    expect(mocks.compileRulePackage).toHaveBeenCalledTimes(2)
-    expect(mocks.compileRulePackage).toHaveBeenNthCalledWith(1, mocks.compileRulePackage.mock.calls[1]![0])
-    expect(mocks.compileRulePackage.mock.calls[0]![0]).toBe(mocks.compileRulePackage.mock.calls[1]![0])
+    expect(mocks.compileRulePackage).toHaveBeenCalledTimes(1)
     expect(mocks.saveFinalizedRulePackage).toHaveBeenCalledTimes(1)
     expect(mocks.saveFinalizedRulePackage).toHaveBeenCalledWith(expect.objectContaining({
-      manifest: secondPackage.manifest,
+      manifest: firstPackage.manifest,
     }))
     expect(mocks.createZipBlob).toHaveBeenCalledWith(expect.arrayContaining([
       expect.objectContaining({ name: 'kmai-v1/route_rules.json', content: JSON.stringify({ source: 'saved' }) }),
+      expect.objectContaining({
+        name: 'kmai-v1/README-替换说明.txt',
+        content: expect.stringContaining('- manual_requires_hone: 需要珩孔'),
+      }),
     ]))
     expect(mocks.downloadBlob).toHaveBeenCalledTimes(1)
   })
 
-  it('does not save or download when mapping resolution is cancelled', async () => {
+  it('blocks an invalid compatibility review after exactly one compile', async () => {
     mocks.compileRulePackage.mockResolvedValueOnce(compiled(firstPackage, false))
-    const { downloadRuleDocument } = createExport({ onExportReviewRequired: async () => false })
-
-    await downloadRuleDocument()
-
-    expect(mocks.compileRulePackage).toHaveBeenCalledTimes(1)
-    expect(mocks.saveFinalizedRulePackage).not.toHaveBeenCalled()
-    expect(mocks.downloadBlob).not.toHaveBeenCalled()
-  })
-
-  it('does not save or download when the recompiled package still needs mappings', async () => {
-    const review = vi.fn()
-      .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(false)
-    mocks.compileRulePackage
-      .mockResolvedValueOnce(compiled(firstPackage, false))
-      .mockResolvedValueOnce(compiled(firstPackage, false))
+    const review = vi.fn().mockResolvedValue(true)
     const { downloadRuleDocument } = createExport({ onExportReviewRequired: review })
 
     await downloadRuleDocument()
 
-    expect(mocks.compileRulePackage).toHaveBeenCalledTimes(2)
-    expect(review).toHaveBeenCalledTimes(2)
+    expect(review).toHaveBeenCalledWith(expect.objectContaining({ status: 'blocked' }))
+    expect(mocks.compileRulePackage).toHaveBeenCalledTimes(1)
     expect(mocks.saveFinalizedRulePackage).not.toHaveBeenCalled()
     expect(mocks.downloadBlob).not.toHaveBeenCalled()
   })

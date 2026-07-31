@@ -218,10 +218,9 @@
     <RulePackageExportReviewDialog
       v-model="exportReviewVisible"
       :review="exportReview"
-      :project-id="projectId"
-      :allow-global="false"
       @confirmed="completeExportReview(true)"
       @cancelled="completeExportReview(false)"
+      @locate="locateExportBlocker"
     />
   </div>
 </template>
@@ -231,7 +230,7 @@ import { computed, nextTick, onActivated, onDeactivated, onMounted, ref, watch }
 import { useRoute, useRouter } from 'vue-router'
 import FinalizeRouteNav from '@/components/finalize/FinalizeRouteNav.vue'
 import FinalizeRuleCard from '@/components/finalize/FinalizeRuleCard.vue'
-import RulePackageExportReviewDialog from '@/components/kmai/RulePackageExportReviewDialog.vue'
+import RulePackageExportReviewDialog from '@/components/finalize/RulePackageExportReviewDialog.vue'
 import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
 import WorkflowResetDialog from '@/components/workflow/WorkflowResetDialog.vue'
 import {
@@ -537,12 +536,25 @@ function createBlockedExportReview(cards: FinalizeCard[]): RulePackageExportRevi
     ruleCount: reviewableRuleCount.value,
     validation: null,
     kmaiCompatibility: null,
-    mappingIssues: [],
+    manualFactors: [],
     rulePackage: null,
-    details: cards.map(item => (
-      `${finalizeSegmentDisplayName(item.segment)}：${blockedExportStatusLabel(item)}`
-    )),
+    details: cards.map(item => ({
+      code: 'fourth_step_rule_incomplete',
+      message: blockedExportStatusLabel(item),
+      processName: finalizeSegmentDisplayName(item.segment),
+      sourceText: item.conditionText,
+      sourceSegmentId: item.segment.id,
+    })),
   }
+}
+
+async function locateExportBlocker(sourceSegmentId: string) {
+  if (!sourceSegmentId) return
+  onlyPending.value = true
+  activeSegmentId.value = sourceSegmentId
+  completeExportReview(false)
+  await nextTick()
+  document.getElementById(`finalize-card-${sourceSegmentId}`)?.scrollIntoView({ block: 'center' })
 }
 
 function closeExportIssue() {
