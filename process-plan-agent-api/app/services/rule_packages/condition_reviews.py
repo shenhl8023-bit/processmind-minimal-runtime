@@ -151,55 +151,6 @@ def _migrate_review_candidate(
     return migrated, list(dict.fromkeys(all_issues))
 
 
-def _special_requirement_for_legacy_boolean(field) -> str:
-    text = " ".join([field.label, *field.aliases])
-    if re.search(r"追溯|编号|批次.{0,6}标识", text):
-        return "追溯标印"
-    if re.search(r"无损|磁粉|裂纹|荧光|探伤", text):
-        return "无损检测要求"
-    label = re.sub(r"^(?:是否需要|是否具备|是否)", "", field.label).strip()
-    return label if label.endswith("要求") else f"{label or '特殊工艺'}要求"
-
-
-def _migrate_legacy_boolean_candidate(candidate: RuleConditionCandidate) -> RuleConditionCandidate:
-    if candidate.kind != "condition" or candidate.when is None:
-        return candidate
-    legacy_fields = {
-        field.key: field
-        for field in candidate.field_definitions
-        if field.type == "boolean" and field.key.startswith("custom.requirements.")
-    }
-    if not legacy_fields:
-        return candidate
-
-    def convert(node: ConditionNode) -> ConditionNode:
-        if node.field:
-            definition = legacy_fields.get(node.field)
-            if definition:
-                return ConditionNode(
-                    field="special.requirements",
-                    op="contains",
-                    value=_special_requirement_for_legacy_boolean(definition),
-                )
-            return node
-        if node.all_conditions is not None:
-            return ConditionNode(all_conditions=[convert(child) for child in node.all_conditions])
-        if node.any_conditions is not None:
-            return ConditionNode(any_conditions=[convert(child) for child in node.any_conditions])
-        if node.not_condition is not None:
-            return ConditionNode(not_condition=convert(node.not_condition))
-        return node
-
-    when = convert(candidate.when)
-    remaining_definitions = [
-        field for field in candidate.field_definitions
-        if field.key not in legacy_fields
-    ]
-    migrated = candidate.model_copy(update={"when": when, "field_definitions": remaining_definitions})
-    migrated.preview = condition_preview(migrated.when)
-    return migrated
-
-
 def serialize_condition_review(row: NormalizedRouteSegmentRuleReview) -> RuleConditionReview:
     confirmed_at = row.condition_confirmed_at
     return RuleConditionReview(
@@ -261,40 +212,6 @@ async def invalidate_legacy_nondestructive_relation_reviews(
         review.condition_field_registry_version = FIELD_REGISTRY_VERSION
         review.condition_confirmed_by = None
         review.condition_confirmed_at = None
-        changed = True
-    if changed:
-        await db.commit()
-    return changed
-
-
-async def migrate_legacy_boolean_requirement_reviews(
-    route: NormalizedRouteVersion,
-    db: AsyncSession,
-) -> bool:
-    reviews = (
-        await db.execute(
-            select(NormalizedRouteSegmentRuleReview).where(
-                NormalizedRouteSegmentRuleReview.route_version_id == route.id,
-            )
-        )
-    ).scalars().all()
-    changed = False
-    for review in reviews:
-        candidate = _loads_candidate(review.condition_candidate_json)
-        confirmed = _loads_candidate(review.condition_confirmed_json)
-        migrated_candidate = _migrate_legacy_boolean_candidate(candidate) if candidate else None
-        migrated_confirmed = _migrate_legacy_boolean_candidate(confirmed) if confirmed else None
-        if migrated_candidate == candidate and migrated_confirmed == confirmed:
-            continue
-        review.condition_candidate_json = (
-            json.dumps(migrated_candidate.model_dump(mode="json", by_alias=True), ensure_ascii=False)
-            if migrated_candidate else None
-        )
-        review.condition_confirmed_json = (
-            json.dumps(migrated_confirmed.model_dump(mode="json", by_alias=True), ensure_ascii=False)
-            if migrated_confirmed else None
-        )
-        review.condition_field_registry_version = FIELD_REGISTRY_VERSION
         changed = True
     if changed:
         await db.commit()
@@ -578,7 +495,7 @@ async def confirm_condition_review(
         raise HTTPException(409, "条件文字已经发生变化，请重新解析后再确认。")
     if review.condition_status not in {"pending_confirmation", "confirmed"}:
         raise HTTPException(409, "当前条件尚未生成可确认的候选规则。")
-    candidate = _migrate_legacy_boolean_candidate(body.candidate.model_copy(deep=True))
+    candidate = body.candidate.model_copy(deep=True)
     issues = validate_candidate(candidate, body.processes)
     if issues:
         raise HTTPException(422, {"message": "候选规则校验未通过", "issues": issues})
@@ -619,7 +536,7 @@ async def set_manual_condition_review(
         raise HTTPException(422, "请说明此工序由用户如何控制。")
     if body.process_id not in {item.process_id for item in body.processes}:
         raise HTTPException(422, "人工 Bool 条件的目标工序不在当前标准工序列表中。")
-    candidate = _migrate_legacy_boolean_candidate(body.candidate.model_copy(deep=True))
+    candidate = body.candidate.model_copy(deep=True)
     issues = validate_candidate(candidate, body.processes)
     if issues:
         raise HTTPException(422, {"message": "人工设定的规则校验未通过", "issues": issues})

@@ -16,6 +16,13 @@ export type SelectedStandardFactor = {
   factor: StandardFactorDefinition
 }
 
+type RulePackageConditionLeaf = Extract<RulePackageCondition, { field: string }>
+
+function isConditionLeaf(condition: RulePackageCondition): condition is RulePackageConditionLeaf {
+  const node = condition as unknown as Record<string, unknown>
+  return typeof node.field === 'string'
+}
+
 function normalizeCanonicalValue(value: unknown): unknown {
   if (typeof value !== 'string') return value
   return value.normalize('NFKC').trim().split(/\s+/u).filter(Boolean).join(' ')
@@ -32,7 +39,7 @@ export function matchingStandardFactors(
   leaf: RulePackageCondition,
   factors: StandardFactorDefinition[],
 ) {
-  if (!('field' in leaf)) return []
+  if (!isConditionLeaf(leaf)) return []
   return factors.filter(factor => (
     [factor.source_field, ...(factor.source_field_aliases || [])].includes(leaf.field)
     && factor.allowed_operators.includes(leaf.op)
@@ -44,7 +51,7 @@ export function matchingStandardFactors(
 }
 
 function isManualProcessLeaf(leaf: RulePackageCondition) {
-  return 'field' in leaf
+  return isConditionLeaf(leaf)
     && leaf.field.startsWith('project_factor.manual_process_')
     && leaf.op === 'eq'
     && typeof leaf.value === 'boolean'
@@ -81,7 +88,7 @@ export function factorBindingState(
   const selected: SelectedStandardFactor[] = []
 
   function visit(node: RulePackageCondition, path: string) {
-    if ('field' in node) {
+    if (isConditionLeaf(node)) {
       if (isManualProcessLeaf(node)) {
         if (node.factor_id != null) issues.push(bindingIssue('factor_mismatch', path, []))
         return
@@ -103,15 +110,22 @@ export function factorBindingState(
       selected.push({ path, factor })
       return
     }
-    if ('all' in node) {
-      node.all.forEach((child, index) => visit(child, childPath(path, 'all', index)))
+    const compound = node as unknown as Record<string, unknown>
+    if (Array.isArray(compound.all)) {
+      compound.all.forEach((child, index) => {
+        visit(child as RulePackageCondition, childPath(path, 'all', index))
+      })
       return
     }
-    if ('any' in node) {
-      node.any.forEach((child, index) => visit(child, childPath(path, 'any', index)))
+    if (Array.isArray(compound.any)) {
+      compound.any.forEach((child, index) => {
+        visit(child as RulePackageCondition, childPath(path, 'any', index))
+      })
       return
     }
-    visit(node.not, childPath(path, 'not'))
+    if (compound.not && typeof compound.not === 'object') {
+      visit(compound.not as RulePackageCondition, childPath(path, 'not'))
+    }
   }
 
   visit(condition, '')
@@ -140,7 +154,7 @@ export function applyStandardFactor(
   leaf: RulePackageCondition,
   factor: StandardFactorDefinition,
 ): RulePackageCondition {
-  if (!('field' in leaf)) return leaf
+  if (!isConditionLeaf(leaf)) return leaf
   const op = factor.allowed_operators.includes(leaf.op)
     ? leaf.op
     : factor.allowed_operators[0] || leaf.op
@@ -158,7 +172,7 @@ export function withConditionValue(
   leaf: RulePackageCondition,
   value: unknown,
 ): RulePackageCondition {
-  if (!('field' in leaf)) return leaf
+  if (!isConditionLeaf(leaf)) return leaf
   return { field: leaf.field, op: leaf.op, value }
 }
 

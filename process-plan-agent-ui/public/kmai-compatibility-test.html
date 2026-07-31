@@ -205,17 +205,78 @@
       const v2CoreFiles = ['manifest.json', 'input_schema.json', 'route_catalog.json', 'route_rules.json']
       const kmaiFiles = ['kmai-v1/factor_schema.json', 'kmai-v1/route_catalog.json', 'kmai-v1/route_rules.json']
       const legacyCoreFiles = ['input_schema.json', 'route_catalog.json', 'route_rules.json']
-      const builtinValueFactorMap = {
+      const builtinValueFactorMap = Object.freeze({
         'cad.features\u0000扁位/平面': 'has_flat_or_plane',
         'cad.features\u0000槽类特征': 'has_slot_feature',
         'cad.features\u0000普通孔/辅助孔': 'has_standard_or_aux_hole',
         'cad.features\u0000铰孔/精孔': 'has_reamed_or_precision_hole',
         'cad.features\u0000型孔/割扁': 'has_shaped_hole_or_cut_flat',
         'cad.features\u0000顶尖孔': 'uses_center_hole_location',
-      }
+      })
+      const currentValueFactorMap = Object.freeze({
+        ...builtinValueFactorMap,
+        'precision.grades\u0000孔精加工': 'has_hole_finish_machining',
+        'precision.grades\u0000珩孔要求': 'requires_honing',
+        'precision.grades\u0000研孔要求': 'requires_hole_lapping',
+        'precision.grades\u0000外圆磨削': 'requires_outer_diameter_grinding',
+        'precision.grades\u0000端面磨削': 'requires_end_face_grinding',
+        'precision.grades\u0000槽磨削': 'requires_slot_grinding',
+        'precision.grades\u0000研外圆': 'requires_outer_diameter_lapping',
+        'special.requirements\u0000渗氮层要求': 'has_nitrided_layer',
+        'special.requirements\u0000铬酸阳极化要求': 'needs_chromic_acid_anodizing',
+        'special.requirements\u0000硬质阳极化要求': 'needs_hard_anodizing',
+        'special.requirements\u0000追溯标印': 'needs_marking',
+        'special.requirements\u0000无损检测要求': 'needs_ndt_inspection',
+        'special.requirements\u0000磁粉检查要求': 'needs_crack_inspection',
+        'special.requirements\u0000烧伤检查要求': 'needs_burn_inspection',
+      })
+      const currentScalarFactors = Object.freeze([
+        { source_field: 'material.grade', target_factor_key: 'material_grade' },
+        { source_field: 'precision.outer_diameter_it', target_factor_key: 'precision_outer_diameter_it' },
+        { source_field: 'precision.inner_diameter_it', target_factor_key: 'precision_inner_diameter_it' },
+        { source_field: 'precision.dimension_it', target_factor_key: 'precision_dimension_it' },
+        { source_field: 'surface.roughness_ra', target_factor_key: 'surface_roughness_ra' },
+        { source_field: 'tolerance.roundness_mm', target_factor_key: 'tolerance_roundness_mm' },
+        { source_field: 'tolerance.cylindricity_mm', target_factor_key: 'tolerance_cylindricity_mm' },
+        { source_field: 'tolerance.coaxiality_mm', target_factor_key: 'tolerance_coaxiality_mm' },
+        { source_field: 'tolerance.runout_mm', target_factor_key: 'tolerance_runout_mm' },
+        { source_field: 'tolerance.position_mm', target_factor_key: 'tolerance_position_mm' },
+        { source_field: 'tolerance.flatness_mm', target_factor_key: 'tolerance_flatness_mm' },
+        { source_field: 'tolerance.perpendicularity_mm', target_factor_key: 'tolerance_perpendicularity_mm' },
+        { source_field: 'geometry.diameter_mm', target_factor_key: 'geometry_diameter_mm' },
+        { source_field: 'geometry.length_mm', target_factor_key: 'geometry_length_mm' },
+        { source_field: 'mechanical.hardness_hrc', source_field_aliases: ['target_hardness_hrc'], target_factor_key: 'mechanical_hardness_hrc' },
+      ])
 
       function normalizeMappingValue(value) {
         return String(value == null ? '' : value).normalize('NFKC').replace(/\s+/g, ' ').trim()
+      }
+
+      function usesCurrentFactorCatalog(validationReport) {
+        const compatibility = validationReport && validationReport.kmai_compatibility
+        return compatibility
+          && typeof compatibility === 'object'
+          && typeof compatibility.factor_catalog_version === 'string'
+          && Boolean(compatibility.factor_catalog_version.trim())
+          && !Object.prototype.hasOwnProperty.call(compatibility, 'mapping_snapshot')
+      }
+
+      function applyCurrentFactorCatalog(factors, inputs) {
+        Object.entries(currentValueFactorMap).forEach(([source, targetFactorKey]) => {
+          if (!Object.prototype.hasOwnProperty.call(factors, targetFactorKey)) return
+          const [sourceField, sourceValue] = source.split('\u0000')
+          const selected = getPath(inputs, sourceField)
+          factors[targetFactorKey] = Array.isArray(selected) && selected.includes(sourceValue)
+        })
+        currentScalarFactors.forEach((definition) => {
+          if (!Object.prototype.hasOwnProperty.call(factors, definition.target_factor_key)) return
+          let value = getPath(inputs, definition.source_field)
+          for (const alias of definition.source_field_aliases || []) {
+            if (value !== undefined) break
+            value = getPath(inputs, alias)
+          }
+          if (value !== undefined) factors[definition.target_factor_key] = value
+        })
       }
 
       function resolveMappingSnapshots(validationReport, allowLegacyFallback) {
@@ -228,6 +289,7 @@
         const compatibility = validationReport && validationReport.kmai_compatibility
         const hasSnapshot = compatibility && typeof compatibility === 'object' && Object.prototype.hasOwnProperty.call(compatibility, 'mapping_snapshot')
         if (!hasSnapshot) {
+          if (usesCurrentFactorCatalog(validationReport)) return []
           const hasModernMappingMetadata = compatibility && typeof compatibility === 'object' && Object.keys(compatibility).some((key) => key.startsWith('mapping_'))
           if (!hasModernMappingMetadata) {
             return Object.entries(builtinValueFactorMap).map(([source, target_factor_key]) => {
@@ -748,7 +810,8 @@
         const selectedByField = Object.fromEntries(
           loaded.inputSchema.fields.map((field) => [field.key, getPath(inputs, field.key)])
         )
-        Object.assign(factors, translateMappedInputFactors(loaded.validationReport, selectedByField, loaded.allowLegacyMappingFallback))
+        if (usesCurrentFactorCatalog(loaded.validationReport)) applyCurrentFactorCatalog(factors, inputs)
+        else Object.assign(factors, translateMappedInputFactors(loaded.validationReport, selectedByField, loaded.allowLegacyMappingFallback))
         ;(loaded.factorSchema.factors || []).forEach((definition) => {
           if (definition.source_mode === 'manual_override') return
           const description = String(definition.description || '')

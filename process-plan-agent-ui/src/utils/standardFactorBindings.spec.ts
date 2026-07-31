@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type {
   RuleConditionCandidate,
+  RulePackageCondition,
   StandardFactorDefinition,
 } from '@/api/rulePackages'
 import {
@@ -52,6 +53,62 @@ const factors: StandardFactorDefinition[] = [
   },
 ]
 
+const apiSerializedCompoundCondition = {
+  all: [
+    {
+      all: null,
+      any: null,
+      not: null,
+      field: 'cad.features',
+      op: 'contains',
+      value: '顶尖孔',
+      factor_id: 'feature.center_hole_location',
+    },
+    {
+      all: null,
+      any: [
+        {
+          all: null,
+          any: null,
+          not: null,
+          field: 'precision.grades',
+          op: 'contains',
+          value: '孔精加工',
+          factor_id: 'precision.hole_finish',
+        },
+        {
+          all: null,
+          any: null,
+          not: {
+            all: null,
+            any: null,
+            not: null,
+            field: 'precision.grades',
+            op: 'contains',
+            value: '未知精加工',
+            factor_id: null,
+          },
+          field: null,
+          op: null,
+          value: null,
+          factor_id: null,
+        },
+      ],
+      not: null,
+      field: null,
+      op: null,
+      value: null,
+      factor_id: null,
+    },
+  ],
+  any: null,
+  not: null,
+  field: null,
+  op: null,
+  value: null,
+  factor_id: null,
+} as unknown as RulePackageCondition
+
 function conditionCandidate(overrides: Partial<RuleConditionCandidate> = {}): RuleConditionCandidate {
   return {
     kind: 'condition',
@@ -97,6 +154,36 @@ describe('standard factor bindings', () => {
       path: 'all[1]',
     })])
     expect(state.selected.map(item => item.factor.factor_id)).toEqual(['feature.center_hole_location'])
+  })
+
+  it('traverses API-serialized all, any, and not compounds without treating null fields as leaves', () => {
+    let state: ReturnType<typeof factorBindingState> | undefined
+
+    expect(() => {
+      state = factorBindingState(apiSerializedCompoundCondition, factors)
+    }).not.toThrow()
+    expect(state?.selected.map(item => ({
+      path: item.path,
+      factor_id: item.factor.factor_id,
+    }))).toEqual([
+      { path: 'all[0]', factor_id: 'feature.center_hole_location' },
+      { path: 'all[1].any[0]', factor_id: 'precision.hole_finish' },
+    ])
+    expect(state?.issues).toEqual([
+      expect.objectContaining({
+        code: 'factor_unbound',
+        path: 'all[1].any[1].not',
+        candidate_factor_ids: [],
+      }),
+    ])
+  })
+
+  it('keeps API-serialized compound nodes unchanged in leaf-only helpers', () => {
+    expect(matchingStandardFactors(apiSerializedCompoundCondition, factors)).toEqual([])
+    expect(applyStandardFactor(apiSerializedCompoundCondition, factors[0]!))
+      .toBe(apiSerializedCompoundCondition)
+    expect(withConditionValue(apiSerializedCompoundCondition, 'replacement'))
+      .toBe(apiSerializedCompoundCondition)
   })
 
   it('requires a unique matching id while accepting explicit manual Boolean leaves', () => {

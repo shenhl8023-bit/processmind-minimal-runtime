@@ -22,7 +22,6 @@ from app.services.rule_packages.condition_reviews import (
     condition_source_hash,
     confirm_condition_review,
     invalidate_legacy_nondestructive_relation_reviews,
-    migrate_legacy_boolean_requirement_reviews,
     migrate_legacy_standard_factor_reviews,
     serialize_condition_review,
     set_manual_condition_review,
@@ -30,6 +29,7 @@ from app.services.rule_packages.condition_reviews import (
     save_condition_draft,
 )
 from app.services.rule_packages import condition_reviews
+from app.services.route_analysis import build_saved_normalized_route_response
 
 
 PROCESSES = [
@@ -790,6 +790,85 @@ async def test_confirm_rejects_unknown_unbound_standard_value():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("boolean_value", [True, False], ids=["eq_true", "eq_false"])
+async def test_confirm_rejects_custom_boolean_without_guessing_semantics(boolean_value):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    source_text = "当零件需要保留批次链路时，安排标记工序"
+    candidate = condition_parser.RuleConditionCandidate.model_validate({
+        "kind": "condition",
+        "when": {
+            "field": "custom.requirements.traceability_marking_required",
+            "op": "eq",
+            "value": boolean_value,
+        },
+        "then": {"include_process_ids": ["process_mark"], "exclude_process_ids": []},
+        "field_definitions": [{
+            "key": "custom.requirements.traceability_marking_required",
+            "label": "是否需要追溯标识",
+            "category": "特殊要求",
+            "type": "boolean",
+            "operators": ["eq", "neq"],
+            "aliases": ["追溯", "编号"],
+            "source": "模型候选",
+            "options": [],
+            "allow_custom": False,
+        }],
+    })
+
+    async with session_factory() as session:
+        session.add(NormalizedRouteVersion(
+            id=1,
+            project_id=7,
+            version=1,
+            route_json='[{"id":"process_mark"}]',
+        ))
+        session.add(NormalizedRouteSegmentRuleReview(
+            project_id=7,
+            route_version_id=1,
+            segment_id="process_mark",
+            decision="accepted",
+            note="",
+            summary_json="[]",
+            question_trail_json="[]",
+            condition_status="pending_confirmation",
+            condition_source_text=source_text,
+            condition_source_hash=condition_source_hash(source_text),
+            condition_candidate_json=json.dumps(candidate.model_dump(mode="json"), ensure_ascii=False),
+        ))
+        await session.commit()
+
+        with pytest.raises(HTTPException) as error:
+            await confirm_condition_review(
+                ConfirmRuleConditionRequest(
+                    project_id=7,
+                    route_id=1,
+                    segment_id="process_mark",
+                    source_text=source_text,
+                    source_hash=condition_source_hash(source_text),
+                    candidate=candidate,
+                    processes=[RuleConditionProcessOption(process_id="process_mark", display_name="标记")],
+                    confirmed_by="测试用户",
+                ),
+                session,
+            )
+
+        assert error.value.status_code == 422
+        assert "标准因子" in str(error.value.detail)
+        review = (await session.execute(
+            select(NormalizedRouteSegmentRuleReview).where(
+                NormalizedRouteSegmentRuleReview.segment_id == "process_mark",
+            )
+        )).scalars().one()
+        assert review.condition_status == "pending_confirmation"
+        assert review.condition_confirmed_json is None
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_confirm_rejects_the_second_unbound_compound_leaf():
     """The second branch must not be hidden when the first branch is bound."""
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
@@ -1268,22 +1347,29 @@ async def test_invalidates_legacy_nondestructive_process_relation_for_re_review(
 
 
 @pytest.mark.asyncio
-async def test_migrates_legacy_boolean_requirement_to_special_requirement():
+@pytest.mark.parametrize("boolean_value", [True, False], ids=["eq_true", "eq_false"])
+async def test_saved_route_reopens_confirmed_custom_boolean_without_rewriting_semantics(boolean_value):
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with session_factory() as session:
+        session.add(Project(id=7, name="自定义 Bool 迁移"))
         route = NormalizedRouteVersion(
             id=1,
             project_id=7,
             version=1,
-            route_json='[{"id":"process_mark","normalized_step_name":"标记"}]',
+            segment_count=1,
+            route_json='[{"id":"process_mark","sequence":10,"normalized_step_name":"标记"}]',
         )
         legacy_candidate = {
             "kind": "condition",
-            "when": {"field": "custom.requirements.traceability_marking_required", "op": "eq", "value": True},
+            "when": {
+                "field": "custom.requirements.traceability_marking_required",
+                "op": "eq",
+                "value": boolean_value,
+            },
             "then": {"include_process_ids": ["process_mark"], "exclude_process_ids": []},
             "field_definitions": [{
                 "key": "custom.requirements.traceability_marking_required",
@@ -1296,10 +1382,10 @@ async def test_migrates_legacy_boolean_requirement_to_special_requirement():
                 "options": [],
                 "allow_custom": False,
             }],
-            "preview": "是否需要追溯标识 等于 是",
+            "preview": f"是否需要追溯标识 等于 {'是' if boolean_value else '否'}",
         }
         session.add(route)
-        session.add(NormalizedRouteSegmentRuleReview(
+        row = NormalizedRouteSegmentRuleReview(
             project_id=7,
             route_version_id=1,
             segment_id="process_mark",
@@ -1310,16 +1396,26 @@ async def test_migrates_legacy_boolean_requirement_to_special_requirement():
             condition_status="confirmed",
             condition_candidate_json=json.dumps(legacy_candidate, ensure_ascii=False),
             condition_confirmed_json=json.dumps(legacy_candidate, ensure_ascii=False),
-        ))
+            condition_confirmed_by="旧确认用户",
+        )
+        session.add(row)
         await session.commit()
 
-        assert await migrate_legacy_boolean_requirement_reviews(route, session) is True
-        review = (await session.execute(
-            select(NormalizedRouteSegmentRuleReview).where(NormalizedRouteSegmentRuleReview.segment_id == "process_mark")
-        )).scalars().one()
-        migrated = json.loads(review.condition_confirmed_json)
-        assert migrated["when"] == {"all": None, "any": None, "not": None, "field": "special.requirements", "op": "contains", "value": "追溯标印"}
-        assert migrated["field_definitions"] == []
+        response = await build_saved_normalized_route_response(route, session)
+        condition_review = response.segments[0].rule_review.condition_review
+
+        assert condition_review.status == "pending_confirmation"
+        assert condition_review.confirmed is None
+        assert condition_review.confirmed_by == ""
+        assert condition_review.candidate is not None
+        assert condition_review.candidate.when is not None
+        assert condition_review.candidate.when.field == "custom.requirements.traceability_marking_required"
+        assert condition_review.candidate.when.op == "eq"
+        assert condition_review.candidate.when.value is boolean_value
+        assert condition_review.candidate.when.factor_id is None
+        assert len(condition_review.candidate.field_definitions) == 1
+        assert condition_review.candidate.field_definitions[0].key == "custom.requirements.traceability_marking_required"
+        assert any("标准因子" in issue for issue in condition_review.issues)
 
     await engine.dispose()
 
@@ -1535,35 +1631,40 @@ async def test_standard_factor_migration_clears_stale_pending_issues_and_preserv
 
 
 @pytest.mark.asyncio
-async def test_converts_legacy_llm_boolean_to_special_requirement(monkeypatch):
+@pytest.mark.parametrize("boolean_value", [True, False], ids=["eq_true", "eq_false"])
+async def test_model_custom_boolean_remains_explicit_and_unbound(monkeypatch, boolean_value):
     async def legacy_boolean_llm(*args, **kwargs):
-        return """{
-          "candidate": {
-            "kind": "condition",
-            "when": {"field": "custom.requirements.traceability_marking_required", "op": "eq", "value": true},
-            "then": {"include_process_ids": ["process_mark"], "exclude_process_ids": []},
-            "field_definitions": [{
-              "key": "custom.requirements.traceability_marking_required",
-              "label": "是否需要追溯标识",
-              "category": "特殊要求",
-              "type": "boolean",
-              "operators": ["eq", "neq"],
-              "aliases": ["追溯", "编号"],
-              "source": "人工补充/图样技术要求",
-              "options": [],
-              "allow_custom": false
-            }],
-            "preview": "是否需要追溯标识 等于 是"
-          },
-          "confidence": 0.9,
-          "warnings": [],
-          "unresolved": []
-        }"""
+        return json.dumps({
+            "candidate": {
+                "kind": "condition",
+                "when": {
+                    "field": "custom.requirements.traceability_marking_required",
+                    "op": "eq",
+                    "value": boolean_value,
+                },
+                "then": {"include_process_ids": ["process_mark"], "exclude_process_ids": []},
+                "field_definitions": [{
+                    "key": "custom.requirements.traceability_marking_required",
+                    "label": "是否需要追溯标识",
+                    "category": "特殊要求",
+                    "type": "boolean",
+                    "operators": ["eq", "neq"],
+                    "aliases": ["追溯", "编号"],
+                    "source": "模型候选",
+                    "options": [],
+                    "allow_custom": False,
+                }],
+                "preview": f"是否需要追溯标识 等于 {'是' if boolean_value else '否'}",
+            },
+            "confidence": 0.9,
+            "warnings": [],
+            "unresolved": [],
+        }, ensure_ascii=False)
 
     monkeypatch.setattr(condition_parser, "call_llm", legacy_boolean_llm)
     processes = [RuleConditionProcessOption(process_id="process_mark", display_name="标记")]
     candidate, confidence, issues = await condition_parser.parse_rule_condition(
-        "当零件需要追溯、编号或批次标识时，安排标记工序",
+        "当零件需要保留批次链路时，安排标记工序",
         "process_mark",
         "标记",
         processes,
@@ -1571,9 +1672,11 @@ async def test_converts_legacy_llm_boolean_to_special_requirement(monkeypatch):
 
     assert candidate is not None
     assert candidate.when is not None
-    assert candidate.when.field == "special.requirements"
-    assert candidate.when.op == "contains"
-    assert candidate.when.value == "追溯标印"
-    assert candidate.field_definitions == []
+    assert candidate.when.field == "custom.requirements.traceability_marking_required"
+    assert candidate.when.op == "eq"
+    assert candidate.when.value is boolean_value
+    assert candidate.when.factor_id is None
+    assert len(candidate.field_definitions) == 1
+    assert candidate.field_definitions[0].key == "custom.requirements.traceability_marking_required"
     assert confidence == 0.9
-    assert issues == []
+    assert any("标准因子" in issue for issue in issues)

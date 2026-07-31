@@ -28,7 +28,7 @@ from app.services.rule_packages.contracts import ConditionNode, RuleAction
 from app.services.rule_packages.expression_engine import iter_condition_fields
 from app.services.rule_packages.standard_factors import bind_unambiguous_factor_ids
 
-CONDITION_PARSER_VERSION = "2026.07.27.2"
+CONDITION_PARSER_VERSION = "2026.07.27.3"
 logger = logging.getLogger(__name__)
 
 
@@ -104,10 +104,17 @@ def validate_candidate(
             if definition.key in standard_fields:
                 issues.append(f"动态因素不能覆盖标准字段：{definition.key}")
                 continue
-            if not definition.key.startswith("project_factor."):
+            review_only_custom_boolean = (
+                definition.type == "boolean"
+                and definition.key.startswith("custom.requirements.")
+            )
+            if not definition.key.startswith("project_factor.") and not review_only_custom_boolean:
                 issues.append(f"动态因素必须使用 project_factor 命名空间：{definition.key}")
                 continue
-            if not re.fullmatch(r"project_factor\.[a-z0-9_.-]+", definition.key):
+            if not re.fullmatch(
+                r"(?:project_factor|custom\.requirements)\.[a-z0-9_.-]+",
+                definition.key,
+            ):
                 issues.append(f"动态因素 key 只能使用小写字母、数字、点、下划线和连字符：{definition.key}")
                 continue
             if definition.key in dynamic_fields:
@@ -369,55 +376,6 @@ def _generic_tag_condition(source_text: str) -> ConditionNode | None:
     return ConditionNode(not_condition=leaf) if negated else leaf
 
 
-def _special_requirement_for_boolean_field(field: CanonicalConditionField) -> str:
-    text = " ".join([field.label, *field.aliases])
-    if re.search(r"追溯|编号|批次.{0,6}标识", text):
-        return "追溯标印"
-    label = re.sub(r"^(?:是否需要|是否具备|是否)", "", field.label).strip()
-    if not label:
-        label = "特殊工艺要求"
-    return label if label.endswith("要求") else f"{label}要求"
-
-
-def _convert_boolean_fields_to_special_requirements(
-    candidate: RuleConditionCandidate,
-) -> RuleConditionCandidate:
-    if candidate.kind != "condition" or candidate.when is None:
-        return candidate
-    dynamic_fields = {
-        field.key: field
-        for field in candidate.field_definitions
-        if field.type == "boolean" and field.key.startswith("custom.requirements.")
-    }
-    if not dynamic_fields:
-        return candidate
-
-    def convert(node: ConditionNode) -> ConditionNode:
-        if node.field:
-            definition = dynamic_fields.get(node.field)
-            if definition:
-                return ConditionNode(
-                    field="special.requirements",
-                    op="contains",
-                    value=_special_requirement_for_boolean_field(definition),
-                )
-            return node
-        if node.all_conditions is not None:
-            return ConditionNode(all_conditions=[convert(child) for child in node.all_conditions])
-        if node.any_conditions is not None:
-            return ConditionNode(any_conditions=[convert(child) for child in node.any_conditions])
-        if node.not_condition is not None:
-            return ConditionNode(not_condition=convert(node.not_condition))
-        return node
-
-    when = convert(candidate.when)
-    referenced_fields = set(iter_condition_fields(when))
-    return candidate.model_copy(update={
-        "when": when,
-        "field_definitions": [field for field in candidate.field_definitions if field.key in referenced_fields],
-    })
-
-
 def _parse_condition_tree(source_text: str) -> ConditionNode | None:
     condition_text = re.split(r"(?:则|时)[，,]?\s*(?:纳入|加入|排除|不纳入|取消)", source_text, maxsplit=1)[0]
     or_parts = [item.strip() for item in re.split(r"或者|或是|\s或\s", condition_text) if item.strip()]
@@ -654,7 +612,6 @@ async def parse_rule_condition(
     if candidate:
         candidate = _with_source_evidence(candidate, source_text)
         assert candidate is not None
-        candidate = _convert_boolean_fields_to_special_requirements(candidate)
         validation_issues = validate_candidate(candidate, processes)
         if _has_unregistered_project_factor(candidate):
             validation_issues.append("未注册的类别条件不能创建项目因素，请选择标准因子或使用人工 Bool 条件。")
