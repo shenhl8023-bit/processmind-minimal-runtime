@@ -174,4 +174,19 @@ describe('standalone KmAI factor construction', () => {
     expect(factors.has_hole_finish_machining).toBe(false)
     expect(factors.needs_marking).toBe(false)
   })
+
+  it('keeps the explicit legacy catalog marker on the six fixed mappings', () => {
+    const factors = buildFactors(
+      { kmai_compatibility: { factor_catalog_version: 'legacy' } },
+      {
+        cad: { features: ['槽类特征'] },
+        precision: { grades: ['孔精加工'] },
+        special: { requirements: ['追溯标印'] },
+      },
+    )
+
+    expect(factors.has_slot_feature).toBe(true)
+    expect(factors.has_hole_finish_machining).toBe(false)
+    expect(factors.needs_marking).toBe(false)
+  })
 })

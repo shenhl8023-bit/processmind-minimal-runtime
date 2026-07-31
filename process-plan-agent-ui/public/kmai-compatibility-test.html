@@ -205,6 +205,7 @@
       const v2CoreFiles = ['manifest.json', 'input_schema.json', 'route_catalog.json', 'route_rules.json']
       const kmaiFiles = ['kmai-v1/factor_schema.json', 'kmai-v1/route_catalog.json', 'kmai-v1/route_rules.json']
       const legacyCoreFiles = ['input_schema.json', 'route_catalog.json', 'route_rules.json']
+      const currentFactorCatalogVersion = '2026.11'
       const builtinValueFactorMap = Object.freeze({
         'cad.features\u0000扁位/平面': 'has_flat_or_plane',
         'cad.features\u0000槽类特征': 'has_slot_feature',
@@ -257,7 +258,7 @@
         return compatibility
           && typeof compatibility === 'object'
           && typeof compatibility.factor_catalog_version === 'string'
-          && Boolean(compatibility.factor_catalog_version.trim())
+          && compatibility.factor_catalog_version.trim() === currentFactorCatalogVersion
           && !Object.prototype.hasOwnProperty.call(compatibility, 'mapping_snapshot')
       }
 
