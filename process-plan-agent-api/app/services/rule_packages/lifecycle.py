@@ -2,19 +2,13 @@
 
 from __future__ import annotations
 
-import json
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import FinalizedRulePackage, KmaiFactorMappingUsage, utcnow
+from app.models.models import FinalizedRulePackage, utcnow
 from app.services.finalized_rule_package_helpers import json_loads, json_loads_list
 from app.services.rule_packages.contracts import RulePackageV2, RulePackageValidationReport
-from app.services.rule_packages.kmai_export import (
-    LegacyFactorAdapterEntry,
-    builtin_legacy_mapping_snapshot,
-    legacy_mapping_snapshot_from_validation_report,
-)
+from app.services.rule_packages.kmai_export import legacy_mapping_snapshot_from_validation_report
 from app.services.rule_packages.validator import validate_rule_package
 
 
@@ -55,47 +49,9 @@ def v2_package_from_row(row: FinalizedRulePackage) -> RulePackageV2:
     })
 
 
-async def load_legacy_mapping_snapshot_for_package(
-    db: AsyncSession,
-    package: FinalizedRulePackage,
-) -> list[LegacyFactorAdapterEntry]:
+def load_legacy_mapping_snapshot_for_package(package: FinalizedRulePackage):
     """Load historical package mappings without consulting active mapping state."""
-    try:
-        report = json.loads(package.validation_report_json or "{}")
-    except (TypeError, ValueError, json.JSONDecodeError):
-        report = {}
-    compatibility = report.get("kmai_compatibility", {}) if isinstance(report, dict) else {}
-    if isinstance(compatibility, dict) and "mapping_snapshot" in compatibility:
-        return legacy_mapping_snapshot_from_validation_report(package.validation_report_json)
-
-    # Temporary fallback for packages published before snapshots were embedded.
-    rows = (
-        await db.execute(
-            select(KmaiFactorMappingUsage)
-            .where(KmaiFactorMappingUsage.package_id == package.id)
-            .order_by(KmaiFactorMappingUsage.id)
-        )
-    ).scalars().all()
-    if not rows:
-        return builtin_legacy_mapping_snapshot()
-
-    snapshots: list[LegacyFactorAdapterEntry] = []
-    for row in rows:
-        try:
-            snapshot = json.loads(row.mapping_snapshot_json)
-            snapshots.append(
-                LegacyFactorAdapterEntry(
-                    source_field=str(snapshot["source_field"]),
-                    source_value=str(snapshot["source_value"]),
-                    mapping_mode=str(snapshot["mapping_mode"]),
-                    target_factor_key=str(snapshot["target_factor_key"]),
-                    target_factor_name=str(snapshot["target_factor_name"]),
-                    target_factor_category=str(snapshot["target_factor_category"]),
-                )
-            )
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
-            continue
-    return snapshots or builtin_legacy_mapping_snapshot()
+    return legacy_mapping_snapshot_from_validation_report(package.validation_report_json)
 
 
 async def publish_rule_package(

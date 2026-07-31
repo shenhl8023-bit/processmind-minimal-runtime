@@ -256,6 +256,7 @@ async def ensure_project_schema(conn):
             )
         """))
 
+    await _retire_kmai_mapping_tables(conn)
     await _backfill_rule_package_hashes(conn)
     await _normalize_published_rule_packages(conn)
     await conn.execute(text("""
@@ -267,120 +268,159 @@ async def ensure_project_schema(conn):
         ON finalized_rule_packages (project_id)
         WHERE status = 'published'
     """))
-    # Mapping tables are maintained explicitly because deployed SQLite files
-    # predate these ORM models. Each statement is safe on repeated startup.
-    await conn.execute(text("""
-        CREATE TABLE IF NOT EXISTS kmai_factor_mappings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            scope VARCHAR(16) NOT NULL CHECK (scope IN ('global', 'project')),
-            project_id INTEGER,
-            source_field VARCHAR(120) NOT NULL,
-            source_value VARCHAR(255) NOT NULL,
-            mapping_mode VARCHAR(24) NOT NULL CHECK (mapping_mode IN ('existing_factor', 'manual_factor')),
-            target_factor_key VARCHAR(120) NOT NULL,
-            target_factor_name VARCHAR(255) NOT NULL,
-            target_factor_category VARCHAR(120) NOT NULL,
-            status VARCHAR(16) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
-            revision INTEGER NOT NULL DEFAULT 1,
-            promoted_from_id INTEGER,
-            created_by VARCHAR(100) NOT NULL DEFAULT '默认用户',
-            updated_by VARCHAR(100) NOT NULL DEFAULT '默认用户',
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
-            FOREIGN KEY(promoted_from_id) REFERENCES kmai_factor_mappings(id) ON DELETE SET NULL,
-            CHECK ((scope = 'global' AND project_id IS NULL) OR (scope = 'project' AND project_id IS NOT NULL))
-        )
-    """))
-    await conn.execute(text("""
-        CREATE TABLE IF NOT EXISTS kmai_factor_mapping_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            mapping_id INTEGER,
-            project_id INTEGER,
-            action VARCHAR(40) NOT NULL,
-            actor VARCHAR(100) NOT NULL DEFAULT '默认用户',
-            before_json TEXT,
-            after_json TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(mapping_id) REFERENCES kmai_factor_mappings(id) ON DELETE SET NULL,
-            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
-        )
-    """))
-    await conn.execute(text("""
-        CREATE TABLE IF NOT EXISTS kmai_factor_mapping_usages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            mapping_id INTEGER,
-            package_id INTEGER NOT NULL,
-            revision INTEGER NOT NULL DEFAULT 1,
-            mapping_snapshot_json TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(mapping_id) REFERENCES kmai_factor_mappings(id) ON DELETE RESTRICT,
-            FOREIGN KEY(package_id) REFERENCES finalized_rule_packages(id) ON DELETE CASCADE
-        )
-    """))
-    await _migrate_kmai_mapping_usage_mapping_id_nullable(conn)
-    await conn.execute(text("""
-        CREATE UNIQUE INDEX IF NOT EXISTS uq_kmai_factor_mappings_global_source
-        ON kmai_factor_mappings (source_field, source_value)
-        WHERE scope = 'global' AND project_id IS NULL
-    """))
-    await conn.execute(text("""
-        CREATE UNIQUE INDEX IF NOT EXISTS uq_kmai_factor_mappings_project_source
-        ON kmai_factor_mappings (project_id, source_field, source_value)
-        WHERE scope = 'project' AND project_id IS NOT NULL
-    """))
-    await conn.execute(text("""
-        CREATE INDEX IF NOT EXISTS idx_kmai_factor_mappings_project_status
-        ON kmai_factor_mappings (project_id, status)
-    """))
-    await conn.execute(text("""
-        CREATE INDEX IF NOT EXISTS idx_kmai_factor_mapping_events_mapping
-        ON kmai_factor_mapping_events (mapping_id)
-    """))
-    await conn.execute(text("""
-        CREATE INDEX IF NOT EXISTS idx_kmai_factor_mapping_events_project
-        ON kmai_factor_mapping_events (project_id)
-    """))
-    await conn.execute(text("""
-        CREATE INDEX IF NOT EXISTS idx_kmai_factor_mapping_usages_package
-        ON kmai_factor_mapping_usages (package_id)
-    """))
-    await conn.execute(text("""
-        CREATE INDEX IF NOT EXISTS idx_kmai_factor_mapping_usages_mapping
-        ON kmai_factor_mapping_usages (mapping_id)
-    """))
 
 
-async def _migrate_kmai_mapping_usage_mapping_id_nullable(conn):
-    columns = (
-        await conn.execute(text("PRAGMA table_info(kmai_factor_mapping_usages)"))
+async def _sqlite_table_names(conn) -> set[str]:
+    rows = (
+        await conn.execute(text("SELECT name FROM sqlite_master WHERE type = 'table'"))
     ).all()
-    mapping_id = next((column for column in columns if column[1] == "mapping_id"), None)
-    if mapping_id is None or mapping_id[3] == 0:
-        return
+    return {str(row[0]) for row in rows}
 
-    await conn.execute(text("""
-        CREATE TABLE kmai_factor_mapping_usages_rebuilt (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            mapping_id INTEGER,
-            package_id INTEGER NOT NULL,
-            revision INTEGER NOT NULL DEFAULT 1,
-            mapping_snapshot_json TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(mapping_id) REFERENCES kmai_factor_mappings(id) ON DELETE RESTRICT,
-            FOREIGN KEY(package_id) REFERENCES finalized_rule_packages(id) ON DELETE CASCADE
+
+def _validated_usage_snapshots(rows) -> dict[int, list[dict]]:
+    grouped: dict[int, list[dict]] = {}
+    for row in rows:
+        package_id = int(row["package_id"])
+        if row["package_row_id"] is None:
+            raise RuntimeError(
+                f"KmAI mapping usage {row['usage_id']} references missing package {package_id}"
+            )
+        try:
+            snapshot = json.loads(row["mapping_snapshot_json"])
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise RuntimeError(
+                f"KmAI mapping usage {row['usage_id']} contains malformed snapshot JSON"
+            ) from error
+        if not isinstance(snapshot, dict):
+            raise RuntimeError(
+                f"KmAI mapping usage {row['usage_id']} snapshot must be a JSON object"
+            )
+        grouped.setdefault(package_id, []).append(snapshot)
+    return grouped
+
+
+def _validation_report_object(raw_report, package_id: int) -> dict:
+    if raw_report is None or not str(raw_report).strip():
+        return {}
+    try:
+        report = json.loads(raw_report)
+    except (TypeError, ValueError, json.JSONDecodeError) as error:
+        raise RuntimeError(
+            f"Finalized package {package_id} has malformed validation report JSON"
+        ) from error
+    if not isinstance(report, dict):
+        raise RuntimeError(
+            f"Finalized package {package_id} validation report must be a JSON object"
         )
-    """))
-    await conn.execute(text("""
-        INSERT INTO kmai_factor_mapping_usages_rebuilt
-        (id, mapping_id, package_id, revision, mapping_snapshot_json, created_at)
-        SELECT id, mapping_id, package_id, revision, mapping_snapshot_json, created_at
-        FROM kmai_factor_mapping_usages
-    """))
+    return report
+
+
+async def _backfill_missing_package_snapshots(
+    conn,
+    grouped: dict[int, list[dict]],
+) -> set[int]:
+    backfilled: set[int] = set()
+    for package_id, snapshots in grouped.items():
+        raw_report = (
+            await conn.execute(
+                text(
+                    "SELECT validation_report_json FROM finalized_rule_packages WHERE id = :id"
+                ),
+                {"id": package_id},
+            )
+        ).scalar_one()
+        report = _validation_report_object(raw_report, package_id)
+        compatibility = report.get("kmai_compatibility")
+        if compatibility is None:
+            compatibility = {}
+            report["kmai_compatibility"] = compatibility
+        if not isinstance(compatibility, dict):
+            raise RuntimeError(
+                f"Finalized package {package_id} KmAI compatibility report must be a JSON object"
+            )
+        if compatibility.get("mapping_snapshot"):
+            continue
+        compatibility["mapping_snapshot"] = snapshots
+        await conn.execute(
+            text("""
+                UPDATE finalized_rule_packages
+                SET validation_report_json = :validation_report_json
+                WHERE id = :id
+            """),
+            {
+                "id": package_id,
+                "validation_report_json": json.dumps(
+                    report,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+            },
+        )
+        backfilled.add(package_id)
+    return backfilled
+
+
+async def _verify_package_snapshots(
+    conn,
+    grouped: dict[int, list[dict]],
+    backfilled: set[int],
+) -> None:
+    for package_id in backfilled:
+        raw_report = (
+            await conn.execute(
+                text(
+                    "SELECT validation_report_json FROM finalized_rule_packages WHERE id = :id"
+                ),
+                {"id": package_id},
+            )
+        ).scalar_one()
+        report = _validation_report_object(raw_report, package_id)
+        compatibility = report.get("kmai_compatibility")
+        actual = (
+            compatibility.get("mapping_snapshot")
+            if isinstance(compatibility, dict)
+            else None
+        )
+        if not isinstance(actual, list) or not actual or actual != grouped[package_id]:
+            raise RuntimeError(
+                f"KmAI mapping snapshot verification failed for finalized package {package_id}"
+            )
+
+
+async def _retire_kmai_mapping_tables(conn) -> None:
+    table_names = await _sqlite_table_names(conn)
+    legacy = {
+        "kmai_factor_mapping_usages",
+        "kmai_factor_mapping_events",
+        "kmai_factor_mappings",
+    }
+    if not (legacy & table_names):
+        return
+    if not legacy <= table_names:
+        raise RuntimeError(
+            "KmAI mapping tables are only partially present; refusing destructive cleanup"
+        )
+
+    rows = (
+        await conn.execute(text("""
+            SELECT usage.id AS usage_id,
+                   usage.package_id,
+                   usage.mapping_snapshot_json,
+                   package.id AS package_row_id
+            FROM kmai_factor_mapping_usages AS usage
+            LEFT JOIN finalized_rule_packages AS package ON package.id = usage.package_id
+            ORDER BY usage.package_id, usage.id
+        """))
+    ).mappings().all()
+    grouped = _validated_usage_snapshots(rows)
+    backfilled = await _backfill_missing_package_snapshots(conn, grouped)
+    await _verify_package_snapshots(conn, grouped, backfilled)
     await conn.execute(text("DROP TABLE kmai_factor_mapping_usages"))
+    await conn.execute(text("DROP TABLE kmai_factor_mapping_events"))
+    await conn.execute(text("DROP TABLE kmai_factor_mappings"))
     await conn.execute(text("""
-        ALTER TABLE kmai_factor_mapping_usages_rebuilt
-        RENAME TO kmai_factor_mapping_usages
+        INSERT OR IGNORE INTO schema_migrations (name)
+        VALUES ('retire_kmai_factor_mappings_v1')
     """))
 
 

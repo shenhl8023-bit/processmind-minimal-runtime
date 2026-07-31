@@ -290,20 +290,6 @@ class KmaiCompatibilityIssue(ValidationIssue):
     can_create_manual_factor: bool | None = None
 
 
-class KmaiMappingUsageSnapshot(StrictModel):
-    mapping_id: int | None = None
-    mapping_identity: str
-    revision: int = 1
-    scope: Literal["builtin", "global", "project"]
-    project_id: int | None = None
-    source_field: str
-    source_value: str
-    mapping_mode: Literal["existing_factor", "manual_factor"]
-    target_factor_key: str
-    target_factor_name: str
-    target_factor_category: str
-
-
 class TestCaseResult(StrictModel):
     case_id: str
     passed: bool

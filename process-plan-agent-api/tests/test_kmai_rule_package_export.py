@@ -44,7 +44,6 @@ def test_unbound_or_mismatched_leaf_is_blocked_without_mapping(rule_package_v2):
 
     assert unbound.valid is False
     assert [issue.code for issue in unbound.errors] == ["standard_factor_unbound"]
-    assert all(issue.code != "kmai_mapping_required" for issue in unbound.errors)
 
     rule.when.factor_id = "feature.center_hole_location"
     mismatched = build_kmai_compatibility_export(package)

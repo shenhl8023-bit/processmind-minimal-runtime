@@ -148,11 +148,6 @@ def test_standalone_page_imports_zip_snapshots_normalizes_values_and_types_manua
         _compatibility_fixture_zip({"valid": True}),
         {"cad": {"features": ["槽类特征"]}, "manual": {"factor_overrides": {}}},
     )
-    modern_report_without_snapshot = _run_standalone_compatibility_page(
-        tmp_path,
-        _compatibility_fixture_zip({"kmai_compatibility": {"mapping_signature": "published-mappings-v1"}}),
-        {"cad": {"features": ["槽类特征"]}},
-    )
     non_array_snapshot = _run_standalone_compatibility_page(
         tmp_path,
         _compatibility_fixture_zip({"kmai_compatibility": {"mapping_snapshot": {}}}),
@@ -187,8 +182,6 @@ def test_standalone_page_imports_zip_snapshots_normalizes_values_and_types_manua
     assert legacy_without_snapshot["factors"]["has_slot_feature"] is True
     assert legacy_report_without_mapping_metadata["loaded"] is True
     assert legacy_report_without_mapping_metadata["factors"]["has_slot_feature"] is True
-    assert modern_report_without_snapshot["loaded"] is False
-    assert "mapping_snapshot" in modern_report_without_snapshot["importMessage"]
     assert non_array_snapshot["loaded"] is False
     assert "mapping_snapshot" in non_array_snapshot["importMessage"]
     assert invalid_number["error"] == "manual override manual_number must be a valid number"

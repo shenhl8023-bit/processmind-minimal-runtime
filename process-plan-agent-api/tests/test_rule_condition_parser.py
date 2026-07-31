@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.database import Base
-from app.models.models import KmaiFactorMapping, NormalizedRouteSegmentRuleReview, NormalizedRouteVersion, Project
+from app.models.models import NormalizedRouteSegmentRuleReview, NormalizedRouteVersion, Project
 from app.services.rule_packages import condition_parser
 from app.services.rule_packages.condition_contracts import (
     ConfirmRuleConditionRequest,
@@ -1394,16 +1394,6 @@ async def test_migrates_only_valid_unpublished_standard_factor_reviews():
         unknown_row = review("process_unknown", unknown_payload)
         compound_row = review("process_compound", compound_payload)
         removed_target_row = review("process_changed", removed_target_payload)
-        obsolete_mapping = KmaiFactorMapping(
-            scope="project",
-            project_id=7,
-            source_field="precision.grades",
-            source_value="未知精加工",
-            mapping_mode="existing_factor",
-            target_factor_key="legacy_unknown_finish",
-            target_factor_name="旧的未知精加工映射",
-            target_factor_category="精度要求",
-        )
         session.add_all([
             project,
             route,
@@ -1411,7 +1401,6 @@ async def test_migrates_only_valid_unpublished_standard_factor_reviews():
             unknown_row,
             compound_row,
             removed_target_row,
-            obsolete_mapping,
         ])
         await session.commit()
 

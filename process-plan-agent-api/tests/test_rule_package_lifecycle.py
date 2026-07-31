@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.database import Base, get_db
 from app.main import app
-from app.models.models import FinalizedRulePackage, KmaiFactorMappingUsage, NormalizedRouteVersion, Project
+from app.models.models import FinalizedRulePackage, NormalizedRouteVersion, Project
 from app.services.db_schema_maintenance import ensure_project_schema
 from app.services.rule_packages.contracts import RulePackageV2
 from app.services.rule_packages.kmai_compatibility_runner import compare_kmai_v1
@@ -76,36 +76,15 @@ def _compile_payload(package):
     }
 
 
-def test_new_package_persists_catalog_version_without_mapping_usage(lifecycle_client, rule_package_v2_payload):
+def test_new_package_persists_catalog_version(lifecycle_client, rule_package_v2_payload):
     saved = lifecycle_client.post("/api/extract/finalized-rule-packages", json=_v2_save_payload(rule_package_v2_payload))
 
     assert saved.status_code == 200
     body = saved.json()
     assert body["validation_report"]["kmai_compatibility"] == {"factor_catalog_version": "2026.11"}
 
-    async def usage_rows():
-        async with lifecycle_client.lifecycle_session_factory() as db:
-            return (await db.execute(
-                select(KmaiFactorMappingUsage).where(KmaiFactorMappingUsage.package_id == body["id"])
-            )).scalars().all()
 
-    assert asyncio.run(usage_rows()) == []
-
-
-def test_compile_and_save_ignore_contradictory_active_mapping(lifecycle_client, rule_package_v2_payload):
-    mapping = lifecycle_client.post(
-        "/api/kmai-factor-mappings",
-        json={
-            "scope": "project",
-            "project_id": 12,
-            "source_field": "cad.features",
-            "source_value": "\u69fd\u7c7b\u7279\u5f81",
-            "mapping_mode": "existing_factor",
-            "target_factor_key": "requires_honing",
-        },
-    )
-    assert mapping.status_code == 200
-
+def test_compile_and_save_use_immutable_standard_factor(lifecycle_client, rule_package_v2_payload):
     compiled = lifecycle_client.post("/api/extract/finalized-rule-packages/compile", json=_compile_payload(rule_package_v2_payload))
     assert compiled.status_code == 200
     compiled_slot = next(
@@ -156,19 +135,6 @@ def test_historical_compatibility_uses_snapshot_embedded_in_package(lifecycle_cl
     }]
     _set_historical_rule(lifecycle_client, saved.json()["id"], snapshot=snapshot)
 
-    changed = lifecycle_client.post(
-        "/api/kmai-factor-mappings",
-        json={
-            "scope": "project",
-            "project_id": 12,
-            "source_field": "cad.features",
-            "source_value": "\u69fd\u7c7b\u7279\u5f81",
-            "mapping_mode": "existing_factor",
-            "target_factor_key": "has_flat_or_plane",
-        },
-    )
-    assert changed.status_code == 200
-
     response = lifecycle_client.post(
         "/api/extract/finalized-rule-packages/compatibility-test",
         json={"project_id": 12, "inputs": {"material": {"grade": "9Cr18"}, "cad": {"features": ["\u69fd\u7c7b\u7279\u5f81"]}, "target_hardness_hrc": 58}},
@@ -179,7 +145,7 @@ def test_historical_compatibility_uses_snapshot_embedded_in_package(lifecycle_cl
     assert response.json()["manual_factors"]["has_flat_or_plane"] is False
 
 
-def test_snapshotless_historical_package_uses_only_fixed_legacy_builtins(lifecycle_client, rule_package_v2_payload):
+def test_snapshotless_historical_package_has_no_report_adapters(lifecycle_client, rule_package_v2_payload):
     saved = lifecycle_client.post("/api/extract/finalized-rule-packages", json=_v2_save_payload(rule_package_v2_payload))
     assert saved.status_code == 200
     _set_historical_rule(lifecycle_client, saved.json()["id"], snapshot=None)
@@ -189,7 +155,7 @@ def test_snapshotless_historical_package_uses_only_fixed_legacy_builtins(lifecyc
         json={"project_id": 12, "inputs": {"material": {"grade": "9Cr18"}, "cad": {"features": ["\u69fd\u7c7b\u7279\u5f81"]}, "target_hardness_hrc": 58}},
     )
     assert response.status_code == 200
-    assert response.json()["manual_factors"]["has_slot_feature"] is True
+    assert "has_slot_feature" not in response.json()["manual_factors"]
 
     _set_historical_rule(lifecycle_client, saved.json()["id"], snapshot=None, source_value="unknown old value")
     async def legacy_package():

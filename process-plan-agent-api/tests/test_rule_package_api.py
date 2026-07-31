@@ -15,6 +15,11 @@ from app.services.rule_packages.standard_factors import STANDARD_FACTOR_CATALOG_
 client = TestClient(app)
 
 
+def test_retired_mapping_api_is_not_registered():
+    assert client.get("/api/kmai-factor-mappings").status_code == 404
+    assert client.post("/api/kmai-factor-mappings", json={}).status_code == 404
+
+
 def test_condition_field_registry_returns_versioned_standard_factors():
     """Fails if the sole confirmation registry omits its standard-factor contract."""
     response = client.get("/api/extract/finalized-rule-packages/condition-fields")

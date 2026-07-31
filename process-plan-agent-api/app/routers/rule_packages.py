@@ -157,7 +157,7 @@ async def test_kmai_compatibility(
     input_errors = validate_inputs(package.input_schema, body.inputs)
     if input_errors:
         raise HTTPException(422, detail=input_validation_error_detail(input_errors))
-    legacy_mapping_snapshot = await load_legacy_mapping_snapshot_for_package(db, package_row)
+    legacy_mapping_snapshot = load_legacy_mapping_snapshot_for_package(package_row)
     comparison = compare_kmai_v1(
         package,
         body.inputs,
