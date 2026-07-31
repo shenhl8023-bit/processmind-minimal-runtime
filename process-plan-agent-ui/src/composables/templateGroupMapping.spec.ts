@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import {
+  acceptTemplateGroupFile,
   aliasesFromRouteSegments,
   clearTemplateGroupMappingDraft,
   createTemplateAliasBinding,
@@ -14,6 +15,7 @@ import {
   isTrustedTemplateGroupChoice,
   loadTemplateGroupMappingDraft,
   migrateLegacyAliasesByPath,
+  openTemplateGroupFilePicker,
   saveTemplateGroupMappingDraft,
   serializeAliasesForRouteSegment,
   suggestTemplateGroupsForOperation,
@@ -67,6 +69,49 @@ describe('templateGroupMapping', () => {
       key: index => [...values.keys()][index] ?? null,
       get length() { return values.size },
     }
+  })
+
+  it('clears the previous file before opening the template picker again', () => {
+    const actions: string[] = []
+    let currentValue = '/tmp/套筒类.xml'
+    const input = {
+      get value() { return currentValue },
+      set value(next: string) {
+        actions.push(`clear:${next}`)
+        currentValue = next
+      },
+      click() {
+        actions.push('click')
+      },
+    } as unknown as HTMLInputElement
+
+    expect(openTemplateGroupFilePicker(input)).toBe(true)
+    expect(input.value).toBe('')
+    expect(actions).toEqual(['clear:', 'click'])
+  })
+
+  it('starts preview parsing immediately after accepting an XML template', async () => {
+    const parsedFiles: string[] = []
+    const file = new File(['<Kmsoft />'], '临时壳体4.xml', { type: 'application/xml' })
+
+    const result = await acceptTemplateGroupFile(file, async selectedFile => {
+      parsedFiles.push(selectedFile.name)
+    })
+
+    expect(result).toEqual({ file, error: '' })
+    expect(parsedFiles).toEqual(['临时壳体4.xml'])
+  })
+
+  it('rejects a non-XML template before starting preview parsing', async () => {
+    const parsedFiles: string[] = []
+    const file = new File(['invalid'], '临时壳体4.txt', { type: 'text/plain' })
+
+    const result = await acceptTemplateGroupFile(file, async selectedFile => {
+      parsedFiles.push(selectedFile.name)
+    })
+
+    expect(result).toEqual({ file: null, error: '请选择 .xml 格式的分组模板。' })
+    expect(parsedFiles).toEqual([])
   })
 
   it('finds arbitrary nested groups by stable key and normalized full path', () => {
@@ -125,6 +170,27 @@ describe('templateGroupMapping', () => {
     expect(suggestion.candidates.map(item => item.group_id)).toEqual(['grp_blind_hole', 'grp_plane'])
     expect(suggestion.recommended_group_id).toBeNull()
     expect(suggestion.requires_manual_confirmation).toBe(true)
+  })
+
+  it('keeps compound candidates on the explicitly named side', () => {
+    const sideTree = ['A侧', 'B侧'].map(side => group(`grp_${side}`, side, [side], [], [
+      group(`grp_${side}_end`, '端面', [side, '端面'], ['轴端面']),
+      group(`grp_${side}_outer`, '外圆', [side, '外圆'], ['外圆柱面']),
+      group(`grp_${side}_hole`, '孔', [side, '孔'], ['孔(盲孔)']),
+    ]))
+
+    const suggestion = suggestTemplateGroupsForOperation({
+      id: 33,
+      name: '车削加工（A侧）',
+      step_items: ['平端面', '车外圆', '钻孔'],
+    }, sideTree)
+
+    expect(suggestion.candidates.map(item => item.path)).toEqual([
+      ['A侧', '端面'],
+      ['A侧', '外圆'],
+      ['A侧', '孔'],
+    ])
+    expect(suggestion.recommended_group_id).toBeNull()
   })
 
   it('preserves an existing manual alias while enriching it from the exact path', () => {

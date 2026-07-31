@@ -10,6 +10,7 @@ import {
   type GroupTemplateMigrationResult,
   type GroupTemplateNode,
   type GroupTemplatePreview,
+  type GroupTemplateValidationIssue,
   type ProjectGroupTemplate,
 } from '@/api/extract'
 
@@ -19,6 +20,10 @@ export type LegacyGroupTemplateAlias = {
   source_operation_id: number
   alias: string
   template_group_path: string[]
+}
+
+export function formatGroupTemplateIssueDetail(issue: GroupTemplateValidationIssue) {
+  return [issue.path.join(' / '), issue.value.trim()].filter(Boolean).join(' · ')
 }
 
 function pathKey(path: string[]) {

@@ -16,6 +16,18 @@ type RouteStageMeta = {
   order: number
 }
 
+export function resolveRouteWorkspaceDisplayState({
+  routeWorkspaceLoading,
+  templateGroupMappingVisible,
+}: {
+  routeWorkspaceLoading: boolean
+  templateGroupMappingVisible: boolean
+}): 'loading' | 'workspace' {
+  return routeWorkspaceLoading && !templateGroupMappingVisible
+    ? 'loading'
+    : 'workspace'
+}
+
 const ROUTE_FULL_SET_MAIN_MAX_SEQUENCE = 160
 const DISPLAY_COMPOSITE_SPLIT_PATTERN = /[、,，/／]+/
 

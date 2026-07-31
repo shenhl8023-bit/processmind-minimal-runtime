@@ -32,7 +32,7 @@
 
     <div v-if="status === 'done'" class="results-area">
       <RouteProgressCard
-        v-if="routeWorkspaceLoading"
+        v-if="routeWorkspaceDisplayState === 'loading'"
         title="AI 正在整理第二步结果..."
         message="工序全集已就绪，正在生成归并候选与标准化母路线。"
         :steps="routeProgressSteps"
@@ -247,6 +247,7 @@ import {
   isNoiseOperationName,
   routeOperationDisplayName,
   routeOperationDuplicateLabel as getRouteOperationDuplicateLabel,
+  resolveRouteWorkspaceDisplayState,
 } from '@/composables/extractViewHelpers'
 import {
   resolveCurrentProjectId,
@@ -625,6 +626,11 @@ const {
     cancelPreviewRename()
   },
 })
+
+const routeWorkspaceDisplayState = computed(() => resolveRouteWorkspaceDisplayState({
+  routeWorkspaceLoading: routeWorkspaceLoading.value,
+  templateGroupMappingVisible: templateGroupMappingVisible.value,
+}))
 
 const {
   status,

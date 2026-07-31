@@ -72,6 +72,25 @@ export type LegacyAliasInvalidation = {
   reason: string
 }
 
+export async function acceptTemplateGroupFile(
+  file: File | undefined,
+  parseFile: (file: File) => Promise<void>,
+) {
+  if (!file) return { file: null, error: '' }
+  if (!file.name.toLowerCase().endsWith('.xml')) {
+    return { file: null, error: '请选择 .xml 格式的分组模板。' }
+  }
+  await parseFile(file)
+  return { file, error: '' }
+}
+
+export function openTemplateGroupFilePicker(input: HTMLInputElement | null) {
+  if (!input) return false
+  input.value = ''
+  input.click()
+  return true
+}
+
 function cleanId(value: unknown) {
   const id = Number(value)
   return Number.isInteger(id) && id > 0 ? id : 0
@@ -163,6 +182,7 @@ type ScoredTemplateGroup = {
 }
 
 function scoreTemplateGroups(operation: TemplateOperation, tree: TemplateGroupNode[]) {
+  const operationNameSource = normalizeSearchText(operation.name)
   const source = normalizeSearchText([
     operation.name,
     ...(operation.step_items || []),
@@ -190,10 +210,14 @@ function scoreTemplateGroups(operation: TemplateOperation, tree: TemplateGroupNo
     })
   })
 
-  if (scored.some(item => item.group.feature_selections.length > 0)) {
-    return scored.filter(item => item.group.feature_selections.length > 0)
+  const operationNameScoped = scored.filter(item => normalizePath(item.group.path).slice(0, -1).some(term => (
+    normalizeSearchText(term) && operationNameSource.includes(normalizeSearchText(term))
+  )))
+  const positionScoped = operationNameScoped.length ? operationNameScoped : scored
+  if (positionScoped.some(item => item.group.feature_selections.length > 0)) {
+    return positionScoped.filter(item => item.group.feature_selections.length > 0)
   }
-  return scored
+  return positionScoped
 }
 
 export function suggestTemplateGroupsForOperation(

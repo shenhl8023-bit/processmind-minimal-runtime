@@ -37,13 +37,15 @@
               class="tgmd-dropzone"
               :class="{ 'tgmd-dropzone-ready': pendingFile }"
               type="button"
+              :disabled="model.loading.value"
               @click="openFilePicker"
               @dragover.prevent
               @drop.prevent="onDrop"
             >
               <UploadFilled />
               <strong>{{ pendingFile ? pendingFile.name : '选择分组模板 XML' }}</strong>
-              <span>{{ pendingFile ? formatBytes(pendingFile.size) : '点击选择，或将 .xml 文件拖到这里' }}</span>
+              <span v-if="model.loading.value">正在解析模板结构...</span>
+              <span v-else>{{ pendingFile ? formatBytes(pendingFile.size) : '点击选择，或将 .xml 文件拖到这里' }}</span>
             </button>
             <div class="tgmd-upload-actions">
               <button
@@ -54,14 +56,20 @@
                 @click="cancelReplacement"
               >取消更换</button>
               <button
+                v-if="model.loading.value"
                 class="btn btn-primary"
                 type="button"
-                :disabled="!pendingFile || model.loading.value"
-                @click="parsePendingFile"
+                disabled
               >
-                <span v-if="model.loading.value" class="tgmd-spinner tgmd-spinner-light" />
-                {{ model.loading.value ? '正在解析' : '解析模板' }}
+                <span class="tgmd-spinner tgmd-spinner-light" />
+                正在解析
               </button>
+              <button
+                v-else-if="pendingFile && visibleError"
+                class="btn btn-primary"
+                type="button"
+                @click="parsePendingFile"
+              >重新解析</button>
             </div>
           </main>
         </template>
@@ -91,7 +99,7 @@
               <div v-if="model.preview.value.validation_issues.length" class="tgmd-issue-list">
                 <div v-for="(issue, index) in model.preview.value.validation_issues" :key="`${issue.code}-${index}`" class="tgmd-issue-row">
                   <strong>{{ issue.message }}</strong>
-                  <span v-if="issue.path.length">{{ issue.path.join(' / ') }}</span>
+                  <span v-if="issue.path.length || issue.value">{{ formatGroupTemplateIssueDetail(issue) }}</span>
                 </div>
               </div>
 
@@ -252,7 +260,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import {
   ArrowLeft,
   Close,
@@ -269,6 +277,7 @@ import {
 import { suggestTemplateGroupMappings } from '@/api/extract'
 import TemplateGroupTreeNode from '@/components/extract/TemplateGroupTreeNode.vue'
 import {
+  acceptTemplateGroupFile,
   buildTemplateGroupMappingSuggestions,
   clearTemplateGroupMappingDraft,
   createTemplateAliasBinding,
@@ -278,12 +287,13 @@ import {
   isTrustedTemplateGroupChoice,
   loadTemplateGroupMappingDraft,
   migrateLegacyAliasesByPath,
+  openTemplateGroupFilePicker,
   saveTemplateGroupMappingDraft,
   type TemplateAliasBinding,
   type TemplateGroupMappingCandidate,
   type TemplateOperation,
 } from '@/composables/templateGroupMapping'
-import { useProjectGroupTemplate } from '@/composables/useProjectGroupTemplate'
+import { formatGroupTemplateIssueDetail, useProjectGroupTemplate } from '@/composables/useProjectGroupTemplate'
 
 const props = defineProps<{
   modelValue: boolean
@@ -431,26 +441,24 @@ function formatBytes(size: number) {
 }
 
 function openFilePicker() {
-  fileInput.value?.click()
+  openTemplateGroupFilePicker(fileInput.value)
 }
 
-function acceptFile(file: File | undefined) {
+async function acceptFile(file: File | undefined) {
   transientError.value = ''
   if (!file) return
-  if (!file.name.toLowerCase().endsWith('.xml')) {
-    pendingFile.value = null
-    transientError.value = '请选择 .xml 格式的分组模板。'
-    return
-  }
   pendingFile.value = file
+  const result = await acceptTemplateGroupFile(file, model.selectFile)
+  pendingFile.value = result.file
+  transientError.value = result.error
 }
 
 function onFileInput(event: Event) {
-  acceptFile((event.target as HTMLInputElement).files?.[0])
+  void acceptFile((event.target as HTMLInputElement).files?.[0])
 }
 
 function onDrop(event: DragEvent) {
-  acceptFile(event.dataTransfer?.files?.[0])
+  void acceptFile(event.dataTransfer?.files?.[0])
 }
 
 async function parsePendingFile() {
@@ -459,10 +467,12 @@ async function parsePendingFile() {
   await model.selectFile(pendingFile.value)
 }
 
-function startReplacement() {
+async function startReplacement() {
   pendingFile.value = null
   transientError.value = ''
   model.beginReplacement()
+  await nextTick()
+  openFilePicker()
 }
 
 function cancelReplacement() {

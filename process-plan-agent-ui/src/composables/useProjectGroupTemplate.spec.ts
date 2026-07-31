@@ -8,7 +8,7 @@ import {
   saveGroupTemplateMappings,
 } from '@/api/extract'
 import type { GroupTemplateMapping, GroupTemplateNode } from '@/api/extract'
-import { useProjectGroupTemplate } from './useProjectGroupTemplate'
+import { formatGroupTemplateIssueDetail, useProjectGroupTemplate } from './useProjectGroupTemplate'
 
 vi.mock('@/api/extract', () => ({
   previewGroupTemplate: vi.fn(),
@@ -85,6 +85,15 @@ function mapping(path = ['A侧', '孔']): GroupTemplateMapping {
 describe('useProjectGroupTemplate', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+  })
+
+  it('shows the rejected feature value with its group path', () => {
+    expect(formatGroupTemplateIssueDetail({
+      code: 'unknown_feature_selection',
+      message: 'Feature selection is not present in the approved dictionary.',
+      path: ['A侧', '孔'],
+      value: '非法特征',
+    })).toBe('A侧 / 孔 · 非法特征')
   })
 
   it('moves an empty project through preview into a confirmed workspace', async () => {
