@@ -16,64 +16,66 @@
       </div>
       <div class="preview-card-actions">
         <span v-if="item.edited" class="edited-badge">{{ editedBadge }}</span>
-        <button
-          v-if="item.edited && !inlineEditing"
-          class="ghost-btn reset-inline-btn"
-          @click="$emit('reset', item)"
-        >
-          恢复默认
-        </button>
-        <button
-          v-if="!inlineEditing && editableCandidate && candidateMatchesCardMode && ['conditional','relation'].includes(cardRuleMode)"
-          class="ghost-btn"
-          @click="ruleEditorExpanded = !ruleEditorExpanded"
-        >
-          {{ ruleEditorExpanded ? '收起' : '修改规则' }}
-        </button>
-        <button
-          v-if="manualModeState.visible && !inlineEditing && !manualBooleanEditing && !(cardRuleMode === 'mainline' && !mainlineExpanded)"
-          class="ghost-btn"
-          :disabled="conditionBusy || manualModeState.mainlineActive"
-          @click="$emit('set-mainline', item)"
-        >
-          {{ manualModeState.mainlineActive ? '已是主工序' : '转主工序' }}
-        </button>
-        <button
-          v-if="manualModeState.visible && !inlineEditing && !manualBooleanEditing && !(cardRuleMode === 'mainline' && !mainlineExpanded)"
-          class="ghost-btn ghost-btn-bool"
-          :disabled="conditionBusy || manualModeState.booleanActive"
-          @click="beginBooleanConversion"
-        >
-          {{ manualModeState.booleanActive ? '已是Bool' : '转Bool' }}
-        </button>
-        <button
-          v-if="!inlineEditing"
-          class="preview-edit-btn"
-          @click="$emit('start-edit', item)"
-        >
-          <svg class="edit-btn-svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 20h9" />
-            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-          </svg>
-          <span>{{ cardRuleMode === 'mainline' ? '改为条件工序' : editLabel }}</span>
-        </button>
-        <!-- Mainline collapse toggle -->
-        <button
-          v-if="cardRuleMode === 'mainline'"
-          class="collapse-toggle-btn"
-          @click="mainlineExpanded = !mainlineExpanded"
-          :title="mainlineExpanded ? '折叠' : '展开详情'"
-        >
-          <svg
-            class="collapse-chevron"
-            :class="{ 'collapse-chevron--open': mainlineExpanded }"
-            width="13" height="13"
-            viewBox="0 0 16 16"
-            fill="none"
+        <div class="preview-card-action-buttons" role="group" aria-label="规则操作">
+          <button
+            v-if="item.edited && !inlineEditing"
+            class="ghost-btn reset-inline-btn"
+            @click="$emit('reset', item)"
           >
-            <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
+            恢复默认
+          </button>
+          <button
+            v-if="!inlineEditing && editableCandidate && candidateMatchesCardMode && ['conditional','relation'].includes(cardRuleMode)"
+            class="ghost-btn"
+            @click="ruleEditorExpanded = !ruleEditorExpanded"
+          >
+            {{ ruleEditorExpanded ? '收起' : '修改规则' }}
+          </button>
+          <button
+            v-if="manualModeState.visible && !inlineEditing && !manualBooleanEditing && !(cardRuleMode === 'mainline' && !mainlineExpanded)"
+            class="ghost-btn"
+            :disabled="conditionBusy || manualModeState.mainlineActive"
+            @click="$emit('set-mainline', item)"
+          >
+            {{ manualModeState.mainlineActive ? '已是主工序' : '转主工序' }}
+          </button>
+          <button
+            v-if="manualModeState.visible && !inlineEditing && !manualBooleanEditing && !(cardRuleMode === 'mainline' && !mainlineExpanded)"
+            class="ghost-btn ghost-btn-bool"
+            :disabled="conditionBusy || manualModeState.booleanActive"
+            @click="beginBooleanConversion"
+          >
+            {{ manualModeState.booleanActive ? '已是Bool' : '转Bool' }}
+          </button>
+          <button
+            v-if="!inlineEditing"
+            class="preview-edit-btn"
+            @click="$emit('start-edit', item)"
+          >
+            <svg class="edit-btn-svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+            </svg>
+            <span>{{ cardRuleMode === 'mainline' ? '改为条件工序' : editLabel }}</span>
+          </button>
+          <!-- Mainline collapse toggle -->
+          <button
+            v-if="cardRuleMode === 'mainline'"
+            class="collapse-toggle-btn"
+            @click="mainlineExpanded = !mainlineExpanded"
+            :title="mainlineExpanded ? '折叠' : '展开详情'"
+          >
+            <svg
+              class="collapse-chevron"
+              :class="{ 'collapse-chevron--open': mainlineExpanded }"
+              width="13" height="13"
+              viewBox="0 0 16 16"
+              fill="none"
+            >
+              <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -973,6 +975,11 @@ function formatConfirmedAt(value: string) {
   align-items: center;
   gap: 8px;
 }
+.preview-card-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .edited-badge {
   font-size: 12px; font-weight: 600;
   color: #92400e;
@@ -1278,5 +1285,36 @@ function formatConfirmedAt(value: string) {
   .preview-condition { font-size: 16px; }
   .action-editor-tag { grid-template-columns: 1fr; }
   .candidate-summary-row, .rule-summary-strip { align-items: flex-start; flex-direction: column; }
+}
+@media (max-width: 640px) {
+  .preview-card-header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .preview-card-actions {
+    align-items: flex-start;
+    flex-direction: column;
+    margin-top: 0;
+    width: 100%;
+  }
+  .preview-card-action-buttons {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+  }
+  .preview-card-action-buttons > button {
+    min-width: 0;
+    width: 100%;
+    white-space: nowrap;
+  }
+  .preview-card-action-buttons > .ghost-btn {
+    min-height: 32px;
+    padding: 6px 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: #fff;
+  }
 }
 </style>

@@ -41,6 +41,62 @@ async function renderPicker(props: {
   return renderToString(createSSRApp(StandardFactorPicker, props))
 }
 
+async function renderRecognizedRuleCard() {
+  const sourceText = '当零件存在顶尖孔时，安排研顶尖孔工序'
+  const candidate = {
+    kind: 'condition' as const,
+    when: { field: 'cad.features', op: 'contains', value: '顶尖孔', factor_id: 'feature.center_hole_location' },
+    then: { include_process_ids: ['process_center_hole'], exclude_process_ids: [] },
+    preview: '结构条件',
+  }
+  return renderToString(createSSRApp(FinalizeRuleCard, {
+    item: {
+      segment: {
+        id: 'process_center_hole',
+        sequence: 30,
+        normalized_step_name: '研顶尖孔',
+        doc_coverage: { total_docs: 3, hit_docs: 1 },
+      },
+      conditionText: sourceText,
+      defaultConditionText: sourceText,
+      conditionReview: {
+        source_text: sourceText,
+        source_hash: 'a'.repeat(64),
+        status: 'confirmed',
+        candidate,
+        confirmed: candidate,
+        confidence: 0.95,
+        issues: [],
+        field_registry_version: '2026.11',
+        confirmed_by: '测试用户',
+        confirmed_at: '2026-07-30T02:00:00Z',
+      },
+      factorNames: [],
+      factorLabels: [],
+      userAnswerLabels: [],
+      userAnswerContextLabels: [],
+      systemFactorLabels: [],
+      edited: true,
+      rawRuleLines: [],
+      availableFactors: [],
+    },
+    active: false,
+    displayName: '研顶尖孔',
+    metaLabel: '',
+    inlineEditing: false,
+    inlineEditingText: '',
+    editedBadge: '已编辑',
+    editLabel: '编辑',
+    conditionLabel: '条件',
+    conditionFields: [],
+    standardFactors: factors,
+    factorCatalogVersion: '2026.11',
+    processOptions: [{ process_id: 'process_center_hole', display_name: '研顶尖孔' }],
+    conditionBusy: false,
+    setInlineTextareaRef: () => undefined,
+  }))
+}
+
 describe('StandardFactorPicker', () => {
   it('shows the Chinese factor name and category while keeping the technical id secondary', async () => {
     const html = await renderPicker({
@@ -98,63 +154,45 @@ describe('StandardFactorPicker', () => {
     expect(html).toContain('孔精加工')
   })
 
-  it('shows the Chinese factor and category beside a compact recognized rule', async () => {
-    const sourceText = '当零件存在顶尖孔时，安排研顶尖孔工序'
-    const candidate = {
-      kind: 'condition' as const,
-      when: { field: 'cad.features', op: 'contains', value: '顶尖孔', factor_id: 'feature.center_hole_location' },
-      then: { include_process_ids: ['process_center_hole'], exclude_process_ids: [] },
-      preview: '结构条件',
-    }
-    const html = await renderToString(createSSRApp(FinalizeRuleCard, {
-      item: {
-        segment: {
-          id: 'process_center_hole',
-          sequence: 30,
-          normalized_step_name: '研顶尖孔',
-          doc_coverage: { total_docs: 3, hit_docs: 1 },
-        },
-        conditionText: sourceText,
-        defaultConditionText: sourceText,
-        conditionReview: {
-          source_text: sourceText,
-          source_hash: 'a'.repeat(64),
-          status: 'confirmed',
-          candidate,
-          confirmed: candidate,
-          confidence: 0.95,
-          issues: [],
-          field_registry_version: '2026.11',
-          confirmed_by: '测试用户',
-          confirmed_at: '2026-07-30T02:00:00Z',
-        },
-        factorNames: [],
-        factorLabels: [],
-        userAnswerLabels: [],
-        userAnswerContextLabels: [],
-        systemFactorLabels: [],
-        edited: true,
-        rawRuleLines: [],
-        availableFactors: [],
-      },
-      active: false,
-      displayName: '研顶尖孔',
-      metaLabel: '',
-      inlineEditing: false,
-      inlineEditingText: '',
-      editedBadge: '已编辑',
-      editLabel: '编辑',
-      conditionLabel: '条件',
-      conditionFields: [],
-      standardFactors: factors,
-      factorCatalogVersion: '2026.11',
-      processOptions: [{ process_id: 'process_center_hole', display_name: '研顶尖孔' }],
-      conditionBusy: false,
-      setInlineTextareaRef: () => undefined,
+  it('renders an API leaf even when inactive logical branches are null', async () => {
+    const html = await renderToString(createSSRApp(RuleConditionNodeEditor, {
+      modelValue: {
+        all: null,
+        any: null,
+        not: null,
+        field: 'cad.features',
+        op: 'contains',
+        value: '顶尖孔',
+        factor_id: 'feature.center_hole_location',
+      } as any,
+      fields: [
+        { key: 'cad.features', label: 'CAD 特征集合', category: '结构特征', type: 'multi_select', operators: ['contains'], aliases: [], options: [] },
+      ],
+      factors,
     }))
+
+    expect(html).toContain('顶尖孔定位')
+    expect(html).toContain('feature.center_hole_location')
+    expect(html).not.toContain('同时满足')
+  })
+
+  it('shows the Chinese factor and category beside a compact recognized rule', async () => {
+    const html = await renderRecognizedRuleCard()
 
     expect(html).toContain('顶尖孔定位 · 精度要求')
     expect(html).toContain('feature.center_hole_location')
     expect(html).not.toContain('uses_center_hole_location')
+  })
+
+  it('groups complete rule action labels for narrow viewport layout', async () => {
+    const html = await renderRecognizedRuleCard()
+
+    expect(html).toContain('class="preview-card-action-buttons"')
+    expect(html).toContain('role="group"')
+    expect(html).toContain('aria-label="规则操作"')
+    expect(html).toContain('恢复默认')
+    expect(html).toContain('转主工序')
+    expect(html).toContain('转Bool')
+    expect(html).toContain('编辑')
   })
 })

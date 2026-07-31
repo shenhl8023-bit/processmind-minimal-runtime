@@ -11,10 +11,13 @@ from app.database import Base, get_db
 from app.main import app
 from app.models.models import FinalizedRulePackage, NormalizedRouteVersion, Project
 from app.services.db_schema_maintenance import ensure_project_schema
+from app.services.rule_packages import condition_reviews
+from app.services.rule_packages.condition_contracts import RuleConditionCandidate
 from app.services.rule_packages.contracts import RulePackageV2
 from app.services.rule_packages.kmai_compatibility_runner import compare_kmai_v1
 from app.services.rule_packages.kmai_export import builtin_legacy_mapping_snapshot
 from app.services.rule_packages.lifecycle import publish_rule_package
+from app.services.rule_packages.standard_factors import bind_unambiguous_factor_ids
 
 
 @pytest.fixture
@@ -29,7 +32,14 @@ def lifecycle_client(tmp_path):
             await ensure_project_schema(conn)
         async with session_factory() as session:
             session.add(Project(id=12, name="Lifecycle", status="ROUTE_SET_READY"))
-            session.add(NormalizedRouteVersion(id=31, project_id=12, version=1, route_json="[]"))
+            session.add(NormalizedRouteVersion(
+                id=31,
+                project_id=12,
+                version=1,
+                route_json=json.dumps([
+                    {"id": "process_mill_slot", "normalized_step_name": "铣槽"},
+                ], ensure_ascii=False),
+            ))
             await session.commit()
 
     asyncio.run(setup())
@@ -74,6 +84,222 @@ def _compile_payload(package):
         "rules": package["route_rules"]["rules"],
         "test_cases": package["test_cases"],
     }
+
+
+def _input_field_from_registry(field):
+    return {
+        key: field[key]
+        for key in (
+            "key",
+            "label",
+            "type",
+            "required",
+            "source",
+            "options",
+            "allow_custom",
+            "unit",
+            "validation",
+        )
+    }
+
+
+def _package_with_precision_rule(package, registry_field, when):
+    payload = deepcopy(package)
+    payload["test_cases"] = []
+    payload["input_schema"]["fields"].append(_input_field_from_registry(registry_field))
+    slot_rule = next(rule for rule in payload["route_rules"]["rules"] if rule["rule_id"] == "feature.slot.mill")
+    slot_rule["when"] = when
+    return payload, slot_rule
+
+
+def _all_json_keys(value):
+    if isinstance(value, dict):
+        return set(value) | {key for child in value.values() for key in _all_json_keys(child)}
+    if isinstance(value, list):
+        return {key for child in value for key in _all_json_keys(child)}
+    return set()
+
+
+def _parse_body(source_text):
+    return {
+        "project_id": 12,
+        "route_id": 31,
+        "segment_id": "process_mill_slot",
+        "source_text": source_text,
+        "process_id": "process_mill_slot",
+        "process_name": "铣槽",
+        "processes": [{"process_id": "process_mill_slot", "display_name": "铣槽"}],
+    }
+
+
+def _confirm_body(source_text, source_hash, candidate):
+    return {
+        "project_id": 12,
+        "route_id": 31,
+        "segment_id": "process_mill_slot",
+        "source_text": source_text,
+        "source_hash": source_hash,
+        "candidate": candidate,
+        "processes": [{"process_id": "process_mill_slot", "display_name": "铣槽"}],
+        "confirmed_by": "验收用户",
+    }
+
+
+def _candidate(value):
+    return RuleConditionCandidate.model_validate({
+        "kind": "condition",
+        "when": {"field": "precision.grades", "op": "contains", "value": value},
+        "then": {"include_process_ids": ["process_mill_slot"], "exclude_process_ids": []},
+        "preview": f"精度/表面要求集合包含{value}",
+        "evidence": value,
+    })
+
+
+def test_confirmed_standard_factor_journey_compiles_and_saves_without_mappings(
+    lifecycle_client,
+    rule_package_v2_payload,
+    monkeypatch,
+):
+    """Breaks if fourth-step confirmation no longer drives fixed-factor publish output."""
+    async def parse_hole_finish(*args, **kwargs):
+        return _candidate("孔精加工"), 0.99, []
+
+    monkeypatch.setattr(condition_reviews, "parse_rule_condition", parse_hole_finish)
+    registry = lifecycle_client.get("/api/extract/finalized-rule-packages/condition-fields")
+    assert registry.status_code == 200
+    registry_body = registry.json()
+    selected_factor = next(
+        factor for factor in registry_body["factors"]
+        if factor["factor_id"] == "precision.hole_finish"
+    )
+    precision_field = next(
+        field for field in registry_body["fields"]
+        if field["key"] == selected_factor["source_field"]
+    )
+
+    source_text = "当存在孔精加工要求时，纳入铣槽工序"
+    parsed = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages/rule-conditions/parse",
+        json=_parse_body(source_text),
+    )
+    assert parsed.status_code == 200
+    candidate = parsed.json()["review"]["candidate"]
+    candidate["when"]["factor_id"] = selected_factor["factor_id"]
+
+    confirmed = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages/rule-conditions/confirm",
+        json=_confirm_body(source_text, parsed.json()["review"]["source_hash"], candidate),
+    )
+    assert confirmed.status_code == 200
+    confirmed_review = confirmed.json()["review"]
+    assert confirmed_review["status"] == "confirmed"
+    assert confirmed_review["confirmed"]["when"]["factor_id"] == "precision.hole_finish"
+
+    payload, rule = _package_with_precision_rule(
+        rule_package_v2_payload,
+        precision_field,
+        confirmed_review["confirmed"]["when"],
+    )
+    rule.update({
+        "source": "user_confirmed",
+        "source_segment_id": "process_mill_slot",
+        "source_text": source_text,
+        "confirmed_by": confirmed_review["confirmed_by"],
+        "confirmed_at": confirmed_review["confirmed_at"],
+        "then": confirmed_review["confirmed"]["then"],
+    })
+
+    compiled = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages/compile",
+        json=_compile_payload(payload),
+    )
+    assert compiled.status_code == 200
+    compiled_rule = next(
+        item for item in compiled.json()["kmai_compatibility"]["files"]["route_rules.json"]["rules"]
+        if item["rule_id"] == "feature.slot.mill"
+    )
+    assert compiled_rule["when"]["all"][0]["factor_key"] == "has_hole_finish_machining"
+
+    saved = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages",
+        json=_v2_save_payload(compiled.json()["package"]),
+    )
+    assert saved.status_code == 200
+    saved_report = saved.json()["validation_report"]
+    assert saved_report["kmai_compatibility"] == {"factor_catalog_version": "2026.11"}
+    assert not {
+        "mapping_identity",
+        "mapping_scope",
+        "mapping_revision",
+        "mapping_signature",
+        "mapping_snapshot",
+    } & _all_json_keys(saved_report)
+
+    async def retired_mapping_tables():
+        async with lifecycle_client.lifecycle_session_factory() as db:
+            rows = (await db.execute(text(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'kmai_factor_mapping%'"
+            ))).scalars().all()
+            return rows
+
+    assert asyncio.run(retired_mapping_tables()) == []
+
+
+def test_unknown_custom_factor_cannot_be_confirmed_compiled_or_saved(
+    lifecycle_client,
+    rule_package_v2_payload,
+    monkeypatch,
+):
+    """Breaks if an unknown standard value can bypass any fourth-step boundary."""
+    async def parse_unknown(*args, **kwargs):
+        candidate = _candidate("自定义精加工")
+        bound, issues = bind_unambiguous_factor_ids(candidate.when)
+        return (
+            candidate.model_copy(update={"when": bound}),
+            0.99,
+            [issue.message for issue in issues],
+        )
+
+    monkeypatch.setattr(condition_reviews, "parse_rule_condition", parse_unknown)
+    registry = lifecycle_client.get("/api/extract/finalized-rule-packages/condition-fields").json()
+    precision_field = next(field for field in registry["fields"] if field["key"] == "precision.grades")
+    source_text = "precision.grades contains 自定义精加工"
+
+    parsed = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages/rule-conditions/parse",
+        json=_parse_body(source_text),
+    )
+    assert parsed.status_code == 200
+    parsed_review = parsed.json()["review"]
+    assert parsed_review["status"] == "pending_confirmation"
+    assert parsed_review["candidate"]["when"].get("factor_id") is None
+    assert parsed_review["issues"]
+
+    refused = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages/rule-conditions/confirm",
+        json=_confirm_body(source_text, parsed_review["source_hash"], parsed_review["candidate"]),
+    )
+    assert refused.status_code == 422
+    assert refused.json()["detail"]["issues"][0]["code"] == "factor_unbound"
+
+    payload, _ = _package_with_precision_rule(
+        rule_package_v2_payload,
+        precision_field,
+        parsed_review["candidate"]["when"],
+    )
+    compiled = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages/compile",
+        json=_compile_payload(payload),
+    )
+    assert compiled.status_code == 422
+    assert compiled.json()["detail"]["issues"][0]["code"] == "factor_unbound"
+
+    saved = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages",
+        json=_v2_save_payload(payload),
+    )
+    assert saved.status_code == 422
+    assert saved.json()["detail"]["issues"][0]["code"] == "factor_unbound"
 
 
 def test_new_package_persists_catalog_version(lifecycle_client, rule_package_v2_payload):

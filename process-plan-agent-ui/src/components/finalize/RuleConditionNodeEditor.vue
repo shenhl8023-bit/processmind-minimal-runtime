@@ -105,9 +105,10 @@ const emit = defineEmits<{
 }>()
 
 const nodeKind = computed<'leaf' | 'all' | 'any' | 'not'>(() => {
-  if ('all' in props.modelValue) return 'all'
-  if ('any' in props.modelValue) return 'any'
-  if ('not' in props.modelValue) return 'not'
+  const value = props.modelValue as { all?: unknown; any?: unknown; not?: unknown }
+  if (Array.isArray(value.all)) return 'all'
+  if (Array.isArray(value.any)) return 'any'
+  if (value.not && typeof value.not === 'object') return 'not'
   return 'leaf'
 })
 
@@ -120,11 +121,17 @@ const isListOperator = computed(() => ['in', 'contains_any', 'contains_all'].inc
 const displayValue = computed(() => Array.isArray(leafValue.value) ? leafValue.value.join('，') : String(leafValue.value ?? ''))
 const betweenValues = computed(() => Array.isArray(leafValue.value) ? leafValue.value : ['', ''])
 const groupChildren = computed(() => {
-  if ('all' in props.modelValue) return props.modelValue.all
-  if ('any' in props.modelValue) return props.modelValue.any
+  const value = props.modelValue as { all?: unknown; any?: unknown }
+  if (Array.isArray(value.all)) return value.all as RulePackageCondition[]
+  if (Array.isArray(value.any)) return value.any as RulePackageCondition[]
   return []
 })
-const notChild = computed(() => 'not' in props.modelValue ? props.modelValue.not : ({ field: props.fields[0]?.key || '', op: 'eq', value: '' } as RulePackageCondition))
+const notChild = computed(() => {
+  const child = (props.modelValue as { not?: unknown }).not
+  return child && typeof child === 'object'
+    ? child as RulePackageCondition
+    : ({ field: props.fields[0]?.key || '', op: 'eq', value: '' } as RulePackageCondition)
+})
 const fieldGroups = computed(() => {
   const groups = new Map<string, CanonicalConditionField[]>()
   props.fields.forEach((field) => groups.set(field.category, [...(groups.get(field.category) || []), field]))
