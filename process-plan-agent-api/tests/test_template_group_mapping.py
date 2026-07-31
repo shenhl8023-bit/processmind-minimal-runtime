@@ -210,6 +210,23 @@ async def test_model_failure_preserves_server_candidates(mapping_store, monkeypa
 
 
 @pytest.mark.asyncio
+async def test_model_mapping_uses_a_short_single_attempt_timeout(mapping_store, monkeypatch):
+    sessions, _ = mapping_store
+    request_options = {}
+
+    async def capture_options(*args, **kwargs):
+        request_options.update(kwargs)
+        return ""
+
+    monkeypatch.setattr(template_group_mapping, "call_llm", capture_options)
+    async with sessions() as db:
+        await template_group_mapping.resolve_template_group_mappings(db, _request())
+
+    assert request_options["timeout_seconds"] == 12.0
+    assert request_options["max_retries"] == 0
+
+
+@pytest.mark.asyncio
 async def test_missing_confirmed_template_returns_manual_mapping_warning(mapping_store):
     sessions, _ = mapping_store
     async with sessions() as db:

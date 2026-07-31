@@ -263,8 +263,8 @@ evidence 必须逐字摘自 operation_name 或 step_items。confidence 范围为
             system_prompt,
             json.dumps(user_payload, ensure_ascii=False),
             temperature=0.0,
-            timeout_seconds=45.0,
-            max_retries=1,
+            timeout_seconds=12.0,
+            max_retries=0,
         )
     except Exception as exc:
         logger.warning("template_group_mapping_llm_failed project_id=%s error=%s", body.project_id, exc)

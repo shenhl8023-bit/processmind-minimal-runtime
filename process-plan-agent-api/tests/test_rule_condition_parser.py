@@ -1,5 +1,6 @@
 import json
 
+import httpx
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -127,6 +128,27 @@ async def test_complex_condition_uses_rule_specific_llm_time_budget(monkeypatch)
 
     assert captured["timeout_seconds"] == 45.0
     assert captured["max_retries"] == 1
+
+
+@pytest.mark.asyncio
+async def test_llm_timeout_falls_back_to_local_candidate(monkeypatch):
+    async def timed_out_llm(*args, **kwargs):
+        raise httpx.ReadTimeout("condition parser timed out")
+
+    monkeypatch.setattr(condition_parser, "call_llm", timed_out_llm)
+    candidate, confidence, issues = await condition_parser.parse_rule_condition(
+        "当零件存在镀铜要求时，安排除铜工序",
+        "process_strip_copper",
+        "除铜",
+        NATURAL_RELATION_PROCESSES,
+    )
+
+    assert candidate is not None
+    assert candidate.when is not None
+    assert candidate.when.field == "special.requirements"
+    assert candidate.when.value == "镀铜要求"
+    assert confidence == 0.65
+    assert any("AI 解析服务暂时不可用" in issue for issue in issues)
 
 
 @pytest.mark.asyncio

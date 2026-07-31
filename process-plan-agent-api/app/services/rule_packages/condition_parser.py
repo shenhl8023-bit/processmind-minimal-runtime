@@ -190,14 +190,18 @@ IT 等级数字越小代表精度越高；“达到 IT8/IT8及以上精度”通
         },
         ensure_ascii=False,
     )
-    raw = await call_llm(
-        system_prompt,
-        user_prompt,
-        temperature=0.0,
-        config=llm_config,
-        timeout_seconds=_condition_llm_timeout_seconds(),
-        max_retries=_condition_llm_max_retries(),
-    )
+    try:
+        raw = await call_llm(
+            system_prompt,
+            user_prompt,
+            temperature=0.0,
+            config=llm_config,
+            timeout_seconds=_condition_llm_timeout_seconds(),
+            max_retries=_condition_llm_max_retries(),
+        )
+    except Exception as exc:
+        logger.warning("rule_condition_llm_failed error=%s", exc)
+        return None, None, ["AI 解析服务暂时不可用，已改用本地解析器，请重点核对。"]
     if not raw:
         return None, None, []
     payload = parse_json_from_llm(raw)
