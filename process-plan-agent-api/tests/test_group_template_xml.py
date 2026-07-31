@@ -51,6 +51,22 @@ def xml_bytes(
     return text.encode(codec)
 
 
+def nested_group_xml(*, parent_name="A侧", child_name="孔", child_feature="孔(盲孔)"):
+    return f'''<?xml version="1.0" encoding="UTF-8"?>
+    <Kmsoft>
+      <Item type="Part_Template" /><Item type="Group_Template" />
+      <Item type="Part" filename="part.prt">
+        <Item type="Group" id="parent">
+          <Params><param name="名称" value="{parent_name}" /></Params>
+          <Item type="Group" id="child"><Params>
+            <param name="名称" value="{child_name}" />
+            <param name="特征选择" value="{child_feature}" />
+          </Params></Item>
+        </Item>
+      </Item>
+    </Kmsoft>'''.encode("utf-8")
+
+
 def duplicate_sibling_xml():
     return '''<?xml version="1.0" encoding="UTF-8"?>
     <Kmsoft>
@@ -63,21 +79,45 @@ def duplicate_sibling_xml():
     </Kmsoft>'''.encode("utf-8")
 
 
-@pytest.mark.parametrize("filename", [
-    "临时壳体4.xml",
-    "套筒类(未指定参数).xml",
-    "套筒类.xml",
-    "飞机壁板类1.xml",
-    "新衬套模板.xml",
+@pytest.mark.parametrize(("filename", "can_confirm", "missing_leaf_count"), [
+    ("临时壳体4.xml", True, 0),
+    ("套筒类(未指定参数).xml", True, 0),
+    ("套筒类.xml", True, 0),
+    ("新衬套模板.xml", False, 18),
+    ("飞机壁板类1.xml", False, 16),
 ])
-def test_parses_real_kmsoft_templates(filename):
+def test_validates_real_template_leaf_features(filename, can_confirm, missing_leaf_count):
     payload = (SAMPLES / filename).read_bytes()
     result = parse_group_template_xml(filename, payload)
 
-    assert result.can_confirm is True
+    missing = [item for item in result.issues if item.code == "missing_leaf_feature_selection"]
+
+    assert result.can_confirm is can_confirm
+    assert len(missing) == missing_leaf_count
     assert result.group_count > 0
     assert result.content_hash == hashlib.sha256(payload).hexdigest()
     assert all(node["key"].startswith("grp_") for node in flatten_nodes(result.tree))
+
+
+def test_empty_parent_with_feature_leaf_is_a_valid_scope():
+    result = parse_group_template_xml("scope.xml", nested_group_xml())
+
+    assert result.can_confirm is True
+    assert result.tree[0]["feature_selections"] == []
+    assert result.tree[0]["children"][0]["feature_selections"] == ["孔(盲孔)"]
+
+
+def test_empty_leaf_blocks_confirmation_with_full_path():
+    result = parse_group_template_xml(
+        "empty-leaf.xml",
+        nested_group_xml(child_name="待分类", child_feature=""),
+    )
+    issue = next(item for item in result.issues if item.code == "missing_leaf_feature_selection")
+
+    assert result.can_confirm is False
+    assert issue.path == ["A侧", "待分类"]
+    assert issue.value == ""
+    assert issue.message == "叶子分组必须至少配置一个特征选择。"
 
 
 def test_stable_key_uses_normalized_path_not_xml_id():
@@ -91,7 +131,7 @@ def test_duplicate_normalized_sibling_name_blocks_confirmation():
     result = parse_group_template_xml("duplicate.xml", duplicate_sibling_xml())
 
     assert result.can_confirm is False
-    assert result.issues[0].code == "duplicate_sibling_name"
+    assert any(issue.code == "duplicate_sibling_name" for issue in result.issues)
 
 
 def test_rejects_a_second_part_anywhere_in_the_document():
@@ -112,7 +152,10 @@ def test_discovers_a_group_descendant_behind_a_non_group_wrapper():
     <Kmsoft>
       <Item type="Part_Template" /><Item type="Group_Template" />
       <Item type="Part" filename="wrapped.prt"><Item type="Wrapper">
-        <Item type="Group" id="wrapped-group"><Params><param name="名称" value="A侧" /></Params></Item>
+        <Item type="Group" id="wrapped-group"><Params>
+          <param name="名称" value="A侧" />
+          <param name="特征选择" value="平面" />
+        </Params></Item>
       </Item></Item>
     </Kmsoft>'''.encode("utf-8")
     result = parse_group_template_xml("wrapped-group.xml", wrapped_group)
@@ -184,3 +227,4 @@ def test_unknown_feature_is_reported_with_its_path_and_value():
     assert result.can_confirm is False
     assert issue.path == ["A侧", "孔"]
     assert issue.value == "非法特征"
+    assert not any(item.code == "missing_leaf_feature_selection" for item in result.issues)

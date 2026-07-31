@@ -230,7 +230,7 @@ async def test_template_commit_mapping_and_replacement_revision_transitions(temp
     _, sessions = template_store
     project_id = await _create_project(sessions)
     parsed_a = _parsed("a.xml")
-    parsed_b = _parsed("b.xml", child_name="槽", feature="")
+    parsed_b = _parsed("b.xml", child_name="槽", feature="孔(通孔)")
 
     async with sessions() as db:
         saved = await commit_project_group_template(db, project_id, parsed_a, expected_revision=0)
@@ -294,7 +294,7 @@ async def test_mapping_path_is_trimmed_and_unicode_normalized_before_lookup(temp
         await commit_project_group_template(
             db,
             project_id,
-            _parsed("normalized.xml", child_name=composed_name, feature=""),
+            _parsed("normalized.xml", child_name=composed_name, feature="孔(通孔)"),
             expected_revision=0,
         )
         mapped = await replace_project_group_mappings(
@@ -320,7 +320,7 @@ async def test_stale_or_invalid_replacement_returns_http_error_without_changing_
             await commit_project_group_template(
                 db,
                 project_id,
-                _parsed("stale.xml", child_name="槽", feature=""),
+                _parsed("stale.xml", child_name="槽", feature="孔(通孔)"),
                 expected_revision=0,
             )
         assert stale.value.status_code == 409

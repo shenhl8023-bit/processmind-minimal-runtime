@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import functools
 import hashlib
 import json
 from pathlib import Path
@@ -56,6 +57,19 @@ def normalize_name(value: object) -> str:
 def stable_group_key(path: list[str]) -> str:
     canonical = json.dumps(path, ensure_ascii=False, separators=(",", ":"))
     return f"grp_{hashlib.sha256(canonical.encode('utf-8')).hexdigest()[:24]}"
+
+
+def is_feature_mapping_target(node: dict[str, object]) -> bool:
+    children = node.get("children", [])
+    values = node.get("feature_selections", [])
+    dictionary = _load_feature_dictionary()
+    return (
+        isinstance(children, list)
+        and not children
+        and isinstance(values, list)
+        and dictionary is not None
+        and any(normalize_name(value) in dictionary for value in values)
+    )
 
 
 def parse_group_template_xml(filename: str, payload: bytes) -> GroupTemplateParseResult:
@@ -178,6 +192,13 @@ def parse_group_template_xml(filename: str, payload: bytes) -> GroupTemplatePars
             if parsed_child is not None:
                 children.append(parsed_child)
 
+        if not children and not feature_values:
+            add_issue(
+                "missing_leaf_feature_selection",
+                "叶子分组必须至少配置一个特征选择。",
+                node_path,
+            )
+
         group_count += 1
         feature_selection_count += len(feature_values)
         return {
@@ -249,7 +270,8 @@ def _feature_dictionary_version() -> str:
     return hashlib.sha256(FEATURE_DICTIONARY_PATH.read_bytes()).hexdigest()
 
 
-def _load_feature_dictionary() -> set[str] | None:
+@functools.lru_cache(maxsize=1)
+def _load_feature_dictionary() -> frozenset[str] | None:
     try:
         source_xml, _ = _decode_xml(FEATURE_DICTIONARY_PATH.read_bytes())
         if source_xml is None:
@@ -258,7 +280,11 @@ def _load_feature_dictionary() -> set[str] | None:
         root = etree.fromstring(_normalize_xml_declaration(source_xml).encode("utf-8"), parser=parser)
     except (OSError, etree.XMLSyntaxError, UnicodeError):
         return None
-    return {normalize_name(item.get("name")) for item in root.findall(".//Item") if normalize_name(item.get("name"))}
+    return frozenset(
+        normalize_name(item.get("name"))
+        for item in root.findall(".//Item")
+        if normalize_name(item.get("name"))
+    )
 
 
 def _logical_group_children(parent: etree._Element) -> list[etree._Element]:
