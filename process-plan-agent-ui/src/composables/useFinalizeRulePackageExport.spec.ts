@@ -104,12 +104,13 @@ function createExport(options: {
   conditionFields?: Array<{ key: string }>
   standardFactors?: StandardFactorDefinition[]
   factorCatalogVersion?: string
+  segmentCards?: any[]
 }) {
   return useFinalizeRulePackageExport({
     projectId: ref(12),
     projectName: ref('project'),
     savedRoute: ref({ route_id: 99 }),
-    segmentCards: computed(() => []),
+    segmentCards: computed(() => options.segmentCards ?? []),
     displayName: () => 'process',
     metaLabel: () => 'meta',
     phaseLabel: () => 'phase',
@@ -235,6 +236,35 @@ describe('useFinalizeRulePackageExport', () => {
     expect(mocks.compileRulePackage).not.toHaveBeenCalled()
   })
 
+  it('keeps a structured source segment on a local card binding blocker', async () => {
+    const review = vi.fn().mockResolvedValue(false)
+    mocks.buildCompileRequestFromCards.mockImplementationOnce(() => {
+      throw Object.assign(new Error('工序 process_hone 的条件根节点：未绑定标准因子'), {
+        sourceSegmentId: 'process_hone',
+      })
+    })
+    const { downloadRuleDocument } = createExport({
+      onExportReviewRequired: review,
+      segmentCards: [{
+        segment: { id: 'process_hone' },
+        conditionText: '当存在孔精加工要求时，纳入珩孔工序',
+      }],
+    })
+
+    await downloadRuleDocument()
+
+    expect(review).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'blocked',
+      details: [expect.objectContaining({
+        code: 'standard_factor_binding_failed',
+        processName: 'process',
+        sourceText: '当存在孔精加工要求时，纳入珩孔工序',
+        sourceSegmentId: 'process_hone',
+      })],
+    }))
+    expect(mocks.compileRulePackage).not.toHaveBeenCalled()
+  })
+
   it('compiles once, shows manual-factor guidance, and archives authoritative KmAI files', async () => {
     const review = vi.fn().mockResolvedValue(true)
     const compileResult = compiled(firstPackage, true)
@@ -244,6 +274,17 @@ describe('useFinalizeRulePackageExport', () => {
           factor_key: 'manual_requires_hone',
           name: '需要珩孔',
           source_mode: 'manual_override',
+          value_type: 'boolean',
+        }, {
+          factor_key: 'manual_stock_allowance',
+          name: '加工余量',
+          source_mode: 'manual_override',
+          value_type: 'number',
+        }, {
+          factor_key: 'manual_material_note',
+          name: '材料说明',
+          source_mode: 'manual_override',
+          value_type: 'string',
         }],
       },
     }
@@ -275,6 +316,12 @@ describe('useFinalizeRulePackageExport', () => {
         content: expect.stringContaining('- manual_requires_hone: 需要珩孔'),
       }),
     ]))
+    const archivedFiles = (mocks.createZipBlob.mock.calls as unknown as Array<[
+      Array<{ name: string; content: string }>,
+    ]>)[0]?.[0] || []
+    const readme = archivedFiles.find(file => file.name === 'kmai-v1/README-替换说明.txt')!
+    expect(readme.content).not.toContain('manual_stock_allowance')
+    expect(readme.content).not.toContain('manual_material_note')
     expect(mocks.downloadBlob).toHaveBeenCalledTimes(1)
   })
 

@@ -270,7 +270,11 @@ import {
   useFinalizeRulePackageExport,
   type RulePackageExportReview,
 } from '@/composables/useFinalizeRulePackageExport'
-import { useRulePackageExportReview } from '@/composables/useRulePackageExportReview'
+import {
+  buildExportReviewFocusCards,
+  locateExportBlocker as locateExportBlockerInReview,
+  useRulePackageExportReview,
+} from '@/composables/useRulePackageExportReview'
 import { useRouteSegmentSteps } from '@/composables/useRouteSegmentSteps'
 import { buildProjectRouteQuery, resolveAvailableProjectId } from '@/composables/useCurrentProject'
 import { FINALIZE_VIEW_COPY } from '@/config/finalizeRulePresentation'
@@ -307,6 +311,7 @@ const operations = ref<OperationItem[]>([])
 const supersetOperations = ref<OperationItem[]>([])
 const onlyPending = ref(true)
 const activeSegmentId = ref('')
+const locatedExportBlockerId = ref('')
 const lastExportedRulePackageVersion = ref<number | null>(null)
 const outdatedRulePackageVersion = ref<number | null>(null)
 const conditionFields = ref<CanonicalConditionField[]>([])
@@ -417,7 +422,11 @@ const factorCatalogReady = computed(() => Boolean(
   && factorCatalogVersion.value,
 ))
 const unresolvedRuleCount = computed(() => segmentCards.value.filter(item => finalizeRuleMode(item) === 'unresolved').length)
-const reviewFocusCards = computed(() => segmentCards.value.filter(itemNeedsPending))
+const reviewFocusCards = computed(() => buildExportReviewFocusCards(
+  segmentCards.value,
+  itemNeedsPending,
+  locatedExportBlockerId.value,
+))
 const visibleSegments = computed(() => onlyPending.value ? reviewFocusCards.value : segmentCards.value)
 const batchEligibleCards = computed(() => reviewableCards.value.filter((item) => {
   return requiresServerRuleConditionRefresh(item, factorCatalogVersion.value)
@@ -549,12 +558,14 @@ function createBlockedExportReview(cards: FinalizeCard[]): RulePackageExportRevi
 }
 
 async function locateExportBlocker(sourceSegmentId: string) {
-  if (!sourceSegmentId) return
-  onlyPending.value = true
-  activeSegmentId.value = sourceSegmentId
-  completeExportReview(false)
-  await nextTick()
-  document.getElementById(`finalize-card-${sourceSegmentId}`)?.scrollIntoView({ block: 'center' })
+  await locateExportBlockerInReview({
+    sourceSegmentId,
+    onlyPending,
+    activeSegmentId,
+    locatedSegmentId: locatedExportBlockerId,
+    completeReview: completeExportReview,
+    getElementById: id => document.getElementById(id),
+  })
 }
 
 function closeExportIssue() {

@@ -16,6 +16,16 @@ import {
   ruleConfirmationSignature,
 } from '@/utils/standardFactorBindings'
 
+export class FinalizeRulePackageBuildError extends Error {
+  readonly sourceSegmentId: string
+
+  constructor(message: string, sourceSegmentId: string) {
+    super(message)
+    this.name = 'FinalizeRulePackageBuildError'
+    this.sourceSegmentId = sourceSegmentId
+  }
+}
+
 export function normalizeExportProcessName(name: string) {
   const text = String(name || '').trim()
   if (/真空淬火|淬火/.test(text)) return '淬火'
@@ -668,8 +678,9 @@ export function buildCompileRequestFromCards(args: {
       const binding = factorBindingState(normalizedWhen, args.standardFactors)
       if (!binding.complete) {
         const issue = binding.issues[0]!
-        throw new Error(
+        throw new FinalizeRulePackageBuildError(
           `工序 ${String(item.segment.id || item.segment.sequence)} 的条件 ${issue.path || '根节点'}：${issue.message}`,
+          String(item.segment.id || ''),
         )
       }
       const baseRule = {

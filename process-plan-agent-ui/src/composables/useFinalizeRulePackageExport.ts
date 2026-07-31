@@ -116,7 +116,11 @@ function getManualKmaiFactors(files: Record<string, Record<string, unknown>>): M
   const factorSchema = files['factor_schema.json']
   const factors = Array.isArray(factorSchema?.factors) ? factorSchema.factors : []
   return factors
-    .filter((factor: any) => factor?.source_mode === 'manual_override' && factor?.factor_key)
+    .filter((factor: any) => (
+      factor?.source_mode === 'manual_override'
+      && factor?.value_type === 'boolean'
+      && factor?.factor_key
+    ))
     .map((factor: any) => ({ key: String(factor.factor_key), name: String(factor.name || factor.factor_key) }))
 }
 
@@ -164,13 +168,15 @@ function localExportBlockDetail(
   code: string,
   message: string,
   sourceText = '',
+  sourceSegmentId = '',
+  processName = '规则包导出',
 ): ExportBlockDetail {
   return {
     code,
     message,
-    processName: '规则包导出',
+    processName,
     sourceText,
-    sourceSegmentId: '',
+    sourceSegmentId,
   }
 }
 
@@ -236,6 +242,10 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
         standardFactors: options.standardFactors.value,
       })
     } catch (buildError: any) {
+      const sourceSegmentId = typeof buildError?.sourceSegmentId === 'string'
+        ? buildError.sourceSegmentId
+        : ''
+      const sourceCard = options.segmentCards.value.find(item => item.segment.id === sourceSegmentId)
       await options.onExportReviewRequired?.(buildLocalBlockedReview({
         projectName: options.projectName.value,
         processCount: options.segmentCards.value.length,
@@ -243,7 +253,9 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
         details: [localExportBlockDetail(
           'standard_factor_binding_failed',
           String(buildError?.message || buildError || '规则条件无法绑定标准因子'),
-          '第四步规则条件',
+          sourceCard?.conditionText || '第四步规则条件',
+          sourceSegmentId,
+          sourceCard ? options.displayName(sourceCard.segment) : '规则包导出',
         )],
       }))
       return

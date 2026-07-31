@@ -1,11 +1,16 @@
-import { describe, expect, it } from 'vitest'
+import { computed, ref, watch } from 'vue'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { CompileRulePackageResponse, RulePackageV2 } from '@/api'
 import {
   buildExportReview,
   type RulePackageExportReview,
 } from './useFinalizeRulePackageExport'
-import { useRulePackageExportReview } from './useRulePackageExportReview'
+import {
+  buildExportReviewFocusCards,
+  locateExportBlocker,
+  useRulePackageExportReview,
+} from './useRulePackageExportReview'
 
 const rulePackage: RulePackageV2 = {
   manifest: {},
@@ -53,6 +58,76 @@ const readyReview = { status: 'ready', projectName: '项目 A' } as RulePackageE
 const blockedReview = { status: 'blocked', projectName: '项目 A' } as RulePackageExportReview
 
 describe('useRulePackageExportReview', () => {
+  it('keeps a confirmed export blocker visible and focused until it scrolls', async () => {
+    const cards = ref([
+      { segment: { id: 'process_pending' }, pending: true },
+      { segment: { id: 'process_hone' }, pending: false },
+    ])
+    const onlyPending = ref(false)
+    const activeSegmentId = ref('process_pending')
+    const locatedSegmentId = ref('')
+    const reviewState = useRulePackageExportReview()
+    const reviewFocusCards = computed(() => buildExportReviewFocusCards(
+      cards.value,
+      card => card.pending,
+      locatedSegmentId.value,
+    ))
+    const visibleCards = computed(() => onlyPending.value ? reviewFocusCards.value : cards.value)
+    watch([visibleCards, onlyPending], () => {
+      if (!visibleCards.value.some(card => card.segment.id === activeSegmentId.value)) {
+        activeSegmentId.value = visibleCards.value[0]?.segment.id || ''
+      }
+    }, { deep: true })
+    const scrollIntoView = vi.fn()
+    const pendingReview = reviewState.request(blockedReview)
+
+    await locateExportBlocker({
+      sourceSegmentId: 'process_hone',
+      onlyPending,
+      activeSegmentId,
+      locatedSegmentId,
+      completeReview: reviewState.complete,
+      getElementById: id => visibleCards.value.some(card => `finalize-card-${card.segment.id}` === id)
+        ? { scrollIntoView }
+        : null,
+    })
+
+    await expect(pendingReview).resolves.toBe(false)
+    expect(onlyPending.value).toBe(true)
+    expect(visibleCards.value.map(card => card.segment.id)).toEqual(['process_pending', 'process_hone'])
+    expect(activeSegmentId.value).toBe('process_hone')
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' })
+  })
+
+  it('closes a generic blocked review before skipping card focus', async () => {
+    const onlyPending = ref(false)
+    const activeSegmentId = ref('process_pending')
+    const locatedSegmentId = ref('')
+    const reviewState = useRulePackageExportReview()
+    const getElementById = vi.fn()
+    const pendingReview = reviewState.request(blockedReview)
+
+    await locateExportBlocker({
+      sourceSegmentId: '',
+      onlyPending,
+      activeSegmentId,
+      locatedSegmentId,
+      completeReview: reviewState.complete,
+      getElementById,
+    })
+
+    const reviewResult = await Promise.race([
+      pendingReview,
+      Promise.resolve('still-pending' as const),
+    ])
+    expect(reviewResult).toBe(false)
+    expect(reviewState.visible.value).toBe(false)
+    expect(onlyPending.value).toBe(false)
+    expect(activeSegmentId.value).toBe('process_pending')
+    expect(locatedSegmentId.value).toBe('')
+    expect(getElementById).not.toHaveBeenCalled()
+  })
+
   it('has only ready and blocked states', () => {
     const ready = buildExportReview(compiled({ validationValid: true, kmaiValid: true }), '项目 A')
     const blocked = buildExportReview(compiled({

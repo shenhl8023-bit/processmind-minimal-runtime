@@ -1,6 +1,6 @@
-import { createSSRApp } from 'vue'
+import { createSSRApp, ssrContextKey } from 'vue'
 import { renderToString, type SSRContext } from '@vue/server-renderer'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { RulePackageExportReview } from '@/composables/useFinalizeRulePackageExport'
 import RulePackageExportReviewDialog from './RulePackageExportReviewDialog.vue'
@@ -72,6 +72,29 @@ describe('RulePackageExportReviewDialog', () => {
     expect(html).toContain('返回第四步处理')
     expect(html).toMatch(/<button[^>]*disabled[^>]*>\s*确认导出\s*<\/button>/)
     expect((RulePackageExportReviewDialog as any).emits).toContain('locate')
+  })
+
+  it('emits the selected source segment through the locate button handler', () => {
+    const emit = vi.fn()
+    const app = createSSRApp({ render: () => null })
+    app.provide(ssrContextKey, { modules: new Set<string>() })
+    const setupState = app.runWithContext(() => (RulePackageExportReviewDialog as any).setup(
+      { modelValue: true, review: review('blocked') },
+      { emit, expose: () => {} },
+    ))
+
+    setupState.locate('process_hone')
+
+    expect(emit).toHaveBeenCalledWith('locate', 'process_hone')
+  })
+
+  it('offers a return-to-step-four action for a generic blocker', async () => {
+    const blocked = review('blocked')
+    blocked.details[0]!.sourceSegmentId = ''
+
+    const html = await renderReview(blocked)
+
+    expect(html).toMatch(/<button[^>]*class="blocker-locate"[^>]*>\s*返回第四步处理\s*<\/button>/)
   })
 
   it('does not render the retired mapping workflow', async () => {

@@ -349,8 +349,16 @@ describe('V2 compile DTO from finalize cards', () => {
       }),
     }
 
-    expect(() => buildCompileRequestFromCards(compileArgs([item])))
-      .toThrow(/process_hone.*条件.*标准因子/)
+    let thrown: unknown
+    try {
+      buildCompileRequestFromCards(compileArgs([item]))
+    } catch (error) {
+      thrown = error
+    }
+
+    expect(thrown).toBeInstanceOf(Error)
+    expect(thrown).toMatchObject({ sourceSegmentId: 'process_hone' })
+    expect((thrown as Error).message).toMatch(/process_hone.*条件.*标准因子/)
   })
 
   it('requires re-review when the confirmed rule kind no longer matches the user text', () => {

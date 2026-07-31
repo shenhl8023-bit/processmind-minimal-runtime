@@ -93,10 +93,9 @@
                 </div>
               </dl>
               <button
-                v-if="detail.sourceSegmentId"
                 type="button"
                 class="blocker-locate"
-                @click="emit('locate', detail.sourceSegmentId)"
+                @click="locate(detail.sourceSegmentId)"
               >
                 返回第四步处理
               </button>
@@ -144,6 +143,10 @@ function confirm() {
 function cancel() {
   emit('cancelled')
   emit('update:modelValue', false)
+}
+
+function locate(sourceSegmentId: string) {
+  emit('locate', sourceSegmentId)
 }
 </script>
 
