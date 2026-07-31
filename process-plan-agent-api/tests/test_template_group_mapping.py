@@ -6,7 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.database import Base, configure_sqlite_engine
 from app.models.models import Project
-from app.schemas.schemas import TemplateGroupMappingOperationIn, TemplateGroupMappingSuggestRequest
+from app.schemas.schemas import (
+    TemplateGroupMappingOperationIn,
+    TemplateGroupMappingSuggestRequest,
+    TemplateStepMappingSuggestRequest,
+)
 from app.services import template_group_mapping
 from app.services.db_schema_maintenance import ensure_project_schema
 from app.services.group_template_xml import parse_group_template_xml
@@ -107,6 +111,86 @@ def test_compound_side_operation_keeps_every_evidenced_feature_candidate():
         ["A侧", "外圆"],
         ["A侧", "孔"],
     ]
+
+
+def test_builds_candidates_for_each_step_without_returning_parent_groups():
+    parsed = parse_group_template_xml("fixture.xml", _template_xml())
+    operation = TemplateGroupMappingOperationIn(
+        operation_id=1,
+        operation_name="车削加工（A侧）",
+        step_items=["平端面", "车外圆", "钻孔"],
+    )
+
+    prepared = template_group_mapping.prepare_step_candidates(operation, parsed.tree)
+
+    assert [item.step_key for item, _ in prepared] == ["op_1_s01", "op_1_s02", "op_1_s03"]
+    assert [[candidate.path for candidate in candidates] for _, candidates in prepared] == [
+        [["A侧", "端面"]],
+        [["A侧", "外圆"]],
+        [["A侧", "孔"]],
+    ]
+
+
+@pytest.mark.asyncio
+async def test_step_suggestions_reject_groups_outside_each_step_candidates(mapping_store, monkeypatch):
+    sessions, _ = mapping_store
+
+    async def choose_outside_candidate(*args, **kwargs):
+        return json.dumps({"suggestions": [{
+            "step_key": "op_360_s01",
+            "group_ids": ["not-allowed"],
+            "confidence": 0.99,
+            "evidence": ["钻孔"],
+            "reason": "invalid",
+        }]})
+
+    monkeypatch.setattr(template_group_mapping, "call_llm", choose_outside_candidate)
+    async with sessions() as db:
+        result = await template_group_mapping.resolve_template_step_mappings(
+            db,
+            TemplateStepMappingSuggestRequest(
+                project_id=7,
+                expected_template_revision=1,
+                operations=[TemplateGroupMappingOperationIn(
+                    operation_id=360,
+                    operation_name="加工",
+                    step_items=["钻孔"],
+                )],
+            ),
+        )
+
+    suggestion = result.suggestions[0]
+    assert suggestion.step_key == "op_360_s01"
+    assert suggestion.recommended_group_ids == []
+    assert suggestion.source == "unresolved"
+    assert "候选范围" in "".join(suggestion.warnings)
+
+
+@pytest.mark.asyncio
+async def test_step_model_failure_preserves_candidates_for_every_step(mapping_store, monkeypatch):
+    sessions, _ = mapping_store
+
+    async def unavailable(*args, **kwargs):
+        raise RuntimeError("offline")
+
+    monkeypatch.setattr(template_group_mapping, "call_llm", unavailable)
+    async with sessions() as db:
+        result = await template_group_mapping.resolve_template_step_mappings(
+            db,
+            TemplateStepMappingSuggestRequest(
+                project_id=7,
+                expected_template_revision=1,
+                operations=[TemplateGroupMappingOperationIn(
+                    operation_id=360,
+                    operation_name="加工",
+                    step_items=["钻孔", "车外圆"],
+                )],
+            ),
+        )
+
+    assert [item.step_key for item in result.suggestions] == ["op_360_s01", "op_360_s02"]
+    assert all(item.candidates for item in result.suggestions)
+    assert result.model_used is False
 
 
 @pytest.mark.asyncio

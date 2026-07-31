@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import logging
 import re
 from typing import Any
 
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.schemas import (
@@ -15,9 +17,19 @@ from app.schemas.schemas import (
     TemplateGroupMappingSuggestRequest,
     TemplateGroupMappingSuggestResponse,
     TemplateGroupMappingSuggestionOut,
+    TemplateStepMappingSuggestRequest,
+    TemplateStepMappingSuggestResponse,
+    TemplateStepMappingSuggestionOut,
 )
+from app.services.group_template_xml import is_feature_mapping_target
 from app.services.llm_service import call_llm, parse_json_from_llm
-from app.services.project_group_templates import get_project_group_template, serialize_project_group_template
+from app.services.project_group_templates import (
+    REVISION_CONFLICT_DETAIL,
+    get_project_group_template,
+    serialize_project_group_template,
+    stable_step_key,
+    step_text_hash,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -39,6 +51,16 @@ _FEATURE_ALIASES: dict[str, tuple[str, ...]] = {
     "回转面倒圆": ("回转面倒圆", "倒圆", "磨圆"),
     "平面": ("平面", "铣面", "磨面"),
 }
+
+
+@dataclass(frozen=True)
+class TemplateStepRef:
+    operation_id: int
+    operation_name: str
+    step_key: str
+    step_order: int
+    step_name: str
+    step_text_hash: str
 
 
 def _clean_text(value: Any) -> str:
@@ -143,6 +165,189 @@ def build_template_candidates(
     if any(has_features for _, _, has_features in scored):
         scored = [item for item in scored if item[2]]
     return [candidate for candidate, _, _ in scored]
+
+
+def build_step_candidates(
+    step: TemplateStepRef,
+    tree: list[dict[str, object]],
+) -> list[TemplateGroupMappingCandidateIn]:
+    step_source = _normalized_text(step.step_name)
+    operation_source = _normalized_text(step.operation_name)
+    if not step_source:
+        return []
+
+    scored: list[tuple[TemplateGroupMappingCandidateIn, bool]] = []
+    for node in _flatten_template_nodes(tree):
+        if not is_feature_mapping_target(node):
+            continue
+        raw_path = node.get("path", [])
+        path = [str(item) for item in raw_path] if isinstance(raw_path, list) else []
+        raw_features = node.get("feature_selections", [])
+        features = [str(item) for item in raw_features] if isinstance(raw_features, list) else []
+        name = str(node.get("name", ""))
+        evidence: list[str] = []
+
+        leaf_term = _normalized_text(name)
+        leaf_match = bool(leaf_term and leaf_term in step_source)
+        if leaf_match:
+            evidence.append(name)
+
+        feature_match = False
+        for feature in features:
+            for term in _feature_terms(feature):
+                normalized = _normalized_text(term)
+                if normalized and normalized in step_source:
+                    feature_match = True
+                    evidence.append(term)
+                    break
+
+        if not leaf_match and not feature_match:
+            continue
+
+        matching_ancestors = [
+            parent
+            for parent in path[:-1]
+            if _normalized_text(parent) and _normalized_text(parent) in operation_source
+        ]
+        context_match = bool(matching_ancestors)
+        evidence.extend(matching_ancestors)
+        score = min(
+            1.0,
+            0.45 + (0.25 if feature_match else 0.0) + (0.20 if context_match else 0.0),
+        )
+        scored.append((
+            TemplateGroupMappingCandidateIn(
+                group_id=str(node.get("key", "")),
+                path=path,
+                score=score,
+                reason=f"工步命中：{'、'.join(dict.fromkeys(evidence))}",
+            ),
+            context_match,
+        ))
+
+    if any(context_match for _, context_match in scored):
+        scored = [item for item in scored if item[1]]
+    return [candidate for candidate, _ in scored]
+
+
+def prepare_step_candidates(
+    operation: TemplateGroupMappingOperationIn,
+    tree: list[dict[str, object]],
+) -> list[tuple[TemplateStepRef, list[TemplateGroupMappingCandidateIn]]]:
+    prepared: list[tuple[TemplateStepRef, list[TemplateGroupMappingCandidateIn]]] = []
+    for order, raw_step in enumerate(operation.step_items, start=1):
+        step_name = _clean_text(raw_step)
+        if not step_name:
+            continue
+        ref = TemplateStepRef(
+            operation_id=operation.operation_id,
+            operation_name=operation.operation_name,
+            step_key=stable_step_key(operation.operation_id, order),
+            step_order=order,
+            step_name=step_name,
+            step_text_hash=step_text_hash(step_name),
+        )
+        prepared.append((ref, build_step_candidates(ref, tree)))
+    return prepared
+
+
+def _step_unresolved(
+    step: TemplateStepRef,
+    candidates: list[TemplateGroupMappingCandidateIn],
+    *,
+    confidence: float = 0.0,
+    reason: str = "",
+    warnings: list[str] | None = None,
+) -> TemplateStepMappingSuggestionOut:
+    return TemplateStepMappingSuggestionOut(
+        operation_id=step.operation_id,
+        operation_name=step.operation_name,
+        step_key=step.step_key,
+        step_order=step.step_order,
+        step_name=step.step_name,
+        step_text_hash=step.step_text_hash,
+        candidates=candidates,
+        confidence=confidence,
+        source="unresolved",
+        reason=reason or "没有找到可自动采用的唯一叶子分组。",
+        warnings=warnings or [],
+    )
+
+
+def _deterministic_step_suggestion(
+    step: TemplateStepRef,
+    candidates: list[TemplateGroupMappingCandidateIn],
+) -> TemplateStepMappingSuggestionOut:
+    if len(candidates) != 1 or candidates[0].score < MIN_ACCEPTED_CONFIDENCE:
+        return _step_unresolved(step, candidates)
+    candidate = candidates[0]
+    return TemplateStepMappingSuggestionOut(
+        operation_id=step.operation_id,
+        operation_name=step.operation_name,
+        step_key=step.step_key,
+        step_order=step.step_order,
+        step_name=step.step_name,
+        step_text_hash=step.step_text_hash,
+        recommended_group_ids=[candidate.group_id],
+        candidates=candidates,
+        confidence=candidate.score,
+        source="auto_confirmed",
+        evidence=[step.step_name],
+        reason=candidate.reason,
+    )
+
+
+def _validated_step_model_result(
+    step: TemplateStepRef,
+    candidates: list[TemplateGroupMappingCandidateIn],
+    payload: dict[str, Any] | None,
+) -> TemplateStepMappingSuggestionOut:
+    if not payload:
+        return _step_unresolved(step, candidates, warnings=["模型没有返回该工步的映射建议。"])
+    group_ids = _clean_text_list(payload.get("group_ids"))
+    confidence = _clean_confidence(payload.get("confidence"))
+    reason = _clean_text(payload.get("reason"))
+    allowed_ids = {candidate.group_id for candidate in candidates}
+    if not group_ids or any(group_id not in allowed_ids for group_id in group_ids):
+        return _step_unresolved(
+            step,
+            candidates,
+            confidence=confidence,
+            reason=reason,
+            warnings=["模型返回的分组不在该工步候选范围内，已忽略。"],
+        )
+    if confidence < MIN_ACCEPTED_CONFIDENCE:
+        return _step_unresolved(
+            step,
+            candidates,
+            confidence=confidence,
+            reason=reason,
+            warnings=["模型置信度不足，保留为待人工确认。"],
+        )
+    evidence = _clean_text_list(payload.get("evidence"))
+    source_text = f"{step.operation_name}\n{step.step_name}"
+    if not evidence or any(item not in source_text for item in evidence):
+        return _step_unresolved(
+            step,
+            candidates,
+            confidence=confidence,
+            reason=reason,
+            warnings=["模型证据不是工序或工步原文，已忽略。"],
+        )
+    return TemplateStepMappingSuggestionOut(
+        operation_id=step.operation_id,
+        operation_name=step.operation_name,
+        step_key=step.step_key,
+        step_order=step.step_order,
+        step_name=step.step_name,
+        step_text_hash=step.step_text_hash,
+        recommended_group_ids=group_ids,
+        candidates=candidates,
+        confidence=confidence,
+        source="llm",
+        evidence=evidence,
+        reason=reason,
+    )
 
 
 def _base_unresolved(
@@ -301,5 +506,130 @@ evidence 必须逐字摘自 operation_name 或 step_items。confidence 范围为
             )
             for operation, candidates in prepared
         ],
+        warnings=warnings,
+    )
+
+
+async def resolve_template_step_mappings(
+    db: AsyncSession,
+    body: TemplateStepMappingSuggestRequest,
+) -> TemplateStepMappingSuggestResponse:
+    if not body.operations:
+        return TemplateStepMappingSuggestResponse(
+            project_id=body.project_id,
+            template_revision=0,
+        )
+
+    template_row = await get_project_group_template(db, body.project_id)
+    if template_row is None:
+        return TemplateStepMappingSuggestResponse(
+            project_id=body.project_id,
+            template_revision=0,
+            suggestions=[
+                _step_unresolved(
+                    step,
+                    [],
+                    warnings=["当前项目尚未确认分组模板，请先上传模板。"],
+                )
+                for operation in body.operations
+                for step, _ in prepare_step_candidates(operation, [])
+            ],
+            warnings=["当前项目尚未确认分组模板，请先上传模板。"],
+        )
+
+    template_revision = int(template_row.template_revision)
+    if template_revision != body.expected_template_revision:
+        raise HTTPException(409, REVISION_CONFLICT_DETAIL)
+    tree = serialize_project_group_template(template_row).tree
+    prepared = [
+        (step, candidates)
+        for operation in body.operations
+        for step, candidates in prepare_step_candidates(operation, tree)
+    ]
+    suggestions = [
+        _deterministic_step_suggestion(step, candidates)
+        for step, candidates in prepared
+    ]
+    ambiguous = [
+        (step, candidates)
+        for (step, candidates), suggestion in zip(prepared, suggestions)
+        if suggestion.source == "unresolved" and candidates
+    ]
+    if not ambiguous:
+        return TemplateStepMappingSuggestResponse(
+            project_id=body.project_id,
+            template_revision=template_revision,
+            suggestions=suggestions,
+        )
+
+    system_prompt = """你是机械加工工步与模板特征审核器。只输出 JSON，不要输出 Markdown。
+每个 suggestion 只处理一个 step_key。你只能从该工步 candidates 中选择 group_ids，禁止创造或改写 ID。
+证据必须逐字摘自 step_name 或 operation_name；无法可靠判断时返回空 group_ids。
+输出格式：{"suggestions":[{"step_key":"op_1_s01","group_ids":["grp_x"],"confidence":0.9,"evidence":["钻孔"],"reason":"简短理由"}]}。"""
+    user_payload = {
+        "project_id": body.project_id,
+        "steps": [
+            {
+                "operation_id": step.operation_id,
+                "operation_name": step.operation_name,
+                "step_key": step.step_key,
+                "step_order": step.step_order,
+                "step_name": step.step_name,
+                "candidates": [candidate.model_dump() for candidate in candidates],
+            }
+            for step, candidates in ambiguous
+        ],
+    }
+    try:
+        raw = await call_llm(
+            system_prompt,
+            json.dumps(user_payload, ensure_ascii=False),
+            temperature=0.0,
+            timeout_seconds=12.0,
+            max_retries=0,
+        )
+    except Exception as exc:
+        logger.warning("template_step_mapping_llm_failed project_id=%s error=%s", body.project_id, exc)
+        return TemplateStepMappingSuggestResponse(
+            project_id=body.project_id,
+            template_revision=template_revision,
+            suggestions=[
+                suggestion if suggestion.source != "unresolved" or not candidates
+                else _step_unresolved(
+                    step,
+                    candidates,
+                    warnings=["模型调用失败，已保留程序候选供人工选择。"],
+                )
+                for (step, candidates), suggestion in zip(prepared, suggestions)
+            ],
+            warnings=["模型调用失败，已保留程序候选供人工选择。"],
+        )
+
+    parsed = parse_json_from_llm(raw) if raw else None
+    rows = parsed.get("suggestions") if isinstance(parsed, dict) else parsed if isinstance(parsed, list) else []
+    rows = rows if isinstance(rows, list) else []
+    payload_by_step: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        step_key = _clean_text(row.get("step_key"))
+        if step_key and step_key not in payload_by_step:
+            payload_by_step[step_key] = row
+
+    model_used = bool(raw and parsed is not None)
+    resolved_suggestions: list[TemplateStepMappingSuggestionOut] = []
+    for (step, candidates), suggestion in zip(prepared, suggestions):
+        if suggestion.source != "unresolved" or not candidates:
+            resolved_suggestions.append(suggestion)
+            continue
+        resolved_suggestions.append(
+            _validated_step_model_result(step, candidates, payload_by_step.get(step.step_key))
+        )
+    warnings = [] if model_used else ["模型未返回有效结构化结果，已保留程序候选供人工选择。"]
+    return TemplateStepMappingSuggestResponse(
+        project_id=body.project_id,
+        template_revision=template_revision,
+        model_used=model_used,
+        suggestions=resolved_suggestions,
         warnings=warnings,
     )

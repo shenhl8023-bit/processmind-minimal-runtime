@@ -45,6 +45,8 @@ from app.schemas.schemas import (
     SupersetRouteOut,
     TemplateGroupMappingSuggestRequest,
     TemplateGroupMappingSuggestResponse,
+    TemplateStepMappingSuggestRequest,
+    TemplateStepMappingSuggestResponse,
     WorkflowResetOut,
     WorkflowResetRequest,
 )
@@ -116,7 +118,10 @@ from app.services.project_workflow_lifecycle import (
     acquire_workflow_revision,
     invalidate_project_workflow,
 )
-from app.services.template_group_mapping import resolve_template_group_mappings
+from app.services.template_group_mapping import (
+    resolve_template_group_mappings,
+    resolve_template_step_mappings,
+)
 from app.services.group_template_xml import MAX_GROUP_TEMPLATE_BYTES, parse_group_template_xml
 from app.services.project_group_templates import (
     commit_project_group_template,
@@ -135,6 +140,14 @@ async def suggest_template_group_mappings(
     db: AsyncSession = Depends(get_db),
 ):
     return await resolve_template_group_mappings(db, body)
+
+
+@router.post("/template-step-mappings/suggest", response_model=TemplateStepMappingSuggestResponse)
+async def suggest_template_step_mappings(
+    body: TemplateStepMappingSuggestRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return await resolve_template_step_mappings(db, body)
 
 
 async def _ensure_project_exists(project_id: int, db: AsyncSession) -> Project:

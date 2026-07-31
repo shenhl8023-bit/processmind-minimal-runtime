@@ -316,6 +316,36 @@ class TemplateGroupMappingSuggestResponse(BaseModel):
     warnings: List[str] = Field(default_factory=list)
 
 
+class TemplateStepMappingSuggestRequest(BaseModel):
+    project_id: int = Field(gt=0)
+    expected_template_revision: int = Field(ge=1)
+    operations: List[TemplateGroupMappingOperationIn] = Field(default_factory=list)
+
+
+class TemplateStepMappingSuggestionOut(BaseModel):
+    operation_id: int
+    operation_name: str
+    step_key: str
+    step_order: int
+    step_name: str
+    step_text_hash: str
+    recommended_group_ids: List[str] = Field(default_factory=list)
+    candidates: List[TemplateGroupMappingCandidateIn] = Field(default_factory=list)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    source: str = "unresolved"
+    evidence: List[str] = Field(default_factory=list)
+    reason: str = ""
+    warnings: List[str] = Field(default_factory=list)
+
+
+class TemplateStepMappingSuggestResponse(BaseModel):
+    project_id: int
+    template_revision: int
+    model_used: bool = False
+    suggestions: List[TemplateStepMappingSuggestionOut] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+
+
 class MergeSuggestionOut(BaseModel):
     suggestion_id: str
     target_group_id: str
