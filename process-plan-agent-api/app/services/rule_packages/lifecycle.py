@@ -8,7 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.models import FinalizedRulePackage, utcnow
 from app.services.finalized_rule_package_helpers import json_loads, json_loads_list
 from app.services.rule_packages.contracts import RulePackageV2, RulePackageValidationReport
-from app.services.rule_packages.kmai_export import legacy_mapping_snapshot_from_validation_report
+from app.services.rule_packages.kmai_export import (
+    builtin_legacy_mapping_snapshot,
+    legacy_mapping_snapshot_from_validation_report,
+)
 from app.services.rule_packages.validator import validate_rule_package
 
 
@@ -51,7 +54,11 @@ def v2_package_from_row(row: FinalizedRulePackage) -> RulePackageV2:
 
 def load_legacy_mapping_snapshot_for_package(package: FinalizedRulePackage):
     """Load historical package mappings without consulting active mapping state."""
-    return legacy_mapping_snapshot_from_validation_report(package.validation_report_json)
+    report = json_loads(package.validation_report_json)
+    compatibility = report.get("kmai_compatibility", {})
+    if isinstance(compatibility, dict) and "mapping_snapshot" in compatibility:
+        return legacy_mapping_snapshot_from_validation_report(package.validation_report_json)
+    return builtin_legacy_mapping_snapshot()
 
 
 async def publish_rule_package(

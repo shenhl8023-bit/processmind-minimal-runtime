@@ -145,7 +145,7 @@ def test_historical_compatibility_uses_snapshot_embedded_in_package(lifecycle_cl
     assert response.json()["manual_factors"]["has_flat_or_plane"] is False
 
 
-def test_snapshotless_historical_package_has_no_report_adapters(lifecycle_client, rule_package_v2_payload):
+def test_snapshotless_historical_package_uses_only_fixed_legacy_builtins(lifecycle_client, rule_package_v2_payload):
     saved = lifecycle_client.post("/api/extract/finalized-rule-packages", json=_v2_save_payload(rule_package_v2_payload))
     assert saved.status_code == 200
     _set_historical_rule(lifecycle_client, saved.json()["id"], snapshot=None)
@@ -155,7 +155,7 @@ def test_snapshotless_historical_package_has_no_report_adapters(lifecycle_client
         json={"project_id": 12, "inputs": {"material": {"grade": "9Cr18"}, "cad": {"features": ["\u69fd\u7c7b\u7279\u5f81"]}, "target_hardness_hrc": 58}},
     )
     assert response.status_code == 200
-    assert "has_slot_feature" not in response.json()["manual_factors"]
+    assert response.json()["manual_factors"]["has_slot_feature"] is True
 
     _set_historical_rule(lifecycle_client, saved.json()["id"], snapshot=None, source_value="unknown old value")
     async def legacy_package():
