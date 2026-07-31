@@ -17,6 +17,7 @@ from app.services.project_group_templates import (
     commit_project_group_template,
     get_project_group_template,
     replace_project_group_mappings,
+    replace_project_group_step_mappings,
     serialize_project_group_template,
 )
 
@@ -113,6 +114,22 @@ def _mapping(path=None):
     }
 
 
+def _step_mapping(path=None, *, step_order=1, step_name="钻孔", status="confirmed"):
+    return {
+        "source_operation_id": 11,
+        "source_operation_name": "车削加工（A侧）",
+        "source_step_order": step_order,
+        "source_step_name": step_name,
+        "scope_template_group_path": ["A侧"],
+        "template_group_path": ["A侧", "孔"] if path is None else path,
+        "candidate_features": ["孔(盲孔)"] if status == "confirmed" else [],
+        "match_mode": "any",
+        "status": status,
+        "confidence": 1.0,
+        "source": "user_confirmed",
+    }
+
+
 def test_group_template_preview_confirm_load_and_save_mappings(template_api_client):
     client = template_api_client
     payload = _template_xml()
@@ -163,6 +180,81 @@ def test_group_template_preview_confirm_load_and_save_mappings(template_api_clie
     assert current.status_code == 200
     assert current.json()["mappings"] == saved.json()["mappings"]
     assert "source_xml" not in current.json()
+
+
+def test_step_mapping_save_keeps_legacy_operation_aliases_separate(template_api_client):
+    client = template_api_client
+    payload = _template_xml()
+    preview = client.post(
+        "/api/extract/group-templates/preview",
+        files={"file": ("template.xml", payload, "application/xml")},
+    ).json()
+    created = client.put(
+        "/api/extract/group-templates/current",
+        data={
+            "project_id": str(client.project_id),
+            "expected_content_hash": preview["content_hash"],
+            "expected_template_revision": "0",
+        },
+        files={"file": ("template.xml", payload, "application/xml")},
+    ).json()
+
+    saved = client.put(
+        "/api/extract/group-templates/step-mappings",
+        json={
+            "project_id": client.project_id,
+            "expected_template_revision": created["template_revision"],
+            "mappings": [_step_mapping()],
+        },
+    )
+
+    assert saved.status_code == 200
+    row = saved.json()["step_mappings"][0]
+    assert row["source_step_key"] == "op_11_s01"
+    assert row["source_step_text_hash"].startswith("sha256:")
+    assert row["template_group_key"].startswith("grp_")
+    assert row["candidate_features"] == ["孔(盲孔)"]
+    assert saved.json()["mappings"] == []
+
+
+def test_step_mapping_save_rejects_parent_targets_and_forged_features(template_api_client):
+    client = template_api_client
+    payload = _template_xml()
+    preview = client.post(
+        "/api/extract/group-templates/preview",
+        files={"file": ("template.xml", payload, "application/xml")},
+    ).json()
+    created = client.put(
+        "/api/extract/group-templates/current",
+        data={
+            "project_id": str(client.project_id),
+            "expected_content_hash": preview["content_hash"],
+            "expected_template_revision": "0",
+        },
+        files={"file": ("template.xml", payload, "application/xml")},
+    ).json()
+
+    parent = client.put(
+        "/api/extract/group-templates/step-mappings",
+        json={
+            "project_id": client.project_id,
+            "expected_template_revision": created["template_revision"],
+            "mappings": [_step_mapping(["A侧"])],
+        },
+    )
+    forged = client.put(
+        "/api/extract/group-templates/step-mappings",
+        json={
+            "project_id": client.project_id,
+            "expected_template_revision": created["template_revision"],
+            "mappings": [{**_step_mapping(), "candidate_features": ["不存在的特征"]}],
+        },
+    )
+
+    assert parent.status_code == 422
+    assert parent.json()["detail"] == "工步正式映射必须指向具有合法特征的叶子分组。"
+    assert forged.status_code == 422
+    assert forged.json()["detail"] == "候选特征不属于目标叶子分组。"
 
 
 def test_group_template_confirm_rejects_hash_mismatch_invalid_preview_and_stale_revision(template_api_client):
@@ -282,6 +374,26 @@ async def test_replacement_preserves_only_an_exact_path_and_refreshes_server_met
         assert replacement.mappings[0].template_group_id == replacement.mappings[0].template_group_key
         assert replacement.mappings[0].feature_selections == ["孔(通孔)"]
         await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_step_mappings_allow_many_targets_and_explicit_not_applicable(template_store):
+    _, sessions = template_store
+    project_id = await _create_project(sessions)
+    async with sessions() as db:
+        await commit_project_group_template(db, project_id, _parsed("a.xml"), expected_revision=0)
+        saved = await replace_project_group_step_mappings(
+            db,
+            project_id,
+            [
+                _step_mapping(),
+                _step_mapping(step_order=2, step_name="检验", status="not_applicable"),
+            ],
+            expected_revision=1,
+        )
+
+    assert [item.status for item in saved.step_mappings] == ["confirmed", "not_applicable"]
+    assert saved.step_mappings[1].template_group_path == []
 
 
 @pytest.mark.asyncio
@@ -412,11 +524,11 @@ async def test_schema_maintenance_is_idempotent_and_preserves_existing_template(
         row = (
             await conn.execute(
                 text(
-                    "SELECT original_filename, template_revision, mappings_json "
+                    "SELECT original_filename, template_revision, mappings_json, step_mappings_json "
                     "FROM project_group_templates WHERE project_id = :project_id"
                 ),
                 {"project_id": project_id},
             )
         ).one()
 
-    assert row == ("preserved.xml", 1, "[]")
+    assert row == ("preserved.xml", 1, "[]", "[]")

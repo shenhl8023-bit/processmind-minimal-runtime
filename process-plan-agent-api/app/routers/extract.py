@@ -31,6 +31,7 @@ from app.schemas.schemas import (
     FinalizedRulePackageSaveRequest,
     GroupTemplateCommitOut,
     GroupTemplateMappingsUpdateRequest,
+    GroupTemplateStepMappingsUpdateRequest,
     GroupTemplatePreviewOut,
     MergeSuggestionListOut,
     MergeSuggestionReviewRequest,
@@ -121,6 +122,7 @@ from app.services.project_group_templates import (
     commit_project_group_template,
     get_project_group_template,
     replace_project_group_mappings,
+    replace_project_group_step_mappings,
     serialize_project_group_template,
 )
 
@@ -223,6 +225,26 @@ async def save_group_template_mappings(
     await _ensure_project_exists(body.project_id, db)
     try:
         result = await replace_project_group_mappings(
+            db,
+            body.project_id,
+            body.mappings,
+            body.expected_template_revision,
+        )
+        await db.commit()
+        return asdict(result)
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.put("/group-templates/step-mappings", response_model=ProjectGroupTemplateOut)
+async def save_group_template_step_mappings(
+    body: GroupTemplateStepMappingsUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    await _ensure_project_exists(body.project_id, db)
+    try:
+        result = await replace_project_group_step_mappings(
             db,
             body.project_id,
             body.mappings,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+import hashlib
 import json
 from typing import Any
 
@@ -11,7 +12,11 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Project, ProjectGroupTemplate
-from app.services.group_template_xml import GroupTemplateParseResult, normalize_name
+from app.services.group_template_xml import (
+    GroupTemplateParseResult,
+    is_feature_mapping_target,
+    normalize_name,
+)
 
 
 REVISION_CONFLICT_DETAIL = "分组模板已在其他页面更新，请重新加载。"
@@ -29,6 +34,25 @@ class ProjectGroupMapping:
 
 
 @dataclass
+class ProjectGroupStepMapping:
+    source_operation_id: int
+    source_operation_name: str
+    source_step_key: str
+    source_step_order: int
+    source_step_name: str
+    source_step_text_hash: str
+    scope_template_group_path: list[str] = field(default_factory=list)
+    template_group_path: list[str] = field(default_factory=list)
+    candidate_features: list[str] = field(default_factory=list)
+    match_mode: str = "any"
+    status: str = "confirmed"
+    confidence: float = 1.0
+    source: str = "user_confirmed"
+    template_group_key: str = ""
+    template_group_name: str = ""
+
+
+@dataclass
 class ProjectTemplateSnapshot:
     project_id: int
     original_filename: str
@@ -39,6 +63,7 @@ class ProjectTemplateSnapshot:
     tree: list[dict[str, object]]
     validation_issues: list[dict[str, object]]
     mappings: list[ProjectGroupMapping]
+    step_mappings: list[ProjectGroupStepMapping]
     template_revision: int
     group_count: int
     feature_selection_count: int
@@ -50,6 +75,17 @@ class ProjectTemplateSnapshot:
 class TemplateCommitResult(ProjectTemplateSnapshot):
     kept_source_operation_ids: list[int] = field(default_factory=list)
     invalidated: list[ProjectGroupMapping] = field(default_factory=list)
+    kept_source_step_keys: list[str] = field(default_factory=list)
+    invalidated_step_mappings: list[ProjectGroupStepMapping] = field(default_factory=list)
+
+
+def stable_step_key(operation_id: int, step_order: int) -> str:
+    return f"op_{int(operation_id)}_s{int(step_order):02d}"
+
+
+def step_text_hash(value: object) -> str:
+    normalized = normalize_name(value)
+    return f"sha256:{hashlib.sha256(normalized.encode('utf-8')).hexdigest()}"
 
 
 def _canonical_path(path: list[str]) -> str:
@@ -86,6 +122,42 @@ def _mapping_snapshot(mapping: object) -> ProjectGroupMapping:
         template_group_name=str(_mapping_value(mapping, "template_group_name", "") or ""),
         template_group_path=[str(part) for part in path] if isinstance(path, list) else [],
         feature_selections=[str(item) for item in features] if isinstance(features, list) else [],
+    )
+
+
+def _step_mapping_snapshot(mapping: object) -> ProjectGroupStepMapping:
+    operation_id = int(_mapping_value(mapping, "source_operation_id", 0) or 0)
+    step_order = int(_mapping_value(mapping, "source_step_order", 0) or 0)
+    step_name = normalize_name(_mapping_value(mapping, "source_step_name", ""))
+    scope_path = _mapping_value(mapping, "scope_template_group_path", [])
+    target_path = _mapping_value(mapping, "template_group_path", [])
+    features = _mapping_value(mapping, "candidate_features", [])
+    return ProjectGroupStepMapping(
+        source_operation_id=operation_id,
+        source_operation_name=normalize_name(_mapping_value(mapping, "source_operation_name", "")),
+        source_step_key=str(
+            _mapping_value(mapping, "source_step_key", stable_step_key(operation_id, step_order))
+        ),
+        source_step_order=step_order,
+        source_step_name=step_name,
+        source_step_text_hash=str(
+            _mapping_value(mapping, "source_step_text_hash", step_text_hash(step_name))
+        ),
+        scope_template_group_path=[normalize_name(item) for item in scope_path]
+        if isinstance(scope_path, list)
+        else [],
+        template_group_path=[normalize_name(item) for item in target_path]
+        if isinstance(target_path, list)
+        else [],
+        candidate_features=[normalize_name(item) for item in features]
+        if isinstance(features, list)
+        else [],
+        match_mode=str(_mapping_value(mapping, "match_mode", "any")),
+        status=str(_mapping_value(mapping, "status", "confirmed")),
+        confidence=float(_mapping_value(mapping, "confidence", 1.0) or 0.0),
+        source=str(_mapping_value(mapping, "source", "user_confirmed")),
+        template_group_key=str(_mapping_value(mapping, "template_group_key", "")),
+        template_group_name=str(_mapping_value(mapping, "template_group_name", "")),
     )
 
 
@@ -127,7 +199,88 @@ def _resolve_mapping(mapping: object, index: dict[str, dict[str, object]]) -> Pr
     )
 
 
+def _resolve_step_mapping(
+    mapping: object,
+    index: dict[str, dict[str, object]],
+) -> ProjectGroupStepMapping:
+    operation_id = int(_mapping_value(mapping, "source_operation_id", 0) or 0)
+    operation_name = normalize_name(_mapping_value(mapping, "source_operation_name", ""))
+    step_order = int(_mapping_value(mapping, "source_step_order", 0) or 0)
+    step_name = normalize_name(_mapping_value(mapping, "source_step_name", ""))
+    status = str(_mapping_value(mapping, "status", "confirmed"))
+    confidence = float(_mapping_value(mapping, "confidence", 1.0) or 0.0)
+    source = str(_mapping_value(mapping, "source", "user_confirmed"))
+    key = stable_step_key(operation_id, step_order)
+    text_hash = step_text_hash(step_name)
+
+    if status == "not_applicable":
+        return ProjectGroupStepMapping(
+            source_operation_id=operation_id,
+            source_operation_name=operation_name,
+            source_step_key=key,
+            source_step_order=step_order,
+            source_step_name=step_name,
+            source_step_text_hash=text_hash,
+            status=status,
+            confidence=confidence,
+            source=source,
+        )
+
+    requested_path = _mapping_value(mapping, "template_group_path", [])
+    if not isinstance(requested_path, list):
+        raise HTTPException(422, "工步正式映射必须指向具有合法特征的叶子分组。")
+    target = index.get(_canonical_path([str(item) for item in requested_path]))
+    if target is None or not is_feature_mapping_target(target):
+        raise HTTPException(422, "工步正式映射必须指向具有合法特征的叶子分组。")
+
+    requested_features_raw = _mapping_value(mapping, "candidate_features", [])
+    requested_features = {
+        normalize_name(item)
+        for item in requested_features_raw
+        if normalize_name(item)
+    } if isinstance(requested_features_raw, list) else set()
+    node_features = [
+        normalize_name(item)
+        for item in target.get("feature_selections", [])
+        if normalize_name(item)
+    ]
+    if not requested_features or not requested_features.issubset(set(node_features)):
+        raise HTTPException(422, "候选特征不属于目标叶子分组。")
+
+    scope_path_raw = _mapping_value(mapping, "scope_template_group_path", [])
+    scope_path = (
+        [normalize_name(item) for item in scope_path_raw]
+        if isinstance(scope_path_raw, list)
+        else []
+    )
+    target_path = [normalize_name(item) for item in target.get("path", [])]
+    if scope_path and target_path[:len(scope_path)] != scope_path:
+        raise HTTPException(422, "目标叶子不在所选父分组范围内。")
+
+    return ProjectGroupStepMapping(
+        source_operation_id=operation_id,
+        source_operation_name=operation_name,
+        source_step_key=key,
+        source_step_order=step_order,
+        source_step_name=step_name,
+        source_step_text_hash=text_hash,
+        scope_template_group_path=scope_path,
+        template_group_path=target_path,
+        candidate_features=[item for item in node_features if item in requested_features],
+        match_mode="any",
+        status="confirmed",
+        confidence=confidence,
+        source=source,
+        template_group_key=str(target.get("key", "")),
+        template_group_name=str(target.get("name", "")),
+    )
+
+
 def _mapping_dicts(mappings: list[ProjectGroupMapping]) -> list[dict[str, object]]:
+    return [asdict(mapping) for mapping in mappings]
+
+
+def _step_mapping_dicts(mappings: list[ProjectGroupStepMapping]) -> list[dict[str, object]]:
     return [asdict(mapping) for mapping in mappings]
 
 
@@ -142,6 +295,10 @@ def serialize_project_group_template(row: ProjectGroupTemplate) -> ProjectTempla
         tree=_json_list(row.tree_json),
         validation_issues=_json_list(row.validation_json),
         mappings=[_mapping_snapshot(mapping) for mapping in _json_list(row.mappings_json)],
+        step_mappings=[
+            _step_mapping_snapshot(mapping)
+            for mapping in _json_list(getattr(row, "step_mappings_json", "[]"))
+        ],
         template_revision=int(row.template_revision),
         group_count=int(row.group_count),
         feature_selection_count=int(row.feature_selection_count),
@@ -209,12 +366,12 @@ async def commit_project_group_template(
                     INSERT OR IGNORE INTO project_group_templates (
                         project_id, original_filename, source_encoding, part_filename,
                         content_hash, feature_dictionary_version, source_xml, tree_json,
-                        validation_json, mappings_json, template_revision, group_count,
+                        validation_json, mappings_json, step_mappings_json, template_revision, group_count,
                         feature_selection_count
                     )
                     SELECT :project_id, :original_filename, :source_encoding, :part_filename,
                            :content_hash, :feature_dictionary_version, :source_xml, :tree_json,
-                           :validation_json, '[]', 1, :group_count, :feature_selection_count
+                           :validation_json, '[]', '[]', 1, :group_count, :feature_selection_count
                     FROM projects WHERE id = :project_id
                     RETURNING id
                 """),
@@ -242,6 +399,13 @@ async def commit_project_group_template(
             invalidated.append(_mapping_snapshot(old_mapping))
         else:
             migrated.append(resolved)
+    migrated_steps: list[ProjectGroupStepMapping] = []
+    invalidated_steps: list[ProjectGroupStepMapping] = []
+    for old_mapping in _json_list(current.step_mappings_json):
+        try:
+            migrated_steps.append(_resolve_step_mapping(old_mapping, new_index))
+        except HTTPException:
+            invalidated_steps.append(_step_mapping_snapshot(old_mapping))
 
     revision = (
         await db.execute(
@@ -256,6 +420,7 @@ async def commit_project_group_template(
                     tree_json = :tree_json,
                     validation_json = :validation_json,
                     mappings_json = :mappings_json,
+                    step_mappings_json = :step_mappings_json,
                     group_count = :group_count,
                     feature_selection_count = :feature_selection_count,
                     template_revision = template_revision + 1,
@@ -267,6 +432,7 @@ async def commit_project_group_template(
                 "project_id": project_id,
                 "expected_revision": expected_revision,
                 "mappings_json": _json_dump(_mapping_dicts(migrated)),
+                "step_mappings_json": _json_dump(_step_mapping_dicts(migrated_steps)),
                 **values,
             },
         )
@@ -278,6 +444,8 @@ async def commit_project_group_template(
         **snapshot.__dict__,
         kept_source_operation_ids=[mapping.source_operation_id for mapping in migrated],
         invalidated=invalidated,
+        kept_source_step_keys=sorted({mapping.source_step_key for mapping in migrated_steps}),
+        invalidated_step_mappings=invalidated_steps,
     )
 
 
@@ -312,6 +480,54 @@ async def replace_project_group_mappings(
                 "project_id": project_id,
                 "expected_revision": expected_revision,
                 "mappings_json": _json_dump(_mapping_dicts(resolved)),
+            },
+        )
+    ).scalar_one_or_none()
+    if revision is None:
+        raise _conflict()
+    return await _fresh_snapshot(db, project_id)
+
+
+async def replace_project_group_step_mappings(
+    db: AsyncSession,
+    project_id: int,
+    mappings: list[object],
+    expected_revision: int,
+) -> ProjectTemplateSnapshot:
+    current = await get_project_group_template(db, project_id)
+    if current is None or int(current.template_revision) != expected_revision:
+        raise _conflict()
+    index = _path_index(_json_list(current.tree_json))
+    resolved: list[ProjectGroupStepMapping] = []
+    seen_targets: set[tuple[str, str]] = set()
+    statuses: dict[str, set[str]] = {}
+    for mapping in mappings:
+        server_mapping = _resolve_step_mapping(mapping, index)
+        statuses.setdefault(server_mapping.source_step_key, set()).add(server_mapping.status)
+        target_key = _canonical_path(server_mapping.template_group_path)
+        dedupe_key = (server_mapping.source_step_key, target_key)
+        if dedupe_key in seen_targets:
+            continue
+        seen_targets.add(dedupe_key)
+        resolved.append(server_mapping)
+
+    if any(len(step_statuses) > 1 for step_statuses in statuses.values()):
+        raise HTTPException(422, "同一工步不能同时确认映射和标记为不依赖模板特征。")
+
+    revision = (
+        await db.execute(
+            text("""
+                UPDATE project_group_templates
+                SET step_mappings_json = :step_mappings_json,
+                    template_revision = template_revision + 1,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE project_id = :project_id AND template_revision = :expected_revision
+                RETURNING template_revision
+            """),
+            {
+                "project_id": project_id,
+                "expected_revision": expected_revision,
+                "step_mappings_json": _json_dump(_step_mapping_dicts(resolved)),
             },
         )
     ).scalar_one_or_none()

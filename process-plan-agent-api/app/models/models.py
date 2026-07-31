@@ -72,6 +72,7 @@ class ProjectGroupTemplate(Base):
     tree_json = Column(Text, nullable=False)
     validation_json = Column(Text, nullable=False, default="[]")
     mappings_json = Column(Text, nullable=False, default="[]")
+    step_mappings_json = Column(Text, nullable=False, default="[]")
     template_revision = Column(Integer, nullable=False, default=1, server_default="1")
     group_count = Column(Integer, nullable=False, default=0)
     feature_selection_count = Column(Integer, nullable=False, default=0)

@@ -4,7 +4,7 @@ Pydantic 响应与请求模型
 from pydantic import BaseModel, Field, model_serializer
 
 from app.services.rule_packages.condition_contracts import RuleConditionReview
-from typing import Optional, List, Any, Dict
+from typing import Optional, List, Any, Dict, Literal
 from datetime import datetime
 
 
@@ -207,6 +207,27 @@ class GroupTemplateMappingOut(GroupTemplateMappingIn):
     feature_selections: List[str] = Field(default_factory=list)
 
 
+class GroupTemplateStepMappingIn(BaseModel):
+    source_operation_id: int = Field(gt=0)
+    source_operation_name: str = Field(min_length=1, max_length=255)
+    source_step_order: int = Field(ge=1)
+    source_step_name: str = Field(min_length=1, max_length=500)
+    scope_template_group_path: List[str] = Field(default_factory=list)
+    template_group_path: List[str] = Field(default_factory=list)
+    candidate_features: List[str] = Field(default_factory=list)
+    match_mode: Literal["any"] = "any"
+    status: Literal["confirmed", "not_applicable"] = "confirmed"
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    source: Literal["user_confirmed", "auto_confirmed", "legacy_migrated"] = "user_confirmed"
+
+
+class GroupTemplateStepMappingOut(GroupTemplateStepMappingIn):
+    source_step_key: str
+    source_step_text_hash: str
+    template_group_key: str = ""
+    template_group_name: str = ""
+
+
 class GroupTemplatePreviewOut(BaseModel):
     original_filename: str
     source_encoding: str = ""
@@ -230,6 +251,7 @@ class ProjectGroupTemplateOut(BaseModel):
     tree: List[GroupTemplateNodeOut] = Field(default_factory=list)
     validation_issues: List[GroupTemplateValidationIssueOut] = Field(default_factory=list)
     mappings: List[GroupTemplateMappingOut] = Field(default_factory=list)
+    step_mappings: List[GroupTemplateStepMappingOut] = Field(default_factory=list)
     template_revision: int
     group_count: int = 0
     feature_selection_count: int = 0
@@ -240,12 +262,20 @@ class ProjectGroupTemplateOut(BaseModel):
 class GroupTemplateCommitOut(ProjectGroupTemplateOut):
     kept_source_operation_ids: List[int] = Field(default_factory=list)
     invalidated: List[GroupTemplateMappingOut] = Field(default_factory=list)
+    kept_source_step_keys: List[str] = Field(default_factory=list)
+    invalidated_step_mappings: List[GroupTemplateStepMappingOut] = Field(default_factory=list)
 
 
 class GroupTemplateMappingsUpdateRequest(BaseModel):
     project_id: int = Field(gt=0)
     expected_template_revision: int = Field(ge=1)
     mappings: List[GroupTemplateMappingIn] = Field(default_factory=list)
+
+
+class GroupTemplateStepMappingsUpdateRequest(BaseModel):
+    project_id: int = Field(gt=0)
+    expected_template_revision: int = Field(ge=1)
+    mappings: List[GroupTemplateStepMappingIn] = Field(default_factory=list)
 
 
 class TemplateGroupMappingCandidateIn(BaseModel):

@@ -65,6 +65,7 @@ async def ensure_project_schema(conn):
             tree_json TEXT NOT NULL,
             validation_json TEXT NOT NULL DEFAULT '[]',
             mappings_json TEXT NOT NULL DEFAULT '[]',
+            step_mappings_json TEXT NOT NULL DEFAULT '[]',
             template_revision INTEGER NOT NULL DEFAULT 1,
             group_count INTEGER NOT NULL DEFAULT 0,
             feature_selection_count INTEGER NOT NULL DEFAULT 0,
@@ -77,6 +78,11 @@ async def ensure_project_schema(conn):
         CREATE UNIQUE INDEX IF NOT EXISTS uq_project_group_templates_project
         ON project_group_templates(project_id)
     """))
+    await ensure_column(
+        "project_group_templates",
+        "step_mappings_json",
+        "step_mappings_json TEXT NOT NULL DEFAULT '[]'",
+    )
     await conn.execute(text("""
         CREATE TABLE IF NOT EXISTS schema_migrations (
             name VARCHAR(100) PRIMARY KEY,
