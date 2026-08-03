@@ -189,7 +189,7 @@
 
               <div v-if="activeLeaf" class="tgmd-operation-scroll">
                 <p class="tgmd-feature-summary">特征选择：{{ activeLeaf.feature_selections.join('、') }}</p>
-                <article v-for="operation in mappingOperations" :key="operationId(operation)" class="tgmd-operation-card">
+                <article v-for="operation in visibleMappingOperations" :key="operationId(operation)" class="tgmd-operation-card">
                   <button class="tgmd-operation-toggle" type="button" @click="toggleOperationExpanded(operationId(operation))">
                     <ArrowRight :class="{ open: operationExpanded(operationId(operation)) }" />
                     <strong>{{ operation.name }}</strong>
@@ -214,7 +214,7 @@
                 <button class="tgmd-show-excluded" type="button" @click="showExcludedSteps = !showExcludedSteps">
                   {{ showExcludedSteps ? '收起其它工步' : `显示其它工步（${classifiedSteps.excluded.length}）` }}
                 </button>
-                <div v-if="!mappingOperations.length" class="tgmd-empty">当前路线没有可关联的工步</div>
+                <div v-if="!visibleMappingOperations.length" class="tgmd-empty">当前路线没有可关联的工步</div>
               </div>
               <div v-else class="tgmd-empty">请选择一个具有特征选择的叶子分组进行编辑</div>
               <div v-if="activeLeaf && !activeLeafStepKeys.size" class="tgmd-unconfigured-hint">
@@ -244,6 +244,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import {
   ArrowRight,
+  Close,
   Delete,
   DocumentChecked,
   Link,
@@ -336,6 +337,9 @@ const stepRefs = computed(() => mappingOperations.value.flatMap(buildTemplateSte
 const routeFingerprint = computed(() => buildTemplateStepRouteFingerprint(mappingOperations.value))
 const classifiedSteps = computed(() => buildEligibleTemplateSteps(mappingOperations.value))
 const eligibleStepKeys = computed(() => new Set(classifiedSteps.value.eligible.map(step => step.step_key)))
+const visibleMappingOperations = computed(() => mappingOperations.value.filter(operation => (
+  visibleStepsForOperation(operation).length > 0
+)))
 const activeGroup = computed(() => (
   model.template.value
     ? findTemplateGroupByKey(model.template.value.tree, activeGroupKey.value)

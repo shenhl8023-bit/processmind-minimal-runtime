@@ -236,6 +236,7 @@ import {
   type TemplateOperation,
 } from '@/composables/templateGroupMapping'
 import { clearTemplateStepMappingDraft } from '@/composables/templateStepMapping'
+import { confirmedTemplateStepMappings } from '@/composables/templateGroupProcessMapping'
 import {
   buildRouteFullSetSectionsFromTree,
   buildRouteOperationNameCounts,
@@ -436,9 +437,9 @@ const templateAliasRouteFingerprint = computed(() => JSON.stringify(templateMapp
 const hasTemplateGroupAliases = computed(() => templateMappableOperations.value.some(operation => (
   Boolean(templateGroupAliases.value[String(operation.id)]?.alias)
 )))
-const templateStepMappingCount = computed(() => (
-  projectGroupTemplate.template.value?.step_mappings?.length || 0
-))
+const templateStepMappingCount = computed(() => confirmedTemplateStepMappings(
+  projectGroupTemplate.template.value?.step_mappings || [],
+).length)
 
 function scopedTemplateGroupAliases(aliases: Record<string, TemplateAliasBinding>) {
   const validIds = new Set(templateMappableOperations.value.map(operation => Number(operation.id)))
