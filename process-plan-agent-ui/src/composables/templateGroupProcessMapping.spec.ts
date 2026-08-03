@@ -5,6 +5,8 @@ import {
   buildEligibleTemplateSteps,
   featureLeafConfiguration,
   groupConfirmedMappingsByLeaf,
+  mappingRecord,
+  removeLeafMapping,
 } from './templateGroupProcessMapping'
 
 const leaf = (key: string, path: string[], features: string[]): GroupTemplateNode => ({
@@ -66,5 +68,17 @@ describe('templateGroupProcessMapping', () => {
     const result = featureLeafConfiguration(tree, [mapping(['A侧', '外环槽'])])
     expect(result.configured.map(item => item.key)).toEqual(['grp_outer'])
     expect(result.unconfigured.map(item => item.key)).toEqual(['grp_inner', 'grp_hole'])
+  })
+
+  it('removes one leaf edge without removing another leaf edge from the same step', () => {
+    const draft = mappingRecord([
+      mapping(['A侧', '外环槽']),
+      mapping(['A侧', '内环槽']),
+    ])
+
+    const result = removeLeafMapping(draft, 'grp_outer', tree)
+
+    expect(Object.values(result).map(item => item.template_group_path))
+      .toEqual([['A侧', '内环槽']])
   })
 })

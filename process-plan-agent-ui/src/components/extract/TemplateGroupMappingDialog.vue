@@ -146,10 +146,7 @@
 
         <template v-else-if="model.state.value === 'workspace' && model.template.value">
           <div v-if="recognizing || mappingWarnings.length" class="tgmd-smart-status" aria-live="polite">
-            <span v-if="recognizing">
-              <span class="tgmd-spinner" /> 正在识别工步 {{ recognitionProgress.completed }} / {{ recognitionProgress.total }}，可继续人工审核
-            </span>
-            <span v-else>已处理 {{ stepRefs.length - unresolvedSteps.length }} / {{ stepRefs.length }} 个工步</span>
+            <span v-if="recognizing"><span class="tgmd-spinner" /> 正在为当前叶子分组推荐加工工步</span>
             <span v-if="mappingWarnings.length" class="tgmd-smart-warning">{{ mappingWarnings.join('；') }}</span>
           </div>
 
@@ -157,7 +154,7 @@
             <section class="tgmd-pane tgmd-tree-pane">
               <header class="tgmd-pane-header">
                 <div><h3>模板分组</h3><span>{{ model.template.value.group_count }} 个分组</span></div>
-                <span>{{ mappedCount }} 条工步映射</span>
+                <span class="tgmd-group-progress">已配置 {{ leafConfiguration.configured.length }} / {{ leafCount }} 个叶子分组</span>
               </header>
               <div class="tgmd-tree-scroll">
                 <TemplateGroupTreeNode
@@ -166,84 +163,62 @@
                   :node="node"
                   :active-key="activeGroupKey"
                   :mapped-counts="mappedCounts"
+                  :configured-leaf-keys="configuredLeafKeys"
+                  :unconfigured-leaf-keys="unconfiguredLeafKeys"
                   @select="activeGroupKey = $event"
-                  @clear="clearLeafMappings"
                 />
               </div>
               <div v-if="activeGroup" class="tgmd-active-target">
-                <span>{{ isFeatureLeaf(activeGroup) ? '当前特征目标' : '当前识别范围' }}</span>
+                <span>{{ isFeatureLeaf(activeGroup) ? '当前叶子分组' : '分组汇总' }}</span>
                 <strong>{{ activeGroup.path.join(' / ') }}</strong>
-                <small v-if="!isFeatureLeaf(activeGroup)">包含 {{ activeTargets.length }} 个可用叶子特征</small>
+                <small v-if="!isFeatureLeaf(activeGroup)">
+                  包含 {{ descendantLeafCount(activeGroup) }} 个特征叶子，已配置 {{ descendantConfiguredCount(activeGroup) }} 个
+                </small>
               </div>
             </section>
 
-            <div class="tgmd-transfer-column">
-              <button
-                class="tgmd-transfer-button"
-                type="button"
-                :disabled="!activeGroup || !selectedStepKeys.length || recognizing"
-                :title="transferButtonTitle"
-                @click="applyActiveTarget"
-              >
-                <ArrowLeft />
-                <span v-if="selectedStepKeys.length">{{ selectedStepKeys.length }}</span>
-              </button>
-            </div>
-
             <section class="tgmd-pane tgmd-operation-pane">
               <header class="tgmd-pane-header tgmd-operation-header">
-                <div><h3>工序与工步</h3><span>待处理 {{ unresolvedSteps.length }} / {{ stepRefs.length }}</span></div>
+                <div><h3>关联加工工序</h3><span>{{ activeLeaf ? activeLeaf.path.join(' / ') : '请选择叶子分组' }}</span></div>
                 <div class="tgmd-operation-tools">
-                  <button class="tgmd-smart-button" type="button" :disabled="!unresolvedSteps.length || recognizing" @click="recognizeAllSteps">
-                    <MagicStick />{{ recognizing ? '识别中' : '重新识别未处理工步' }}
+                  <button class="tgmd-smart-button" type="button" :disabled="!activeLeaf || recognizing" @click="suggestActiveLeaf">
+                    <MagicStick />{{ recognizing ? '正在推荐' : '智能推荐当前分组' }}
                   </button>
                 </div>
               </header>
 
-              <div class="tgmd-operation-scroll">
-                <article
-                  v-for="operation in mappingOperations"
-                  :key="operationId(operation)"
-                  class="tgmd-operation-card"
-                >
+              <div v-if="activeLeaf" class="tgmd-operation-scroll">
+                <p class="tgmd-feature-summary">特征选择：{{ activeLeaf.feature_selections.join('、') }}</p>
+                <article v-for="operation in mappingOperations" :key="operationId(operation)" class="tgmd-operation-card">
                   <button class="tgmd-operation-toggle" type="button" @click="toggleOperationExpanded(operationId(operation))">
                     <ArrowRight :class="{ open: operationExpanded(operationId(operation)) }" />
                     <strong>{{ operation.name }}</strong>
-                    <span>{{ operationMappedSummary(operation) }}</span>
+                    <span>{{ operationActiveLeafSummary(operation) }}</span>
                   </button>
                   <div v-if="operationExpanded(operationId(operation))" class="tgmd-step-list">
                     <div
-                      v-for="step in stepRefsForOperation(operation)"
+                      v-for="step in visibleStepsForOperation(operation)"
                       :key="step.step_key"
                       class="tgmd-step-row"
-                      :class="{ 'is-unresolved': stepIsUnresolved(step), 'is-selected': selectedStepKeys.includes(step.step_key) }"
+                      :class="{ 'is-selected': activeLeafStepKeys.has(step.step_key) }"
                     >
-                      <input type="checkbox" :checked="selectedStepKeys.includes(step.step_key)" @change="toggleStep(step.step_key)">
+                      <input type="checkbox" :checked="activeLeafStepKeys.has(step.step_key)" @change="toggleActiveLeafStep(step)">
                       <span class="tgmd-step-order">{{ step.step_order }}</span>
                       <div class="tgmd-step-content">
                         <strong>{{ step.step_name }}</strong>
-                        <div v-if="stepMappings(step).length" class="tgmd-step-mappings">
-                          <span v-for="mapping in stepMappings(step)" :key="stepMappingKey(mapping)" :class="{ 'is-skipped': mapping.status === 'not_applicable' }">
-                            {{ mapping.status === 'not_applicable' ? '不依赖模板特征' : mapping.template_group_path.join(' / ') }}
-                            <button type="button" title="移除" @click="removeStepMapping(mapping)"><Close /></button>
-                          </span>
-                        </div>
-                        <div v-if="stepSuggestion(step)?.candidates.length && stepIsUnresolved(step)" class="tgmd-candidates">
-                        <button
-                          v-for="candidate in stepSuggestion(step)!.candidates"
-                          :key="candidate.group_id"
-                          type="button"
-                          :title="candidate.reason"
-                          @click="applyCandidateToStep(step, candidate.group_id)"
-                        >{{ candidate.path.join(' / ') }}</button>
+                        <small>{{ activeLeafStepKeys.has(step.step_key) ? '已关联当前叶子分组' : '可关联当前叶子分组' }}</small>
                       </div>
-                        <small v-else-if="stepIsUnresolved(step)" class="tgmd-step-warning">请选择模板特征，或标记为不依赖</small>
-                      </div>
-                      <button class="tgmd-skip-step" type="button" @click="markStepNotApplicable(step)">不依赖模板特征</button>
                     </div>
                   </div>
                 </article>
-                <div v-if="!mappingOperations.length" class="tgmd-empty">当前路线没有可审核的工步</div>
+                <button class="tgmd-show-excluded" type="button" @click="showExcludedSteps = !showExcludedSteps">
+                  {{ showExcludedSteps ? '收起其它工步' : `显示其它工步（${classifiedSteps.excluded.length}）` }}
+                </button>
+                <div v-if="!mappingOperations.length" class="tgmd-empty">当前路线没有可关联的工步</div>
+              </div>
+              <div v-else class="tgmd-empty">请选择一个具有特征选择的叶子分组进行编辑</div>
+              <div v-if="activeLeaf && !activeLeafStepKeys.size" class="tgmd-unconfigured-hint">
+                当前叶子尚未关联工步，可直接继续保存，或使用智能推荐辅助选择。
               </div>
             </section>
           </main>
@@ -254,7 +229,7 @@
             </button>
             <div>
               <button class="btn btn-outline" type="button" :disabled="model.saving.value" @click="closeDialog">取消</button>
-              <button class="btn btn-primary" type="button" :disabled="model.saving.value || unresolvedSteps.length > 0" :title="unresolvedSteps.length ? `还有 ${unresolvedSteps.length} 个工步未处理` : ''" @click="saveStepMappings">
+              <button class="btn btn-primary" type="button" :disabled="model.saving.value || recognizing" @click="saveStepMappings">
                 <Link />{{ model.saving.value ? '正在保存' : '保存工步映射' }}
               </button>
             </div>
@@ -268,9 +243,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import {
-  ArrowLeft,
   ArrowRight,
-  Close,
   Delete,
   DocumentChecked,
   Link,
@@ -282,15 +255,14 @@ import {
 
 import {
   suggestTemplateStepMappings,
+  type GroupTemplateNode,
   type GroupTemplateStepMapping,
   type GroupTemplateStepMappingInput,
-  type TemplateStepMappingSuggestionResult,
 } from '@/api/extract'
 import TemplateGroupTreeNode from '@/components/extract/TemplateGroupTreeNode.vue'
 import {
   acceptTemplateGroupFile,
   findTemplateGroupByKey,
-  findTemplateGroupByPath,
   openTemplateGroupFilePicker,
   type TemplateAliasBinding,
   type TemplateOperation,
@@ -299,17 +271,20 @@ import {
   buildTemplateStepRefs,
   buildTemplateStepRouteFingerprint,
   clearTemplateStepMappingDraft,
-  createNotApplicableStepMapping,
   createTemplateStepMapping,
-  groupStepMappingsByStep,
   isFeatureLeaf,
   loadTemplateStepMappingDraft,
-  mappingTargetsForScope,
   saveTemplateStepMappingDraft,
   stepMappingKey,
-  unresolvedTemplateSteps,
   type TemplateStepRef,
 } from '@/composables/templateStepMapping'
+import {
+  buildEligibleTemplateSteps,
+  confirmedTemplateStepMappings,
+  featureLeafConfiguration,
+  groupConfirmedMappingsByLeaf,
+  mappingRecord,
+} from '@/composables/templateGroupProcessMapping'
 import { formatGroupTemplateIssueDetail, useProjectGroupTemplate } from '@/composables/useProjectGroupTemplate'
 
 const props = defineProps<{
@@ -332,14 +307,12 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const pendingFile = ref<File | null>(null)
 const transientError = ref('')
 const draftStepMappings = ref<Record<string, GroupTemplateStepMappingInput>>({})
-const selectedStepKeys = ref<string[]>([])
 const expandedOperationIds = ref<number[]>([])
 const activeGroupKey = ref('')
 const recognizing = ref(false)
-const recognitionProgress = ref({ completed: 0, total: 0 })
 const dialogRunId = ref(0)
 const mappingWarnings = ref<string[]>([])
-const stepSuggestions = ref<Record<string, TemplateStepMappingSuggestionResult>>({})
+const showExcludedSteps = ref(false)
 
 const visibleError = computed(() => transientError.value || model.error.value)
 const isReplacing = computed(() => Boolean(model.template.value))
@@ -361,28 +334,34 @@ const mappingOperations = computed(() => {
 })
 const stepRefs = computed(() => mappingOperations.value.flatMap(buildTemplateStepRefs))
 const routeFingerprint = computed(() => buildTemplateStepRouteFingerprint(mappingOperations.value))
-const groupedMappings = computed(() => groupStepMappingsByStep(draftStepMappings.value))
-const unresolvedSteps = computed(() => unresolvedTemplateSteps(stepRefs.value, draftStepMappings.value))
+const classifiedSteps = computed(() => buildEligibleTemplateSteps(mappingOperations.value))
+const eligibleStepKeys = computed(() => new Set(classifiedSteps.value.eligible.map(step => step.step_key)))
 const activeGroup = computed(() => (
   model.template.value
     ? findTemplateGroupByKey(model.template.value.tree, activeGroupKey.value)
     : null
 ))
-const activeTargets = computed(() => activeGroup.value ? mappingTargetsForScope(activeGroup.value) : [])
-const mappedCount = computed(() => Object.values(draftStepMappings.value).filter(item => item.status === 'confirmed').length)
-const mappedCounts = computed(() => Object.values(draftStepMappings.value).reduce<Record<string, number>>((counts, mapping) => {
-  if (mapping.status !== 'confirmed' || !model.template.value) return counts
-  const target = findTemplateGroupByPath(model.template.value.tree, mapping.template_group_path)
-  if (target) counts[target.key] = Number(counts[target.key] || 0) + 1
+const activeLeaf = computed(() => isFeatureLeaf(activeGroup.value) ? activeGroup.value : null)
+const mappingsByLeaf = computed(() => groupConfirmedMappingsByLeaf(
+  Object.values(draftStepMappings.value),
+  model.template.value?.tree || [],
+))
+const leafConfiguration = computed(() => featureLeafConfiguration(
+  model.template.value?.tree || [],
+  Object.values(draftStepMappings.value),
+))
+const leafCount = computed(() => leafConfiguration.value.configured.length + leafConfiguration.value.unconfigured.length)
+const configuredLeafKeys = computed(() => leafConfiguration.value.configured.map(leaf => leaf.key))
+const unconfiguredLeafKeys = computed(() => leafConfiguration.value.unconfigured.map(leaf => leaf.key))
+const activeLeafStepKeys = computed(() => new Set(
+  activeLeaf.value ? (mappingsByLeaf.value[activeLeaf.value.key] || []).map(mapping => (
+    `op_${mapping.source_operation_id}_s${String(mapping.source_step_order).padStart(2, '0')}`
+  )) : [],
+))
+const mappedCounts = computed(() => Object.entries(mappingsByLeaf.value).reduce<Record<string, number>>((counts, [key, mappings]) => {
+  counts[key] = mappings.length
   return counts
 }, {}))
-const transferButtonTitle = computed(() => {
-  if (!activeGroup.value) return '请先选择模板分组'
-  if (!selectedStepKeys.value.length) return '请先选择工步'
-  return isFeatureLeaf(activeGroup.value)
-    ? `映射到 ${activeGroup.value.path.join(' / ')}`
-    : `在 ${activeGroup.value.path.join(' / ')} 范围内识别`
-})
 
 watch(() => props.modelValue, async (visible) => {
   dialogRunId.value += 1
@@ -390,9 +369,8 @@ watch(() => props.modelValue, async (visible) => {
   transientError.value = ''
   pendingFile.value = null
   if (!visible) return
-  selectedStepKeys.value = []
   mappingWarnings.value = []
-  stepSuggestions.value = {}
+  showExcludedSteps.value = false
   const runId = dialogRunId.value
   await model.load()
   if (runId !== dialogRunId.value || !props.modelValue) return
@@ -411,15 +389,6 @@ function stepRefsForOperation(operation: TemplateOperation) {
   return buildTemplateStepRefs(operation)
 }
 
-function mappingRecord(mappings: GroupTemplateStepMappingInput[]) {
-  return Object.fromEntries(mappings.map(mapping => [stepMappingKey(mapping), {
-    ...mapping,
-    scope_template_group_path: [...mapping.scope_template_group_path],
-    template_group_path: [...mapping.template_group_path],
-    candidate_features: [...mapping.candidate_features],
-  }]))
-}
-
 function syncDraftFromTemplate() {
   const template = model.template.value
   if (!template) {
@@ -433,14 +402,11 @@ function syncDraftFromTemplate() {
     template.template_revision,
     routeFingerprint.value,
   )
-  draftStepMappings.value = mappingRecord(restored.length ? restored : formal)
+  draftStepMappings.value = mappingRecord(confirmedTemplateStepMappings(restored.length ? restored : formal))
   const activeStillExists = findTemplateGroupByKey(template.tree, activeGroupKey.value)
-  const firstScope = template.tree.find(node => mappingTargetsForScope(node).length > 0)
-  activeGroupKey.value = activeStillExists?.key || firstScope?.key || ''
+  const firstLeaf = [...leafConfiguration.value.configured, ...leafConfiguration.value.unconfigured][0]
+  activeGroupKey.value = activeStillExists?.key || firstLeaf?.key || ''
   expandedOperationIds.value = mappingOperations.value.slice(0, 3).map(operationId)
-  if (!Object.keys(draftStepMappings.value).length && stepRefs.value.length) {
-    void nextTick().then(() => recognizeAllSteps())
-  }
 }
 
 function formatBytes(size: number) {
@@ -524,177 +490,106 @@ function operationExpanded(id: number) {
   return expandedOperationIds.value.includes(id)
 }
 
-function toggleStep(stepKey: string) {
-  const selected = new Set(selectedStepKeys.value)
-  if (selected.has(stepKey)) selected.delete(stepKey)
-  else selected.add(stepKey)
-  selectedStepKeys.value = [...selected]
+function visibleStepsForOperation(operation: TemplateOperation) {
+  return stepRefsForOperation(operation).filter(step => (
+    showExcludedSteps.value || eligibleStepKeys.value.has(step.step_key)
+  ))
 }
 
-function stepMappings(step: TemplateStepRef) {
-  return groupedMappings.value[step.step_key] || []
+function operationActiveLeafSummary(operation: TemplateOperation) {
+  const steps = stepRefsForOperation(operation).filter(step => eligibleStepKeys.value.has(step.step_key))
+  const mapped = steps.filter(step => activeLeafStepKeys.value.has(step.step_key)).length
+  return `已关联 ${mapped}/${steps.length}`
 }
 
-function stepSuggestion(step: TemplateStepRef) {
-  return stepSuggestions.value[step.step_key] || null
+function descendantLeaves(node: GroupTemplateNode): GroupTemplateNode[] {
+  if (isFeatureLeaf(node)) return [node]
+  return node.children.flatMap(descendantLeaves)
 }
 
-function stepIsUnresolved(step: TemplateStepRef) {
-  return unresolvedSteps.value.some(item => item.step_key === step.step_key)
+function descendantLeafCount(node: GroupTemplateNode) {
+  return descendantLeaves(node).length
 }
 
-function operationMappedSummary(operation: TemplateOperation) {
-  const steps = stepRefsForOperation(operation)
-  const resolved = steps.filter(step => !stepIsUnresolved(step)).length
-  return `已处理 ${resolved}/${steps.length}`
+function descendantConfiguredCount(node: GroupTemplateNode) {
+  const configured = new Set(configuredLeafKeys.value)
+  return descendantLeaves(node).filter(leaf => configured.has(leaf.key)).length
 }
 
-function removeMappingsForStep(stepKey: string) {
-  Object.entries(draftStepMappings.value).forEach(([key, mapping]) => {
-    const keyForMapping = `op_${mapping.source_operation_id}_s${String(mapping.source_step_order).padStart(2, '0')}`
-    if (keyForMapping === stepKey) delete draftStepMappings.value[key]
-  })
-}
-
-function addMapping(mapping: GroupTemplateStepMappingInput) {
-  draftStepMappings.value[stepMappingKey(mapping)] = mapping
-}
-
-function mapStepToLeaf(
-  step: TemplateStepRef,
-  groupKey: string,
-  source: GroupTemplateStepMappingInput['source'] = 'user_confirmed',
-  confidence = 1,
-  scopePathOverride?: string[],
-) {
-  if (!model.template.value) return
-  const leaf = findTemplateGroupByKey(model.template.value.tree, groupKey)
-  if (!leaf || !isFeatureLeaf(leaf)) return
-  stepMappings(step).filter(mapping => mapping.status === 'not_applicable').forEach((mapping) => {
-    delete draftStepMappings.value[stepMappingKey(mapping)]
-  })
-  const scopePath = scopePathOverride || (activeGroup.value && !isFeatureLeaf(activeGroup.value)
-    ? activeGroup.value.path
-    : leaf.path.slice(0, -1))
-  addMapping(createTemplateStepMapping(step, leaf, scopePath, source, confidence))
-}
-
-function applyActiveTarget() {
-  if (!activeGroup.value || !selectedStepKeys.value.length) return
-  const selected = new Set(selectedStepKeys.value)
-  if (isFeatureLeaf(activeGroup.value)) {
-    stepRefs.value.filter(step => selected.has(step.step_key)).forEach(step => mapStepToLeaf(step, activeGroup.value!.key))
-    selectedStepKeys.value = []
-    persistStepDraft()
-    return
-  }
-  void recognizeSteps(selected, new Set(activeTargets.value.map(item => item.key)))
-}
-
-function applyCandidateToStep(step: TemplateStepRef, groupKey: string) {
-  mapStepToLeaf(step, groupKey)
-  persistStepDraft()
-}
-
-function markStepNotApplicable(step: TemplateStepRef) {
-  removeMappingsForStep(step.step_key)
-  addMapping(createNotApplicableStepMapping(step))
-  selectedStepKeys.value = selectedStepKeys.value.filter(key => key !== step.step_key)
-  persistStepDraft()
-}
-
-function removeStepMapping(mapping: GroupTemplateStepMappingInput) {
-  delete draftStepMappings.value[stepMappingKey(mapping)]
-  persistStepDraft()
-}
-
-function clearLeafMappings(groupKey: string) {
-  if (!model.template.value) return
-  const group = findTemplateGroupByKey(model.template.value.tree, groupKey)
-  if (!group) return
-  const path = JSON.stringify(group.path)
-  Object.entries(draftStepMappings.value).forEach(([key, mapping]) => {
-    if (JSON.stringify(mapping.template_group_path) === path) delete draftStepMappings.value[key]
-  })
+function toggleActiveLeafStep(step: TemplateStepRef) {
+  const leaf = activeLeaf.value
+  if (!leaf) return
+  const mapping = createTemplateStepMapping(step, leaf, leaf.path.slice(0, -1))
+  const key = stepMappingKey(mapping)
+  if (draftStepMappings.value[key]) delete draftStepMappings.value[key]
+  else draftStepMappings.value[key] = mapping
   persistStepDraft()
 }
 
 function clearMappings() {
   draftStepMappings.value = {}
-  selectedStepKeys.value = []
   persistStepDraft()
 }
 
-async function recognizeAllSteps() {
-  const targetKeys = new Set(unresolvedSteps.value.map(step => step.step_key))
-  if (targetKeys.size) await recognizeSteps(targetKeys)
-}
-
-async function recognizeSteps(targetStepKeys: Set<string>, allowedGroupIds?: Set<string>) {
-  if (recognizing.value || !model.template.value || !targetStepKeys.size) return
+async function suggestActiveLeaf() {
+  const leaf = activeLeaf.value
+  if (recognizing.value || !leaf || !model.template.value) return
   const runId = ++dialogRunId.value
   recognizing.value = true
   mappingWarnings.value = []
-  recognitionProgress.value = { completed: 0, total: targetStepKeys.size }
-  const recognitionScopePath = allowedGroupIds && activeGroup.value
-    ? [...activeGroup.value.path]
-    : undefined
-  const operations = mappingOperations.value.filter(operation => (
-    stepRefsForOperation(operation).some(step => targetStepKeys.has(step.step_key))
-  ))
+  const operations = mappingOperations.value
   try {
     const response = await suggestTemplateStepMappings({
       project_id: props.projectId,
       expected_template_revision: model.templateRevision.value,
+      target_group_id: leaf.key,
       operations: operations.map(operation => ({
         operation_id: operationId(operation),
         operation_name: operation.name,
-        step_items: operation.step_items || [],
+        // Keep original positions so the server's stable step keys still match the route.
+        step_items: (operation.step_items || []).map((step, index) => {
+          const ref = stepRefsForOperation(operation).find(item => item.step_order === index + 1)
+          return ref && eligibleStepKeys.value.has(ref.step_key) ? step : ''
+        }),
         rule_evidence: [],
         rule_reasons: [],
       })),
     })
     if (runId !== dialogRunId.value || !props.modelValue) return
     mappingWarnings.value = response.warnings || []
-    response.suggestions.filter(suggestion => targetStepKeys.has(suggestion.step_key)).forEach((suggestion) => {
-      const legalCandidates = suggestion.candidates.filter(candidate => !allowedGroupIds || allowedGroupIds.has(candidate.group_id))
-      const legalIds = new Set(legalCandidates.map(candidate => candidate.group_id))
-      const recommended = suggestion.recommended_group_ids.filter(groupId => legalIds.has(groupId))
-      stepSuggestions.value[suggestion.step_key] = {
-        ...suggestion,
-        candidates: legalCandidates,
-        recommended_group_ids: recommended,
-      }
+    response.suggestions.forEach((suggestion) => {
+      const recommended = suggestion.recommended_group_ids.filter(groupId => groupId === leaf.key)
       const step = stepRefs.value.find(item => item.step_key === suggestion.step_key)
-      if (!step || stepMappings(step).length || !recommended.length) return
-      recommended.forEach(groupId => mapStepToLeaf(
+      if (!step || activeLeafStepKeys.value.has(step.step_key) || !recommended.length) return
+      draftStepMappings.value[stepMappingKey(createTemplateStepMapping(
         step,
-        groupId,
+        leaf,
+        leaf.path.slice(0, -1),
         'auto_confirmed',
         suggestion.confidence,
-        recognitionScopePath,
-      ))
+      ))] = createTemplateStepMapping(step, leaf, leaf.path.slice(0, -1), 'auto_confirmed', suggestion.confidence)
     })
-    recognitionProgress.value.completed = targetStepKeys.size
     persistStepDraft()
-    selectedStepKeys.value = []
   } catch {
     if (runId !== dialogRunId.value || !props.modelValue) return
-    mappingWarnings.value = ['智能识别暂时不可用，已保留程序候选和人工操作。']
+    mappingWarnings.value = ['智能推荐暂时不可用，已保留当前映射和人工操作。']
   } finally {
     if (runId === dialogRunId.value && props.modelValue) recognizing.value = false
   }
 }
 
 async function saveStepMappings() {
-  if (unresolvedSteps.value.length) {
-    mappingWarnings.value = [`还有 ${unresolvedSteps.value.length} 个工步未处理。`]
-    return
-  }
-  model.draftStepMappings.value = Object.values(draftStepMappings.value)
+  const confirmed = confirmedTemplateStepMappings(Object.values(draftStepMappings.value))
+  const unconfigured = featureLeafConfiguration(
+    model.template.value?.tree || [],
+    confirmed,
+  ).unconfigured
+  mappingWarnings.value = unconfigured.length
+    ? [`仍有 ${unconfigured.length} 个叶子分组未配置，已按当前映射保存。`]
+    : []
+  model.draftStepMappings.value = confirmed
   await model.saveStepMappings()
   if (model.error.value || !model.template.value) {
-    syncDraftFromTemplate()
     return
   }
   clearTemplateStepMappingDraft(props.projectId)
@@ -776,7 +671,7 @@ function closeDialog() {
 
 .tgmd-smart-status { display: flex; justify-content: space-between; gap: 16px; padding: 7px 18px; border-bottom: 1px solid #bfdbfe; background: #eff6ff; color: #1e40af; font-size: 11px; }
 .tgmd-smart-warning { color: #92400e; }
-.tgmd-workspace { min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(300px, .9fr) 54px minmax(480px, 1.45fr); gap: 10px; padding: 12px; }
+.tgmd-workspace { min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(300px, .85fr) minmax(480px, 1.15fr); gap: 10px; padding: 12px; }
 .tgmd-pane { display: flex; flex-direction: column; overflow: hidden; }
 .tgmd-pane-header { min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-bottom: 1px solid #e2e8f0; }
 .tgmd-pane-header h3, .tgmd-pane-header span { margin: 0; }
@@ -786,6 +681,8 @@ function closeDialog() {
 .tgmd-active-target span { display: block; color: #64748b; font-size: 10px; }
 .tgmd-active-target strong { display: block; margin-top: 2px; color: #1d4ed8; font-size: 12px; overflow-wrap: anywhere; }
 .tgmd-active-target small { display: block; margin-top: 3px; color: #64748b; font-size: 10px; }
+.tgmd-feature-summary { margin: 0; padding: 9px 12px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; color: #64748b; font-size: 11px; }
+.tgmd-group-progress { color: #1d4ed8 !important; font-weight: 650; }
 .tgmd-group-mappings { max-height: 130px; overflow: auto; border-top: 1px solid #e2e8f0; }
 .tgmd-group-mappings > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 12px; font-size: 11px; }
 .tgmd-group-mappings button { width: 24px; height: 24px; display: grid; place-items: center; border: 0; background: transparent; color: #64748b; cursor: pointer; }
@@ -812,7 +709,7 @@ function closeDialog() {
 .tgmd-operation-toggle strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .tgmd-operation-toggle span { color: #64748b; font-size: 10px; }
 .tgmd-step-list { border-top: 1px solid #eef2f7; }
-.tgmd-step-row { min-height: 52px; display: grid; grid-template-columns: 18px 28px minmax(0, 1fr) auto; align-items: start; gap: 8px; padding: 9px 12px; border-bottom: 1px solid #f1f5f9; }
+.tgmd-step-row { min-height: 52px; display: grid; grid-template-columns: 18px 28px minmax(0, 1fr); align-items: start; gap: 8px; padding: 9px 12px; border-bottom: 1px solid #f1f5f9; }
 .tgmd-step-row:last-child { border-bottom: 0; }
 .tgmd-step-row.is-selected { background: #eff6ff; }
 .tgmd-step-row.is-unresolved { box-shadow: inset 3px 0 #f59e0b; background: #fffbeb; }
@@ -820,6 +717,7 @@ function closeDialog() {
 .tgmd-step-order { width: 28px; color: #64748b; font: 11px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
 .tgmd-step-content { min-width: 0; }
 .tgmd-step-content > strong { display: block; overflow-wrap: anywhere; font-size: 12px; line-height: 1.55; }
+.tgmd-step-content > small { display: block; margin-top: 3px; color: #64748b; font-size: 10px; }
 .tgmd-step-mappings { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
 .tgmd-step-mappings > span { max-width: 100%; display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px; border: 1px solid #86efac; border-radius: 3px; background: #f0fdf4; color: #166534; font-size: 10px; overflow-wrap: anywhere; }
 .tgmd-step-mappings > span.is-skipped { border-color: #cbd5e1; background: #f8fafc; color: #64748b; }
@@ -840,6 +738,9 @@ function closeDialog() {
 .tgmd-candidates { display: flex; flex-wrap: wrap; gap: 5px; }
 .tgmd-candidates button { max-width: 100%; padding: 4px 7px; border: 1px solid #bfdbfe; border-radius: 3px; background: #eff6ff; color: #1d4ed8; font-size: 10px; cursor: pointer; overflow-wrap: anywhere; }
 .tgmd-empty { padding: 32px 16px; color: #94a3b8; text-align: center; font-size: 12px; }
+.tgmd-show-excluded { margin: 10px 12px; padding: 7px 10px; border: 1px dashed #cbd5e1; border-radius: 4px; background: #fff; color: #475569; font-size: 11px; cursor: pointer; }
+.tgmd-show-excluded:hover { border-color: #94a3b8; background: #f8fafc; }
+.tgmd-unconfigured-hint { padding: 8px 12px; border-top: 1px solid #e2e8f0; background: #fffbeb; color: #92400e; font-size: 11px; }
 
 .tgmd-footer { min-height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 18px; border-top: 1px solid #dbe3ec; background: #fff; }
 .tgmd-clear-all { min-height: 34px; padding: 0 10px; border-radius: 4px; color: #b91c1c; }
@@ -854,8 +755,6 @@ function closeDialog() {
   .tgmd-preview-tree { min-height: 340px; }
   .tgmd-workspace { grid-template-columns: 1fr; overflow: auto; }
   .tgmd-pane { min-height: 360px; }
-  .tgmd-transfer-column { min-height: 42px; }
-  .tgmd-transfer-button { transform: rotate(-90deg); }
   .tgmd-operation-header { align-items: stretch; flex-direction: column; }
   .tgmd-operation-tools { width: 100%; }
   .tgmd-search { flex: 1; width: auto; }

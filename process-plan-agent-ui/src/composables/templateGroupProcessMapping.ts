@@ -1,6 +1,11 @@
 import type { GroupTemplateNode, GroupTemplateStepMappingInput } from '@/api/extract'
 import type { TemplateOperation } from './templateGroupMapping'
-import { buildTemplateStepRefs, isFeatureLeaf, type TemplateStepRef } from './templateStepMapping'
+import {
+  buildTemplateStepRefs,
+  isFeatureLeaf,
+  stepMappingKey,
+  type TemplateStepRef,
+} from './templateStepMapping'
 
 export type TemplateStepEligibility = 'eligible' | 'excluded'
 
@@ -71,4 +76,26 @@ export function featureLeafConfiguration(
 
 export function confirmedTemplateStepMappings(mappings: GroupTemplateStepMappingInput[]) {
   return mappings.filter(mapping => mapping.status === 'confirmed' && mapping.template_group_path.length > 0)
+}
+
+export function mappingRecord(mappings: GroupTemplateStepMappingInput[]) {
+  return Object.fromEntries(mappings.map(mapping => [stepMappingKey(mapping), {
+    ...mapping,
+    scope_template_group_path: [...mapping.scope_template_group_path],
+    template_group_path: [...mapping.template_group_path],
+    candidate_features: [...mapping.candidate_features],
+  }]))
+}
+
+export function removeLeafMapping(
+  mappings: Record<string, GroupTemplateStepMappingInput>,
+  leafKey: string,
+  tree: GroupTemplateNode[],
+) {
+  const leaf = flatten(tree).find(node => node.key === leafKey)
+  if (!leaf || !isFeatureLeaf(leaf)) return mappingRecord(Object.values(mappings))
+  const path = JSON.stringify(leaf.path)
+  return mappingRecord(Object.values(mappings).filter(mapping => (
+    JSON.stringify(mapping.template_group_path) !== path
+  )))
 }
