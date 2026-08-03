@@ -20,6 +20,7 @@ from app.models.models import (
     NormalizedRouteVersion,
     Operation,
     Project,
+    ProjectGroupTemplate,
     RouteMergeSnapshot,
 )
 from app.services.project_workflow_lifecycle import invalidate_project_workflow
@@ -100,7 +101,24 @@ async def _seed_project(db: AsyncSession, project_id: int) -> Project:
         route_json=json.dumps([{"id": "seg-1", "normalized_step_name": "标记"}], ensure_ascii=False),
     )
     operation = Operation(id=project_id * 100, project_id=project_id, name="标记", sequence=1)
-    db.add_all([project, route, operation])
+    group_template = ProjectGroupTemplate(
+        project_id=project_id,
+        original_filename="fixture.xml",
+        source_encoding="utf-8",
+        part_filename="fixture.prt",
+        content_hash="a" * 64,
+        feature_dictionary_version="b" * 64,
+        source_xml="<Kmsoft />",
+        tree_json="[]",
+        validation_json="[]",
+        mappings_json="[]",
+        step_mappings_json=json.dumps([
+            {"source_step_key": f"op_{project_id * 100}_s01"},
+            {"source_step_key": f"op_{project_id * 100}_s02"},
+        ]),
+        template_revision=4,
+    )
+    db.add_all([project, route, operation, group_template])
     await db.commit()
     db.add_all([
         Factor(operation_id=operation.id, name="是否标印"),
@@ -159,6 +177,11 @@ def test_step_two_invalidation_unlinks_packages_before_deleting_route_versions(w
             assert not (await db.execute(select(GeneratedRoute))).scalars().all()
             assert project.workflow_revision == 8
             assert result.archived_rule_package_versions == [1]
+            template = (await db.execute(select(ProjectGroupTemplate))).scalar_one()
+            assert result.deleted_template_step_mappings == 2
+            assert json.loads(template.step_mappings_json) == []
+            assert template.source_xml == "<Kmsoft />"
+            assert template.template_revision == 5
 
     asyncio.run(run())
 
@@ -179,6 +202,9 @@ def test_step_three_invalidation_preserves_route_but_clears_answers_and_downstre
             assert result.deleted_factor_reviews == 1
             assert result.deleted_rule_reviews == 1
             assert project.workflow_revision == 8
+            template = (await db.execute(select(ProjectGroupTemplate))).scalar_one()
+            assert len(json.loads(template.step_mappings_json)) == 2
+            assert template.template_revision == 4
 
     asyncio.run(run())
 
@@ -228,6 +254,9 @@ def test_step_four_invalidation_preserves_source_and_manual_boolean_rules(workfl
             assert result.reset_condition_reviews == 1
             assert result.preserved_manual_condition_reviews == 1
             assert project.workflow_revision == 8
+            template = (await db.execute(select(ProjectGroupTemplate))).scalar_one()
+            assert len(json.loads(template.step_mappings_json)) == 2
+            assert template.template_revision == 4
 
     asyncio.run(run())
 

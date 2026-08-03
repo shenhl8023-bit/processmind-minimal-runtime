@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 
 from fastapi import HTTPException
 from sqlalchemy import select, text
@@ -17,6 +18,7 @@ from app.models.models import (
     NormalizedRouteVersion,
     Operation,
     Project,
+    ProjectGroupTemplate,
     RouteMergeSnapshot,
 )
 
@@ -34,6 +36,7 @@ class WorkflowInvalidationResult:
     reset_condition_reviews: int = 0
     preserved_manual_condition_reviews: int = 0
     deleted_generated_routes: int = 0
+    deleted_template_step_mappings: int = 0
     archived_rule_package_versions: list[int] = field(default_factory=list)
 
 
@@ -148,6 +151,25 @@ async def invalidate_project_workflow(
     )
     next_revision = await _claim_next_workflow_revision(db, project_id, expected_revision)
     project.workflow_revision = next_revision
+    deleted_template_step_mappings = 0
+    if from_step == 2:
+        template = (
+            await db.execute(
+                select(ProjectGroupTemplate).where(ProjectGroupTemplate.project_id == project_id)
+            )
+        ).scalar_one_or_none()
+        if template is not None:
+            try:
+                stored_step_mappings = json.loads(template.step_mappings_json or "[]")
+            except (TypeError, ValueError):
+                stored_step_mappings = []
+            deleted_template_step_mappings = (
+                len(stored_step_mappings)
+                if isinstance(stored_step_mappings, list)
+                else 0
+            )
+            template.step_mappings_json = "[]"
+            template.template_revision = int(template.template_revision or 0) + 1
     packages = await _rows(db, FinalizedRulePackage, project_id)
     archived_versions: list[int] = []
     for package in packages:
@@ -224,5 +246,6 @@ async def invalidate_project_workflow(
         reset_condition_reviews=reset_condition_reviews,
         preserved_manual_condition_reviews=preserved_manual_condition_reviews,
         deleted_generated_routes=len(generated_routes),
+        deleted_template_step_mappings=deleted_template_step_mappings,
         archived_rule_package_versions=sorted(archived_versions),
     )

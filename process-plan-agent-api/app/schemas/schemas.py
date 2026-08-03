@@ -649,6 +649,7 @@ class WorkflowResetOut(BaseModel):
     reset_condition_reviews: int = 0
     preserved_manual_condition_reviews: int = 0
     deleted_generated_routes: int = 0
+    deleted_template_step_mappings: int = 0
     archived_rule_package_versions: List[int] = []
 
 
