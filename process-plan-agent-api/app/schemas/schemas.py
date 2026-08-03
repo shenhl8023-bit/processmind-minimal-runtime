@@ -319,6 +319,7 @@ class TemplateGroupMappingSuggestResponse(BaseModel):
 class TemplateStepMappingSuggestRequest(BaseModel):
     project_id: int = Field(gt=0)
     expected_template_revision: int = Field(ge=1)
+    target_group_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
     operations: List[TemplateGroupMappingOperationIn] = Field(default_factory=list)
 
 

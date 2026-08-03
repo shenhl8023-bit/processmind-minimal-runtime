@@ -541,8 +541,24 @@ async def resolve_template_step_mappings(
     if template_revision != body.expected_template_revision:
         raise HTTPException(409, REVISION_CONFLICT_DETAIL)
     tree = serialize_project_group_template(template_row).tree
+    target_group_id = _clean_text(body.target_group_id)
+    allowed_group_ids: set[str] | None = None
+    if target_group_id:
+        target = next(
+            (node for node in _flatten_template_nodes(tree) if node.get("key") == target_group_id),
+            None,
+        )
+        if target is None or not is_feature_mapping_target(target):
+            raise HTTPException(422, "智能推荐目标必须是具有合法特征的叶子分组。")
+        allowed_group_ids = {target_group_id}
     prepared = [
-        (step, candidates)
+        (
+            step,
+            [
+                candidate for candidate in candidates
+                if allowed_group_ids is None or candidate.group_id in allowed_group_ids
+            ],
+        )
         for operation in body.operations
         for step, candidates in prepare_step_candidates(operation, tree)
     ]

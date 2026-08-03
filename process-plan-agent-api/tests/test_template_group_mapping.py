@@ -2,6 +2,7 @@ import json
 
 import pytest
 import pytest_asyncio
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base, configure_sqlite_engine
@@ -191,6 +192,61 @@ async def test_step_model_failure_preserves_candidates_for_every_step(mapping_st
     assert [item.step_key for item in result.suggestions] == ["op_360_s01", "op_360_s02"]
     assert all(item.candidates for item in result.suggestions)
     assert result.model_used is False
+
+
+@pytest.mark.asyncio
+async def test_step_suggestions_scope_candidates_to_target_leaf(mapping_store, monkeypatch):
+    sessions, tree = mapping_store
+    hole_key = _node_key(tree, ["A侧", "孔"])
+
+    async def unavailable(*args, **kwargs):
+        raise RuntimeError("offline")
+
+    monkeypatch.setattr(template_group_mapping, "call_llm", unavailable)
+    async with sessions() as db:
+        result = await template_group_mapping.resolve_template_step_mappings(
+            db,
+            TemplateStepMappingSuggestRequest(
+                project_id=7,
+                expected_template_revision=1,
+                target_group_id=hole_key,
+                operations=[TemplateGroupMappingOperationIn(
+                    operation_id=1,
+                    operation_name="车削加工（A侧）",
+                    step_items=["钻孔", "车外圆"],
+                )],
+            ),
+        )
+
+    assert [candidate.group_id for candidate in result.suggestions[0].candidates] == [hole_key]
+    assert result.suggestions[1].candidates == []
+    assert result.model_used is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target_path", [["A侧"], None])
+async def test_step_suggestions_reject_non_feature_leaf_target(mapping_store, target_path):
+    sessions, tree = mapping_store
+    target_group_id = _node_key(tree, target_path) if target_path else "grp_missing"
+
+    async with sessions() as db:
+        with pytest.raises(HTTPException) as exc_info:
+            await template_group_mapping.resolve_template_step_mappings(
+                db,
+                TemplateStepMappingSuggestRequest(
+                    project_id=7,
+                    expected_template_revision=1,
+                    target_group_id=target_group_id,
+                    operations=[TemplateGroupMappingOperationIn(
+                        operation_id=1,
+                        operation_name="车削加工（A侧）",
+                        step_items=["钻孔"],
+                    )],
+                ),
+            )
+
+    assert exc_info.value.status_code == 422
+    assert "合法特征" in str(exc_info.value)
 
 
 @pytest.mark.asyncio

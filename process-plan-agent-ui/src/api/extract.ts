@@ -248,6 +248,7 @@ export interface TemplateGroupMappingSuggestResponse {
 export interface TemplateStepMappingSuggestRequest {
   project_id: number
   expected_template_revision: number
+  target_group_id?: string
   operations: TemplateGroupMappingOperationInput[]
 }
 
