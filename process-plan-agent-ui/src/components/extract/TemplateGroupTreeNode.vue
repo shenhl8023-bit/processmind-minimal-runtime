@@ -17,10 +17,17 @@
       </button>
       <span v-else class="tgtn-disclosure-placeholder" />
 
-      <button class="tgtn-main" type="button" :disabled="readonly" @click="$emit('select', node.key)">
+      <button
+        class="tgtn-main"
+        type="button"
+        :disabled="readonly || !selectableScope"
+        :title="featureLeaf ? '选择特征分组' : selectableScope ? '选择组合范围' : '没有可用特征叶子'"
+        @click="$emit('select', node.key)"
+      >
         <FolderOpened v-if="hasChildren" class="tgtn-kind-icon" />
         <Aim v-else class="tgtn-kind-icon" />
         <span class="tgtn-name">{{ node.name }}</span>
+        <span :class="['tgtn-role', featureLeaf ? 'is-feature' : 'is-scope']">{{ featureLeaf ? '特征' : '范围' }}</span>
         <span v-if="mappedCount" class="tgtn-count">{{ mappedCount }}</span>
       </button>
 
@@ -61,6 +68,7 @@ import { computed, ref } from 'vue'
 import { Aim, ArrowRight, Delete, FolderOpened } from '@element-plus/icons-vue'
 
 import type { TemplateGroupNode } from '@/composables/templateGroupMapping'
+import { descendantFeatureLeaves, isFeatureLeaf } from '@/composables/templateStepMapping'
 
 const props = withDefaults(defineProps<{
   node: TemplateGroupNode
@@ -82,6 +90,8 @@ defineEmits<{
 
 const expanded = ref(props.depth < 2)
 const hasChildren = computed(() => props.node.children.length > 0)
+const featureLeaf = computed(() => isFeatureLeaf(props.node))
+const selectableScope = computed(() => featureLeaf.value || descendantFeatureLeaves(props.node).length > 0)
 const mappedCount = computed(() => Number(props.mappedCounts[props.node.key] || 0))
 </script>
 
@@ -136,6 +146,9 @@ const mappedCount = computed(() => Number(props.mappedCounts[props.node.key] || 
 .tgtn-main:disabled { cursor: default; }
 .tgtn-kind-icon { width: 15px; height: 15px; flex: 0 0 auto; color: #64748b; }
 .tgtn-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.tgtn-role { flex: 0 0 auto; padding: 1px 5px; border-radius: 3px; font-size: 10px; }
+.tgtn-role.is-scope { background: #f1f5f9; color: #64748b; }
+.tgtn-role.is-feature { background: #dcfce7; color: #166534; }
 .tgtn-count { min-width: 22px; padding: 1px 6px; border-radius: 10px; background: #dbeafe; color: #1d4ed8; font-size: 11px; text-align: center; }
 
 .tgtn-features { max-width: 42%; display: flex; gap: 4px; overflow: hidden; }

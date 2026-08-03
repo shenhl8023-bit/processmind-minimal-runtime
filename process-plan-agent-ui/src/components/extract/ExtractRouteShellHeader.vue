@@ -23,6 +23,7 @@
         >
           <Connection class="icon-sm" />
           模板分组映射
+          <span v-if="templateMappingCount" class="route-shell-tool-count">{{ templateMappingCount }}</span>
         </button>
         <button
           class="btn btn-text btn-sm route-shell-tool"
@@ -61,6 +62,7 @@ const props = defineProps<{
   canEnter: boolean
   statusLabel: string
   hasTemplateAliases: boolean
+  templateMappingCount?: number
   showTemplateAliases: boolean
   notice?: string
 }>()
@@ -88,6 +90,16 @@ const isWarningNotice = computed(() =>
   background: #ffffff;
   box-shadow: 0 1.5px 5px rgba(15, 23, 42, 0.02);
   margin-bottom: 6px;
+}
+
+.route-shell-tool-count {
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 9px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 10px;
+  text-align: center;
 }
 
 .route-shell-info {

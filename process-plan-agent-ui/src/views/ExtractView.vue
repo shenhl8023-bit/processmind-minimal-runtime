@@ -47,6 +47,7 @@
         :can-enter="canEnterRouteFactorAnalysis"
         :status-label="routeMergeStatusLabel"
         :has-template-aliases="hasTemplateGroupAliases"
+        :template-mapping-count="templateStepMappingCount"
         :show-template-aliases="showTemplateAliasDetails"
         :notice="visibleRouteMergeNotice"
         @open-template-mapping="templateGroupMappingVisible = true"
@@ -226,7 +227,6 @@ import { useRouteMergeInteractionActions } from '@/composables/useRouteMergeInte
 import { useRouteMergeDisplayHelpers } from '@/composables/useRouteMergeDisplayHelpers'
 import {
   aliasesFromRouteSegments,
-  clearTemplateGroupMappingDraft,
   inferTemplateStepFamilyFromOperation,
   isTemplateMappableOperation,
   loadTemplateGroupMappingDraft,
@@ -235,6 +235,7 @@ import {
   type TemplateAliasBinding,
   type TemplateOperation,
 } from '@/composables/templateGroupMapping'
+import { clearTemplateStepMappingDraft } from '@/composables/templateStepMapping'
 import {
   buildRouteFullSetSectionsFromTree,
   buildRouteOperationNameCounts,
@@ -435,6 +436,9 @@ const templateAliasRouteFingerprint = computed(() => JSON.stringify(templateMapp
 const hasTemplateGroupAliases = computed(() => templateMappableOperations.value.some(operation => (
   Boolean(templateGroupAliases.value[String(operation.id)]?.alias)
 )))
+const templateStepMappingCount = computed(() => (
+  projectGroupTemplate.template.value?.step_mappings?.length || 0
+))
 
 function scopedTemplateGroupAliases(aliases: Record<string, TemplateAliasBinding>) {
   const validIds = new Set(templateMappableOperations.value.map(operation => Number(operation.id)))
@@ -491,16 +495,14 @@ function hydrateTemplateGroupAliases() {
   templateAliasesHydratedProjectId.value = currentProjectId
 }
 
-async function saveTemplateGroupMappings(payload: { mappings: Record<string, TemplateAliasBinding>; templateRevision: number }) {
+async function saveTemplateGroupMappings(payload: { stepMappings: import('@/api/extract').GroupTemplateStepMapping[]; templateRevision: number }) {
   if (!projectId.value) return
-  templateGroupAliases.value = scopedTemplateGroupAliases(payload.mappings)
-  clearTemplateGroupMappingDraft(projectId.value)
   lastSavedRouteResultFingerprint.value = ''
   await projectGroupTemplate.load()
   templateAliasesHydratedProjectId.value = projectId.value
-  routeMergeNotice.value = Object.keys(templateGroupAliases.value).length
-    ? '模板分组映射已保存，详细信息可查看工序别名。'
-    : '模板分组映射已清空。'
+  routeMergeNotice.value = payload.stepMappings.length
+    ? `模板工步映射已保存，共 ${payload.stepMappings.length} 条。`
+    : '模板工步映射已清空。'
 }
 
 function templateGroupAliasesForItem(item: { operationIds: number[] }) {
@@ -666,7 +668,10 @@ async function confirmRerunExtraction() {
   resettingFromStepTwo.value = true
   try {
     await startExtraction(true)
-    if (status.value !== 'error') resetDialogVisible.value = false
+    if (status.value !== 'error') {
+      clearTemplateStepMappingDraft(Number(projectId.value || 0))
+      resetDialogVisible.value = false
+    }
   } finally {
     resettingFromStepTwo.value = false
   }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { GroupTemplateNode } from '@/api/extract'
 import {
@@ -8,7 +8,9 @@ import {
   descendantFeatureLeaves,
   groupStepMappingsByStep,
   isFeatureLeaf,
+  loadTemplateStepMappingDraft,
   mappingTargetsForScope,
+  saveTemplateStepMappingDraft,
   stepMappingKey,
   unresolvedTemplateSteps,
 } from './templateStepMapping'
@@ -37,6 +39,7 @@ const tree: GroupTemplateNode[] = [{
 }]
 
 describe('templateStepMapping', () => {
+  afterEach(() => vi.unstubAllGlobals())
   it('builds stable one-based step refs', () => {
     expect(buildTemplateStepRefs({ id: 11, name: '车削A侧', step_items: ['平端面', '钻孔'] }))
       .toEqual([
@@ -75,5 +78,21 @@ describe('templateStepMapping', () => {
   it('uses a parent only to constrain descendant leaves', () => {
     expect(mappingTargetsForScope(tree[0]!).map(item => item.key)).toEqual(['grp_end', 'grp_hole'])
     expect(mappingTargetsForScope(tree[0]!.children[0]!).map(item => item.key)).toEqual(['grp_end'])
+  })
+
+  it('does not restore a draft after the route fingerprint changes', () => {
+    const values = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) || null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    })
+    const step = buildTemplateStepRefs({ id: 11, name: '车削A侧', step_items: ['钻孔'] })[0]!
+    const mapping = createTemplateStepMapping(step, tree[0]!.children[1]!, ['A侧'])
+
+    saveTemplateStepMappingDraft(28, 3, 'route-a', [mapping])
+
+    expect(loadTemplateStepMappingDraft(28, 3, 'route-a')).toEqual([mapping])
+    expect(loadTemplateStepMappingDraft(28, 3, 'route-b')).toEqual([])
   })
 })
