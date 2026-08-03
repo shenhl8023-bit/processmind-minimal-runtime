@@ -21,30 +21,23 @@
         class="tgtn-main"
         type="button"
         :disabled="readonly || !selectableScope"
-        :title="featureLeaf ? '选择特征分组' : selectableScope ? '选择组合范围' : '没有可用特征叶子'"
+        :title="featureLeaf ? '选择特征分组' : selectableScope ? '查看分组汇总' : '没有可用特征叶子'"
         @click="$emit('select', node.key)"
       >
         <FolderOpened v-if="hasChildren" class="tgtn-kind-icon" />
         <Aim v-else class="tgtn-kind-icon" />
         <span class="tgtn-name">{{ node.name }}</span>
-        <span :class="['tgtn-role', featureLeaf ? 'is-feature' : 'is-scope']">{{ featureLeaf ? '特征' : '范围' }}</span>
-        <span v-if="mappedCount" class="tgtn-count">{{ mappedCount }}</span>
+        <span :class="['tgtn-role', featureLeaf ? 'is-feature' : 'is-scope']">{{ featureLeaf ? '特征' : '分组' }}</span>
+        <span v-if="featureLeaf && configuredLeafKeys.includes(node.key)" class="tgtn-status is-configured">
+          已配置 {{ mappedCount }}
+        </span>
+        <span v-else-if="featureLeaf && unconfiguredLeafKeys.includes(node.key)" class="tgtn-status is-unconfigured">未配置</span>
       </button>
 
       <div v-if="node.feature_selections.length" class="tgtn-features">
         <span v-for="feature in node.feature_selections" :key="feature" class="tgtn-feature">{{ feature }}</span>
       </div>
 
-      <button
-        v-if="!readonly && mappedCount"
-        class="tgtn-clear"
-        type="button"
-        title="清空该分组的映射"
-        aria-label="清空该分组的映射"
-        @click="$emit('clear', node.key)"
-      >
-        <Delete />
-      </button>
     </div>
 
     <div v-if="hasChildren && expanded" class="tgtn-children">
@@ -54,10 +47,11 @@
         :node="child"
         :active-key="activeKey"
         :mapped-counts="mappedCounts"
+        :configured-leaf-keys="configuredLeafKeys"
+        :unconfigured-leaf-keys="unconfiguredLeafKeys"
         :readonly="readonly"
         :depth="depth + 1"
         @select="$emit('select', $event)"
-        @clear="$emit('clear', $event)"
       />
     </div>
   </div>
@@ -65,7 +59,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Aim, ArrowRight, Delete, FolderOpened } from '@element-plus/icons-vue'
+import { Aim, ArrowRight, FolderOpened } from '@element-plus/icons-vue'
 
 import type { TemplateGroupNode } from '@/composables/templateGroupMapping'
 import { descendantFeatureLeaves, isFeatureLeaf } from '@/composables/templateStepMapping'
@@ -74,18 +68,21 @@ const props = withDefaults(defineProps<{
   node: TemplateGroupNode
   activeKey?: string
   mappedCounts?: Record<string, number>
+  configuredLeafKeys?: string[]
+  unconfiguredLeafKeys?: string[]
   readonly?: boolean
   depth?: number
 }>(), {
   activeKey: '',
   mappedCounts: () => ({}),
+  configuredLeafKeys: () => [],
+  unconfiguredLeafKeys: () => [],
   readonly: false,
   depth: 0,
 })
 
 defineEmits<{
   (event: 'select', key: string): void
-  (event: 'clear', key: string): void
 }>()
 
 const expanded = ref(props.depth < 2)
@@ -111,8 +108,7 @@ const mappedCount = computed(() => Number(props.mappedCounts[props.node.key] || 
 .tgtn-row-active { border-left-color: #2563eb; background: #eff6ff; color: #1d4ed8; }
 .tgtn-row-readonly:hover { background: transparent; }
 
-.tgtn-disclosure,
-.tgtn-clear {
+.tgtn-disclosure {
   width: 28px;
   height: 28px;
   display: grid;
@@ -123,8 +119,7 @@ const mappedCount = computed(() => Number(props.mappedCounts[props.node.key] || 
   cursor: pointer;
 }
 
-.tgtn-disclosure svg,
-.tgtn-clear svg { width: 15px; height: 15px; }
+.tgtn-disclosure svg { width: 15px; height: 15px; }
 .tgtn-disclosure svg { transition: transform 160ms ease; }
 .tgtn-disclosure-open { transform: rotate(90deg); }
 .tgtn-disclosure-placeholder { width: 28px; flex: 0 0 28px; }
@@ -149,9 +144,10 @@ const mappedCount = computed(() => Number(props.mappedCounts[props.node.key] || 
 .tgtn-role { flex: 0 0 auto; padding: 1px 5px; border-radius: 3px; font-size: 10px; }
 .tgtn-role.is-scope { background: #f1f5f9; color: #64748b; }
 .tgtn-role.is-feature { background: #dcfce7; color: #166534; }
-.tgtn-count { min-width: 22px; padding: 1px 6px; border-radius: 10px; background: #dbeafe; color: #1d4ed8; font-size: 11px; text-align: center; }
+.tgtn-status { flex: 0 0 auto; padding: 1px 5px; border-radius: 3px; font-size: 10px; font-weight: 650; }
+.tgtn-status.is-configured { background: #dbeafe; color: #1d4ed8; }
+.tgtn-status.is-unconfigured { background: #fef3c7; color: #92400e; }
 
 .tgtn-features { max-width: 42%; display: flex; gap: 4px; overflow: hidden; }
 .tgtn-feature { padding: 2px 6px; border: 1px solid #cbd5e1; border-radius: 3px; color: #475569; background: #fff; font-size: 10px; white-space: nowrap; }
-.tgtn-clear:hover { color: #b91c1c; background: #fee2e2; }
 </style>
