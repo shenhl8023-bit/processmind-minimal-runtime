@@ -521,6 +521,30 @@ export async function saveFinalizedRulePackage(body: {
   return data as SaveFinalizedRulePackageResponse
 }
 
+export function rulePackageArchiveFilename(contentDisposition?: string): string | null {
+  if (!contentDisposition) return null
+  const encoded = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded)
+    } catch {
+      return null
+    }
+  }
+  return contentDisposition.match(/filename="([^"]+)"/i)?.[1] || null
+}
+
+export async function downloadFinalizedRulePackageArchive(packageId: number) {
+  const response = await api.get(
+    `/api/extract/finalized-rule-packages/${packageId}/download`,
+    { responseType: 'blob' },
+  )
+  return {
+    blob: response.data as Blob,
+    filename: rulePackageArchiveFilename(response.headers['content-disposition'] as string | undefined),
+  }
+}
+
 export async function resetWorkflow(body: {
   project_id: number
   from_step: 3 | 4

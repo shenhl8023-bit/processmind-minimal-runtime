@@ -5,7 +5,9 @@
 """
 import asyncio
 from dataclasses import asdict
-from fastapi import APIRouter, Depends, HTTPException
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
@@ -64,6 +66,10 @@ from app.services.rule_packages.confirmation_validation import require_confirmed
 from app.services.rule_packages.loader import load_published_rule_package
 from app.services.rule_packages.validator import validate_rule_package
 from app.services.rule_packages.kmai_export import build_kmai_compatibility_export
+from app.services.rule_packages.archive import (
+    RulePackageArchiveError,
+    build_finalized_rule_package_archive,
+)
 from app.services.process_tree_builder import build_superset_process_tree
 from app.services.route_merge.config import ROUTE_MERGE_ALGO_VERSION
 from app.services.extraction_tasks import set_extraction_task_state
@@ -569,6 +575,29 @@ async def save_finalized_rule_package(
             await db.rollback()
 
     raise HTTPException(409, "规则包版本正在由其他请求导出，请稍后重试。")
+
+
+@router.get("/finalized-rule-packages/{package_id}/download")
+async def download_finalized_rule_package(
+    package_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    row = await db.get(FinalizedRulePackage, package_id)
+    if row is None:
+        raise HTTPException(404, "规则包不存在。")
+    if row.status != "published":
+        raise HTTPException(409, "只能下载当前发布版本的规则包。")
+    try:
+        archive = build_finalized_rule_package_archive(row)
+    except RulePackageArchiveError as error:
+        raise HTTPException(422, str(error)) from error
+    return Response(
+        content=archive.content,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(archive.filename)}",
+        },
+    )
 
 
 @router.get("/finalized-rule-packages/latest", response_model=FinalizedRulePackageOut)

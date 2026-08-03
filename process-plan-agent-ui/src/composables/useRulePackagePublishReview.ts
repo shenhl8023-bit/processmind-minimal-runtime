@@ -1,8 +1,8 @@
-import { nextTick, ref, type Ref } from 'vue'
+﻿import { nextTick, ref, type Ref } from 'vue'
 
-import type { RulePackageExportReview } from './useFinalizeRulePackageExport'
+import type { RulePackagePublishReview } from './useFinalizeRulePackagePublish'
 
-export function buildExportReviewFocusCards<T>(
+export function buildPublishReviewFocusCards<T>(
   cards: T[],
   isPending: (card: T) => boolean,
   locatedSegmentId: string,
@@ -12,7 +12,7 @@ export function buildExportReviewFocusCards<T>(
   ))
 }
 
-export async function locateExportBlocker(options: {
+export async function locatePublishBlocker(options: {
   sourceSegmentId: string
   onlyPending: Ref<boolean>
   activeSegmentId: Ref<string>
@@ -29,12 +29,12 @@ export async function locateExportBlocker(options: {
   options.getElementById(`finalize-card-${options.sourceSegmentId}`)?.scrollIntoView({ block: 'center' })
 }
 
-export function useRulePackageExportReview() {
+export function useRulePackagePublishReview() {
   const visible = ref(false)
-  const review = ref<RulePackageExportReview | null>(null)
+  const review = ref<RulePackagePublishReview | null>(null)
   let resolvePending: ((confirmed: boolean) => void) | null = null
 
-  function request(nextReview: RulePackageExportReview): Promise<boolean> {
+  function request(nextReview: RulePackagePublishReview): Promise<boolean> {
     resolvePending?.(false)
     review.value = nextReview
     visible.value = true

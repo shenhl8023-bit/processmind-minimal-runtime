@@ -37,16 +37,31 @@
         <button
           class="ash-btn-outline"
           @click="resetDialogVisible = true"
-          :disabled="loading || resettingWorkflow || batchParsing || batchReviewing || exportingRulePackage || !savedRoute"
+          :disabled="loading || resettingWorkflow || batchParsing || batchReviewing || publishingRulePackage || downloadingRulePackage || !savedRoute"
         >
           重新识别全部
         </button>
         <button
-          class="ash-btn-primary ash-btn-phase-active"
-          @click="handleReviewAndExport"
-          :disabled="resettingWorkflow || reviewAndExporting || batchParsing || batchReviewing || exportingRulePackage || !segmentCards.length || !factorCatalogReady"
+          class="ash-btn-outline"
+          @click="handleRuleReview"
+          :disabled="actionDisabled.review"
         >
-          {{ reviewAndExportButtonLabel }}
+          {{ reviewButtonLabel }}
+        </button>
+        <button
+          class="ash-btn-primary ash-btn-phase-active"
+          @click="publishRulePackage"
+          :disabled="actionDisabled.publish"
+        >
+          {{ publishButtonLabel }}
+        </button>
+        <button
+          class="ash-btn-outline"
+          @click="downloadCurrentRulePackage"
+          :disabled="actionDisabled.download"
+          :title="actionDisabled.download && outdatedRulePackageVersion ? '当前规则已变更，请先重新发布' : '下载当前发布版本'"
+        >
+          {{ downloadButtonLabel }}
         </button>
 
         <!-- Toggle switch: only pending -->
@@ -118,7 +133,7 @@
     <div v-else-if="!visibleSegments.length" class="empty-state card">
       <div class="empty-mark">*</div>
       <div class="empty-title">当前没有需要处理的规则</div>
-      <div class="empty-text">系统已识别全部条件；可直接审核并导出，或切换到全部规则浏览。</div>
+      <div class="empty-text">系统已识别全部条件；可以发布规则包，或切换到全部规则浏览。</div>
       <button class="btn btn-outline" @click="onlyPending = false">显示全部规则</button>
     </div>
 
@@ -185,19 +200,19 @@
       @next="goToGenerate"
     />
 
-    <div v-if="exportIssue" class="export-issue-overlay" @click.self="closeExportIssue">
+    <div v-if="rulePackageIssue" class="export-issue-overlay" @click.self="closeRulePackageIssue">
       <section class="export-issue-dialog" role="dialog" aria-modal="true" aria-labelledby="export-issue-title">
         <div class="export-issue-icon" aria-hidden="true">!</div>
         <div class="export-issue-content">
-          <span class="export-issue-kicker">{{ exportIssue.context || '规则包导出' }}</span>
-          <h2 id="export-issue-title">{{ exportIssue.title }}</h2>
-          <p>{{ exportIssue.summary }}</p>
-          <details v-if="exportIssue.details" class="export-issue-details">
+          <span class="export-issue-kicker">{{ rulePackageIssue.context || '规则包处理' }}</span>
+          <h2 id="export-issue-title">{{ rulePackageIssue.title }}</h2>
+          <p>{{ rulePackageIssue.summary }}</p>
+          <details v-if="rulePackageIssue.details" class="export-issue-details">
             <summary>查看检查详情</summary>
-            <pre>{{ exportIssue.details }}</pre>
+            <pre>{{ rulePackageIssue.details }}</pre>
           </details>
           <div class="export-issue-actions">
-            <button class="ash-btn-primary" @click="closeExportIssue">知道了</button>
+            <button class="ash-btn-primary" @click="closeRulePackageIssue">知道了</button>
           </div>
         </div>
       </section>
@@ -215,12 +230,12 @@
       @confirm="handleResetAllRecognition"
     />
 
-    <RulePackageExportReviewDialog
-      v-model="exportReviewVisible"
-      :review="exportReview"
-      @confirmed="completeExportReview(true)"
-      @cancelled="completeExportReview(false)"
-      @locate="locateExportBlocker"
+    <RulePackagePublishReviewDialog
+      v-model="publishReviewVisible"
+      :review="publishReview"
+      @confirmed="completePublishReview(true)"
+      @cancelled="completePublishReview(false)"
+      @locate="locatePublishBlocker"
     />
   </div>
 </template>
@@ -230,7 +245,7 @@ import { computed, nextTick, onActivated, onDeactivated, onMounted, ref, watch }
 import { useRoute, useRouter } from 'vue-router'
 import FinalizeRouteNav from '@/components/finalize/FinalizeRouteNav.vue'
 import FinalizeRuleCard from '@/components/finalize/FinalizeRuleCard.vue'
-import RulePackageExportReviewDialog from '@/components/finalize/RulePackageExportReviewDialog.vue'
+import RulePackagePublishReviewDialog from '@/components/finalize/RulePackagePublishReviewDialog.vue'
 import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
 import WorkflowResetDialog from '@/components/workflow/WorkflowResetDialog.vue'
 import {
@@ -240,6 +255,8 @@ import {
   listOperations,
   listProjects,
   resetWorkflow,
+  type FinalizedRulePackageResult,
+  type SaveFinalizedRulePackageResponse,
   type OperationItem,
   type SavedNormalizedRouteVersionResult,
 } from '@/api'
@@ -267,14 +284,15 @@ import {
 import type { FinalizeCard } from '@/composables/finalizeViewHelpers'
 import { useFinalizeDrafts } from '@/composables/useFinalizeDrafts'
 import {
-  useFinalizeRulePackageExport,
-  type RulePackageExportReview,
-} from '@/composables/useFinalizeRulePackageExport'
+  useFinalizeRulePackagePublish,
+  type RulePackagePublishReview,
+} from '@/composables/useFinalizeRulePackagePublish'
 import {
-  buildExportReviewFocusCards,
-  locateExportBlocker as locateExportBlockerInReview,
-  useRulePackageExportReview,
-} from '@/composables/useRulePackageExportReview'
+  buildPublishReviewFocusCards,
+  locatePublishBlocker as locatePublishBlockerInReview,
+  useRulePackagePublishReview,
+} from '@/composables/useRulePackagePublishReview'
+import { useFinalizedRulePackageDownload } from '@/composables/useFinalizedRulePackageDownload'
 import { useRouteSegmentSteps } from '@/composables/useRouteSegmentSteps'
 import { buildProjectRouteQuery, resolveAvailableProjectId } from '@/composables/useCurrentProject'
 import { FINALIZE_VIEW_COPY } from '@/config/finalizeRulePresentation'
@@ -291,6 +309,12 @@ import {
   normalizeExportProcessName,
   requiresServerRuleConditionRefresh,
 } from '@/utils/finalizeRulePackage'
+import {
+  downloadActionLabel,
+  publishActionLabel,
+  reviewActionLabel,
+  rulePackageActionDisabled,
+} from '@/utils/finalizeRulePackageActionState'
 import { factorBindingState } from '@/utils/standardFactorBindings'
 
 const route = useRoute()
@@ -311,8 +335,8 @@ const operations = ref<OperationItem[]>([])
 const supersetOperations = ref<OperationItem[]>([])
 const onlyPending = ref(true)
 const activeSegmentId = ref('')
-const locatedExportBlockerId = ref('')
-const lastExportedRulePackageVersion = ref<number | null>(null)
+const locatedPublishBlockerId = ref('')
+const currentPublishedPackage = ref<FinalizedRulePackageResult | null>(null)
 const outdatedRulePackageVersion = ref<number | null>(null)
 const conditionFields = ref<CanonicalConditionField[]>([])
 const standardFactors = ref<StandardFactorDefinition[]>([])
@@ -327,7 +351,7 @@ const batchParseTotal = ref(0)
 const batchReviewing = ref(false)
 const batchReviewCompleted = ref(0)
 const batchReviewTotal = ref(0)
-const reviewAndExporting = ref(false)
+const reviewingRules = ref(false)
 const batchNotice = ref('')
 const resetDialogVisible = ref(false)
 const resettingWorkflow = ref(false)
@@ -368,19 +392,19 @@ async function retryConditionRegistry() {
   } catch (registryError: any) {
     console.error('第四步标准因子目录加载失败', registryError)
     clearConditionRegistry(
-      registryError?.response?.data?.detail || '标准因子目录加载失败，请重试后再审核或导出。',
+      registryError?.response?.data?.detail || '标准因子目录加载失败，请重试后再审核或发布。',
     )
   } finally {
     conditionRegistryLoading.value = false
   }
 }
-const exportIssue = ref<{ title: string; summary: string; details?: string; context?: string } | null>(null)
+const rulePackageIssue = ref<{ title: string; summary: string; details?: string; context?: string } | null>(null)
 const {
-  visible: exportReviewVisible,
-  review: exportReview,
-  request: requestExportReview,
-  complete: completeExportReview,
-} = useRulePackageExportReview()
+  visible: publishReviewVisible,
+  review: publishReview,
+  request: requestPublishReview,
+  complete: completePublishReview,
+} = useRulePackagePublishReview()
 const {
   segmentAttachedSteps: finalizeSegmentAttachedSteps,
   segmentPrimarySteps: finalizeSegmentPrimarySteps,
@@ -422,11 +446,13 @@ const factorCatalogReady = computed(() => Boolean(
   && factorCatalogVersion.value,
 ))
 const unresolvedRuleCount = computed(() => segmentCards.value.filter(item => finalizeRuleMode(item) === 'unresolved').length)
-const reviewFocusCards = computed(() => buildExportReviewFocusCards(
+const reviewFocusCards = computed(() => buildPublishReviewFocusCards(
   segmentCards.value,
   itemNeedsPending,
-  locatedExportBlockerId.value,
+  locatedPublishBlockerId.value,
 ))
+const lastExportedRulePackageVersion = computed(() => currentPublishedPackage.value?.version || null)
+const currentPublishedPackageId = computed(() => currentPublishedPackage.value?.id || null)
 const visibleSegments = computed(() => onlyPending.value ? reviewFocusCards.value : segmentCards.value)
 const batchEligibleCards = computed(() => reviewableCards.value.filter((item) => {
   return requiresServerRuleConditionRefresh(item, factorCatalogVersion.value)
@@ -473,15 +499,12 @@ const finalizeNavSummary = computed(() => {
   if (!segmentCards.value.length) return '当前没有可展示的工序，请先在第三步完成至少一版规则分析结果。'
   if (unresolvedRuleCount.value) return `还有 ${unresolvedRuleCount.value} 道工序需要补充具体条件。`
   if (readyRuleCount.value < reviewableRuleCount.value) {
-    if (batchParsing.value) {
-      return `正在识别规则；当前 ${readyRuleCount.value}/${reviewableRuleCount.value} 条已就绪。`
-    }
-    return `还有 ${reviewableRuleCount.value - readyRuleCount.value} 条规则待识别，点击审核并导出即可批量处理。`
+    return `还有 ${reviewableRuleCount.value - readyRuleCount.value} 条规则待审核，请先完成规则审核。`
   }
-  if (!allCurrentRulesConfirmed.value) return '规则已识别，请审核并导出最新规则包。'
-  if (outdatedRulePackageVersion.value) return `规则内容已有变化，原规则包 V${outdatedRulePackageVersion.value} 已过期，请重新审核并导出。`
-  if (!lastExportedRulePackageVersion.value) return '规则已识别，可直接审核并导出规则包。'
-  return `规则包 V${lastExportedRulePackageVersion.value} 已就绪，可进入路线生成。`
+  if (!allCurrentRulesConfirmed.value) return '存在需要人工处理的规则，请完成规则审核。'
+  if (outdatedRulePackageVersion.value) return `规则内容已有变化，原规则包 V${outdatedRulePackageVersion.value} 已过期，请重新发布。`
+  if (!lastExportedRulePackageVersion.value) return '规则审核已完成，可以发布规则包。'
+  return `规则包 V${lastExportedRulePackageVersion.value} 已发布，可以下载或进入路线生成。`
 })
 
 /** Progress percent for the mini progress bar */
@@ -524,7 +547,7 @@ function toggleOnlyPending() {
   onlyPending.value = !onlyPending.value
 }
 
-function blockedExportStatusLabel(item: FinalizeCard) {
+function blockedPublishStatusLabel(item: FinalizeCard) {
   if (finalizeRuleMode(item) === 'unresolved') return '待补充条件'
   if (item.conditionReview?.status === 'invalid') return '未能识别'
   if (
@@ -537,7 +560,7 @@ function blockedExportStatusLabel(item: FinalizeCard) {
   return '需要重新识别'
 }
 
-function createBlockedExportReview(cards: FinalizeCard[]): RulePackageExportReview {
+function createBlockedPublishReview(cards: FinalizeCard[]): RulePackagePublishReview {
   return {
     status: 'blocked',
     projectName: projectName.value || '未命名任务',
@@ -549,7 +572,7 @@ function createBlockedExportReview(cards: FinalizeCard[]): RulePackageExportRevi
     rulePackage: null,
     details: cards.map(item => ({
       code: 'fourth_step_rule_incomplete',
-      message: blockedExportStatusLabel(item),
+      message: blockedPublishStatusLabel(item),
       processName: finalizeSegmentDisplayName(item.segment),
       sourceText: item.conditionText,
       sourceSegmentId: item.segment.id,
@@ -557,23 +580,23 @@ function createBlockedExportReview(cards: FinalizeCard[]): RulePackageExportRevi
   }
 }
 
-async function locateExportBlocker(sourceSegmentId: string) {
-  await locateExportBlockerInReview({
+async function locatePublishBlocker(sourceSegmentId: string) {
+  await locatePublishBlockerInReview({
     sourceSegmentId,
     onlyPending,
     activeSegmentId,
-    locatedSegmentId: locatedExportBlockerId,
-    completeReview: completeExportReview,
+    locatedSegmentId: locatedPublishBlockerId,
+    completeReview: completePublishReview,
     getElementById: id => document.getElementById(id),
   })
 }
 
-function closeExportIssue() {
-  exportIssue.value = null
+function closeRulePackageIssue() {
+  rulePackageIssue.value = null
 }
 
 function showFinalizeNotice(title: string, summary: string, details = '') {
-  exportIssue.value = { title, summary, details, context: '规则定稿' }
+  rulePackageIssue.value = { title, summary, details, context: '规则定稿' }
 }
 
 function setConditionBusy(segmentId: string, busy: boolean) {
@@ -631,18 +654,18 @@ async function handleWorkflowRevisionConflict(err: any) {
   return true
 }
 
-function markExportedRulePackageOutdated() {
-  if (lastExportedRulePackageVersion.value) {
-    outdatedRulePackageVersion.value = lastExportedRulePackageVersion.value
+function markPublishedRulePackageOutdated() {
+  if (currentPublishedPackage.value?.version) {
+    outdatedRulePackageVersion.value = currentPublishedPackage.value.version
   }
-  lastExportedRulePackageVersion.value = null
+  currentPublishedPackage.value = null
 }
 
 async function handleSaveInlineEdit(item: ReturnType<typeof buildFinalizeCards>[number]) {
   const sourceText = inlineEditingText.value.trim()
   const changed = saveInlineEdit(item)
   if (!changed) return
-  markExportedRulePackageOutdated()
+  markPublishedRulePackageOutdated()
   setConditionBusy(item.segment.id, true)
   try {
     await nextTick()
@@ -656,7 +679,7 @@ async function handleSaveInlineEdit(item: ReturnType<typeof buildFinalizeCards>[
 
 async function handleResetInlineEdit(item: ReturnType<typeof buildFinalizeCards>[number]) {
   resetInlineEdit(item)
-  markExportedRulePackageOutdated()
+  markPublishedRulePackageOutdated()
   setConditionBusy(item.segment.id, true)
   try {
     await nextTick()
@@ -817,7 +840,7 @@ async function handleConfirmCondition(
   // A quick confirm and a background candidate refresh must not submit two
   // versions of the same card at once.
   if (conditionBusySegmentIds.value.has(item.segment.id)) return
-  markExportedRulePackageOutdated()
+  markPublishedRulePackageOutdated()
   setConditionBusy(item.segment.id, true)
   try {
     const response = await confirmRuleCondition({
@@ -851,7 +874,7 @@ async function handleSetMainline(item: ReturnType<typeof buildFinalizeCards>[num
   if (!projectId.value || !savedRoute.value || conditionBusySegmentIds.value.has(item.segment.id)) return
   const processName = normalizeExportProcessName(finalizeSegmentDisplayName(item.segment))
   const sourceText = `设置为主工序，始终纳入“${processName}”工序。`
-  markExportedRulePackageOutdated()
+  markPublishedRulePackageOutdated()
   setConditionBusy(item.segment.id, true)
   try {
     const response = await saveRuleConditionDraft({
@@ -882,7 +905,7 @@ async function handleSetBoolean(
   if (!switchLabel) return
   const sourceText = `当用户选择“${switchLabel}”为是时，纳入“${processName}”工序。`
   const candidate = buildManualBooleanRuleCandidate(item, switchLabel)
-  markExportedRulePackageOutdated()
+  markPublishedRulePackageOutdated()
   setConditionBusy(item.segment.id, true)
   try {
     const response = await setManualRuleCondition({
@@ -916,9 +939,9 @@ function finalizeSegmentMetaLabel(segment: SavedNormalizedRouteVersionResult['se
 }
 
 const {
-  exportingRulePackage,
-  downloadRuleDocument,
-} = useFinalizeRulePackageExport({
+  publishingRulePackage,
+  publishRulePackage,
+} = useFinalizeRulePackagePublish({
   projectId,
   projectName,
   savedRoute,
@@ -933,34 +956,66 @@ const {
   factorCatalogVersion,
   onBlockedCards: async (cards) => {
     onlyPending.value = true
-    await requestExportReview(createBlockedExportReview(cards))
+    await requestPublishReview(createBlockedPublishReview(cards))
   },
-  onExportIssue: (issue) => {
-    exportIssue.value = { ...issue, context: '规则包导出' }
+  onPublishIssue: (issue) => {
+    rulePackageIssue.value = { ...issue, context: '规则包发布' }
   },
-  onExportReviewRequired: requestExportReview,
-  onExportedVersion: (version, meta) => {
-    lastExportedRulePackageVersion.value = version
+  onPublishReviewRequired: requestPublishReview,
+  onPublished: (packageValue: SaveFinalizedRulePackageResponse) => {
+    currentPublishedPackage.value = packageValue
     outdatedRulePackageVersion.value = null
-    console.info(`规则包 V${version} 已导出，可用于第 5 步。`, meta)
+    setBatchNotice(`规则包 V${packageValue.version} 已发布。`)
   },
   onWorkflowConflict: () => loadWorkspace(true),
 })
 
-const reviewAndExportButtonLabel = computed(() => {
-  if (batchParsing.value) return `正在识别 ${batchParseCompleted.value}/${batchParseTotal.value}`
-  if (batchReviewing.value) return `正在审核 ${batchReviewCompleted.value}/${batchReviewTotal.value}`
-  if (exportingRulePackage.value) return '正在导出规则包...'
-  return '审核并导出规则包'
+const {
+  downloadingRulePackage,
+  downloadCurrentRulePackage,
+} = useFinalizedRulePackageDownload({
+  packageId: currentPublishedPackageId,
+  packageVersion: lastExportedRulePackageVersion,
+  projectName,
+  onDownloadIssue: (issue) => {
+    rulePackageIssue.value = { ...issue, context: '规则包下载' }
+  },
 })
 
-async function handleReviewAndExport() {
-  if (reviewAndExporting.value || batchParsing.value || batchReviewing.value || exportingRulePackage.value) return
+const rulePackageActionState = computed(() => ({
+  resetting: resettingWorkflow.value,
+  parsing: batchParsing.value,
+  reviewing: batchReviewing.value || reviewingRules.value,
+  publishing: publishingRulePackage.value,
+  downloading: downloadingRulePackage.value,
+  hasSegments: Boolean(segmentCards.value.length),
+  factorCatalogReady: factorCatalogReady.value,
+  hasReviewWork: Boolean(batchEligibleCards.value.length || autoConfirmableReviewCards.value.length),
+  allRulesConfirmed: allCurrentRulesConfirmed.value,
+  currentVersion: lastExportedRulePackageVersion.value,
+}))
+const actionDisabled = computed(() => rulePackageActionDisabled(rulePackageActionState.value))
+const reviewButtonLabel = computed(() => reviewActionLabel(
+  rulePackageActionState.value,
+  batchParsing.value ? batchParseCompleted.value : batchReviewCompleted.value,
+  batchParsing.value ? batchParseTotal.value : batchReviewTotal.value,
+))
+const publishButtonLabel = computed(() => publishActionLabel(rulePackageActionState.value))
+const downloadButtonLabel = computed(() => downloadActionLabel(rulePackageActionState.value))
+
+async function handleRuleReview() {
+  if (
+    reviewingRules.value
+    || batchParsing.value
+    || batchReviewing.value
+    || publishingRulePackage.value
+    || downloadingRulePackage.value
+  ) return
   if (!factorCatalogReady.value) {
-    factorCatalogError.value ||= '标准因子目录尚未加载，请重试后再审核或导出。'
+    factorCatalogError.value ||= '标准因子目录尚未加载，请重试后再进行规则审核。'
     return
   }
-  reviewAndExporting.value = true
+  reviewingRules.value = true
   batchNotice.value = ''
   try {
     if (batchEligibleCards.value.length) {
@@ -975,15 +1030,15 @@ async function handleReviewAndExport() {
       finalizeRuleMode(item) !== 'mainline'
       && !hasCurrentConfirmedUserRule(item, factorCatalogVersion.value),
     )
+    onlyPending.value = Boolean(remaining.length)
     if (remaining.length) {
-      onlyPending.value = true
-      batchNotice.value = `系统已自动处理可识别规则；还有 ${remaining.length} 道工序需要补充。`
-      await requestExportReview(createBlockedExportReview(remaining))
-      return
+      activeSegmentId.value = remaining[0]?.segment.id || activeSegmentId.value
+      batchNotice.value = `系统已自动处理可安全确认的规则；还有 ${remaining.length} 道工序需要人工处理。`
+    } else {
+      setBatchNotice('规则审核完成。')
     }
-    await downloadRuleDocument()
   } finally {
-    reviewAndExporting.value = false
+    reviewingRules.value = false
   }
 }
 
@@ -1016,7 +1071,7 @@ async function loadWorkspace(forceRefresh = false) {
       savedRoute.value = null
       operations.value = []
       supersetOperations.value = []
-      lastExportedRulePackageVersion.value = null
+      currentPublishedPackage.value = null
       outdatedRulePackageVersion.value = null
       clearConditionRegistry()
       error.value = ''
@@ -1051,16 +1106,17 @@ async function loadWorkspace(forceRefresh = false) {
       console.error('第四步标准因子目录加载失败', fieldRegistryResult.error)
       clearConditionRegistry(
         fieldRegistryResult.error?.response?.data?.detail
-          || '标准因子目录加载失败；现有编辑已保留，请重试加载后再审核或导出。',
+          || '标准因子目录加载失败；现有编辑已保留，请重试加载后再审核或发布。',
       )
     }
     readDrafts()
     activeSegmentId.value = routeResult.segments[0]?.id || ''
     await nextTick()
-    lastExportedRulePackageVersion.value = null
+    currentPublishedPackage.value = null
     outdatedRulePackageVersion.value = null
     if (latestPackage) {
-      const routeMatches = latestPackage.schema_version === '2.0'
+      const routeMatches = latestPackage.status === 'published'
+        && latestPackage.schema_version === '2.0'
         && latestPackage.route_version_id === routeResult.route_id
       if (!routeMatches || !allCurrentRulesConfirmed.value || !latestPackage.content_hash) {
         outdatedRulePackageVersion.value = latestPackage.version
@@ -1080,7 +1136,7 @@ async function loadWorkspace(forceRefresh = false) {
           }))
           if (!request.isCurrent()) return
           if (currentPackage.content_hash === latestPackage.content_hash) {
-            lastExportedRulePackageVersion.value = latestPackage.version
+            currentPublishedPackage.value = latestPackage
           } else {
             outdatedRulePackageVersion.value = latestPackage.version
           }
@@ -1096,7 +1152,7 @@ async function loadWorkspace(forceRefresh = false) {
     savedRoute.value = null
     operations.value = []
     supersetOperations.value = []
-    lastExportedRulePackageVersion.value = null
+    currentPublishedPackage.value = null
     outdatedRulePackageVersion.value = null
     clearConditionRegistry()
     workspaceErrorTitle.value = Number(err?.response?.status) === 404

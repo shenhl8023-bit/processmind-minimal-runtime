@@ -1,11 +1,11 @@
-<template>
+﻿<template>
   <Teleport to="body">
     <div v-if="modelValue" class="export-review-backdrop" @click.self="cancel">
-      <section class="export-review" role="dialog" aria-modal="true" aria-labelledby="export-review-title">
+      <section class="export-review" role="dialog" aria-modal="true" aria-labelledby="publish-review-title">
         <header class="export-review__header">
           <div>
-            <h2 id="export-review-title">审核并导出规则包</h2>
-            <p>请确认本次规则包的审核结果。确认后将发布并下载规则包。</p>
+            <h2 id="publish-review-title">审核并发布规则包</h2>
+            <p>请确认本次规则包的审核结果。确认后将发布规则包，下载可在发布完成后单独进行。</p>
           </div>
           <button
             type="button"
@@ -48,7 +48,7 @@
 
           <section v-if="review.status === 'ready'" class="export-review__result is-success" aria-live="polite">
             <strong>审核通过</strong>
-            <span>规则结构和 KmAI 兼容性检查均已通过，可以导出。</span>
+            <span>规则结构和 KmAI 兼容性检查均已通过，可以发布。</span>
           </section>
 
           <section
@@ -58,7 +58,7 @@
             <strong>运行时手工因子</strong>
             <p>
               以下手工布尔因子需要通过 <code>manual.factor_overrides</code> 提供
-              <code>true/false</code>。这不会阻止导出。
+              <code>true/false</code>。这不会阻止发布。
             </p>
             <ul>
               <li v-for="factor in review.manualFactors" :key="factor.key">
@@ -81,7 +81,7 @@
               <dl>
                 <div>
                   <dt>工序</dt>
-                  <dd>{{ detail.processName || '规则包导出' }}</dd>
+                  <dd>{{ detail.processName || '规则包发布' }}</dd>
                 </div>
                 <div>
                   <dt>来源</dt>
@@ -111,7 +111,7 @@
             :disabled="review?.status !== 'ready'"
             @click="confirm"
           >
-            确认导出
+            确认发布
           </button>
         </footer>
       </section>
@@ -120,11 +120,11 @@
 </template>
 
 <script setup lang="ts">
-import type { RulePackageExportReview } from '@/composables/useFinalizeRulePackageExport'
+import type { RulePackagePublishReview } from '@/composables/useFinalizeRulePackagePublish'
 
 const props = defineProps<{
   modelValue: boolean
-  review: RulePackageExportReview | null
+  review: RulePackagePublishReview | null
 }>()
 
 const emit = defineEmits<{

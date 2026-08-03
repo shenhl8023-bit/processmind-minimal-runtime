@@ -1,4 +1,4 @@
-import { ref, type ComputedRef, type Ref } from 'vue'
+﻿import { ref, type ComputedRef, type Ref } from 'vue'
 import {
   compileRulePackage,
   saveFinalizedRulePackage,
@@ -6,11 +6,11 @@ import {
   type CanonicalConditionField,
   type CompileRulePackageResponse,
   type RulePackageV2,
+  type SaveFinalizedRulePackageResponse,
   type StandardFactorDefinition,
 } from '@/api'
 import type { FinalizeCard } from '@/composables/finalizeViewHelpers'
 import { FINALIZE_EXPORT_COPY } from '@/config/finalizeRulePresentation'
-import { createZipBlob, downloadBlob, textFile } from '@/utils/exportArchive'
 import {
   buildCompileRequestFromCards,
   buildRuleReportFromV2Package,
@@ -21,9 +21,9 @@ import { isWorkflowRevisionConflict } from '@/composables/workflowResetState'
 
 type Segment = SavedNormalizedRouteVersionResult['segments'][number]
 
-export type RulePackageExportReviewStatus = 'ready' | 'blocked'
+export type RulePackagePublishReviewStatus = 'ready' | 'blocked'
 
-export type ExportBlockDetail = {
+export type PublishBlockDetail = {
   code: string
   message: string
   processName: string
@@ -36,8 +36,8 @@ export type ManualFactorSummary = {
   name: string
 }
 
-export type RulePackageExportReview = {
-  status: RulePackageExportReviewStatus
+export type RulePackagePublishReview = {
+  status: RulePackagePublishReviewStatus
   projectName: string
   processCount: number
   ruleCount: number
@@ -45,10 +45,10 @@ export type RulePackageExportReview = {
   kmaiCompatibility: CompileRulePackageResponse['kmai_compatibility'] | null
   manualFactors: ManualFactorSummary[]
   rulePackage: RulePackageV2 | null
-  details: ExportBlockDetail[]
+  details: PublishBlockDetail[]
 }
 
-type UseFinalizeRulePackageExportOptions = {
+type UseFinalizeRulePackagePublishOptions = {
   projectId: Ref<number | null>
   projectName: Ref<string>
   savedRoute: Ref<SavedNormalizedRouteVersionResult | null>
@@ -62,9 +62,9 @@ type UseFinalizeRulePackageExportOptions = {
   standardFactors: Ref<StandardFactorDefinition[]>
   factorCatalogVersion: Ref<string>
   onBlockedCards?: (cards: FinalizeCard[]) => void | Promise<void>
-  onExportIssue?: (issue: { title: string; summary: string; details?: string }) => void
-  onExportReviewRequired?: (review: RulePackageExportReview) => Promise<boolean>
-  onExportedVersion?: (version: number, meta?: { schemaVersion: string; status: string }) => void
+  onPublishIssue?: (issue: { title: string; summary: string; details?: string }) => void
+  onPublishReviewRequired?: (review: RulePackagePublishReview) => Promise<boolean>
+  onPublished?: (packageValue: SaveFinalizedRulePackageResponse) => void
   onWorkflowConflict?: () => void | Promise<void>
 }
 
@@ -72,9 +72,9 @@ function safeFilenamePart(value: string) {
   return value.replace(/[\/:*?"<>|]/g, '_')
 }
 
-type ExportReviewIssue = { code: string; path?: string; message: string }
+type PublishReviewIssue = { code: string; path?: string; message: string }
 
-function reviewSourceForIssue(compiled: CompileRulePackageResponse, issue: ExportReviewIssue) {
+function reviewSourceForIssue(compiled: CompileRulePackageResponse, issue: PublishReviewIssue) {
   const ruleMatch = issue.path?.match(/^route_rules\.rules\[(\d+)]/)
   const relationMatch = issue.path?.match(/^route_rules\.process_relations\[(\d+)]/)
   const rule = ruleMatch
@@ -100,8 +100,8 @@ function reviewSourceForIssue(compiled: CompileRulePackageResponse, issue: Expor
   }
 }
 
-export function buildExportBlockDetails(compiled: CompileRulePackageResponse): ExportBlockDetail[] {
-  const issues: ExportReviewIssue[] = [
+export function buildPublishBlockDetails(compiled: CompileRulePackageResponse): PublishBlockDetail[] {
+  const issues: PublishReviewIssue[] = [
     ...(compiled.validation.errors || []),
     ...(compiled.kmai_compatibility.errors || []),
   ]
@@ -124,11 +124,11 @@ function getManualKmaiFactors(files: Record<string, Record<string, unknown>>): M
     .map((factor: any) => ({ key: String(factor.factor_key), name: String(factor.name || factor.factor_key) }))
 }
 
-export function buildExportReview(
+export function buildPublishReview(
   compiled: CompileRulePackageResponse,
   projectName: string,
-): RulePackageExportReview {
-  const status: RulePackageExportReviewStatus = (
+): RulePackagePublishReview {
+  const status: RulePackagePublishReviewStatus = (
     compiled.validation.valid && compiled.kmai_compatibility.valid
   ) ? 'ready' : 'blocked'
   return {
@@ -141,7 +141,7 @@ export function buildExportReview(
     kmaiCompatibility: compiled.kmai_compatibility,
     manualFactors: getManualKmaiFactors(compiled.kmai_compatibility.files),
     rulePackage: compiled.package,
-    details: buildExportBlockDetails(compiled),
+    details: buildPublishBlockDetails(compiled),
   }
 }
 
@@ -149,8 +149,8 @@ function buildLocalBlockedReview(options: {
   projectName: string
   processCount: number
   ruleCount: number
-  details: ExportBlockDetail[]
-}): RulePackageExportReview {
+  details: PublishBlockDetail[]
+}): RulePackagePublishReview {
   return {
     status: 'blocked',
     projectName: options.projectName || '未命名任务',
@@ -164,13 +164,13 @@ function buildLocalBlockedReview(options: {
   }
 }
 
-function localExportBlockDetail(
+function localPublishBlockDetail(
   code: string,
   message: string,
   sourceText = '',
   sourceSegmentId = '',
   processName = '规则包导出',
-): ExportBlockDetail {
+): PublishBlockDetail {
   return {
     code,
     message,
@@ -180,16 +180,16 @@ function localExportBlockDetail(
   }
 }
 
-export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExportOptions) {
-  const exportingRulePackage = ref(false)
+export function useFinalizeRulePackagePublish(options: UseFinalizeRulePackagePublishOptions) {
+  const publishingRulePackage = ref(false)
 
-  function reportExportIssue(title: string, summary: string, details = '') {
-    options.onExportIssue?.({ title, summary, details })
+  function reportPublishIssue(title: string, summary: string, details = '') {
+    options.onPublishIssue?.({ title, summary, details })
   }
 
-  /** V2 主路径：后端 compile → 保存并发布 → 下载与库一致的快照 ZIP */
-  async function downloadRuleDocument() {
-    if (!options.projectId.value || exportingRulePackage.value) return
+  /** V2 主路径：后端 compile → 审核 → 保存并发布。 */
+  async function publishRulePackage() {
+    if (!options.projectId.value || publishingRulePackage.value) return
 
     const safeProjectName = safeFilenamePart(options.projectName.value || `任务_${options.projectId.value || 'unknown'}`)
     const packageName = `${safeProjectName}_${FINALIZE_EXPORT_COPY.documentNameSuffix}`
@@ -202,11 +202,11 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
       return
     }
     if (!options.conditionFields.value.length) {
-      await options.onExportReviewRequired?.(buildLocalBlockedReview({
+      await options.onPublishReviewRequired?.(buildLocalBlockedReview({
         projectName: options.projectName.value,
         processCount: options.segmentCards.value.length,
         ruleCount: 0,
-        details: [localExportBlockDetail(
+        details: [localPublishBlockDetail(
           'standard_field_registry_unavailable',
           '标准字段库尚未加载，请稍后刷新页面再重新审核。',
           '标准字段库',
@@ -215,11 +215,11 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
       return
     }
     if (!options.standardFactors.value.length || !options.factorCatalogVersion.value) {
-      await options.onExportReviewRequired?.(buildLocalBlockedReview({
+      await options.onPublishReviewRequired?.(buildLocalBlockedReview({
         projectName: options.projectName.value,
         processCount: options.segmentCards.value.length,
         ruleCount: 0,
-        details: [localExportBlockDetail(
+        details: [localPublishBlockDetail(
           'standard_factor_registry_unavailable',
           '标准因子目录尚未加载，请重试加载后再重新审核。',
           '标准因子目录',
@@ -246,11 +246,11 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
         ? buildError.sourceSegmentId
         : ''
       const sourceCard = options.segmentCards.value.find(item => item.segment.id === sourceSegmentId)
-      await options.onExportReviewRequired?.(buildLocalBlockedReview({
+      await options.onPublishReviewRequired?.(buildLocalBlockedReview({
         projectName: options.projectName.value,
         processCount: options.segmentCards.value.length,
         ruleCount: 0,
-        details: [localExportBlockDetail(
+        details: [localPublishBlockDetail(
           'standard_factor_binding_failed',
           String(buildError?.message || buildError || '规则条件无法绑定标准因子'),
           sourceCard?.conditionText || '第四步规则条件',
@@ -262,11 +262,11 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
     }
 
     if (!compileRequest.processes.length) {
-      await options.onExportReviewRequired?.(buildLocalBlockedReview({
+      await options.onPublishReviewRequired?.(buildLocalBlockedReview({
         projectName: options.projectName.value,
         processCount: 0,
         ruleCount: (compileRequest.rules?.length || 0) + (compileRequest.process_relations?.length || 0),
-        details: [localExportBlockDetail(
+        details: [localPublishBlockDetail(
           'no_exportable_processes',
           '当前没有可导出的工序，请先返回规则分析确认路线内容。',
           '第四步工序列表',
@@ -275,11 +275,11 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
       return
     }
 
-    exportingRulePackage.value = true
+    publishingRulePackage.value = true
     try {
       const compiled = await compileRulePackage(compileRequest)
-      const review = buildExportReview(compiled, options.projectName.value)
-      const confirmed = await options.onExportReviewRequired?.(review)
+      const review = buildPublishReview(compiled, options.projectName.value)
+      const confirmed = await options.onPublishReviewRequired?.(review)
       if (!confirmed || review.status !== 'ready') return
 
       const ruleReport = buildRuleReportFromV2Package({
@@ -307,63 +307,11 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
         validation_report: compiled.validation,
       })
 
-      options.onExportedVersion?.(savedPackage.version, {
-        schemaVersion: savedPackage.schema_version,
-        status: savedPackage.status,
-      })
-
-      const authoritativeKmai = savedPackage.kmai_compatibility
-      if (!authoritativeKmai?.valid) {
-        reportExportIssue('KmAI 导出未完成', '服务器未返回可发布的 KmAI 兼容文件，请重新导出。')
-        return
-      }
-
-      const manualKmaiFactors = getManualKmaiFactors(authoritativeKmai.files)
-      const files = [
-        { name: 'manifest.json', content: textFile(savedPackage.manifest || compiled.package.manifest) },
-        { name: 'input_schema.json', content: textFile(savedPackage.input_schema) },
-        { name: 'route_catalog.json', content: textFile(savedPackage.route_catalog) },
-        { name: 'route_rules.json', content: textFile(savedPackage.route_rules) },
-        { name: 'test_cases.json', content: textFile(savedPackage.test_cases || []) },
-        { name: 'rule_report.md', content: savedPackage.rule_report_md || ruleReport },
-        {
-          name: 'validation_report.json',
-          content: textFile(savedPackage.validation_report || compiled.validation),
-        },
-        ...Object.entries(authoritativeKmai.files).map(([name, content]) => ({
-          name: `kmai-v1/${name}`,
-          content: textFile(content),
-        })),
-        {
-          name: 'kmai-v1/README-替换说明.txt',
-          content: [
-            'KmAI 规则文件替换说明',
-            '',
-            `目标目录：${authoritativeKmai.target_directory}`,
-            '',
-            '1. 先停止 KmAI Agent。',
-            '2. 备份目标目录中同名的四个 JSON 文件。',
-            '3. 将本目录中的 factor_schema.json、factor_expansion_rules.json、route_catalog.json、route_rules.json 复制到目标目录并覆盖。',
-            '4. 不要删除或覆盖原有 group_match_rules.json。',
-            '5. 重新启动 KmAI Agent；后续工艺路线生成将使用本次导出的 ProcessMind 规则。',
-            '6. route_catalog.json 的 template_group_aliases 为 ProcessMind 附加元数据；KmAI v1 会忽略它，不影响路线生成。',
-            '',
-            'Manual boolean factors require manual.factor_overrides values (true/false):',
-            ...(manualKmaiFactors.length
-              ? manualKmaiFactors.map(factor => `- ${factor.key}: ${factor.name}`)
-              : ['- None']),
-            '',
-          ].join('\n'),
-        },
-      ]
-      downloadBlob(
-        createZipBlob(files),
-        `${safeProjectName}_${FINALIZE_EXPORT_COPY.documentNameSuffix}_v${savedPackage.version}.zip`,
-      )
+      options.onPublished?.(savedPackage)
     } catch (err: any) {
       console.error('保存规则包失败', err)
       if (isWorkflowRevisionConflict(err)) {
-        reportExportIssue('页面状态已过期', '上游工作流已经重新处理，正在加载最新状态。')
+        reportPublishIssue('页面状态已过期', '上游工作流已经重新处理，正在加载最新状态。')
         await options.onWorkflowConflict?.()
         return
       }
@@ -371,14 +319,14 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
       const message = typeof detail === 'string'
         ? detail
         : detail?.message || err?.message || '未知错误'
-      reportExportIssue('规则包保存失败', '规则包尚未发布，请检查服务状态后重新导出。', message)
+      reportPublishIssue('规则包发布失败', '规则包尚未发布，请检查服务状态后重试。', message)
     } finally {
-      exportingRulePackage.value = false
+      publishingRulePackage.value = false
     }
   }
 
   return {
-    exportingRulePackage,
-    downloadRuleDocument,
+    publishingRulePackage,
+    publishRulePackage,
   }
 }

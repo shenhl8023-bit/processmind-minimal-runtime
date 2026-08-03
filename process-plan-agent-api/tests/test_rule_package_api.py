@@ -1,5 +1,7 @@
 import asyncio
 from copy import deepcopy
+from io import BytesIO
+from zipfile import ZipFile
 
 import pytest
 from fastapi.testclient import TestClient
@@ -7,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.database import Base, get_db
 from app.main import app
-from app.models.models import NormalizedRouteVersion, Project
+from app.models.models import FinalizedRulePackage, NormalizedRouteVersion, Project
 from app.services.db_schema_maintenance import ensure_project_schema
 from app.services.rule_packages.standard_factors import STANDARD_FACTOR_CATALOG_VERSION
 
@@ -63,7 +65,7 @@ def isolated_rule_package_db(tmp_path):
 
     app.dependency_overrides[get_db] = override_get_db
     try:
-        yield
+        yield session_factory
     finally:
         app.dependency_overrides.pop(get_db, None)
         asyncio.run(engine.dispose())
@@ -404,6 +406,76 @@ def test_v2_save_rejects_a_factor_id_that_does_not_match_the_leaf(rule_package_v
 
     assert response.status_code == 422
     assert "factor_mismatch" in response.text
+
+
+def test_published_package_download_is_repeatable_and_read_only(rule_package_v2_payload):
+    saved = client.post(
+        "/api/extract/finalized-rule-packages",
+        json=_v2_save_payload(rule_package_v2_payload),
+    )
+    assert saved.status_code == 200
+    package_id = saved.json()["id"]
+    before = client.get(
+        "/api/extract/finalized-rule-packages",
+        params={"project_id": 12},
+    ).json()
+
+    first = client.get(
+        f"/api/extract/finalized-rule-packages/{package_id}/download",
+        headers={"Origin": "http://localhost:5173"},
+    )
+    second = client.get(f"/api/extract/finalized-rule-packages/{package_id}/download")
+
+    assert first.status_code == second.status_code == 200
+    assert first.headers["content-type"] == "application/zip"
+    assert "filename*=UTF-8''" in first.headers["content-disposition"]
+    assert "content-disposition" in first.headers["access-control-expose-headers"].lower()
+    with ZipFile(BytesIO(first.content)) as package_zip:
+        assert "manifest.json" in package_zip.namelist()
+        assert "kmai-v1/route_rules.json" in package_zip.namelist()
+
+    after = client.get(
+        "/api/extract/finalized-rule-packages",
+        params={"project_id": 12},
+    ).json()
+    assert [(item["id"], item["version"], item["status"]) for item in after] == [
+        (item["id"], item["version"], item["status"]) for item in before
+    ]
+
+
+def test_download_rejects_missing_and_superseded_packages(rule_package_v2_payload):
+    assert client.get("/api/extract/finalized-rule-packages/999999/download").status_code == 404
+
+    first = client.post(
+        "/api/extract/finalized-rule-packages",
+        json=_v2_save_payload(rule_package_v2_payload),
+    ).json()
+    second = client.post(
+        "/api/extract/finalized-rule-packages",
+        json=_v2_save_payload(rule_package_v2_payload),
+    )
+    assert second.status_code == 200
+
+    rejected = client.get(f"/api/extract/finalized-rule-packages/{first['id']}/download")
+    assert rejected.status_code == 409
+    assert "当前发布版本" in rejected.json()["detail"]
+
+
+def test_download_rejects_archived_package(rule_package_v2_payload, isolated_rule_package_db):
+    saved = client.post(
+        "/api/extract/finalized-rule-packages",
+        json=_v2_save_payload(rule_package_v2_payload),
+    ).json()
+
+    async def archive_package():
+        async with isolated_rule_package_db() as session:
+            row = await session.get(FinalizedRulePackage, saved["id"])
+            row.status = "archived"
+            await session.commit()
+
+    asyncio.run(archive_package())
+    rejected = client.get(f"/api/extract/finalized-rule-packages/{saved['id']}/download")
+    assert rejected.status_code == 409
 
 
 def test_contract_rejects_unknown_condition_operator(rule_package_v2_payload):

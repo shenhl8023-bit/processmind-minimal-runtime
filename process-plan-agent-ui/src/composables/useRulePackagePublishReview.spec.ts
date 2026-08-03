@@ -1,16 +1,16 @@
-import { computed, ref, watch } from 'vue'
+﻿import { computed, ref, watch } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { CompileRulePackageResponse, RulePackageV2 } from '@/api'
 import {
-  buildExportReview,
-  type RulePackageExportReview,
-} from './useFinalizeRulePackageExport'
+  buildPublishReview,
+  type RulePackagePublishReview,
+} from './useFinalizeRulePackagePublish'
 import {
-  buildExportReviewFocusCards,
-  locateExportBlocker,
-  useRulePackageExportReview,
-} from './useRulePackageExportReview'
+  buildPublishReviewFocusCards,
+  locatePublishBlocker,
+  useRulePackagePublishReview,
+} from './useRulePackagePublishReview'
 
 const rulePackage: RulePackageV2 = {
   manifest: {},
@@ -54,10 +54,10 @@ function compiled(options: {
   }
 }
 
-const readyReview = { status: 'ready', projectName: '项目 A' } as RulePackageExportReview
-const blockedReview = { status: 'blocked', projectName: '项目 A' } as RulePackageExportReview
+const readyReview = { status: 'ready', projectName: '项目 A' } as RulePackagePublishReview
+const blockedReview = { status: 'blocked', projectName: '项目 A' } as RulePackagePublishReview
 
-describe('useRulePackageExportReview', () => {
+describe('useRulePackagePublishReview', () => {
   it('keeps a confirmed export blocker visible and focused until it scrolls', async () => {
     const cards = ref([
       { segment: { id: 'process_pending' }, pending: true },
@@ -66,8 +66,8 @@ describe('useRulePackageExportReview', () => {
     const onlyPending = ref(false)
     const activeSegmentId = ref('process_pending')
     const locatedSegmentId = ref('')
-    const reviewState = useRulePackageExportReview()
-    const reviewFocusCards = computed(() => buildExportReviewFocusCards(
+    const reviewState = useRulePackagePublishReview()
+    const reviewFocusCards = computed(() => buildPublishReviewFocusCards(
       cards.value,
       card => card.pending,
       locatedSegmentId.value,
@@ -81,7 +81,7 @@ describe('useRulePackageExportReview', () => {
     const scrollIntoView = vi.fn()
     const pendingReview = reviewState.request(blockedReview)
 
-    await locateExportBlocker({
+    await locatePublishBlocker({
       sourceSegmentId: 'process_hone',
       onlyPending,
       activeSegmentId,
@@ -103,11 +103,11 @@ describe('useRulePackageExportReview', () => {
     const onlyPending = ref(false)
     const activeSegmentId = ref('process_pending')
     const locatedSegmentId = ref('')
-    const reviewState = useRulePackageExportReview()
+    const reviewState = useRulePackagePublishReview()
     const getElementById = vi.fn()
     const pendingReview = reviewState.request(blockedReview)
 
-    await locateExportBlocker({
+    await locatePublishBlocker({
       sourceSegmentId: '',
       onlyPending,
       activeSegmentId,
@@ -129,8 +129,8 @@ describe('useRulePackageExportReview', () => {
   })
 
   it('has only ready and blocked states', () => {
-    const ready = buildExportReview(compiled({ validationValid: true, kmaiValid: true }), '项目 A')
-    const blocked = buildExportReview(compiled({
+    const ready = buildPublishReview(compiled({ validationValid: true, kmaiValid: true }), '项目 A')
+    const blocked = buildPublishReview(compiled({
       validationValid: true,
       kmaiValid: false,
       errors: [{
@@ -147,7 +147,7 @@ describe('useRulePackageExportReview', () => {
   })
 
   it('maps a backend rule error back to its fourth-step card', () => {
-    const review = buildExportReview(compiled({
+    const review = buildPublishReview(compiled({
       validationValid: true,
       kmaiValid: false,
       errors: [{
@@ -167,7 +167,7 @@ describe('useRulePackageExportReview', () => {
   })
 
   it('resolves the active review and clears its state', async () => {
-    const state = useRulePackageExportReview()
+    const state = useRulePackagePublishReview()
     const pending = state.request(readyReview)
 
     expect(state.review.value).toStrictEqual(readyReview)
@@ -181,7 +181,7 @@ describe('useRulePackageExportReview', () => {
   })
 
   it('cancels an older pending review before opening the next one', async () => {
-    const state = useRulePackageExportReview()
+    const state = useRulePackagePublishReview()
     const first = state.request(readyReview)
     const second = state.request(blockedReview)
 

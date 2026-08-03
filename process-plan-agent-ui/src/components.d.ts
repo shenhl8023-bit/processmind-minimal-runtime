@@ -32,7 +32,7 @@ declare module 'vue' {
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     RuleConditionNodeEditor: typeof import('./components/finalize/RuleConditionNodeEditor.vue')['default']
-    RulePackageExportReviewDialog: typeof import('./components/finalize/RulePackageExportReviewDialog.vue')['default']
+    RulePackagePublishReviewDialog: typeof import('./components/finalize/RulePackagePublishReviewDialog.vue')['default']
     SampleComparePanel: typeof import('./components/analysis/SampleComparePanel.vue')['default']
     SourceRoutePanel: typeof import('./components/extract/SourceRoutePanel.vue')['default']
     StandardFactorPicker: typeof import('./components/finalize/StandardFactorPicker.vue')['default']

@@ -1,11 +1,11 @@
-import { createSSRApp, ssrContextKey } from 'vue'
+﻿import { createSSRApp, ssrContextKey } from 'vue'
 import { renderToString, type SSRContext } from '@vue/server-renderer'
 import { describe, expect, it, vi } from 'vitest'
 
-import type { RulePackageExportReview } from '@/composables/useFinalizeRulePackageExport'
-import RulePackageExportReviewDialog from './RulePackageExportReviewDialog.vue'
+import type { RulePackagePublishReview } from '@/composables/useFinalizeRulePackagePublish'
+import RulePackagePublishReviewDialog from './RulePackagePublishReviewDialog.vue'
 
-function review(status: RulePackageExportReview['status']): RulePackageExportReview {
+function review(status: RulePackagePublishReview['status']): RulePackagePublishReview {
   return {
     status,
     projectName: '轴类零件示例',
@@ -42,24 +42,27 @@ function review(status: RulePackageExportReview['status']): RulePackageExportRev
   }
 }
 
-async function renderReview(value: RulePackageExportReview) {
+async function renderReview(value: RulePackagePublishReview) {
   const context: SSRContext = {}
-  await renderToString(createSSRApp(RulePackageExportReviewDialog, {
+  await renderToString(createSSRApp(RulePackagePublishReviewDialog, {
     modelValue: true,
     review: value,
   }), context)
   return context.teleports?.body || ''
 }
 
-describe('RulePackageExportReviewDialog', () => {
+describe('RulePackagePublishReviewDialog', () => {
   it('shows ready manual factors as an informational override summary', async () => {
     const html = await renderReview(review('ready'))
 
     expect(html).toContain('审核通过')
+    expect(html).toContain('审核并发布规则包')
+    expect(html).toContain('确认后将发布规则包')
     expect(html).toContain('manual.factor_overrides')
     expect(html).toContain('manual_requires_hone')
     expect(html).toContain('需要珩孔')
-    expect(html).toMatch(/<button[^>]*>\s*确认导出\s*<\/button>/)
+    expect(html).toMatch(/<button[^>]*>\s*确认发布\s*<\/button>/)
+    expect(html).not.toContain('确认导出')
   })
 
   it('shows structured blockers with a fourth-step locate action', async () => {
@@ -70,15 +73,15 @@ describe('RulePackageExportReviewDialog', () => {
     expect(html).toContain('当需要珩孔时，安排珩孔工序')
     expect(html).toContain('未绑定标准因子')
     expect(html).toContain('返回第四步处理')
-    expect(html).toMatch(/<button[^>]*disabled[^>]*>\s*确认导出\s*<\/button>/)
-    expect((RulePackageExportReviewDialog as any).emits).toContain('locate')
+    expect(html).toMatch(/<button[^>]*disabled[^>]*>\s*确认发布\s*<\/button>/)
+    expect((RulePackagePublishReviewDialog as any).emits).toContain('locate')
   })
 
   it('emits the selected source segment through the locate button handler', () => {
     const emit = vi.fn()
     const app = createSSRApp({ render: () => null })
     app.provide(ssrContextKey, { modules: new Set<string>() })
-    const setupState = app.runWithContext(() => (RulePackageExportReviewDialog as any).setup(
+    const setupState = app.runWithContext(() => (RulePackagePublishReviewDialog as any).setup(
       { modelValue: true, review: review('blocked') },
       { emit, expose: () => {} },
     ))
