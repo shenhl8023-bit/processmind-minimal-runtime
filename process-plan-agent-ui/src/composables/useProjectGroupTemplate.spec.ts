@@ -6,8 +6,9 @@ import {
   getCurrentGroupTemplate,
   previewGroupTemplate,
   saveGroupTemplateMappings,
+  saveGroupTemplateStepMappings,
 } from '@/api/extract'
-import type { GroupTemplateMapping, GroupTemplateNode } from '@/api/extract'
+import type { GroupTemplateMapping, GroupTemplateNode, GroupTemplateStepMapping } from '@/api/extract'
 import { formatGroupTemplateIssueDetail, useProjectGroupTemplate } from './useProjectGroupTemplate'
 
 vi.mock('@/api/extract', () => ({
@@ -15,12 +16,14 @@ vi.mock('@/api/extract', () => ({
   getCurrentGroupTemplate: vi.fn(),
   commitGroupTemplate: vi.fn(),
   saveGroupTemplateMappings: vi.fn(),
+  saveGroupTemplateStepMappings: vi.fn(),
 }))
 
 const previewGroupTemplateMock = vi.mocked(previewGroupTemplate)
 const getCurrentGroupTemplateMock = vi.mocked(getCurrentGroupTemplate)
 const commitGroupTemplateMock = vi.mocked(commitGroupTemplate)
 const saveGroupTemplateMappingsMock = vi.mocked(saveGroupTemplateMappings)
+const saveGroupTemplateStepMappingsMock = vi.mocked(saveGroupTemplateStepMappings)
 
 const xmlFile = new File(['<Kmsoft />'], 'part-template.xml', { type: 'application/xml' })
 
@@ -62,11 +65,32 @@ function template(revision = 1, mappings: GroupTemplateMapping[] = []) {
     tree: [node(['A侧', '孔'])],
     validation_issues: [],
     mappings,
+    step_mappings: [],
     template_revision: revision,
     group_count: 1,
     feature_selection_count: 1,
     created_at: null,
     updated_at: null,
+  }
+}
+
+function stepMapping(): GroupTemplateStepMapping {
+  return {
+    source_operation_id: 11,
+    source_operation_name: '车削A侧',
+    source_step_key: 'op_11_s01',
+    source_step_order: 1,
+    source_step_name: '钻孔',
+    source_step_text_hash: 'sha256:test',
+    scope_template_group_path: ['A侧'],
+    template_group_path: ['A侧', '孔'],
+    candidate_features: ['孔(盲孔)'],
+    match_mode: 'any',
+    status: 'confirmed',
+    confidence: 1,
+    source: 'user_confirmed',
+    template_group_key: 'grp_A侧_孔',
+    template_group_name: '孔',
   }
 }
 
@@ -239,7 +263,12 @@ describe('useProjectGroupTemplate', () => {
     await model.confirmTemplate()
 
     expect(commitGroupTemplateMock).toHaveBeenCalledWith(28, xmlFile, 'preview-hash', 7)
-    expect(model.replacementImpact.value).toEqual({ kept_source_operation_ids: [11], invalidated: [] })
+    expect(model.replacementImpact.value).toEqual({
+      kept_source_operation_ids: [11],
+      invalidated: [],
+      kept_source_step_keys: [],
+      invalidated_step_mappings: [],
+    })
     expect(model.templateRevision.value).toBe(8)
   })
 
@@ -262,6 +291,35 @@ describe('useProjectGroupTemplate', () => {
       template_group_path: ['A侧', '孔'],
     }])
     expect(model.templateRevision.value).toBe(6)
+    expect(model.template.value?.mappings).toEqual([mapping()])
+  })
+
+  it('saves formal step mappings without overwriting legacy operation aliases', async () => {
+    getCurrentGroupTemplateMock.mockResolvedValue(template(5, [mapping()]))
+    saveGroupTemplateStepMappingsMock.mockResolvedValue({
+      ...template(6, [mapping()]),
+      step_mappings: [stepMapping()],
+    })
+    const model = useProjectGroupTemplate(ref(28), ref({}))
+    await model.load()
+    model.draftStepMappings.value = [{
+      source_operation_id: 11,
+      source_operation_name: '车削A侧',
+      source_step_order: 1,
+      source_step_name: '钻孔',
+      scope_template_group_path: ['A侧'],
+      template_group_path: ['A侧', '孔'],
+      candidate_features: ['孔(盲孔)'],
+      match_mode: 'any',
+      status: 'confirmed',
+      confidence: 1,
+      source: 'user_confirmed',
+    }]
+
+    await model.saveStepMappings()
+
+    expect(saveGroupTemplateStepMappingsMock).toHaveBeenCalledWith(28, 5, model.draftStepMappings.value)
+    expect(model.template.value?.step_mappings).toEqual([stepMapping()])
     expect(model.template.value?.mappings).toEqual([mapping()])
   })
 

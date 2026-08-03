@@ -5,11 +5,14 @@ import {
   getCurrentGroupTemplate,
   previewGroupTemplate,
   saveGroupTemplateMappings,
+  saveGroupTemplateStepMappings,
   type GroupTemplateMapping,
   type GroupTemplateMappingInput,
   type GroupTemplateMigrationResult,
   type GroupTemplateNode,
   type GroupTemplatePreview,
+  type GroupTemplateStepMapping,
+  type GroupTemplateStepMappingInput,
   type GroupTemplateValidationIssue,
   type ProjectGroupTemplate,
 } from '@/api/extract'
@@ -42,6 +45,22 @@ function mappingInputs(mappings: GroupTemplateMapping[]) {
   return mappings.map(mappingInput)
 }
 
+function stepMappingInput(mapping: GroupTemplateStepMapping): GroupTemplateStepMappingInput {
+  return {
+    source_operation_id: mapping.source_operation_id,
+    source_operation_name: mapping.source_operation_name,
+    source_step_order: mapping.source_step_order,
+    source_step_name: mapping.source_step_name,
+    scope_template_group_path: [...mapping.scope_template_group_path],
+    template_group_path: [...mapping.template_group_path],
+    candidate_features: [...mapping.candidate_features],
+    match_mode: 'any',
+    status: mapping.status,
+    confidence: mapping.confidence,
+    source: mapping.source,
+  }
+}
+
 function treePathKeys(nodes: GroupTemplateNode[]) {
   const keys = new Set<string>()
   const visit = (children: GroupTemplateNode[]) => {
@@ -65,7 +84,21 @@ function previewMigration(template: ProjectGroupTemplate, preview: GroupTemplate
       invalidated.push(mapping)
     }
   })
-  return { kept_source_operation_ids: kept, invalidated }
+  const keptSourceStepKeys: string[] = []
+  const invalidatedStepMappings: GroupTemplateStepMapping[] = []
+  ;(template.step_mappings || []).forEach((mapping) => {
+    if (mapping.status === 'not_applicable' || paths.has(pathKey(mapping.template_group_path))) {
+      keptSourceStepKeys.push(mapping.source_step_key)
+    } else {
+      invalidatedStepMappings.push(mapping)
+    }
+  })
+  return {
+    kept_source_operation_ids: kept,
+    invalidated,
+    kept_source_step_keys: keptSourceStepKeys,
+    invalidated_step_mappings: invalidatedStepMappings,
+  }
 }
 
 function migratedLegacyMappings(
@@ -114,6 +147,7 @@ export function useProjectGroupTemplate(
   const template = ref<ProjectGroupTemplate | null>(null)
   const preview = ref<GroupTemplatePreview | null>(null)
   const draftMappings = ref<GroupTemplateMappingInput[]>([])
+  const draftStepMappings = ref<GroupTemplateStepMappingInput[]>([])
   const loading = ref(false)
   const saving = ref(false)
   const error = ref('')
@@ -126,6 +160,7 @@ export function useProjectGroupTemplate(
   function applyTemplate(snapshot: ProjectGroupTemplate) {
     template.value = snapshot
     draftMappings.value = mappingInputs(snapshot.mappings)
+    draftStepMappings.value = (snapshot.step_mappings || []).map(stepMappingInput)
     state.value = 'workspace'
   }
 
@@ -151,6 +186,7 @@ export function useProjectGroupTemplate(
         preview.value = null
         selectedFile = null
         draftMappings.value = []
+        draftStepMappings.value = []
         replacementImpact.value = null
         legacyMigrationProjectId = currentProjectId
         return true
@@ -230,6 +266,8 @@ export function useProjectGroupTemplate(
       replacementImpact.value = {
         kept_source_operation_ids: committed.kept_source_operation_ids,
         invalidated: committed.invalidated,
+        kept_source_step_keys: committed.kept_source_step_keys || [],
+        invalidated_step_mappings: committed.invalidated_step_mappings || [],
       }
       preview.value = null
       selectedFile = null
@@ -266,11 +304,33 @@ export function useProjectGroupTemplate(
     }
   }
 
+  async function saveStepMappings() {
+    if (!template.value) return
+    saving.value = true
+    error.value = ''
+    try {
+      applyTemplate(await saveGroupTemplateStepMappings(
+        unref(projectId),
+        templateRevision.value,
+        draftStepMappings.value,
+      ))
+    } catch (cause) {
+      if (errorStatus(cause) === 409) {
+        await recoverFromConflict()
+      } else {
+        error.value = errorMessage(cause)
+      }
+    } finally {
+      saving.value = false
+    }
+  }
+
   return {
     state,
     template,
     preview,
     draftMappings,
+    draftStepMappings,
     loading,
     saving,
     error,
@@ -282,5 +342,6 @@ export function useProjectGroupTemplate(
     beginReplacement,
     cancelPreview,
     saveMappings,
+    saveStepMappings,
   }
 }

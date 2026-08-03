@@ -153,6 +153,27 @@ export interface GroupTemplateMapping extends GroupTemplateMappingInput {
   feature_selections: string[]
 }
 
+export interface GroupTemplateStepMappingInput {
+  source_operation_id: number
+  source_operation_name: string
+  source_step_order: number
+  source_step_name: string
+  scope_template_group_path: string[]
+  template_group_path: string[]
+  candidate_features: string[]
+  match_mode: 'any'
+  status: 'confirmed' | 'not_applicable'
+  confidence: number
+  source: 'user_confirmed' | 'auto_confirmed' | 'legacy_migrated'
+}
+
+export interface GroupTemplateStepMapping extends GroupTemplateStepMappingInput {
+  source_step_key: string
+  source_step_text_hash: string
+  template_group_key: string
+  template_group_name: string
+}
+
 export interface GroupTemplatePreview {
   original_filename: string
   source_encoding: string
@@ -176,6 +197,7 @@ export interface ProjectGroupTemplate {
   tree: GroupTemplateNode[]
   validation_issues: GroupTemplateValidationIssue[]
   mappings: GroupTemplateMapping[]
+  step_mappings: GroupTemplateStepMapping[]
   template_revision: number
   group_count: number
   feature_selection_count: number
@@ -186,6 +208,8 @@ export interface ProjectGroupTemplate {
 export interface GroupTemplateMigrationResult {
   kept_source_operation_ids: number[]
   invalidated: GroupTemplateMapping[]
+  kept_source_step_keys?: string[]
+  invalidated_step_mappings?: GroupTemplateStepMapping[]
 }
 
 export interface GroupTemplateCommitResult extends ProjectGroupTemplate, GroupTemplateMigrationResult {}
@@ -218,6 +242,43 @@ export interface TemplateGroupMappingSuggestResponse {
   project_id: number
   model_used: boolean
   suggestions: TemplateGroupMappingSuggestionResult[]
+  warnings: string[]
+}
+
+export interface TemplateStepMappingSuggestRequest {
+  project_id: number
+  expected_template_revision: number
+  operations: TemplateGroupMappingOperationInput[]
+}
+
+export interface TemplateGroupMappingCandidate {
+  group_id: string
+  path: string[]
+  score: number
+  reason: string
+}
+
+export interface TemplateStepMappingSuggestionResult {
+  operation_id: number
+  operation_name: string
+  step_key: string
+  step_order: number
+  step_name: string
+  step_text_hash: string
+  recommended_group_ids: string[]
+  candidates: TemplateGroupMappingCandidate[]
+  confidence: number
+  source: 'auto_confirmed' | 'llm' | 'unresolved' | string
+  evidence: string[]
+  reason: string
+  warnings: string[]
+}
+
+export interface TemplateStepMappingSuggestResponse {
+  project_id: number
+  template_revision: number
+  model_used: boolean
+  suggestions: TemplateStepMappingSuggestionResult[]
   warnings: string[]
 }
 
@@ -604,6 +665,24 @@ export async function saveGroupTemplateMappings(
     mappings,
   })
   return data as ProjectGroupTemplate
+}
+
+export async function saveGroupTemplateStepMappings(
+  projectId: number,
+  revision: number,
+  mappings: GroupTemplateStepMappingInput[],
+): Promise<ProjectGroupTemplate> {
+  const { data } = await api.put('/api/extract/group-templates/step-mappings', {
+    project_id: projectId,
+    expected_template_revision: revision,
+    mappings,
+  })
+  return data as ProjectGroupTemplate
+}
+
+export async function suggestTemplateStepMappings(body: TemplateStepMappingSuggestRequest) {
+  const { data } = await api.post('/api/extract/template-step-mappings/suggest', body)
+  return data as TemplateStepMappingSuggestResponse
 }
 
 export async function saveNormalizedSupersetRoute(body: {
