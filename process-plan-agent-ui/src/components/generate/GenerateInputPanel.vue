@@ -33,7 +33,7 @@
 
     <div v-if="inputFields.length" class="field-list">
       <div
-        v-for="field in inputFields"
+        v-for="field in standardFields"
         :key="field.key"
         class="field-block"
         :class="{ complete: Boolean(fieldPreviewValue(field.key)), optional: !field.required }"
@@ -129,6 +129,38 @@
       </div>
     </div>
 
+    <section v-if="booleanFields.length" class="boolean-field-group" aria-labelledby="boolean-field-group-title">
+      <div class="boolean-field-group-head">
+        <div>
+          <h3 id="boolean-field-group-title">工艺选项</h3>
+          <p>统一设置与工艺路线相关的是/否条件</p>
+        </div>
+        <span class="boolean-field-count">{{ booleanFields.length }} 项</span>
+      </div>
+      <div class="boolean-field-grid">
+        <div v-for="field in booleanFields" :key="field.key" class="boolean-field-item" :class="{ complete: Boolean(fieldPreviewValue(field.key)) }">
+          <div class="field-label-row">
+            <div class="field-name-line">
+              <span class="field-label">{{ field.name || field.key }}</span>
+              <svg v-if="Boolean(fieldPreviewValue(field.key))" class="field-complete-icon" width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <circle cx="8" cy="8" r="7" fill="#22c55e" opacity="0.15"/>
+                <path d="M5 8l2.5 2.5L11 5.5" stroke="#16a34a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <div class="field-meta">
+              <span class="field-source" :class="`field-source-${fieldSourceKind(field.source)}`" :title="field.source || '规则包输入'">{{ fieldSourceLabel(field.source) }}</span>
+              <span class="field-type">{{ fieldTypeLabel(field) }}</span>
+              <span v-if="field.required" class="field-required">必填</span>
+            </div>
+          </div>
+          <div class="boolean-choice" role="radiogroup" :aria-label="field.name">
+            <button type="button" class="select-chip" :class="{ active: fieldValues[field.key] === true }" @click="setFieldBoolean(field.key, true)">是</button>
+            <button type="button" class="select-chip" :class="{ active: fieldValues[field.key] === false }" @click="setFieldBoolean(field.key, false)">否</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <div v-if="!hasRulePackage || !inputFields.length" class="schema-empty">
       <strong>无法配置生成参数</strong>
       <span>{{ schemaStatusText }}</span>
@@ -157,7 +189,9 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{
+import { computed } from 'vue'
+
+const props = defineProps<{
   projectId: number | null
   projectName: string
   inputFields: any[]
@@ -194,6 +228,9 @@ const emit = defineEmits<{
   (event: 'generate'): void
   (event: 'go-finalize'): void
 }>()
+
+const standardFields = computed(() => props.inputFields.filter(field => !props.isBooleanField(field)))
+const booleanFields = computed(() => props.inputFields.filter(field => props.isBooleanField(field)))
 
 function fieldSourceKind(source: string | undefined) {
   const text = String(source || '')
@@ -333,6 +370,19 @@ function fieldSourceLabel(source: string | undefined) {
   gap: 8px;
   margin-top: 10px;
 }
+
+.boolean-field-group { margin-top: 12px; padding: 12px; border: 1px solid #c7d2fe; border-radius: 9px; background: linear-gradient(135deg, #f8faff, #f5f3ff); }
+.boolean-field-group-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.boolean-field-group-head h3 { margin: 0; color: var(--ink); font-size: 13px; font-weight: 750; }
+.boolean-field-group-head p { margin: 3px 0 0; color: var(--muted); font-size: 11px; }
+.boolean-field-count { flex-shrink: 0; padding: 2px 6px; border-radius: 999px; background: #e0e7ff; color: #4338ca; font-size: 10px; font-weight: 700; }
+.boolean-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.boolean-field-item { min-width: 0; padding: 8px; border: 1px solid #dbe3ee; border-radius: 7px; background: #ffffff; }
+.boolean-field-item.complete { border-color: #c7d2fe; }
+.boolean-field-item .field-label-row { margin-bottom: 7px; }
+.boolean-field-item .field-meta { max-width: 50%; overflow: hidden; }
+.boolean-field-item .field-source { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 640px) { .boolean-field-grid { grid-template-columns: 1fr; } }
 
 .field-block {
   padding: 8px 10px;
