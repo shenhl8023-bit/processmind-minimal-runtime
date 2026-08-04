@@ -20,6 +20,7 @@ class InputOption(StrictModel):
 class InputValidation(StrictModel):
     min: float | None = None
     max: float | None = None
+    integer: bool = False
     min_length: int | None = None
     max_length: int | None = None
 
@@ -32,6 +33,15 @@ class InputValidation(StrictModel):
         return self
 
 
+PRECISION_IT_FIELD_KEYS = frozenset({
+    "precision.outer_diameter_it",
+    "precision.inner_diameter_it",
+    "precision.dimension_it",
+})
+PRECISION_IT_MIN = 5
+PRECISION_IT_MAX = 10
+
+
 class InputField(StrictModel):
     key: str = Field(min_length=1)
     label: str = Field(min_length=1)
@@ -42,6 +52,16 @@ class InputField(StrictModel):
     allow_custom: bool = False
     unit: str | None = None
     validation: InputValidation | None = None
+
+    @model_validator(mode="after")
+    def normalize_precision_it_validation(self):
+        if self.key in PRECISION_IT_FIELD_KEYS:
+            self.validation = InputValidation(
+                min=PRECISION_IT_MIN,
+                max=PRECISION_IT_MAX,
+                integer=True,
+            )
+        return self
 
 
 class InputSchemaV2(StrictModel):

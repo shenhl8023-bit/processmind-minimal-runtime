@@ -62,6 +62,13 @@ def validate_inputs(schema: InputSchemaV2, inputs: dict[str, Any]) -> list[Input
                 add("input_below_min", field, f"输入 {field.label} 不能小于 {field.validation.min:g}")
             if field.validation and field.validation.max is not None and value > field.validation.max:
                 add("input_above_max", field, f"输入 {field.label} 不能大于 {field.validation.max:g}")
+            if (
+                field.validation
+                and field.validation.integer
+                and isinstance(value, float)
+                and not value.is_integer()
+            ):
+                add("input_integer_required", field, f"输入 {field.label} 必须是整数")
         elif field.type == "boolean":
             if not isinstance(value, bool):
                 add("input_type_mismatch", field, f"输入 {field.label} 必须是布尔值")

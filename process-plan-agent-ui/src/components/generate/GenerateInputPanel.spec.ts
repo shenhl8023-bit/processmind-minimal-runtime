@@ -4,7 +4,19 @@ import { describe, expect, it } from 'vitest'
 import GenerateInputPanel from './GenerateInputPanel.vue'
 import source from './GenerateInputPanel.vue?raw'
 
-const baseProps = (inputFields = [
+type TestInputField = {
+  key: string
+  name: string
+  type: string
+  required: boolean
+  validation?: {
+    min?: number
+    max?: number
+    integer?: boolean
+  }
+}
+
+const baseProps = (inputFields: TestInputField[] = [
   { key: 'material', name: '材料牌号', type: 'string', required: true },
   { key: 'has_hole', name: '是否有内孔', type: 'boolean', required: true },
   { key: 'precision', name: '尺寸精度', type: 'string', required: true },
@@ -26,7 +38,7 @@ const baseProps = (inputFields = [
   isSingleSelectField: () => false,
   isArrayField: () => false,
   isBooleanField: (field: { type: string }) => field.type === 'boolean' || field.type === 'bool',
-  isNumberField: () => false,
+  isNumberField: (_field: { type: string }) => false,
   fieldTextValue: () => '',
   fieldPlaceholder: () => '',
   fieldPreviewValue: (key: string) => key === 'has_hole' ? '是' : '',
@@ -68,5 +80,25 @@ describe('GenerateInputPanel', () => {
   it('uses a responsive two-column boolean field grid', () => {
     expect(source).toMatch(/\.boolean-field-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,/s)
     expect(source).toMatch(/@media\s*\(max-width:\s*640px\)[\s\S]*\.boolean-field-grid\s*\{[^}]*grid-template-columns:\s*1fr;/s)
+  })
+
+  it('renders numeric validation bounds and integer step attributes', async () => {
+    const props = baseProps([
+      {
+        key: 'precision.outer_diameter_it',
+        name: '外圆尺寸精度 IT',
+        type: 'number',
+        required: true,
+        validation: { min: 5, max: 10, integer: true },
+      },
+    ])
+    props.isNumberField = (field: { type: string }) => field.type === 'number'
+
+    const html = await renderToString(createSSRApp(GenerateInputPanel, props))
+
+    expect(html).toContain('type="number"')
+    expect(html).toContain('min="5"')
+    expect(html).toContain('max="10"')
+    expect(html).toContain('step="1"')
   })
 })

@@ -162,4 +162,35 @@ describe('useGenerateInputFields project isolation', () => {
       requires_inspection: false,
     })
   })
+
+  it('accepts only integer IT grades from 5 through 10', () => {
+    const inputSchema = ref<Record<string, any> | null>({
+      schema_version: '2.0',
+      fields: [{
+        key: 'precision.outer_diameter_it',
+        label: '外圆尺寸精度 IT',
+        type: 'number',
+        required: true,
+        validation: { min: 5, max: 10, integer: true },
+      }],
+    })
+    const fields = useGenerateInputFields({
+      inputSchema,
+      hasRulePackage: ref(true),
+      projectId: ref(1),
+      schemaLoading: ref(false),
+    })
+    fields.initializeFieldValues()
+
+    for (const value of ['5', '10']) {
+      fields.setFieldText('precision.outer_diameter_it', value)
+      expect(fields.canGenerate.value).toBe(true)
+    }
+
+    for (const value of ['4', '11', '5.5']) {
+      fields.setFieldText('precision.outer_diameter_it', value)
+      expect(fields.canGenerate.value).toBe(false)
+      expect(fields.factorValues.value).toEqual({})
+    }
+  })
 })

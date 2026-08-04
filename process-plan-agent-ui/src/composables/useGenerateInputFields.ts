@@ -13,6 +13,7 @@ export type GenerateInputField = {
   validation?: {
     min?: number | null
     max?: number | null
+    integer?: boolean
     min_length?: number | null
     max_length?: number | null
   }
@@ -188,7 +189,7 @@ function isReusableFieldValue(field: GenerateInputField, value: any) {
     if (rawValue === '') return false
     const normalized = typeof rawValue === 'number' ? rawValue : Number(rawValue)
     if (!Number.isFinite(normalized)) return false
-    if (field.type === 'integer' && !Number.isInteger(normalized)) return false
+    if ((field.type === 'integer' || field.validation?.integer) && !Number.isInteger(normalized)) return false
     if (typeof field.validation?.min === 'number' && normalized < field.validation.min) return false
     if (typeof field.validation?.max === 'number' && normalized > field.validation.max) return false
     return true

@@ -122,6 +122,9 @@
           v-else
           class="text-input"
           :type="isNumberField(field) ? 'number' : 'text'"
+          :min="isNumberField(field) ? field.validation?.min ?? undefined : undefined"
+          :max="isNumberField(field) ? field.validation?.max ?? undefined : undefined"
+          :step="isNumberField(field) && field.validation?.integer ? 1 : undefined"
           :value="fieldTextValue(field.key)"
           :placeholder="fieldPlaceholder(field)"
           @input="setFieldText(field.key, inputValue($event))"
