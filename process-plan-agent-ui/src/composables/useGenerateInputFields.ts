@@ -27,18 +27,36 @@ type FactorDictionaryEntry = {
   required?: boolean
 }
 
+const GENERATE_PRECISION_IT_FIELD_KEYS = new Set([
+  'precision.outer_diameter_it',
+  'precision.inner_diameter_it',
+  'precision.dimension_it',
+])
+
+function generateFieldValidation(
+  key: string,
+  validation: GenerateInputField['validation'],
+): GenerateInputField['validation'] {
+  if (!GENERATE_PRECISION_IT_FIELD_KEYS.has(key)) return validation
+  return { ...(validation || {}), min: 5, max: 10, integer: true }
+}
+
 function normalizeSchemaFields(fields: any, required: boolean): GenerateInputField[] {
   if (!Array.isArray(fields)) return []
   return fields
-    .map((field) => ({
-      key: String(field?.key || '').trim(),
-      name: String(field?.name || field?.label || field?.key || '').trim(),
-      type: String(field?.type || 'string').trim().toLowerCase(),
-      source: String(field?.source || '').trim(),
-      examples: Array.isArray(field?.examples) ? field.examples.map((item: any) => String(item || '').trim()).filter(Boolean) : [],
-      allowed_values: Array.isArray(field?.allowed_values) ? field.allowed_values.map((item: any) => String(item || '').trim()).filter(Boolean) : [],
-      required,
-    }))
+    .map((field) => {
+      const key = String(field?.key || '').trim()
+      return {
+        key,
+        name: String(field?.name || field?.label || field?.key || '').trim(),
+        type: String(field?.type || 'string').trim().toLowerCase(),
+        source: String(field?.source || '').trim(),
+        examples: Array.isArray(field?.examples) ? field.examples.map((item: any) => String(item || '').trim()).filter(Boolean) : [],
+        allowed_values: Array.isArray(field?.allowed_values) ? field.allowed_values.map((item: any) => String(item || '').trim()).filter(Boolean) : [],
+        required,
+        validation: generateFieldValidation(key, field?.validation || undefined),
+      }
+    })
     .filter(field => field.key)
 }
 
@@ -46,11 +64,12 @@ function normalizeV2Fields(fields: any): GenerateInputField[] {
   if (!Array.isArray(fields)) return []
   return fields
     .map((field) => {
+      const key = String(field?.key || '').trim()
       const options = Array.isArray(field?.options)
         ? field.options.map((item: any) => String(item?.value ?? item?.label ?? '').trim()).filter(Boolean)
         : []
       return {
-        key: String(field?.key || '').trim(),
+        key,
         name: String(field?.label || field?.name || field?.key || '').trim(),
         type: String(field?.type || 'string').trim().toLowerCase(),
         source: String(field?.source || '').trim(),
@@ -59,7 +78,7 @@ function normalizeV2Fields(fields: any): GenerateInputField[] {
         required: Boolean(field?.required),
         allow_custom: Boolean(field?.allow_custom),
         unit: field?.unit ? String(field.unit) : undefined,
-        validation: field?.validation || undefined,
+        validation: generateFieldValidation(key, field?.validation || undefined),
       }
     })
     .filter(field => field.key)

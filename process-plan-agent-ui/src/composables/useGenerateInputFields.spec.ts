@@ -171,7 +171,7 @@ describe('useGenerateInputFields project isolation', () => {
         label: '外圆尺寸精度 IT',
         type: 'number',
         required: true,
-        validation: { min: 5, max: 10, integer: true },
+        validation: { min: 1, max: 18 },
       }],
     })
     const fields = useGenerateInputFields({
@@ -192,5 +192,30 @@ describe('useGenerateInputFields project isolation', () => {
       expect(fields.canGenerate.value).toBe(false)
       expect(fields.factorValues.value).toEqual({})
     }
+  })
+
+  it('applies the same range to legacy rule package IT inputs', () => {
+    const inputSchema = ref<Record<string, any> | null>({
+      schema_version: '1.0',
+      required_inputs: [{
+        key: 'precision.inner_diameter_it',
+        name: '内孔尺寸精度 IT',
+        type: 'number',
+      }],
+      optional_inputs: [],
+    })
+    const fields = useGenerateInputFields({
+      inputSchema,
+      hasRulePackage: ref(true),
+      projectId: ref(1),
+      schemaLoading: ref(false),
+    })
+    fields.initializeFieldValues()
+
+    expect(fields.inputFields.value[0]?.validation).toEqual({ min: 5, max: 10, integer: true })
+    fields.setFieldText('precision.inner_diameter_it', '4')
+    expect(fields.canGenerate.value).toBe(false)
+    fields.setFieldText('precision.inner_diameter_it', '8')
+    expect(fields.canGenerate.value).toBe(true)
   })
 })

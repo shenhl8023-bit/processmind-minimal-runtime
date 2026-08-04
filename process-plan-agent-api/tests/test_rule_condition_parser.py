@@ -673,10 +673,7 @@ def test_registry_rejects_out_of_range_and_reversed_numeric_conditions():
 
     assert validate_condition_tree(
         ConditionNode(field="precision.outer_diameter_it", op="lte", value=99)
-    ) == ["字段“外圆尺寸精度 IT”不能大于 10"]
-    assert validate_condition_tree(
-        ConditionNode(field="precision.outer_diameter_it", op="lte", value=5.5)
-    ) == ["字段“外圆尺寸精度 IT”必须使用整数"]
+    ) == ["字段“外圆尺寸精度 IT”不能大于 18"]
     assert validate_condition_tree(
         ConditionNode(field="mechanical.hardness_hrc", op="between", value=[70, 20])
     ) == ["字段“目标硬度 HRC”的区间下限不能大于上限"]

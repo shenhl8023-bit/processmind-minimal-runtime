@@ -5,14 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.services.rule_packages.condition_contracts import CanonicalConditionField
-from app.services.rule_packages.contracts import (
-    PRECISION_IT_MAX,
-    PRECISION_IT_MIN,
-    ConditionNode,
-    InputField,
-    InputOption,
-    InputValidation,
-)
+from app.services.rule_packages.contracts import ConditionNode, InputField, InputOption, InputValidation
 from app.services.rule_packages.standard_factors import STANDARD_FACTOR_CATALOG_VERSION
 
 
@@ -28,17 +21,17 @@ _FIELDS = [
     CanonicalConditionField(
         key="precision.outer_diameter_it", label="外圆尺寸精度 IT", category="尺寸精度", type="number",
         operators=["eq", "gt", "gte", "lt", "lte", "between"], aliases=["外圆精度", "外径精度", "外圆IT"],
-        source="CAD/工艺要求", validation={"min": PRECISION_IT_MIN, "max": PRECISION_IT_MAX, "integer": True},
+        source="CAD/工艺要求", validation={"min": 1, "max": 18},
     ),
     CanonicalConditionField(
         key="precision.inner_diameter_it", label="内孔尺寸精度 IT", category="尺寸精度", type="number",
         operators=["eq", "gt", "gte", "lt", "lte", "between"], aliases=["内孔精度", "孔精度", "内径精度", "孔IT"],
-        source="CAD/工艺要求", validation={"min": PRECISION_IT_MIN, "max": PRECISION_IT_MAX, "integer": True},
+        source="CAD/工艺要求", validation={"min": 1, "max": 18},
     ),
     CanonicalConditionField(
         key="precision.dimension_it", label="尺寸精度 IT", category="尺寸精度", type="number",
         operators=["eq", "gt", "gte", "lt", "lte", "between"], aliases=["尺寸精度", "IT等级", "公差等级"],
-        source="CAD/工艺要求", validation={"min": PRECISION_IT_MIN, "max": PRECISION_IT_MAX, "integer": True},
+        source="CAD/工艺要求", validation={"min": 1, "max": 18},
     ),
     CanonicalConditionField(
         key="surface.roughness_ra", label="表面粗糙度 Ra", category="表面质量", type="number",
@@ -158,10 +151,6 @@ def validate_condition_tree(
                         issues.append(f"字段“{definition.label}”不能小于 {minimum}")
                     if maximum is not None and any(item > maximum for item in values):
                         issues.append(f"字段“{definition.label}”不能大于 {maximum}")
-                    if validation.get("integer") and any(
-                        isinstance(item, float) and not item.is_integer() for item in values
-                    ):
-                        issues.append(f"字段“{definition.label}”必须使用整数")
                     if current.op == "between" and len(values) == 2 and values[0] > values[1]:
                         issues.append(f"字段“{definition.label}”的区间下限不能大于上限")
             if definition.type == "boolean" and current.op not in {"exists", "not_exists"} and not isinstance(value, bool):
