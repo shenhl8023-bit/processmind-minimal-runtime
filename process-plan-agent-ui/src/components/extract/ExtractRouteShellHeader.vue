@@ -15,25 +15,27 @@
         <span class="tag" :class="canEnter ? 'tag-success' : 'tag-warning'">
           {{ canEnter ? '已收敛' : statusLabel }}
         </span>
-        <button
-          class="btn btn-text btn-sm route-shell-tool"
-          type="button"
-          :disabled="!canEnter"
-          @click="$emit('open-template-mapping')"
-        >
-          <Connection class="icon-sm" />
-          模板分组映射
-        </button>
-        <button
-          class="btn btn-text btn-sm route-shell-tool"
-          :class="{ 'route-shell-tool-active': showTemplateAliases }"
-          type="button"
-          :disabled="!hasTemplateAliases"
-          @click="$emit('toggle-template-aliases')"
-        >
-          <InfoFilled class="icon-sm" />
-          详细信息
-        </button>
+        <template v-if="templateMappingToolsEnabled">
+          <button
+            class="btn btn-text btn-sm route-shell-tool"
+            type="button"
+            :disabled="!canEnter"
+            @click="$emit('open-template-mapping')"
+          >
+            <Connection class="icon-sm" />
+            分组模板映射
+          </button>
+          <button
+            class="btn btn-text btn-sm route-shell-tool"
+            :class="{ 'route-shell-tool-active': showTemplateAliases }"
+            type="button"
+            :disabled="!hasTemplateAliases"
+            @click="$emit('toggle-template-aliases')"
+          >
+            <InfoFilled class="icon-sm" />
+            详细信息
+          </button>
+        </template>
         <button class="btn btn-text btn-sm route-shell-revert" @click="$emit('rerun')">
           <svg viewBox="0 0 24 24" fill="none" class="icon-sm">
             <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 005.373 6.222M20 20v-5h-.581m-15.357-2a8.001 8.001 0 0013.984 4.778" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -52,6 +54,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Connection, InfoFilled } from '@element-plus/icons-vue'
+
+const templateMappingToolsEnabled = false
 
 const props = defineProps<{
   editUnlocked: boolean
