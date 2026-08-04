@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { RouterView, useRoute, useRouter } from 'vue-router'
+import { RouterView, useRoute } from 'vue-router'
 import { computed, onMounted, ref } from 'vue'
 import ModelSettingsDrawer from '@/components/settings/ModelSettingsDrawer.vue'
 import {
@@ -8,7 +8,6 @@ import {
 import { workflowRouteLoaders } from '@/router'
 
 const route = useRoute()
-const router = useRouter()
 const activeIndex = computed(() => route.path)
 const settingsVisible = ref(false)
 
@@ -45,17 +44,6 @@ const stepStatus = (stepNumber: number) => {
 }
 
 const stepIsCompleted = (stepNumber: number) => stepStatus(stepNumber) === 'completed'
-
-function navigateToStep(stepNumber: number) {
-  const status = stepStatus(stepNumber)
-  if (status === 'active' || status === 'locked') return
-  const step = workflowSteps[stepNumber - 1]
-  if (!step) return
-  router.push({
-    path: step.path,
-    query: route.query.project_id ? { project_id: route.query.project_id } : {},
-  })
-}
 
 const openSettings = () => {
   settingsVisible.value = true
@@ -97,11 +85,6 @@ onMounted(() => {
           <div
             :class="['step', stepStatus(step.number)]"
             :aria-current="stepStatus(step.number) === 'active' ? 'step' : undefined"
-            :role="['completed','available'].includes(stepStatus(step.number)) ? 'button' : undefined"
-            :tabindex="['completed','available'].includes(stepStatus(step.number)) ? 0 : undefined"
-            :title="stepStatus(step.number) === 'completed' ? `返回${step.label}` : stepStatus(step.number) === 'available' ? `前往${step.label}` : undefined"
-            @click="navigateToStep(step.number)"
-            @keydown.enter="navigateToStep(step.number)"
           >
             <div class="step-dot">{{ step.number }}</div>
             <span>{{ step.label }}</span>
@@ -358,21 +341,11 @@ html, body {
 
 .step.completed {
   color: var(--success);
-  cursor: pointer;
-}
-
-.step.completed:hover {
-  opacity: 0.75;
 }
 
 
 .step.available {
   color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.step.available:hover {
-  color: var(--accent);
 }
 
 
