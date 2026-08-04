@@ -40,6 +40,7 @@ if errorlevel 1 (
 :finish
 if not "%PROCESSMIND_NO_PAUSE%"=="1" (
   echo.
-  pause
+  echo ProcessMind has started. This window will close in 3 seconds.
+  timeout /t 3 /nobreak >nul
 )
 exit /b %EXIT_CODE%
