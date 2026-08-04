@@ -490,6 +490,9 @@ class ExtractionTaskStatusOut(BaseModel):
 class GenerateRequest(BaseModel):
     project_id: Optional[int] = None
     expected_workflow_revision: int = 0
+    expected_rule_package_id: Optional[int] = None
+    expected_rule_package_version: Optional[int] = None
+    expected_rule_package_hash: Optional[str] = None
     factor_values: dict[str, Any] = Field(default_factory=dict)
     family: str = ""
     material: str = ""

@@ -8,10 +8,8 @@ from dataclasses import asdict
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from typing import Callable, List
 
@@ -20,7 +18,6 @@ from app.models.models import (
     Document,
     DocumentOperationDetail,
     FinalizedRulePackage,
-    NormalizedRouteVersion,
     Operation,
     Project,
 )
@@ -49,23 +46,18 @@ from app.services.extraction_pipeline import (
     run_extraction_pipeline,
 )
 from app.services.finalized_rule_package_helpers import (
-    json_dumps,
-    json_dumps_list,
     json_loads,
     json_loads_list,
     serialize_finalized_rule_package,
 )
-from app.services.rule_packages.contracts import RulePackageV2
-from app.services.rule_packages.validator import validate_rule_package_factor_bindings
-from app.services.rule_packages.hashing import (
-    legacy_rule_package_content_hash,
-    rule_package_content_hash,
-)
-from app.services.rule_packages.lifecycle import publish_rule_package
-from app.services.rule_packages.confirmation_validation import require_confirmed_user_rule_sources
 from app.services.rule_packages.loader import load_published_rule_package
-from app.services.rule_packages.validator import validate_rule_package
-from app.services.rule_packages.kmai_export import build_kmai_compatibility_export
+from app.services.rule_packages.publishing import (
+    RulePackagePublicationConflict,
+    RulePackagePublicationRequestInvalid,
+    RulePackagePublicationUnprocessable,
+    RulePackageVersionConflict,
+    create_published_rule_package,
+)
 from app.services.rule_packages.archive import (
     RulePackageArchiveError,
     build_finalized_rule_package_archive,
@@ -432,149 +424,34 @@ async def save_finalized_rule_package(
         body.project_id,
         body.expected_workflow_revision,
     )
-    # A project remains based on the same reviewed route after step 5 has run.
-    # Allow publishing a corrected package in that state; the route-version
-    # ownership check below still prevents cross-project or stale-route saves.
-    if project.status not in {"ROUTE_SET_READY", "GENERATED"}:
-        raise HTTPException(409, "当前资料已变更或尚未完成路线提炼，请重新完成第二至四步后再导出规则包。")
-    if not body.input_schema:
-        raise HTTPException(400, "input_schema.json 内容不能为空")
-    if not body.route_catalog:
-        raise HTTPException(400, "route_catalog.json 内容不能为空")
-    if not body.route_rules:
-        raise HTTPException(400, "route_rules.json 内容不能为空")
-    if not (body.rule_report_md or "").strip():
-        raise HTTPException(400, "rule_report.md 内容不能为空")
+    try:
+        publication = await create_published_rule_package(body, project, db)
+        await db.commit()
+        await db.refresh(publication.row)
+    except RulePackagePublicationRequestInvalid as exc:
+        await db.rollback()
+        raise HTTPException(400, detail=exc.detail) from exc
+    except RulePackagePublicationConflict as exc:
+        await db.rollback()
+        raise HTTPException(409, detail=exc.detail) from exc
+    except RulePackagePublicationUnprocessable as exc:
+        await db.rollback()
+        raise HTTPException(422, detail=exc.detail) from exc
+    except RulePackageVersionConflict as exc:
+        await db.rollback()
+        raise HTTPException(409, detail=exc.detail) from exc
+    except Exception:
+        await db.rollback()
+        raise
 
-    schema_version = str(body.schema_version or "1.0").strip()
-    if schema_version not in {"1.0", "2.0"}:
-        raise HTTPException(400, f"不支持的规则包 schema_version：{schema_version}")
-    package_name = (body.package_name or "process_route_rules").strip() or "process_route_rules"
-
-    server_validation = dict(body.validation_report or {})
-    manifest = dict(body.manifest or {})
-    test_cases = list(body.test_cases or [])
-    if schema_version == "2.0":
-        try:
-            package_v2 = RulePackageV2.model_validate({
-                "manifest": manifest,
-                "input_schema": body.input_schema,
-                "route_catalog": body.route_catalog,
-                "route_rules": body.route_rules,
-                "test_cases": test_cases,
-            })
-        except ValidationError as exc:
-            raise HTTPException(422, detail=exc.errors(include_url=False)) from exc
-        if package_v2.manifest.project_id != body.project_id:
-            raise HTTPException(422, "manifest.project_id 与请求 project_id 不一致")
-        if package_v2.manifest.package_name != package_name:
-            raise HTTPException(422, "manifest.package_name 与请求 package_name 不一致")
-        binding_issues = validate_rule_package_factor_bindings(package_v2)
-        if binding_issues:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "message": "标准因子绑定校验未通过",
-                    "issues": [issue.model_dump(mode="json") for issue in binding_issues],
-                },
-            )
-        validation = validate_rule_package(package_v2)
-        server_validation = validation.model_dump(mode="json")
-        if not validation.valid:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "message": "规则包校验未通过，无法导出。",
-                    "validation": server_validation,
-                },
-            )
-        if body.route_version_id is None:
-            raise HTTPException(422, "V2 规则包必须关联当前路线版本")
-        await require_confirmed_user_rule_sources(
-            package_v2,
-            project_id=body.project_id,
-            route_version_id=body.route_version_id,
-            db=db,
-        )
-        content_hash = rule_package_content_hash(package_v2)
-        kmai_compatibility = build_kmai_compatibility_export(package_v2)
-        if not kmai_compatibility.valid:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "message": "KmAI compatibility validation failed; return to standard-factor review before publishing.",
-                    "kmai_compatibility": kmai_compatibility.model_dump(mode="json"),
-                },
-            )
-        server_validation["kmai_compatibility"] = {
-            "factor_catalog_version": kmai_compatibility.factor_catalog_version,
-        }
-    else:
-        content_hash = legacy_rule_package_content_hash(
-            package_name=package_name,
-            input_schema=body.input_schema,
-            route_catalog=body.route_catalog,
-            route_rules=body.route_rules,
-            rule_report_md=body.rule_report_md,
-        )
-
-    if body.route_version_id is not None:
-        route_exists = (
-            await db.execute(
-                select(NormalizedRouteVersion.id).where(
-                    NormalizedRouteVersion.id == body.route_version_id,
-                    NormalizedRouteVersion.project_id == body.project_id,
-                )
-            )
-        ).scalar_one_or_none()
-        if not route_exists:
-            raise HTTPException(422, "规则包关联的路线版本不属于当前任务")
-
-    # The database owns the final uniqueness guarantee. Retry after a competing
-    # export instead of leaking a raw unique-index error to the user.
-    for _ in range(3):
-        latest_version = (
-            await db.execute(
-                select(func.max(FinalizedRulePackage.version)).where(
-                    FinalizedRulePackage.project_id == body.project_id
-                )
-            )
-        ).scalar_one_or_none()
-        row = FinalizedRulePackage(
-            project_id=body.project_id,
-            route_version_id=body.route_version_id,
-            version=int(latest_version or 0) + 1,
-            package_name=package_name,
-            schema_version=schema_version,
-            status="draft",
-            manifest_json=json_dumps(manifest),
-            input_schema_json=json_dumps(body.input_schema),
-            route_catalog_json=json_dumps(body.route_catalog),
-            route_rules_json=json_dumps(body.route_rules),
-            test_cases_json=json_dumps_list(test_cases),
-            rule_report_md=body.rule_report_md,
-            validation_report_json=json_dumps(server_validation),
-            content_hash=content_hash,
-            created_by=(body.created_by or "默认用户").strip() or "默认用户",
-        )
-        db.add(row)
-        try:
-            await db.flush()
-            await publish_rule_package(row, db, actor=row.created_by)
-            await db.commit()
-            await db.refresh(row)
-            return serialize_finalized_rule_package(
-                row,
-                kmai_compatibility=(
-                    kmai_compatibility.model_dump(mode="json")
-                    if schema_version == "2.0"
-                    else None
-                ),
-            )
-        except IntegrityError:
-            await db.rollback()
-
-    raise HTTPException(409, "规则包版本正在由其他请求导出，请稍后重试。")
+    return serialize_finalized_rule_package(
+        publication.row,
+        kmai_compatibility=(
+            publication.kmai_compatibility.model_dump(mode="json")
+            if publication.kmai_compatibility is not None
+            else None
+        ),
+    )
 
 
 @router.get("/finalized-rule-packages/{package_id}/download")

@@ -98,7 +98,7 @@ import GenerateRouteOutputPanel from '@/components/generate/GenerateRouteOutputP
 import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
 import {
   generateRoute,
-  getLatestFinalizedRulePackage,
+  getOptionalLatestFinalizedRulePackage,
   listProjects,
   type FinalizedRulePackageResult,
   type GenerateRouteResult,
@@ -120,6 +120,13 @@ import {
   downloadGeneratedRouteJson,
   formatGenerateErrorDetail,
 } from '@/utils/generateRouteOutput'
+import {
+  PUBLISHED_RULE_PACKAGE_CHANGED_MESSAGE,
+  isPublishedRulePackageChanged,
+  publishedRulePackageFingerprint,
+  rulePackageExpectationPayload,
+  type PublishedRulePackageFingerprint,
+} from '@/utils/generateRulePackageContext'
 import { createLatestWorkflowRequestGuard, getWorkflowDataRevision } from '@/composables/workflowDataCache'
 import { workflowResetSignal } from '@/composables/workflowResetState'
 
@@ -138,7 +145,8 @@ const projectId = ref<number | null>(null)
 const projectName = ref('')
 const inputSchema = ref<Record<string, any> | null>(null)
 const hasRulePackage = ref(false)
-const packageVersion = ref<number | null>(null)
+const packageFingerprint = ref<PublishedRulePackageFingerprint | null>(null)
+const packageVersion = computed(() => packageFingerprint.value?.version ?? null)
 const workflowRevision = ref(0)
 const generating = ref(false)
 const error = ref('')
@@ -218,12 +226,12 @@ function goUpload() {
 }
 
 function resetRulePackageMetadata() {
-  packageVersion.value = null
+  packageFingerprint.value = null
   workflowRevision.value = 0
 }
 
 function applyRulePackageMetadata(rulePackage: FinalizedRulePackageResult) {
-  packageVersion.value = rulePackage.version ?? null
+  packageFingerprint.value = publishedRulePackageFingerprint(rulePackage)
 }
 
 function clearGeneratedWorkflowState() {
@@ -234,24 +242,6 @@ function clearGeneratedWorkflowState() {
   generating.value = false
   resetRulePackageMetadata()
   resetFieldValues()
-}
-
-async function refreshGeneratedPackageMetadata(
-  generatedResult: GenerateRouteResult,
-  generatedProjectId: number,
-  requestId: number,
-  isLatest: () => boolean,
-) {
-  if (!generatedResult.rule_package_version) return
-  const latestPackage = await getLatestFinalizedRulePackage(generatedProjectId, true).catch(() => null)
-  if (!isLatest() || requestId !== generationRequestId || projectId.value !== generatedProjectId) return
-  if (!latestPackage || latestPackage.version !== generatedResult.rule_package_version) return
-  if (
-    generatedResult.rule_package_hash
-    && latestPackage.content_hash
-    && generatedResult.rule_package_hash !== latestPackage.content_hash
-  ) return
-  applyRulePackageMetadata(latestPackage)
 }
 
 async function runGenerate() {
@@ -266,6 +256,7 @@ async function runGenerate() {
     const generatedResult = await generateRoute({
       project_id: generatedProjectId,
       expected_workflow_revision: workflowRevision.value,
+      ...rulePackageExpectationPayload(packageFingerprint.value),
       factor_values: factorValues.value,
     })
     if (
@@ -275,9 +266,16 @@ async function runGenerate() {
       || projectId.value !== generatedProjectId
     ) return
     result.value = generatedResult
-    await refreshGeneratedPackageMetadata(generatedResult, generatedProjectId, requestId, request.isLatest)
   } catch (err: any) {
     if (!request.isLatest() || requestId !== generationRequestId || projectId.value !== generatedProjectId) return
+    if (isPublishedRulePackageChanged(err)) {
+      result.value = null
+      clearRulePackageContext()
+      await loadGenerateContext(true)
+      if (!request.isLatest() || requestId !== generationRequestId || projectId.value !== generatedProjectId) return
+      error.value = PUBLISHED_RULE_PACKAGE_CHANGED_MESSAGE
+      return
+    }
     console.error(err)
     const fieldLabels = Object.fromEntries(
       inputFields.value.map(field => [field.key, field.name || field.key]),
@@ -319,17 +317,18 @@ function setLoadingProject(nextProjectId: number | null) {
   return true
 }
 
-async function loadGenerateContext() {
+async function loadGenerateContext(forceRefresh = false) {
   const request = contextRequestGuard.start()
   const requestId = ++contextLoadRequestId
   const requestedProjectId = String(route.query.project_id || '')
   const hintedProjectId = Number(requestedProjectId)
   contextLoading.value = true
+  error.value = ''
   if (Number.isInteger(hintedProjectId) && hintedProjectId > 0) {
     setLoadingProject(hintedProjectId)
   }
   try {
-    const projects = await listProjects()
+    const projects = await listProjects(forceRefresh)
     if (
       !request.isCurrent()
       || requestId !== contextLoadRequestId
@@ -352,7 +351,10 @@ async function loadGenerateContext() {
     const currentProject = projects.find(project => project.id === targetProjectId)
     projectName.value = currentProject?.name || `任务 #${targetProjectId}`
     workflowRevision.value = currentProject?.workflow_revision || 0
-    const latestPackage = await getLatestFinalizedRulePackage(targetProjectId).catch(() => null)
+    const latestPackage = await getOptionalLatestFinalizedRulePackage(
+      targetProjectId,
+      forceRefresh,
+    )
     const currentRouteProjectId = String(route.query.project_id || '')
     if (
       !request.isCurrent()
@@ -368,10 +370,14 @@ async function loadGenerateContext() {
     } else {
       clearRulePackageContext()
     }
-  } catch (err) {
+  } catch (err: any) {
     if (!request.isCurrent() || requestId !== contextLoadRequestId) return
     console.warn('读取生成上下文失败', err)
     clearRulePackageContext()
+    const detail = err?.response?.data?.detail
+    error.value = typeof detail === 'string'
+      ? detail
+      : detail?.message || err?.message || '读取当前已发布规则包失败，请稍后重试。'
   } finally {
     if (request.isLatest() && requestId === contextLoadRequestId) {
       contextLoading.value = false

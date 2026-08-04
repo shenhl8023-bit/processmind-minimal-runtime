@@ -164,6 +164,37 @@ async def _generation_state(session_factory, project_id: int) -> tuple[str, int]
         return status, route_count
 
 
+async def _published_fingerprint(session_factory, project_id: int) -> dict[str, Any]:
+    async with session_factory() as db:
+        package = (
+            await db.execute(
+                select(FinalizedRulePackage).where(
+                    FinalizedRulePackage.project_id == project_id,
+                    FinalizedRulePackage.status == "published",
+                )
+            )
+        ).scalar_one()
+        return {
+            "expected_rule_package_id": package.id,
+            "expected_rule_package_version": package.version,
+            "expected_rule_package_hash": package.content_hash,
+        }
+
+
+async def _unpublish_rule_package(session_factory, project_id: int) -> None:
+    async with session_factory() as db:
+        package = (
+            await db.execute(
+                select(FinalizedRulePackage).where(
+                    FinalizedRulePackage.project_id == project_id,
+                    FinalizedRulePackage.status == "published",
+                )
+            )
+        ).scalar_one()
+        package.status = "draft"
+        await db.commit()
+
+
 def _assert_input_error(response, *, code: str, field: str, allowed_values: list[Any]) -> None:
     assert response.status_code == 422, response.text
     errors = response.json()["detail"]
@@ -205,6 +236,91 @@ def test_generate_uses_published_v2_plan_route(generation_context):
     assert "material.9cr18.quench" in body["matched_rule_ids"]
     assert [step["name"] for step in body["steps"]][-1] in {"淬火", "真空淬火（新名称）", "执行淬火"} or body["steps"]
     assert asyncio.run(_generation_state(session_factory, project_id)) == ("GENERATED", 1)
+
+
+def test_generate_accepts_matching_published_rule_package_fingerprint(generation_context):
+    client, session_factory = generation_context
+    project_id, _ = asyncio.run(_seed_published_v2(session_factory, "v2-matching-fingerprint"))
+    fingerprint = asyncio.run(_published_fingerprint(session_factory, project_id))
+
+    response = client.post(
+        "/api/generate/",
+        json={
+            "project_id": project_id,
+            **fingerprint,
+            "factor_values": {
+                "material": {"grade": "9Cr18"},
+                "cad": {"features": ["槽类特征"]},
+                "target_hardness_hrc": 58,
+            },
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["rule_package_version"] == 1
+    assert asyncio.run(_generation_state(session_factory, project_id)) == ("GENERATED", 1)
+
+
+@pytest.mark.parametrize(
+    ("field", "stale_value"),
+    [
+        ("expected_rule_package_id", 999999),
+        ("expected_rule_package_version", 999999),
+        ("expected_rule_package_hash", "stale-content-hash"),
+    ],
+)
+def test_generate_rejects_stale_published_rule_package_fingerprint(
+    generation_context,
+    field: str,
+    stale_value: int | str,
+):
+    client, session_factory = generation_context
+    project_id, _ = asyncio.run(_seed_published_v2(session_factory, f"v2-stale-fingerprint-{field}"))
+    fingerprint = asyncio.run(_published_fingerprint(session_factory, project_id))
+    fingerprint[field] = stale_value
+
+    response = client.post(
+        "/api/generate/",
+        json={
+            "project_id": project_id,
+            **fingerprint,
+            "factor_values": {
+                "material": {"grade": "9Cr18"},
+                "cad": {"features": ["槽类特征"]},
+                "target_hardness_hrc": 58,
+            },
+        },
+    )
+
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "published_rule_package_changed"
+    assert detail["current_rule_package"]["version"] == 1
+    _assert_generation_not_persisted(session_factory, project_id)
+
+
+def test_generate_rejects_expected_fingerprint_when_no_package_is_published(
+    generation_context,
+):
+    client, session_factory = generation_context
+    project_id, _ = asyncio.run(_seed_published_v2(session_factory, "v2-unpublished-fingerprint"))
+    fingerprint = asyncio.run(_published_fingerprint(session_factory, project_id))
+    asyncio.run(_unpublish_rule_package(session_factory, project_id))
+
+    response = client.post(
+        "/api/generate/",
+        json={
+            "project_id": project_id,
+            **fingerprint,
+            "factor_values": {},
+        },
+    )
+
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "published_rule_package_changed"
+    assert detail["current_rule_package"] is None
+    _assert_generation_not_persisted(session_factory, project_id)
 
 
 def test_generate_rejects_missing_required_v2_input(generation_context):

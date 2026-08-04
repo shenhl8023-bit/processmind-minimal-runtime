@@ -568,6 +568,21 @@ export async function getLatestFinalizedRulePackage(projectId: number, forceRefr
   return result
 }
 
+export async function getOptionalLatestFinalizedRulePackage(
+  projectId: number,
+  forceRefresh?: boolean,
+): Promise<FinalizedRulePackageResult | null> {
+  try {
+    return await getLatestFinalizedRulePackage(projectId, forceRefresh)
+  } catch (error) {
+    const status = (error as { response?: { status?: unknown } } | null)?.response?.status
+    if (typeof status === 'number' && status === 404) {
+      return null
+    }
+    throw error
+  }
+}
+
 export async function listFinalizedRulePackages(projectId: number, forceRefresh = false) {
   const cacheKey = `api:extract:finalized-rule-packages:list:${projectId}`
   if (!forceRefresh) {

@@ -250,7 +250,7 @@ import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
 import WorkflowResetDialog from '@/components/workflow/WorkflowResetDialog.vue'
 import {
   getSavedNormalizedRoute,
-  getLatestFinalizedRulePackage,
+  getOptionalLatestFinalizedRulePackage,
   getSupersetRoute,
   listOperations,
   listProjects,
@@ -1091,7 +1091,7 @@ async function loadWorkspace(forceRefresh = false) {
       getSavedNormalizedRoute(projectId.value, forceRefresh),
       listOperations(projectId.value, forceRefresh),
       getSupersetRoute(projectId.value, forceRefresh),
-      getLatestFinalizedRulePackage(projectId.value, forceRefresh).catch(() => null),
+      getOptionalLatestFinalizedRulePackage(projectId.value, forceRefresh),
       getConditionFieldRegistry()
         .then(registry => ({ registry, error: null }))
         .catch(registryError => ({ registry: null, error: registryError })),

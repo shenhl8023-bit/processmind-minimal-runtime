@@ -15,7 +15,6 @@ from app.core.paths import UPLOAD_DIR
 from app.database import get_db
 from app.models.models import (
     Document,
-    FinalizedRulePackage,
     GeneratedRoute,
     Operation,
     ParamAuditAnswer,
@@ -55,11 +54,17 @@ from app.services.param_project_context import (
 )
 from app.services.question_harness_hooks import build_question_harness_hooks
 from app.services.finalized_route_generator import generate_steps_from_finalized_rule_package
-from app.services.rule_packages.loader import load_published_rule_package
-from app.services.rule_packages.lifecycle import RulePackageLifecycleError, v2_package_from_row
-from app.services.rule_packages.input_validation import input_validation_error_detail, validate_inputs
-from app.services.rule_packages.planner import RoutePlanningError, plan_route
-from app.services.rule_packages.validator import validate_rule_package
+from app.services.rule_packages.execution import (
+    PublishedRulePackageChanged,
+    PublishedRulePackageInputInvalid,
+    PublishedRulePackageInvalid,
+    RulePackageExpectation,
+    execute_published_v2_rule_package,
+    load_published_rule_package_for_execution,
+)
+from app.services.rule_packages.lifecycle import RulePackageLifecycleError
+from app.services.rule_packages.input_validation import input_validation_error_detail
+from app.services.rule_packages.planner import RoutePlanningError
 from app.services.legacy_operation_route_selector import (
     collapse_redundant_quality_gates as _collapse_redundant_quality_gates,
     select_best_operations as _select_best_operations,
@@ -151,10 +156,6 @@ def _normalize_input_values(
         if key not in values and value not in ("", None):
             values[key] = value
     return values
-
-
-async def _latest_finalized_rule_package(project_id: int, db: AsyncSession) -> FinalizedRulePackage | None:
-    return await load_published_rule_package(project_id, db)
 
 
 def _source_labels_for_factor_field(field: FactorFieldOut) -> list[str]:
@@ -992,6 +993,11 @@ async def generate_route(
         body.project_id,
         body.expected_workflow_revision,
     )
+    rule_package_expectation = RulePackageExpectation(
+        package_id=body.expected_rule_package_id,
+        version=body.expected_rule_package_version,
+        content_hash=body.expected_rule_package_hash,
+    )
 
     resources = await load_project_resource_bundle(body.project_id, db)
     project = resources.project
@@ -1015,7 +1021,14 @@ async def generate_route(
     )
     operations = result.scalars().all()
     inputs = _normalize_input_values(body)
-    finalized_package = await _latest_finalized_rule_package(body.project_id, db)
+    try:
+        finalized_package = await load_published_rule_package_for_execution(
+            body.project_id,
+            db,
+            expectation=rule_package_expectation,
+        )
+    except PublishedRulePackageChanged as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
     if not finalized_package:
         raise HTTPException(409, "当前资料尚未导出有效规则包。请重新完成提炼、审核并导出后再生成。")
     rule_engine = str(getattr(project, "rule_engine", None) or "auto").strip().lower()
@@ -1032,21 +1045,8 @@ async def generate_route(
                 # V2 input validation must reflect what the client actually submitted.
                 # GenerateRequest's legacy defaults remain available to the V1 path only.
                 inputs = _normalize_input_values(body, explicit_legacy_fields_only=True)
-                package_v2 = v2_package_from_row(finalized_package)
-                validation = validate_rule_package(package_v2)
-                if not validation.valid:
-                    detail = {
-                        "message": f"已发布规则包 V{finalized_package.version} 校验未通过，无法生成",
-                        "validation": validation.model_dump(mode="json"),
-                    }
-                    raise HTTPException(status_code=422, detail=detail)
-                input_errors = validate_inputs(package_v2.input_schema, inputs)
-                if input_errors:
-                    raise HTTPException(
-                        status_code=422,
-                        detail=input_validation_error_detail(input_errors),
-                    )
-                plan = plan_route(package_v2, inputs)
+                execution = execute_published_v2_rule_package(finalized_package, inputs)
+                plan = execution.plan
                 steps = [
                     RouteStep(
                         process_id=step.process_id,
@@ -1066,6 +1066,17 @@ async def generate_route(
                     f"确定性规划生成，命中 {len(matched_rule_ids)} 条规则"
                 )
                 output_mode = "finalized_rule_package_v2"
+            except PublishedRulePackageInvalid as exc:
+                detail = {
+                    "message": f"已发布规则包 V{finalized_package.version} 校验未通过，无法生成",
+                    "validation": exc.validation.model_dump(mode="json"),
+                }
+                raise HTTPException(status_code=422, detail=detail) from exc
+            except PublishedRulePackageInputInvalid as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail=input_validation_error_detail(exc.issues),
+                ) from exc
             except HTTPException:
                 raise
             except RulePackageLifecycleError as exc:

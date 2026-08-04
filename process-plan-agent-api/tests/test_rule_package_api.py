@@ -5,6 +5,7 @@ from zipfile import ZipFile
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base, get_db
@@ -406,6 +407,76 @@ def test_v2_save_rejects_a_factor_id_that_does_not_match_the_leaf(rule_package_v
 
     assert response.status_code == 422
     assert "factor_mismatch" in response.text
+
+
+def test_failed_republication_does_not_consume_version(rule_package_v2_payload):
+    first = client.post(
+        "/api/extract/finalized-rule-packages",
+        json=_v2_save_payload(rule_package_v2_payload),
+    )
+    assert first.status_code == 200
+    assert first.json()["version"] == 1
+
+    invalid_payload = deepcopy(rule_package_v2_payload)
+    invalid_payload["route_rules"]["rules"][0]["when"] = {
+        "field": "precision.grades",
+        "op": "contains",
+        "value": "孔精加工",
+        "factor_id": "feature.center_hole_location",
+    }
+    rejected = client.post(
+        "/api/extract/finalized-rule-packages",
+        json=_v2_save_payload(invalid_payload),
+    )
+    assert rejected.status_code == 422
+
+    latest = client.get(
+        "/api/extract/finalized-rule-packages/latest",
+        params={"project_id": 12},
+    )
+    assert latest.status_code == 200
+    assert latest.json()["id"] == first.json()["id"]
+    assert latest.json()["version"] == 1
+
+    second = client.post(
+        "/api/extract/finalized-rule-packages",
+        json=_v2_save_payload(rule_package_v2_payload),
+    )
+    assert second.status_code == 200
+    assert second.json()["version"] == 2
+
+
+def test_publication_service_leaves_outer_transaction_to_caller(
+    rule_package_v2_payload,
+    isolated_rule_package_db,
+):
+    from app.schemas.schemas import FinalizedRulePackageSaveRequest
+    from app.services.project_workflow_lifecycle import acquire_workflow_revision
+    from app.services.rule_packages.publishing import create_published_rule_package
+
+    async def run():
+        async with isolated_rule_package_db() as session:
+            project = await acquire_workflow_revision(session, 12, 0)
+            body = FinalizedRulePackageSaveRequest(
+                **_v2_save_payload(rule_package_v2_payload)
+            )
+
+            publication = await create_published_rule_package(body, project, session)
+
+            assert publication.row.status == "published"
+            await session.rollback()
+
+        async with isolated_rule_package_db() as session:
+            rows = (
+                await session.execute(
+                    select(FinalizedRulePackage).where(
+                        FinalizedRulePackage.project_id == 12
+                    )
+                )
+            ).scalars().all()
+            assert rows == []
+
+    asyncio.run(run())
 
 
 def test_published_package_download_is_repeatable_and_read_only(rule_package_v2_payload):

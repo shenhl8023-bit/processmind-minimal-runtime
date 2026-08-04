@@ -5,13 +5,24 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import NormalizedRouteSegmentRuleReview
 from app.services.rule_packages.condition_contracts import RuleConditionCandidate
 from app.services.rule_packages.contracts import RuleAction, RulePackageV2
+
+
+class ConfirmedRuleSourcesChanged(ValueError):
+    def __init__(self, rule_ids: list[str]):
+        super().__init__(
+            "规则包中的用户规则与数据库中的已确认规则不一致，请刷新第四步后重新审核。"
+        )
+        self.rule_ids = rule_ids
+
+    @property
+    def detail(self) -> dict[str, object]:
+        return {"message": str(self), "rule_ids": self.rule_ids}
 
 
 def _load_confirmed_candidate(row: NormalizedRouteSegmentRuleReview) -> RuleConditionCandidate | None:
@@ -137,7 +148,4 @@ async def require_confirmed_user_rule_sources(
             failures.append(relation.relation_id)
 
     if failures:
-        raise HTTPException(409, {
-            "message": "规则包中的用户规则与数据库中的已确认规则不一致，请刷新第四步后重新审核。",
-            "rule_ids": failures,
-        })
+        raise ConfirmedRuleSourcesChanged(failures)
