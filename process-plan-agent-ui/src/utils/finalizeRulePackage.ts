@@ -112,6 +112,11 @@ export function hasCurrentConfirmedUserRule(item: any, registryVersion?: string)
   )
 }
 
+export function needsFinalizeRuleReview(item: any, registryVersion?: string) {
+  return requiresConfirmedUserRule(item)
+    && !hasCurrentConfirmedUserRule(item, registryVersion)
+}
+
 const ADVISORY_PARSE_ISSUE_PATTERNS = [
   /^AI 返回的规则结构未通过格式校验，已尝试使用本地解析器。$/,
   /^已使用内置规则解析器生成候选结果，请重点核对。$/,

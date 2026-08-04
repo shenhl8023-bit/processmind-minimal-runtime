@@ -8,6 +8,7 @@ import {
   isActionableConditionText,
   isSafeForBatchRuleConfirmation,
   manualRuleModeActionState,
+  needsFinalizeRuleReview,
   requiresServerRuleConditionRefresh,
 } from './finalizeRulePackage'
 import { nestFactorValues } from '@/composables/useGenerateInputFields'
@@ -167,6 +168,36 @@ function compileArgs(cards: any[], standardFactors = factors) {
 
 
 describe('V2 compile DTO from finalize cards', () => {
+  it('keeps a recognized candidate in the review queue until it is confirmed', () => {
+    const sourceText = '当需要追溯标印时，安排标记工序。'
+    const item: any = {
+      ...finalizeItem({
+        id: 'process_mark',
+        normalized_step_name: '标记',
+        doc_coverage: { total_docs: 3, hit_docs: 1 },
+      }),
+      conditionText: sourceText,
+      factorNames: [],
+      edited: true,
+      conditionReview: confirmedReview({
+        field: 'special.requirements',
+        op: 'contains',
+        value: '追溯标印',
+        factor_id: 'requirement.traceability_marking',
+      }, {
+        source_text: sourceText,
+        status: 'pending_confirmation',
+        confirmed: null,
+      }),
+    }
+
+    expect(needsFinalizeRuleReview(item, '2026.11')).toBe(true)
+
+    item.conditionReview.status = 'confirmed'
+    item.conditionReview.confirmed = JSON.parse(JSON.stringify(item.conditionReview.candidate))
+    expect(needsFinalizeRuleReview(item, '2026.11')).toBe(false)
+  })
+
   it('treats an in-card semantic edit as pending until candidate and confirmed signatures match', () => {
     const sourceText = '当存在孔精加工要求时，纳入珩孔工序'
     const item: any = {

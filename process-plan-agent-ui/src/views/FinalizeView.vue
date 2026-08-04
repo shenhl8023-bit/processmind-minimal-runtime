@@ -15,19 +15,19 @@
           <span class="ash-meta-item" v-if="unresolvedRuleCount">待补充 <strong class="warning-text">{{ unresolvedRuleCount }}</strong></span>
           <!-- Recognition progress: simplified when all done -->
           <span class="ash-meta-item ash-meta-progress-item" v-if="reviewableRuleCount > 0">
-            <template v-if="readyRuleCount === reviewableRuleCount">
+            <template v-if="confirmedRuleCount === reviewableRuleCount">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>
-              <strong class="text-done">全部就绪</strong>
+              <strong class="text-done">全部已确认</strong>
             </template>
             <template v-else>
-              <span>已识别</span>
+              <span>已确认</span>
               <div class="mini-progress-bar">
                 <div
                   class="mini-progress-fill"
                   :style="{ width: `${reviewProgressPercent}%` }"
                 ></div>
               </div>
-              <strong>{{ readyRuleCount }}/{{ reviewableRuleCount }}</strong>
+              <strong>{{ confirmedRuleCount }}/{{ reviewableRuleCount }}</strong>
             </template>
           </span>
         </div>
@@ -133,7 +133,7 @@
     <div v-else-if="!visibleSegments.length" class="empty-state card">
       <div class="empty-mark">*</div>
       <div class="empty-title">当前没有需要处理的规则</div>
-      <div class="empty-text">系统已识别全部条件；可以发布规则包，或切换到全部规则浏览。</div>
+      <div class="empty-text">系统已完成全部规则审核；可以发布规则包，或切换到全部规则浏览。</div>
       <button class="btn btn-outline" @click="onlyPending = false">显示全部规则</button>
     </div>
 
@@ -304,8 +304,8 @@ import {
   exportProcessIdForItem,
   buildCompileRequestFromCards,
   finalizeRuleMode,
-  hasCurrentConfirmedUserRule,
   isSafeForBatchRuleConfirmation,
+  needsFinalizeRuleReview,
   normalizeExportProcessName,
   requiresServerRuleConditionRefresh,
 } from '@/utils/finalizeRulePackage'
@@ -446,6 +446,9 @@ const factorCatalogReady = computed(() => Boolean(
   && factorCatalogVersion.value,
 ))
 const unresolvedRuleCount = computed(() => segmentCards.value.filter(item => finalizeRuleMode(item) === 'unresolved').length)
+const pendingRuleCards = computed(() => segmentCards.value.filter(item => (
+  needsFinalizeRuleReview(item, factorCatalogVersion.value)
+)))
 const reviewFocusCards = computed(() => buildPublishReviewFocusCards(
   segmentCards.value,
   itemNeedsPending,
@@ -467,17 +470,12 @@ const pendingReviewCards = computed(() => reviewableCards.value.filter((item) =>
 const autoConfirmableReviewCards = computed(() => pendingReviewCards.value.filter(item => (
   isSafeForBatchRuleConfirmation(item, standardFactors.value, factorCatalogVersion.value)
 )))
-const readyRuleCount = computed(() => reviewableCards.value.filter((item) => {
-  if (hasCurrentConfirmedUserRule(item, factorCatalogVersion.value)) return true
-  const review = item.conditionReview
-  const expectedKind = finalizeRuleMode(item) === 'relation' ? 'process_relation' : 'condition'
-  return review?.status === 'pending_confirmation'
-    && review.source_text.trim() === item.conditionText.trim()
-    && (review.candidate?.kind || 'condition') === expectedKind
-}).length)
+const confirmedRuleCount = computed(() => reviewableCards.value.filter(item => (
+  !needsFinalizeRuleReview(item, factorCatalogVersion.value)
+)).length)
 const allCurrentRulesConfirmed = computed(() =>
   factorCatalogReady.value
-  && reviewableCards.value.every(item => hasCurrentConfirmedUserRule(item, factorCatalogVersion.value)),
+  && pendingRuleCards.value.length === 0,
 )
 const conditionProcessOptions = computed<RuleConditionProcessOption[]>(() => {
   const options = new Map<string, RuleConditionProcessOption>()
@@ -498,8 +496,8 @@ const finalizeNavSummary = computed(() => {
   if (error.value) return '当前没有可预览的定稿结果，请返回规则分析。'
   if (!segmentCards.value.length) return '当前没有可展示的工序，请先在第三步完成至少一版规则分析结果。'
   if (unresolvedRuleCount.value) return `还有 ${unresolvedRuleCount.value} 道工序需要补充具体条件。`
-  if (readyRuleCount.value < reviewableRuleCount.value) {
-    return `还有 ${reviewableRuleCount.value - readyRuleCount.value} 条规则待审核，请先完成规则审核。`
+  if (confirmedRuleCount.value < reviewableRuleCount.value) {
+    return `还有 ${reviewableRuleCount.value - confirmedRuleCount.value} 条规则待人工审核，请先完成规则审核。`
   }
   if (!allCurrentRulesConfirmed.value) return '存在需要人工处理的规则，请完成规则审核。'
   if (outdatedRulePackageVersion.value) return `规则内容已有变化，原规则包 V${outdatedRulePackageVersion.value} 已过期，请重新发布。`
@@ -509,22 +507,11 @@ const finalizeNavSummary = computed(() => {
 
 /** Progress percent for the mini progress bar */
 const reviewProgressPercent = computed(() =>
-  reviewableRuleCount.value === 0 ? 0 : Math.round((readyRuleCount.value / reviewableRuleCount.value) * 100)
+  reviewableRuleCount.value === 0 ? 0 : Math.round((confirmedRuleCount.value / reviewableRuleCount.value) * 100)
 )
 /** Whether a given nav item needs attention */
 function itemNeedsPending(item: FinalizeCard): boolean {
-  const mode = finalizeRuleMode(item)
-  if (mode === 'unresolved') return true
-  if (mode === 'relation' || mode === 'conditional') {
-    if (hasCurrentConfirmedUserRule(item, factorCatalogVersion.value)) return false
-    const review = item.conditionReview
-    const sourceMatches = review?.source_text?.trim() === item.conditionText.trim()
-    const expectedKind = mode === 'relation' ? 'process_relation' : 'condition'
-    return !(sourceMatches
-      && review?.status === 'pending_confirmation'
-      && (review.candidate?.kind || 'condition') === expectedKind)
-  }
-  return false
+  return needsFinalizeRuleReview(item, factorCatalogVersion.value)
 }
 
 function syncActiveSegment() {
@@ -1026,10 +1013,7 @@ async function handleRuleReview() {
       await handleCompleteReview()
       await nextTick()
     }
-    const remaining = segmentCards.value.filter(item =>
-      finalizeRuleMode(item) !== 'mainline'
-      && !hasCurrentConfirmedUserRule(item, factorCatalogVersion.value),
-    )
+    const remaining = [...pendingRuleCards.value]
     onlyPending.value = Boolean(remaining.length)
     if (remaining.length) {
       activeSegmentId.value = remaining[0]?.segment.id || activeSegmentId.value
