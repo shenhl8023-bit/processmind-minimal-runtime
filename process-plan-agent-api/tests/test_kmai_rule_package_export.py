@@ -1,13 +1,24 @@
+import hashlib
+import json
 import os
 from copy import deepcopy
 from unittest.mock import patch
 
 from app.services.rule_packages.contracts import RulePackageV2
 from app.services.rule_packages.kmai_export import (
+    KMAI_MAX_COMBINATIONS_ENV,
+    KMAI_MAX_CONDITION_OBJECTS_ENV,
     LegacyFactorAdapterEntry,
+    StandardFactorExportError,
     build_kmai_compatibility_export,
 )
 from app.services.rule_packages.standard_factors import STANDARD_FACTOR_CATALOG_VERSION
+
+
+def test_kmai_export_facade_preserves_condition_compatibility_symbols():
+    assert KMAI_MAX_COMBINATIONS_ENV == "PROCESSMIND_KMAI_MAX_COMBINATIONS"
+    assert KMAI_MAX_CONDITION_OBJECTS_ENV == "PROCESSMIND_KMAI_MAX_CONDITION_OBJECTS"
+    assert issubclass(StandardFactorExportError, ValueError)
 
 
 def test_fixed_export_uses_bound_factor_id_not_source_value_mapping(rule_package_v2):
@@ -139,6 +150,29 @@ def test_kmai_export_has_drop_in_runtime_contract(rule_package_v2):
     slot_rule = next(rule for rule in rules if rule["rule_id"] == "feature.slot.mill")
     assert slot_rule["when"]["all"] == [{"factor_key": "has_slot_feature", "op": "=", "value": True}]
     assert any(item["factor_key"] == "has_center_through_hole" for item in exported.files["factor_schema.json"]["factors"])
+
+
+def test_kmai_export_full_facade_characterization(rule_package_v2):
+    exported = build_kmai_compatibility_export(rule_package_v2)
+    payload = {
+        "valid": exported.valid,
+        "target_directory": exported.target_directory,
+        "errors": [issue.model_dump(mode="json") for issue in exported.errors],
+        "warnings": [issue.model_dump(mode="json") for issue in exported.warnings],
+        "files": exported.files,
+        "factor_catalog_version": exported.factor_catalog_version,
+    }
+
+    serialized = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+    assert hashlib.sha256(serialized.encode("utf-8")).hexdigest() == (
+        "d15479cd1a7e7ae8463c442b8240dc7252a7ead64f8166ac0e176c63b8244603"
+    )
 
 
 def test_kmai_export_preserves_fixed_factor_schema_metadata(rule_package_v2):
