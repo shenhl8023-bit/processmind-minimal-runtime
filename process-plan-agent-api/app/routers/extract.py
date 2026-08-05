@@ -100,6 +100,7 @@ from app.services.route_analysis import (
     save_segment_rule_review_record,
 )
 from app.services.operation_review_meta import get_project_sample_count
+from app.services.rule_packages.condition_review_service import migrate_legacy_condition_reviews
 from app.services.project_workflow_lifecycle import (
     acquire_workflow_revision,
     invalidate_project_workflow,
@@ -357,6 +358,13 @@ async def get_saved_normalized_route(project_id: int, db: AsyncSession = Depends
     )
     if not version_row:
         raise HTTPException(404, "当前任务还没有已保存的标准化路线。")
+    try:
+        migrated = await migrate_legacy_condition_reviews(version_row, db)
+        if migrated:
+            await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
     return await build_saved_normalized_route_response(version_row, db)
 
 

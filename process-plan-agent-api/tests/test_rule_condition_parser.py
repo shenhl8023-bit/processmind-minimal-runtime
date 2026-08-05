@@ -2,14 +2,13 @@ import json
 from datetime import datetime, timezone
 
 import pytest
-from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.database import Base
 from app.models.models import NormalizedRouteSegmentRuleReview, NormalizedRouteVersion, Project
-from app.services.rule_packages import condition_parser
+from app.services.rule_packages import condition_parser, condition_parser_llm
 from app.services.rule_packages.condition_contracts import (
     ConfirmRuleConditionRequest,
     ManualRuleConditionRequest,
@@ -18,17 +17,18 @@ from app.services.rule_packages.condition_contracts import (
     SaveRuleConditionDraftRequest,
 )
 from app.services.rule_packages.condition_registry import condition_fields, validate_condition_tree
-from app.services.rule_packages.condition_reviews import (
-    condition_source_hash,
+from app.services.rule_packages.condition_review_repository import serialize_condition_review
+from app.services.rule_packages.condition_review_service import (
     confirm_condition_review,
     invalidate_legacy_nondestructive_relation_reviews,
     migrate_legacy_standard_factor_reviews,
-    serialize_condition_review,
     set_manual_condition_review,
     parse_condition_review,
     save_condition_draft,
 )
-from app.services.rule_packages import condition_reviews
+from app.services.rule_packages.condition_review_state import condition_source_hash
+from app.services.rule_packages import condition_review_service
+from app.services.rule_packages.condition_review_errors import ConditionReviewValidation
 from app.services.route_analysis import build_saved_normalized_route_response
 
 
@@ -71,7 +71,7 @@ def no_llm(monkeypatch):
     async def empty_llm(*args, **kwargs):
         return ""
 
-    monkeypatch.setattr(condition_parser, "call_llm", empty_llm)
+    monkeypatch.setattr(condition_parser_llm, "call_llm", empty_llm)
 
 
 @pytest.mark.asyncio
@@ -115,7 +115,7 @@ async def test_deterministic_standard_condition_does_not_wait_for_llm(monkeypatc
     async def llm_must_not_run(*args, **kwargs):
         raise AssertionError("标准数值条件应由本地解析器直接处理")
 
-    monkeypatch.setattr(condition_parser, "call_llm", llm_must_not_run)
+    monkeypatch.setattr(condition_parser_llm, "call_llm", llm_must_not_run)
     candidate, confidence, issues = await condition_parser.parse_rule_condition(
         "当外圆尺寸精度达到 IT8 时，纳入磨外圆工序",
         "process_grind_outer",
@@ -137,7 +137,7 @@ async def test_complex_condition_uses_rule_specific_llm_time_budget(monkeypatch)
         captured.update(kwargs)
         return ""
 
-    monkeypatch.setattr(condition_parser, "call_llm", capture_llm)
+    monkeypatch.setattr(condition_parser_llm, "call_llm", capture_llm)
     await condition_parser.parse_rule_condition(
         "当零件具有复杂异形轮廓时，安排检验工序",
         "process_inspect",
@@ -158,7 +158,7 @@ async def test_partially_recognized_vague_condition_still_uses_llm(monkeypatch):
         calls += 1
         return ""
 
-    monkeypatch.setattr(condition_parser, "call_llm", capture_llm)
+    monkeypatch.setattr(condition_parser_llm, "call_llm", capture_llm)
     candidate, confidence, issues = await condition_parser.parse_rule_condition(
         "当零件存在内孔、通孔或中心孔，以及不同结构类型下工艺安排存在差异时，纳入珩孔工序",
         "process_hone",
@@ -208,7 +208,7 @@ async def test_llm_hole_alias_candidate_is_canonicalized_before_review(monkeypat
             "unresolved": [],
         }, ensure_ascii=False)
 
-    monkeypatch.setattr(condition_parser, "call_llm", hole_alias_candidate)
+    monkeypatch.setattr(condition_parser_llm, "call_llm", hole_alias_candidate)
     candidate, confidence, issues = await condition_parser.parse_rule_condition(
         "当零件存在内孔、通孔或中心孔，以及不同结构类型下工艺安排存在差异时，纳入割型孔工序",
         "process_shaped_hole",
@@ -233,7 +233,7 @@ async def test_partial_fallback_does_not_infer_a_condition_from_the_target_proce
     async def unavailable_llm(*args, **kwargs):
         return ""
 
-    monkeypatch.setattr(condition_parser, "call_llm", unavailable_llm)
+    monkeypatch.setattr(condition_parser_llm, "call_llm", unavailable_llm)
     candidate, confidence, issues = await condition_parser.parse_rule_condition(
         "当不同结构类型下工艺安排存在差异时，纳入割型孔工序",
         "process_shaped_hole",
@@ -251,7 +251,7 @@ async def test_model_failure_still_returns_a_reviewable_partial_draft(monkeypatc
     async def failing_llm(*args, **kwargs):
         raise RuntimeError("temporary model connection failure")
 
-    monkeypatch.setattr(condition_parser, "call_llm", failing_llm)
+    monkeypatch.setattr(condition_parser_llm, "call_llm", failing_llm)
     candidate, confidence, issues = await condition_parser.parse_rule_condition(
         "当零件存在内孔、通孔或中心孔，以及不同结构类型下工艺安排存在差异时，纳入割型孔工序",
         "process_shaped_hole",
@@ -339,7 +339,7 @@ async def test_partial_compound_condition_uses_llm_instead_of_dropping_unknown_c
           "unresolved": []
         }"""
 
-    monkeypatch.setattr(condition_parser, "call_llm", compound_llm)
+    monkeypatch.setattr(condition_parser_llm, "call_llm", compound_llm)
     candidate, confidence, issues = await condition_parser.parse_rule_condition(
         "当外圆尺寸精度达到 IT8 并且具有复杂异形轮廓时，纳入磨外圆工序",
         "process_grind_outer",
@@ -499,7 +499,7 @@ async def test_parses_clear_natural_language_process_relations_locally(
     async def llm_must_not_run(*args, **kwargs):
         raise AssertionError("明确的工序关系不应等待大模型")
 
-    monkeypatch.setattr(condition_parser, "call_llm", llm_must_not_run)
+    monkeypatch.setattr(condition_parser_llm, "call_llm", llm_must_not_run)
     candidate, confidence, issues = await condition_parser.parse_rule_condition(
         source_text,
         target_id,
@@ -714,7 +714,7 @@ async def test_llm_candidate_takes_priority_when_it_passes_validation(monkeypatc
           "unresolved": []
         }"""
 
-    monkeypatch.setattr(condition_parser, "call_llm", relation_llm)
+    monkeypatch.setattr(condition_parser_llm, "call_llm", relation_llm)
     candidate, confidence, issues = await condition_parser.parse_rule_condition(
         "前面有淬火时，安排此工序",
         "process_burn_inspect",
@@ -746,7 +746,7 @@ async def test_llm_evidence_is_replaced_when_it_is_not_an_exact_source_excerpt(m
           "unresolved": []
         }"""
 
-    monkeypatch.setattr(condition_parser, "call_llm", hallucinated_evidence_llm)
+    monkeypatch.setattr(condition_parser_llm, "call_llm", hallucinated_evidence_llm)
     source_text = "当零件具有复杂异形轮廓时，纳入磨外圆工序"
     candidate, confidence, issues = await condition_parser.parse_rule_condition(
         source_text,
@@ -778,7 +778,7 @@ async def test_explicit_process_relation_overrides_wrong_llm_condition(monkeypat
           "unresolved": []
         }"""
 
-    monkeypatch.setattr(condition_parser, "call_llm", wrong_condition_llm)
+    monkeypatch.setattr(condition_parser_llm, "call_llm", wrong_condition_llm)
     candidate, _, issues = await condition_parser.parse_rule_condition(
         "前面有淬火时，安排此工序",
         "process_burn_inspect",
@@ -924,7 +924,7 @@ async def test_confirm_rejects_unknown_unbound_standard_value():
         ))
         await session.commit()
 
-        with pytest.raises(HTTPException) as error:
+        with pytest.raises(ConditionReviewValidation) as error:
             await confirm_condition_review(
                 ConfirmRuleConditionRequest(
                     project_id=7,
@@ -939,8 +939,7 @@ async def test_confirm_rejects_unknown_unbound_standard_value():
                 session,
             )
 
-    assert error.value.status_code == 422
-    assert "标准因子" in str(error.value.detail)
+    assert error.value.detail["message"] == "标准因子绑定校验未通过"
     await engine.dispose()
 
 
@@ -995,7 +994,7 @@ async def test_confirm_rejects_custom_boolean_without_guessing_semantics(boolean
         ))
         await session.commit()
 
-        with pytest.raises(HTTPException) as error:
+        with pytest.raises(ConditionReviewValidation) as error:
             await confirm_condition_review(
                 ConfirmRuleConditionRequest(
                     project_id=7,
@@ -1010,8 +1009,7 @@ async def test_confirm_rejects_custom_boolean_without_guessing_semantics(boolean
                 session,
             )
 
-        assert error.value.status_code == 422
-        assert "标准因子" in str(error.value.detail)
+        assert error.value.detail["message"] == "标准因子绑定校验未通过"
         review = (await session.execute(
             select(NormalizedRouteSegmentRuleReview).where(
                 NormalizedRouteSegmentRuleReview.segment_id == "process_mark",
@@ -1062,7 +1060,7 @@ async def test_confirm_rejects_the_second_unbound_compound_leaf():
         ))
         await session.commit()
 
-        with pytest.raises(HTTPException) as error:
+        with pytest.raises(ConditionReviewValidation) as error:
             await confirm_condition_review(
                 ConfirmRuleConditionRequest(
                     project_id=7,
@@ -1077,7 +1075,7 @@ async def test_confirm_rejects_the_second_unbound_compound_leaf():
                 session,
             )
 
-    assert error.value.status_code == 422
+    assert error.value.detail["message"] == "标准因子绑定校验未通过"
     assert error.value.detail["issues"][0]["path"] == "all[1]"
     await engine.dispose()
 
@@ -1111,7 +1109,7 @@ async def test_manual_boolean_rule_rejects_wrong_target_and_spoofed_shape():
             route_json='[{"id":"process_mark"},{"id":"process_other"}]',
         ))
         await session.commit()
-        with pytest.raises(HTTPException, match="人工 Bool"):
+        with pytest.raises(ConditionReviewValidation, match="人工 Bool"):
             await set_manual_condition_review(
                 ManualRuleConditionRequest(
                     project_id=7,
@@ -1226,8 +1224,8 @@ async def test_parse_result_does_not_overwrite_a_newer_condition_draft(monkeypat
             await session.commit()
             return None, None, []
 
-        monkeypatch.setattr(condition_reviews, "parse_rule_condition", superseded_parse)
-        response = await condition_reviews.parse_condition_review(
+        monkeypatch.setattr(condition_review_service, "parse_rule_condition", superseded_parse)
+        response = await condition_review_service.parse_condition_review(
             ParseRuleConditionRequest(
                 project_id=7,
                 route_id=1,
@@ -1282,8 +1280,8 @@ async def test_parse_review_reuses_current_candidate_without_calling_parser(monk
         async def unexpected_parse(*args, **kwargs):
             raise AssertionError("同一原文不应重复调用解析器")
 
-        monkeypatch.setattr(condition_reviews, "parse_rule_condition", unexpected_parse)
-        cached = await condition_reviews.parse_condition_review(
+        monkeypatch.setattr(condition_review_service, "parse_rule_condition", unexpected_parse)
+        cached = await condition_review_service.parse_condition_review(
             ParseRuleConditionRequest(
                 project_id=7,
                 route_id=1,
@@ -1347,8 +1345,8 @@ async def test_parse_review_invalidates_cache_when_parser_version_changes(monkey
             calls += 1
             return first.review.candidate, 0.9, []
 
-        monkeypatch.setattr(condition_reviews, "parse_rule_condition", reparsed)
-        refreshed = await condition_reviews.parse_condition_review(request, session)
+        monkeypatch.setattr(condition_review_service, "parse_rule_condition", reparsed)
+        refreshed = await condition_review_service.parse_condition_review(request, session)
 
         assert calls == 1
         assert refreshed.review.parser_version
@@ -1374,8 +1372,8 @@ async def test_parse_review_uses_same_llm_config_for_version_and_inference(monke
         captured_config = config
         return ""
 
-    monkeypatch.setattr(condition_reviews, "get_llm_config", fixed_config)
-    monkeypatch.setattr(condition_parser, "call_llm", capture_llm)
+    monkeypatch.setattr(condition_review_service, "get_llm_config", fixed_config)
+    monkeypatch.setattr(condition_parser_llm, "call_llm", capture_llm)
 
     async with session_factory() as session:
         session.add(Project(id=7, name="条件解析测试"))
@@ -1439,7 +1437,7 @@ async def test_older_parse_does_not_overwrite_newer_parser_version(monkeypatch):
             })
             return candidate, 0.9, []
 
-        monkeypatch.setattr(condition_reviews, "parse_rule_condition", superseded_parser)
+        monkeypatch.setattr(condition_review_service, "parse_rule_condition", superseded_parser)
         response = await parse_condition_review(
             ParseRuleConditionRequest(
                 project_id=7,
@@ -1556,6 +1554,8 @@ async def test_saved_route_reopens_confirmed_custom_boolean_without_rewriting_se
         session.add(row)
         await session.commit()
 
+        assert await condition_review_service.migrate_legacy_condition_reviews(route, session) is True
+        await session.commit()
         response = await build_saved_normalized_route_response(route, session)
         condition_review = response.segments[0].rule_review.condition_review
 
@@ -1821,7 +1821,7 @@ async def test_model_custom_boolean_remains_explicit_and_unbound(monkeypatch, bo
             "unresolved": [],
         }, ensure_ascii=False)
 
-    monkeypatch.setattr(condition_parser, "call_llm", legacy_boolean_llm)
+    monkeypatch.setattr(condition_parser_llm, "call_llm", legacy_boolean_llm)
     processes = [RuleConditionProcessOption(process_id="process_mark", display_name="标记")]
     candidate, confidence, issues = await condition_parser.parse_rule_condition(
         "当零件需要保留批次链路时，安排标记工序",

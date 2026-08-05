@@ -11,7 +11,7 @@ from app.database import Base, get_db
 from app.main import app
 from app.models.models import FinalizedRulePackage, NormalizedRouteVersion, Project
 from app.services.db_schema_maintenance import ensure_project_schema
-from app.services.rule_packages import condition_reviews
+from app.services.rule_packages import condition_review_service
 from app.services.rule_packages.condition_contracts import RuleConditionCandidate
 from app.services.rule_packages.contracts import RulePackageV2
 from app.services.rule_packages.kmai_compatibility_runner import compare_kmai_v1
@@ -164,7 +164,7 @@ def test_confirmed_standard_factor_journey_compiles_and_saves_without_mappings(
     async def parse_hole_finish(*args, **kwargs):
         return _candidate("孔精加工"), 0.99, []
 
-    monkeypatch.setattr(condition_reviews, "parse_rule_condition", parse_hole_finish)
+    monkeypatch.setattr(condition_review_service, "parse_rule_condition", parse_hole_finish)
     registry = lifecycle_client.get("/api/extract/finalized-rule-packages/condition-fields")
     assert registry.status_code == 200
     registry_body = registry.json()
@@ -260,7 +260,7 @@ def test_unknown_custom_factor_cannot_be_confirmed_compiled_or_saved(
             [issue.message for issue in issues],
         )
 
-    monkeypatch.setattr(condition_reviews, "parse_rule_condition", parse_unknown)
+    monkeypatch.setattr(condition_review_service, "parse_rule_condition", parse_unknown)
     registry = lifecycle_client.get("/api/extract/finalized-rule-packages/condition-fields").json()
     precision_field = next(field for field in registry["fields"] if field["key"] == "precision.grades")
     source_text = "precision.grades contains 自定义精加工"
@@ -300,6 +300,41 @@ def test_unknown_custom_factor_cannot_be_confirmed_compiled_or_saved(
     )
     assert saved.status_code == 422
     assert saved.json()["detail"]["issues"][0]["code"] == "factor_unbound"
+
+
+def test_confirm_endpoint_preserves_source_changed_conflict(lifecycle_client):
+    source_text = "当外圆尺寸精度达到 IT8 时，纳入铣槽工序"
+    parsed = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages/rule-conditions/parse",
+        json=_parse_body(source_text),
+    )
+    assert parsed.status_code == 200
+
+    response = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages/rule-conditions/confirm",
+        json=_confirm_body("新的条件文字", parsed.json()["review"]["source_hash"], parsed.json()["review"]["candidate"]),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "条件文字已经发生变化，请重新解析后再确认。"
+
+
+def test_manual_endpoint_rejects_spoofed_target(lifecycle_client):
+    response = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages/rule-conditions/manual",
+        json={
+            "project_id": 12,
+            "route_id": 31,
+            "segment_id": "process_mill_slot",
+            "source_text": "用户决定是否纳入铣槽工序",
+            "process_id": "process_mill_slot",
+            "candidate": _candidate("孔精加工").model_dump(mode="json"),
+            "processes": [{"process_id": "process_mill_slot", "display_name": "铣槽"}],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "人工 Bool" in response.json()["detail"]
 
 
 def test_new_package_persists_catalog_version(lifecycle_client, rule_package_v2_payload):
