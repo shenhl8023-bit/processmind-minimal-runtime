@@ -28,7 +28,7 @@ from app.services.rule_packages.contracts import ConditionNode, RuleAction
 from app.services.rule_packages.expression_engine import iter_condition_fields
 from app.services.rule_packages.standard_factors import bind_unambiguous_factor_ids
 
-CONDITION_PARSER_VERSION = "2026.07.27.3"
+CONDITION_PARSER_VERSION = "2026.08.04.2"
 logger = logging.getLogger(__name__)
 
 
@@ -313,9 +313,12 @@ def _known_special_requirement(text: str, current_process_name: str) -> str | No
         return "无损检测要求"
     if re.search(r"追溯|编号|批次.{0,6}标识|标识需求", text):
         return "追溯标印"
-    if re.search(r"防护|防腐蚀|绝缘|表面稳定性|表面处理", text):
-        name = str(current_process_name or "当前工序").strip()
-        return name if name.endswith("要求") else f"{name}要求"
+    surface_requirement = re.search(
+        r"防护、防腐蚀、绝缘或表面稳定性要求|防护、防腐蚀、绝缘或表面稳定性处理",
+        text,
+    )
+    if surface_requirement:
+        return surface_requirement.group(0)
     return None
 
 
@@ -328,6 +331,10 @@ def _generic_tag_condition(source_text: str) -> ConditionNode | None:
     text = str(source_text or "").strip()
     action_pattern = r"纳入|加入|安排|设置|增加|出现|进行|执行|实施|排除|不纳入|取消"
     if not text or not re.search(action_pattern, text):
+        return None
+    # This umbrella phrase is expanded by the partial hole parser into known
+    # standard factors. It must not be downgraded to an unbound free-form tag.
+    if re.search(r"孔类结构.*孔加工要求|孔加工要求.*孔类结构", text):
         return None
     if re.search(r"前面|此前|之前|之后|完成后|依赖|前置|互斥|不能同时|不得同时", text):
         return None
@@ -425,13 +432,94 @@ def _parse_locally(
     )
 
 
+def _partial_hole_condition(text: str) -> ConditionNode | None:
+    if re.search(r"(?:无|没有|不含|不存在).{0,4}(?:内孔|通孔|盲孔|中心孔|顶尖孔)", text):
+        return None
+    if re.search(r"孔类结构.*孔加工要求|孔加工要求.*孔类结构", text):
+        values = [
+            ("cad.features", "普通孔/辅助孔"),
+            ("cad.features", "铰孔/精孔"),
+            ("cad.features", "型孔/割扁"),
+            ("cad.features", "顶尖孔"),
+            ("precision.grades", "孔精加工"),
+            ("precision.grades", "珩孔要求"),
+            ("precision.grades", "研孔要求"),
+        ]
+        return ConditionNode(
+            any_conditions=[
+                ConditionNode(field=field, op="contains", value=value)
+                for field, value in values
+            ]
+        )
+    values: list[str] = []
+    if re.search(r"内孔|通孔|盲孔|一般孔|普通孔|辅助孔", text):
+        values.append("普通孔/辅助孔")
+    if re.search(r"中心孔|顶尖孔", text):
+        values.append("顶尖孔")
+    if re.search(r"铰孔|精孔", text):
+        values.append("铰孔/精孔")
+    if re.search(r"型孔|异形孔|异型孔|割扁", text):
+        values.append("型孔/割扁")
+    values = list(dict.fromkeys(values))
+    if not values:
+        return None
+    children = [ConditionNode(field="cad.features", op="contains", value=value) for value in values]
+    return children[0] if len(children) == 1 else ConditionNode(any_conditions=children)
+
+
+def _partial_condition_candidate(
+    source_text: str,
+    current_process_id: str,
+    processes: list[RuleConditionProcessOption],
+) -> tuple[RuleConditionCandidate | None, list[str]]:
+    condition_text = re.split(
+        r"(?:则|时)[，,]?\s*(?:纳入|加入|安排|设置|排除|不纳入|取消)",
+        source_text,
+        maxsplit=1,
+    )[0]
+    parts = [
+        part.strip()
+        for part in re.split(r"以及|并且|同时|而且|且", condition_text)
+        if part.strip()
+    ]
+    recognized: list[ConditionNode] = []
+    ignored: list[str] = []
+    for raw_part in parts:
+        part = re.sub(r"^(?:当|如果|若)?(?:零件|产品|工件)?", "", raw_part).strip(" ，,。；;：:")
+        node = _partial_hole_condition(part) or _leaf_from_clause(part)
+        if node is not None:
+            recognized.append(node)
+        elif part:
+            ignored.append(part)
+    if not recognized:
+        return None, []
+
+    when = recognized[0] if len(recognized) == 1 else ConditionNode(all_conditions=recognized)
+    process_ids = _resolve_process_ids(source_text, current_process_id, processes)
+    exclude = bool(re.search(r"排除|不纳入|取消", source_text))
+    candidate = RuleConditionCandidate(
+        kind="condition",
+        when=when,
+        then=RuleAction(
+            include_process_ids=[] if exclude else process_ids,
+            exclude_process_ids=process_ids if exclude else [],
+            reason=f"AI 草稿依据：{source_text}",
+        ),
+        preview=condition_preview(when),
+    )
+    issues = [f"原文中“{part}”未能明确转化为具体条件，已忽略。" for part in ignored]
+    return _with_source_evidence(candidate, source_text), issues
+
+
 def _bind_candidate_factors(
     candidate: RuleConditionCandidate,
 ) -> tuple[RuleConditionCandidate, list[str]]:
     if candidate.kind != "condition" or candidate.when is None:
         return candidate, []
     bound, binding_issues = bind_unambiguous_factor_ids(candidate.when)
-    return candidate.model_copy(update={"when": bound}), [issue.message for issue in binding_issues]
+    return candidate.model_copy(update={"when": bound, "preview": condition_preview(bound)}), [
+        issue.message for issue in binding_issues
+    ]
 
 
 def _has_unregistered_project_factor(candidate: RuleConditionCandidate) -> bool:
@@ -602,13 +690,19 @@ async def parse_rule_condition(
             bound_candidate, binding_issues = _bind_candidate_factors(local_condition_candidate)
             return bound_candidate, 0.9, binding_issues
 
-    candidate, confidence, issues = await _parse_with_llm(
-        source_text,
-        current_process_id,
-        current_process_name,
-        processes,
-        llm_config=llm_config,
-    )
+    try:
+        candidate, confidence, issues = await _parse_with_llm(
+            source_text,
+            current_process_id,
+            current_process_name,
+            processes,
+            llm_config=llm_config,
+        )
+    except Exception:
+        logger.exception("rule_condition_llm_parse_failed")
+        candidate = None
+        confidence = None
+        issues = ["AI 服务暂时不可用，已使用本地解析器生成待审核草稿。"]
     if candidate:
         candidate = _with_source_evidence(candidate, source_text)
         assert candidate is not None
@@ -657,6 +751,23 @@ async def parse_rule_condition(
             bound_candidate, binding_issues = _bind_candidate_factors(local_candidate)
             return bound_candidate, 0.65, [*issues, *binding_issues, *([fallback_note] if fallback_note else [])]
         issues.extend(local_issues)
+
+    partial_candidate, partial_issues = _partial_condition_candidate(
+        source_text,
+        current_process_id,
+        processes,
+    )
+    if partial_candidate:
+        partial_validation_issues = validate_candidate(partial_candidate, processes)
+        if not partial_validation_issues:
+            logger.info("rule_condition_parse_source source=partial_local_fallback")
+            bound_candidate, binding_issues = _bind_candidate_factors(partial_candidate)
+            return bound_candidate, 0.55, list(dict.fromkeys([
+                *issues,
+                *partial_issues,
+                *binding_issues,
+            ]))
+        issues.extend(partial_validation_issues)
 
     logger.info("rule_condition_parse_source source=unresolved")
     return None, confidence, list(dict.fromkeys([*issues, "条件无法可靠映射到标准字段，请补充字段、比较关系和阈值。"]))

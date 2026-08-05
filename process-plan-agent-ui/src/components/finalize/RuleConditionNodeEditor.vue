@@ -40,7 +40,7 @@
           :value="String(leafValue ?? '')"
           @change="changeScalarValue"
         >
-          <option v-for="option in selectedField.options" :key="option.value" :value="option.value">{{ option.label }}</option>
+          <option v-for="option in selectedFieldOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
         </select>
         <input
           v-else
@@ -118,6 +118,14 @@ const leafValue = computed(() => 'value' in props.modelValue ? props.modelValue.
 const selectedField = computed(() => props.fields.find(field => field.key === leafField.value))
 const isNumeric = computed(() => selectedField.value?.type === 'number')
 const isListOperator = computed(() => ['in', 'contains_any', 'contains_all'].includes(leafOperator.value))
+const selectedFieldOptions = computed(() => {
+  const options = selectedField.value?.options || []
+  if (isListOperator.value || leafValue.value === undefined || leafValue.value === null) return options
+  const currentValue = String(leafValue.value)
+  return options.some(option => String(option.value) === currentValue)
+    ? options
+    : [{ value: currentValue, label: currentValue }, ...options]
+})
 const displayValue = computed(() => Array.isArray(leafValue.value) ? leafValue.value.join('，') : String(leafValue.value ?? ''))
 const betweenValues = computed(() => Array.isArray(leafValue.value) ? leafValue.value : ['', ''])
 const groupChildren = computed(() => {

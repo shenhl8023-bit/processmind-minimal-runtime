@@ -97,6 +97,70 @@ async function renderRecognizedRuleCard() {
   }))
 }
 
+async function renderPendingRuleCard(options: { safe: boolean }) {
+  const sourceText = '当零件存在内孔、通孔或中心孔时，纳入割型孔工序'
+  const candidate = {
+    kind: 'condition' as const,
+    when: {
+      any: [
+        { field: 'cad.features', op: 'contains', value: '顶尖孔', factor_id: 'feature.center_hole_location' },
+        { field: 'precision.grades', op: 'contains', value: '孔精加工', factor_id: 'precision.hole_finish' },
+      ],
+    },
+    then: { include_process_ids: ['process_shaped_hole'], exclude_process_ids: [] },
+    preview: '孔类条件',
+  }
+  return renderToString(createSSRApp(FinalizeRuleCard, {
+    item: {
+      segment: {
+        id: 'process_shaped_hole',
+        sequence: 30,
+        normalized_step_name: '割型孔',
+        doc_coverage: { total_docs: 3, hit_docs: 1 },
+      },
+      conditionText: sourceText,
+      defaultConditionText: sourceText,
+      conditionReview: {
+        source_text: sourceText,
+        source_hash: 'b'.repeat(64),
+        status: 'pending_confirmation',
+        candidate,
+        confirmed: null,
+        confidence: 0.95,
+        issues: options.safe ? [] : ['原文中的结构差异尚未形成可执行条件。'],
+        field_registry_version: '2026.11',
+        confirmed_by: '',
+        confirmed_at: '',
+      },
+      factorNames: [],
+      factorLabels: [],
+      userAnswerLabels: [],
+      userAnswerContextLabels: [],
+      systemFactorLabels: [],
+      edited: false,
+      rawRuleLines: [],
+      availableFactors: [],
+    },
+    active: true,
+    displayName: '割型孔',
+    metaLabel: '',
+    inlineEditing: false,
+    inlineEditingText: '',
+    editedBadge: '已编辑',
+    editLabel: '编辑',
+    conditionLabel: '条件',
+    conditionFields: [
+      { key: 'cad.features', label: 'CAD 特征集合', category: '结构特征', type: 'multi_select', operators: ['contains'], aliases: [], options: [] },
+      { key: 'precision.grades', label: '精度要求', category: '精度要求', type: 'multi_select', operators: ['contains'], aliases: [], options: [] },
+    ],
+    standardFactors: factors,
+    factorCatalogVersion: '2026.11',
+    processOptions: [{ process_id: 'process_shaped_hole', display_name: '割型孔' }],
+    conditionBusy: false,
+    setInlineTextareaRef: () => undefined,
+  }))
+}
+
 describe('StandardFactorPicker', () => {
   it('shows the Chinese factor name and category while keeping the technical id secondary', async () => {
     const html = await renderPicker({
@@ -176,6 +240,31 @@ describe('StandardFactorPicker', () => {
     expect(html).not.toContain('同时满足')
   })
 
+  it('keeps an AI-prefilled value visible when it is outside the field option catalog', async () => {
+    const html = await renderToString(createSSRApp(RuleConditionNodeEditor, {
+      modelValue: {
+        field: 'special.requirements',
+        op: 'contains',
+        value: 'surface protection requirement',
+      },
+      fields: [
+        {
+          key: 'special.requirements',
+          label: 'Special requirements',
+          category: 'Requirements',
+          type: 'multi_select',
+          operators: ['contains'],
+          aliases: [],
+          options: [{ value: 'known-requirement', label: 'Known requirement' }],
+        },
+      ],
+      factors: [],
+    }))
+
+    expect(html).toContain('value="surface protection requirement"')
+    expect(html).toContain('>surface protection requirement</option>')
+  })
+
   it('shows the Chinese factor and category beside a compact recognized rule', async () => {
     const html = await renderRecognizedRuleCard()
 
@@ -194,5 +283,21 @@ describe('StandardFactorPicker', () => {
     expect(html).toContain('转主工序')
     expect(html).toContain('转Bool')
     expect(html).toContain('编辑')
+  })
+
+  it('keeps the prefilled candidate editor collapsed for a rule that still needs manual review', async () => {
+    const html = await renderPendingRuleCard({ safe: false })
+
+    expect(html).toContain('需要人工审核')
+    expect(html).not.toContain('class="candidate-editor"')
+    expect(html).toContain('顶尖孔定位')
+    expect(html).toContain('孔精加工')
+  })
+
+  it('keeps a safely auto-confirmable candidate collapsed', async () => {
+    const html = await renderPendingRuleCard({ safe: true })
+
+    expect(html).not.toContain('class="candidate-editor"')
+    expect(html).toContain('修改规则')
   })
 })

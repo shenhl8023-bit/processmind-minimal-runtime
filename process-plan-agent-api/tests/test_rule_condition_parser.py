@@ -159,7 +159,7 @@ async def test_partially_recognized_vague_condition_still_uses_llm(monkeypatch):
         return ""
 
     monkeypatch.setattr(condition_parser, "call_llm", capture_llm)
-    candidate, confidence, _ = await condition_parser.parse_rule_condition(
+    candidate, confidence, issues = await condition_parser.parse_rule_condition(
         "当零件存在内孔、通孔或中心孔，以及不同结构类型下工艺安排存在差异时，纳入珩孔工序",
         "process_hone",
         "珩孔",
@@ -167,8 +167,139 @@ async def test_partially_recognized_vague_condition_still_uses_llm(monkeypatch):
     )
 
     assert calls == 1
+    assert candidate is not None
+    assert candidate.when is not None
+    assert candidate.when.any_conditions is not None
+    assert [child.value for child in candidate.when.any_conditions] == ["普通孔/辅助孔", "顶尖孔"]
+    assert [child.factor_id for child in candidate.when.any_conditions] == [
+        "feature.standard_or_aux_hole",
+        "feature.center_hole_location",
+    ]
+    assert candidate.then is not None
+    assert candidate.then.include_process_ids == ["process_hone"]
+    assert confidence == 0.55
+    assert any("不同结构类型下工艺安排存在差异" in issue for issue in issues)
+
+
+@pytest.mark.asyncio
+async def test_llm_hole_alias_candidate_is_canonicalized_before_review(monkeypatch):
+    async def hole_alias_candidate(*args, **kwargs):
+        return json.dumps({
+            "candidate": {
+                "kind": "condition",
+                "when": {
+                    "any": [
+                        {"field": "cad.features", "op": "contains", "value": "内孔"},
+                        {"field": "cad.features", "op": "contains", "value": "通孔"},
+                        {"field": "cad.features", "op": "contains", "value": "中心孔"},
+                    ],
+                },
+                "then": {
+                    "include_process_ids": ["process_shaped_hole"],
+                    "exclude_process_ids": [],
+                    "reason": "存在孔类结构时纳入割型孔",
+                },
+                "field_definitions": [],
+                "preview": "",
+                "evidence": "零件存在内孔、通孔或中心孔",
+            },
+            "confidence": 0.9,
+            "warnings": ["原文中的结构差异尚未形成可执行条件。"],
+            "unresolved": [],
+        }, ensure_ascii=False)
+
+    monkeypatch.setattr(condition_parser, "call_llm", hole_alias_candidate)
+    candidate, confidence, issues = await condition_parser.parse_rule_condition(
+        "当零件存在内孔、通孔或中心孔，以及不同结构类型下工艺安排存在差异时，纳入割型孔工序",
+        "process_shaped_hole",
+        "割型孔",
+        [RuleConditionProcessOption(process_id="process_shaped_hole", display_name="割型孔")],
+    )
+
+    assert candidate is not None
+    assert candidate.when is not None
+    assert candidate.when.any_conditions is not None
+    assert [child.value for child in candidate.when.any_conditions] == ["普通孔/辅助孔", "顶尖孔"]
+    assert [child.factor_id for child in candidate.when.any_conditions] == [
+        "feature.standard_or_aux_hole",
+        "feature.center_hole_location",
+    ]
+    assert confidence == 0.9
+    assert issues == ["原文中的结构差异尚未形成可执行条件。"]
+
+
+@pytest.mark.asyncio
+async def test_partial_fallback_does_not_infer_a_condition_from_the_target_process_name(monkeypatch):
+    async def unavailable_llm(*args, **kwargs):
+        return ""
+
+    monkeypatch.setattr(condition_parser, "call_llm", unavailable_llm)
+    candidate, confidence, issues = await condition_parser.parse_rule_condition(
+        "当不同结构类型下工艺安排存在差异时，纳入割型孔工序",
+        "process_shaped_hole",
+        "割型孔",
+        [RuleConditionProcessOption(process_id="process_shaped_hole", display_name="割型孔")],
+    )
+
     assert candidate is None
     assert confidence is None
+    assert any("无法可靠映射" in issue for issue in issues)
+
+
+@pytest.mark.asyncio
+async def test_model_failure_still_returns_a_reviewable_partial_draft(monkeypatch):
+    async def failing_llm(*args, **kwargs):
+        raise RuntimeError("temporary model connection failure")
+
+    monkeypatch.setattr(condition_parser, "call_llm", failing_llm)
+    candidate, confidence, issues = await condition_parser.parse_rule_condition(
+        "当零件存在内孔、通孔或中心孔，以及不同结构类型下工艺安排存在差异时，纳入割型孔工序",
+        "process_shaped_hole",
+        "割型孔",
+        [RuleConditionProcessOption(process_id="process_shaped_hole", display_name="割型孔")],
+    )
+
+    assert candidate is not None
+    assert candidate.when is not None
+    assert candidate.when.any_conditions is not None
+    assert [child.factor_id for child in candidate.when.any_conditions] == [
+        "feature.standard_or_aux_hole",
+        "feature.center_hole_location",
+    ]
+    assert confidence == 0.55
+    assert any("AI 服务暂时不可用" in issue for issue in issues)
+    assert any("未能明确转化为具体条件" in issue for issue in issues)
+
+
+@pytest.mark.asyncio
+async def test_broad_hole_requirement_builds_a_bound_editable_draft_when_llm_is_empty():
+    candidate, confidence, issues = await condition_parser.parse_rule_condition(
+        "当零件存在孔类结构或孔加工要求时，纳入钻孔工序。",
+        "process_drill",
+        "钻孔",
+        [RuleConditionProcessOption(process_id="process_drill", display_name="钻孔")],
+    )
+
+    assert candidate is not None
+    assert candidate.when is not None
+    assert candidate.when.any_conditions is not None
+    leaves = candidate.when.any_conditions
+    assert {leaf.factor_id for leaf in leaves} == {
+        "feature.standard_or_aux_hole",
+        "feature.reamed_or_precision_hole",
+        "feature.shaped_hole_or_cut_flat",
+        "feature.center_hole_location",
+        "precision.hole_finish",
+        "precision.honing",
+        "precision.hole_lapping",
+    }
+    assert all(leaf.field in {"cad.features", "precision.grades"} for leaf in leaves)
+    assert all(leaf.op == "contains" for leaf in leaves)
+    assert candidate.then is not None
+    assert candidate.then.include_process_ids == ["process_drill"]
+    assert candidate.then.exclude_process_ids == []
+    assert confidence == 0.55
+    assert not any("无法可靠映射" in issue for issue in issues)
 
 
 @pytest.mark.asyncio
@@ -423,8 +554,32 @@ async def test_parses_generic_surface_requirement_as_special_requirement():
     assert candidate.when is not None
     assert candidate.when.field == "special.requirements"
     assert candidate.when.op == "contains"
-    assert candidate.when.value == "镀铜要求"
+    assert candidate.when.value == "防护、防腐蚀、绝缘或表面稳定性要求"
     assert candidate.field_definitions == []
+    assert any("标准因子" in issue for issue in issues)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("target_id", "target_name"),
+    [("process_copper", "镀铜"), ("process_strip_copper", "除铜")],
+)
+async def test_generic_surface_requirement_never_uses_target_process_name(target_id, target_name):
+    candidate, _, issues = await condition_parser.parse_rule_condition(
+        "当防护、防腐蚀、绝缘或表面稳定性要求满足时，安排此工序。",
+        target_id,
+        target_name,
+        [RuleConditionProcessOption(process_id=target_id, display_name=target_name)],
+    )
+
+    assert candidate is not None
+    assert candidate.when is not None
+    assert candidate.when.field == "special.requirements"
+    assert candidate.when.op == "contains"
+    assert candidate.when.value == "防护、防腐蚀、绝缘或表面稳定性要求"
+    assert target_name not in candidate.when.value
+    assert candidate.then is not None
+    assert candidate.then.include_process_ids == [target_id]
     assert any("标准因子" in issue for issue in issues)
 
 
@@ -1577,7 +1732,10 @@ async def test_standard_factor_migration_clears_stale_pending_issues_and_preserv
             candidate(),
             status="pending_confirmation",
             confirmed=False,
-            issues=["条件尚未绑定标准因子"],
+            issues=[
+                "条件尚未绑定标准因子",
+                "原文中“不同结构类型下工艺安排存在差异”未能明确转化为具体条件，已忽略。",
+            ],
         )
         still_valid = review(
             "valid",
@@ -1610,7 +1768,9 @@ async def test_standard_factor_migration_clears_stale_pending_issues_and_preserv
     assert pending_view.candidate is not None
     assert pending_view.candidate.when is not None
     assert pending_view.candidate.when.factor_id == "precision.hole_finish"
-    assert pending_view.issues == []
+    assert pending_view.issues == [
+        "原文中“不同结构类型下工艺安排存在差异”未能明确转化为具体条件，已忽略。",
+    ]
     assert pending_view.field_registry_version == "2026.11"
 
     assert valid_view.status == "confirmed"

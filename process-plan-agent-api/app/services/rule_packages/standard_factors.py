@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from collections.abc import Iterable
 
@@ -121,6 +122,71 @@ def _normalized_value(value: object) -> object:
     return " ".join(unicodedata.normalize("NFKC", value).split())
 
 
+_PRESENCE_VALUE_ALIASES: dict[str, dict[str, str]] = {
+    "cad.features": {
+        "内孔": "普通孔/辅助孔",
+        "通孔": "普通孔/辅助孔",
+        "盲孔": "普通孔/辅助孔",
+        "一般孔": "普通孔/辅助孔",
+        "普通孔": "普通孔/辅助孔",
+        "辅助孔": "普通孔/辅助孔",
+        "中心孔": "顶尖孔",
+        "顶尖孔": "顶尖孔",
+        "铰孔": "铰孔/精孔",
+        "精孔": "铰孔/精孔",
+        "型孔": "型孔/割扁",
+        "异形孔": "型孔/割扁",
+        "异型孔": "型孔/割扁",
+        "割扁": "型孔/割扁",
+    },
+}
+
+
+def _canonical_presence_leaf(node: ConditionNode) -> ConditionNode:
+    aliases = _PRESENCE_VALUE_ALIASES.get(str(node.field or ""))
+    if not aliases or node.op not in {"contains", "eq"} or not isinstance(node.value, str):
+        return node.model_copy(deep=True)
+    value = str(_normalized_value(node.value) or "")
+    canonical_values = set(aliases.values())
+    if value in canonical_values:
+        return node.model_copy(update={"value": value})
+    direct = aliases.get(value)
+    if direct:
+        return node.model_copy(update={"value": direct})
+
+    parts = [
+        part.strip()
+        for part in re.split(r"(?:或者|或是|、|，|,|/|或)", value)
+        if part.strip()
+    ]
+    if len(parts) < 2:
+        return node.model_copy(deep=True)
+    mapped = [aliases.get(part, part if part in canonical_values else None) for part in parts]
+    if any(item is None for item in mapped):
+        return node.model_copy(deep=True)
+    unique_values = list(dict.fromkeys(item for item in mapped if item is not None))
+    if len(unique_values) == 1:
+        return node.model_copy(update={"value": unique_values[0]})
+    return ConditionNode(
+        any=[
+            ConditionNode(field=node.field, op=node.op, value=item)
+            for item in unique_values
+        ]
+    )
+
+
+def _dedupe_nodes(nodes: list[ConditionNode]) -> list[ConditionNode]:
+    unique: list[ConditionNode] = []
+    seen: set[str] = set()
+    for node in nodes:
+        signature = node.model_dump_json(by_alias=True, exclude_none=True)
+        if signature in seen:
+            continue
+        seen.add(signature)
+        unique.append(node)
+    return unique
+
+
 def matching_standard_factors(
     node: ConditionNode,
     *,
@@ -152,14 +218,17 @@ def normalize_factor_leaves(node: ConditionNode) -> ConditionNode:
             "in": ("any", "eq"),
         }.get(str(node.op)) if node.field in {"cad.features", "precision.grades", "special.requirements"} else None
         if values is None or split is None:
-            return node.model_copy(deep=True)
+            return _canonical_presence_leaf(node)
         branch, child_op = split
-        children = [ConditionNode(field=node.field, op=child_op, value=value) for value in values]
+        children = _dedupe_nodes([
+            normalize_factor_leaves(ConditionNode(field=node.field, op=child_op, value=value))
+            for value in values
+        ])
         return ConditionNode(any_conditions=children) if branch == "any" else ConditionNode(all_conditions=children)
     if node.all_conditions is not None:
-        return ConditionNode(all_conditions=[normalize_factor_leaves(child) for child in node.all_conditions])
+        return ConditionNode(all_conditions=_dedupe_nodes([normalize_factor_leaves(child) for child in node.all_conditions]))
     if node.any_conditions is not None:
-        return ConditionNode(any_conditions=[normalize_factor_leaves(child) for child in node.any_conditions])
+        return ConditionNode(any_conditions=_dedupe_nodes([normalize_factor_leaves(child) for child in node.any_conditions]))
     return ConditionNode(not_condition=normalize_factor_leaves(node.not_condition))
 
 

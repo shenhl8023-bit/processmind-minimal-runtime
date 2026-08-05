@@ -106,6 +106,19 @@ def _binding_issue_text(issue) -> str:
     return f"{issue.path or 'when'}: {issue.message}"
 
 
+def _semantic_review_issues(raw: str | None) -> list[str]:
+    binding_markers = (
+        "条件尚未绑定标准因子",
+        "标准因子存在多个候选",
+        "条件与指定的标准因子不匹配",
+    )
+    return [
+        issue
+        for issue in _loads_issues(raw)
+        if not any(marker in issue for marker in binding_markers)
+    ]
+
+
 def _selected_factor_paths(node: ConditionNode, path: str = "") -> set[str]:
     if node.field is not None:
         return {path} if node.factor_id is not None else set()
@@ -246,7 +259,11 @@ async def migrate_legacy_standard_factor_reviews(
         confirmed_issues: list[str] = []
         if confirmed is not None:
             migrated_confirmed, confirmed_issues = _migrate_review_candidate(confirmed, processes)
-        all_issues = list(dict.fromkeys([*candidate_issues, *confirmed_issues]))
+        all_issues = list(dict.fromkeys([
+            *_semantic_review_issues(review.condition_issues_json),
+            *candidate_issues,
+            *confirmed_issues,
+        ]))
 
         next_status = review.condition_status
         next_candidate_json = _candidate_json(migrated_candidate)
