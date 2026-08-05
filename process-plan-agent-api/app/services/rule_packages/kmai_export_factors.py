@@ -10,7 +10,10 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from app.services.rule_packages.contracts import ConditionNode, RulePackageV2
-from app.services.rule_packages.kmai_export_context import FactorRegistry
+from app.services.rule_packages.kmai_export_context import (
+    FactorRegistry,
+    KmaiExportContext,
+)
 
 
 # KmAI's immutable runtime schema. Keep these IDs stable for packages replayed
@@ -153,6 +156,11 @@ def build_factor_schema(package: RulePackageV2, registry: FactorRegistry) -> dic
     }
 
 
+def build_factor_schema_for_context(context: KmaiExportContext) -> dict[str, Any]:
+    """Build the factor schema from one export's shared state."""
+    return build_factor_schema(context.package, context.registry)
+
+
 def _set_factor_rule(rule_id: str, priority: int, conditions: list[dict[str, Any]], factor_key: str, value: Any) -> dict[str, Any]:
     return {"rule_id": rule_id, "enabled": True, "priority": priority, "when": {"all": conditions}, "then": {"set_factors": [{"factor_key": factor_key, "value": value, "write_mode": "overwrite"}]}}
 
@@ -192,6 +200,13 @@ def build_factor_expansion_rules(package: RulePackageV2) -> dict[str, Any]:
     for rule_id, field, op, value, factor_key in manual_rules:
         rules.append(_set_factor_rule(rule_id, 120, [{"source": "manual", "field": field, "op": op, "value": value}], factor_key, True))
     return {"schema_version": "1.0", "dataset_id": f"processmind_project_{package.manifest.project_id}_factor_expansion", "dataset_name": f"{package.manifest.package_name} - KmAI \u56e0\u7d20\u5c55\u5f00\u89c4\u5219", "description": "\u628a KmAI \u7684 CAD \u5206\u7ec4\u7279\u5f81\u548c\u4eba\u5de5\u8865\u5145\u53c2\u6570\u5c55\u5f00\u4e3a ProcessMind \u89c4\u5219\u6240\u9700\u56e0\u7d20\u3002", "runtime_policy": {"rule_order": "priority_desc", "manual_overrides_last": True}, "input_contract": {"cad_features": "cad_input", "part_info": ["material_grade", "part_type"], "manual": ["heat_treatment", "surface_treatments", "inspection_items", "marking_methods", "special_process_flags", "factor_overrides"]}, "rules": rules}
+
+
+def build_factor_expansion_rules_for_context(
+    context: KmaiExportContext,
+) -> dict[str, Any]:
+    """Build factor expansion rules from one export's package snapshot."""
+    return build_factor_expansion_rules(context.package)
 
 
 def dynamic_factor(package: RulePackageV2, field_key: str, registry: FactorRegistry) -> str:

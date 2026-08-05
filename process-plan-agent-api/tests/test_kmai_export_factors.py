@@ -1,9 +1,22 @@
 from app.services.rule_packages.kmai_export import build_kmai_compatibility_export
-from app.services.rule_packages.kmai_export_context import FactorRegistry
+from app.services.rule_packages.kmai_export_conditions import (
+    condition_dnf,
+    condition_expansion_size,
+)
+from app.services.rule_packages.kmai_export_context import (
+    FactorRegistry,
+    KmaiExportContext,
+)
 from app.services.rule_packages.kmai_export_factors import (
     build_factor_expansion_rules,
     build_factor_schema,
+    build_factor_expansion_rules_for_context,
+    build_factor_schema_for_context,
     dynamic_factor,
+)
+from app.services.rule_packages.kmai_export_routes import (
+    build_route_catalog,
+    build_route_rules,
 )
 
 
@@ -46,3 +59,24 @@ def test_factor_builders_match_the_facade_artifacts_for_existing_fixture(rule_pa
     assert build_factor_expansion_rules(rule_package_v2) == build_kmai_compatibility_export(
         rule_package_v2
     ).files["factor_expansion_rules.json"]
+
+
+def test_factor_builders_with_context_match_facade_artifacts(rule_package_v2):
+    exported = build_kmai_compatibility_export(rule_package_v2)
+    context = KmaiExportContext.create(
+        rule_package_v2,
+        max_combinations=10_000,
+        max_condition_objects=100_000,
+    )
+    _, process_keys = build_route_catalog(rule_package_v2)
+    build_route_rules(
+        context,
+        process_keys,
+        condition_dnf_fn=condition_dnf,
+        condition_expansion_size_fn=condition_expansion_size,
+    )
+
+    assert build_factor_schema_for_context(context) == exported.files["factor_schema.json"]
+    assert build_factor_expansion_rules_for_context(context) == exported.files[
+        "factor_expansion_rules.json"
+    ]

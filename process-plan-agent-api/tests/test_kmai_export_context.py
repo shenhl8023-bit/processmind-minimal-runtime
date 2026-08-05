@@ -1,4 +1,30 @@
-from app.services.rule_packages.kmai_export_context import ConditionBudget, FactorRegistry
+from app.services.rule_packages.contracts import RulePackageV2
+from app.services.rule_packages.kmai_export_context import (
+    ConditionBudget,
+    FactorRegistry,
+    KmaiExportContext,
+)
+
+
+def test_export_context_keeps_issue_and_factor_state_per_export(
+    rule_package_v2: RulePackageV2,
+):
+    first = KmaiExportContext.create(
+        rule_package_v2,
+        max_combinations=10,
+        max_condition_objects=20,
+    )
+    second = KmaiExportContext.create(
+        rule_package_v2,
+        max_combinations=10,
+        max_condition_objects=20,
+    )
+
+    first.warning("first_warning", "only first")
+    first.registry.register("first_factor", {"factor_key": "first_factor"})
+
+    assert [issue.code for issue in second.warnings] == []
+    assert second.registry.values() == []
 
 
 def test_factor_registry_keeps_first_payload_and_registration_order():

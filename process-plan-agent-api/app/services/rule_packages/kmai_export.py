@@ -21,11 +21,13 @@ from app.services.rule_packages.kmai_export_conditions import (
     configured_max_combinations as _configured_max_combinations,
     configured_max_condition_objects as _configured_max_condition_objects,
 )
-from app.services.rule_packages.kmai_export_context import ConditionBudget, FactorRegistry
+from app.services.rule_packages.kmai_export_context import KmaiExportContext
 from app.services.rule_packages.kmai_export_factors import (
     LegacyFactorAdapterEntry,
     build_factor_expansion_rules,
+    build_factor_expansion_rules_for_context,
     build_factor_schema,
+    build_factor_schema_for_context,
     builtin_legacy_mapping_snapshot,
     legacy_adapter_key,
     legacy_mapping_snapshot_from_validation_report,
@@ -57,9 +59,6 @@ def build_kmai_compatibility_export(
     max_combinations: int | None = None,
     max_condition_objects: int | None = None,
 ) -> KmaiCompatibilityExport:
-    errors: list[ValidationIssue] = []
-    warnings: list[ValidationIssue] = []
-    registry = FactorRegistry()
     legacy_adapters = (
         {
             legacy_adapter_key(entry.source_field, entry.source_value): entry
@@ -74,22 +73,24 @@ def build_kmai_compatibility_export(
     condition_object_limit = max_condition_objects or _configured_max_condition_objects()
     if condition_object_limit <= 0:
         condition_object_limit = DEFAULT_KMAI_MAX_CONDITION_OBJECTS
-    budget = ConditionBudget(combination_limit, condition_object_limit)
+    context = KmaiExportContext.create(
+        package,
+        max_combinations=combination_limit,
+        max_condition_objects=condition_object_limit,
+        legacy_adapters=legacy_adapters,
+    )
+    errors = context.errors
+    warnings = context.warnings
     route_catalog, process_keys = build_route_catalog(package)
     route_rules_result = build_route_rules(
-        package,
+        context,
         process_keys,
-        registry,
-        budget,
-        legacy_adapters,
         condition_dnf_fn=_condition_dnf,
         condition_expansion_size_fn=_condition_expansion_size,
     )
-    errors.extend(route_rules_result.errors)
-    warnings.extend(route_rules_result.warnings)
     route_rules = route_rules_result.payload
-    factor_schema = build_factor_schema(package, registry)
-    factor_expansion_rules = build_factor_expansion_rules(package)
+    factor_schema = build_factor_schema_for_context(context)
+    factor_expansion_rules = build_factor_expansion_rules_for_context(context)
 
     factor_keys = {item["factor_key"] for item in factor_schema["factors"]}
     for rule_index, rule in enumerate(route_rules["rules"]):

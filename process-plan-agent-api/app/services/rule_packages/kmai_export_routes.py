@@ -9,7 +9,6 @@ from app.services.rule_packages.contracts import (
     ConditionNode,
     KmaiCompatibilityIssue,
     RulePackageV2,
-    ValidationIssue,
 )
 from app.services.rule_packages.kmai_export_conditions import (
     KMAI_MAX_COMBINATIONS_ENV,
@@ -18,10 +17,8 @@ from app.services.rule_packages.kmai_export_conditions import (
 )
 from app.services.rule_packages.kmai_export_context import (
     ArtifactBuildResult,
-    ConditionBudget,
-    FactorRegistry,
+    KmaiExportContext,
 )
-from app.services.rule_packages.kmai_export_factors import LegacyFactorAdapterEntry
 
 
 def _issue(
@@ -150,17 +147,15 @@ def build_route_catalog(
 
 
 def build_route_rules(
-    package: RulePackageV2,
+    context: KmaiExportContext,
     process_keys: dict[str, str],
-    registry: FactorRegistry,
-    budget: ConditionBudget,
-    legacy_adapters: dict[tuple[str, str], LegacyFactorAdapterEntry] | None,
     *,
     condition_dnf_fn: Callable[..., list[list[dict[str, Any]]]],
     condition_expansion_size_fn: Callable[[ConditionNode], tuple[int, int]],
 ) -> ArtifactBuildResult:
-    errors: list[ValidationIssue] = []
-    warnings: list[ValidationIssue] = []
+    package = context.package
+    errors = context.errors
+    warnings = context.warnings
     rules: list[dict[str, Any]] = []
     for rule_index, rule in enumerate(package.route_rules.rules):
         path = f"route_rules.rules[{rule_index}]"
@@ -169,20 +164,20 @@ def build_route_rules(
         except ValueError as exc:
             errors.append(_issue("kmai_condition_unsupported", str(exc), f"{path}.when"))
             continue
-        projected_count, projected_condition_object_count = budget.project(
+        projected_count, projected_condition_object_count = context.budget.project(
             combination_count,
             condition_object_count,
         )
         if (
-            combination_count > budget.max_combinations
-            or projected_count > budget.max_combinations
+            combination_count > context.budget.max_combinations
+            or projected_count > context.budget.max_combinations
         ):
             errors.append(
                 _issue(
                     "kmai_combination_limit_exceeded",
                     (
                         f"\u89c4\u5219 {rule.rule_id} \u7684 all/any \u6761\u4ef6\u5c06\u5c55\u5f00\u4e3a {combination_count} \u4e2a\u7ec4\u5408\uff0c"
-                        f"\u7d2f\u8ba1\u7ec4\u5408\u6570\u4e3a {projected_count}\uff0c\u8d85\u8fc7\u4e0a\u9650 {budget.max_combinations}\u3002"
+                        f"\u7d2f\u8ba1\u7ec4\u5408\u6570\u4e3a {projected_count}\uff0c\u8d85\u8fc7\u4e0a\u9650 {context.budget.max_combinations}\u3002"
                         f"\u8bf7\u7f29\u5c0f\u6761\u4ef6\u8303\u56f4\u6216\u8c03\u6574 {KMAI_MAX_COMBINATIONS_ENV}\u3002"
                     ),
                     f"{path}.when",
@@ -190,8 +185,8 @@ def build_route_rules(
             )
             continue
         if (
-            condition_object_count > budget.max_condition_objects
-            or projected_condition_object_count > budget.max_condition_objects
+            condition_object_count > context.budget.max_condition_objects
+            or projected_condition_object_count > context.budget.max_condition_objects
         ):
             errors.append(
                 _issue(
@@ -199,29 +194,13 @@ def build_route_rules(
                     (
                         f"\u89c4\u5219 {rule.rule_id} \u7684 all/any \u6761\u4ef6\u5c55\u5f00\u540e\u5305\u542b {condition_object_count} \u4e2a\u6761\u4ef6\u5bf9\u8c61\uff0c"
                         f"\u7d2f\u8ba1\u6761\u4ef6\u5bf9\u8c61\u6570\u4e3a {projected_condition_object_count}\uff0c"
-                        f"\u8d85\u8fc7\u4e0a\u9650 {budget.max_condition_objects}\u3002"
+                        f"\u8d85\u8fc7\u4e0a\u9650 {context.budget.max_condition_objects}\u3002"
                         f"\u8bf7\u7f29\u5c0f\u6761\u4ef6\u8303\u56f4\u6216\u8c03\u6574 {KMAI_MAX_CONDITION_OBJECTS_ENV}\u3002"
                     ),
                     f"{path}.when",
                 )
             )
             continue
-        try:
-            clauses = condition_dnf_fn(
-                package,
-                rule.when,
-                registry,
-                warnings,
-                f"{path}.when",
-                legacy_adapters,
-            )
-        except StandardFactorExportError as exc:
-            errors.append(_issue(exc.code, str(exc), f"{path}.when"))
-            continue
-        except ValueError as exc:
-            errors.append(_issue("kmai_condition_unsupported", str(exc), f"{path}.when"))
-            continue
-        budget.record(clauses)
         include_keys = [process_keys[item] for item in rule.then.include_process_ids if item in process_keys]
         exclude_keys = [process_keys[item] for item in rule.then.exclude_process_ids if item in process_keys]
         missing_ids = [
@@ -238,6 +217,22 @@ def build_route_rules(
                 )
             )
             continue
+        try:
+            clauses = condition_dnf_fn(
+                package,
+                rule.when,
+                context.registry,
+                warnings,
+                f"{path}.when",
+                context.legacy_adapters,
+            )
+        except StandardFactorExportError as exc:
+            errors.append(_issue(exc.code, str(exc), f"{path}.when"))
+            continue
+        except ValueError as exc:
+            errors.append(_issue("kmai_condition_unsupported", str(exc), f"{path}.when"))
+            continue
+        context.record_clauses(clauses)
         for clause_index, clause in enumerate(clauses, start=1):
             suffix = f".{clause_index}" if len(clauses) > 1 else ""
             rules.append(

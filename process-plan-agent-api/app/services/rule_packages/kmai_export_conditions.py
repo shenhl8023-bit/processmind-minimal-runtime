@@ -12,7 +12,10 @@ from app.services.rule_packages.contracts import (
     RulePackageV2,
     ValidationIssue,
 )
-from app.services.rule_packages.kmai_export_context import FactorRegistry
+from app.services.rule_packages.kmai_export_context import (
+    FactorRegistry,
+    KmaiExportContext,
+)
 from app.services.rule_packages.kmai_export_factors import (
     LegacyFactorAdapterEntry,
     dynamic_factor,
@@ -178,6 +181,22 @@ def condition_dnf(
             )
         return clauses
     raise ValueError("KmAI V1 暂不支持 not 条件，请先在 ProcessMind 中改写为正向条件")
+
+
+def condition_dnf_with_context(
+    context: KmaiExportContext,
+    node: ConditionNode,
+    path: str,
+) -> list[list[dict[str, Any]]]:
+    """Translate one condition using the state owned by a single export."""
+    return condition_dnf(
+        context.package,
+        node,
+        context.registry,
+        context.warnings,
+        path,
+        context.legacy_adapters,
+    )
 
 
 def condition_expansion_size(node: ConditionNode) -> tuple[int, int]:

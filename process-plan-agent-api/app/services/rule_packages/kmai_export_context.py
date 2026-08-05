@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from collections.abc import Mapping
 from typing import Any
 
-from app.services.rule_packages.contracts import ValidationIssue
+from app.services.rule_packages.contracts import (
+    KmaiCompatibilityIssue,
+    RulePackageV2,
+    ValidationIssue,
+)
 
 
 @dataclass
@@ -56,3 +61,66 @@ class ConditionBudget:
     def record(self, clauses: list[list[dict[str, Any]]]) -> None:
         self.generated_combinations += len(clauses)
         self.generated_condition_objects += sum(len(clause) for clause in clauses)
+
+
+@dataclass
+class KmaiExportContext:
+    """Mutable state shared by one deterministic KmAI export build."""
+
+    package: RulePackageV2
+    registry: FactorRegistry
+    budget: ConditionBudget
+    legacy_adapters: Mapping[tuple[str, str], Any] | None = None
+    errors: list[KmaiCompatibilityIssue] = field(default_factory=list)
+    warnings: list[KmaiCompatibilityIssue] = field(default_factory=list)
+
+    @classmethod
+    def create(
+        cls,
+        package: RulePackageV2,
+        *,
+        max_combinations: int,
+        max_condition_objects: int,
+        legacy_adapters: Mapping[tuple[str, str], Any] | None = None,
+    ) -> "KmaiExportContext":
+        return cls(
+            package=package,
+            registry=FactorRegistry(),
+            budget=ConditionBudget(max_combinations, max_condition_objects),
+            legacy_adapters=legacy_adapters,
+        )
+
+    def error(
+        self,
+        code: str,
+        message: str,
+        path: str = "",
+        **details: Any,
+    ) -> KmaiCompatibilityIssue:
+        issue = KmaiCompatibilityIssue(
+            code=code,
+            path=path,
+            message=message,
+            **details,
+        )
+        self.errors.append(issue)
+        return issue
+
+    def warning(
+        self,
+        code: str,
+        message: str,
+        path: str = "",
+        **details: Any,
+    ) -> KmaiCompatibilityIssue:
+        issue = KmaiCompatibilityIssue(
+            code=code,
+            path=path,
+            message=message,
+            **details,
+        )
+        self.warnings.append(issue)
+        return issue
+
+    def record_clauses(self, clauses: list[list[dict[str, Any]]]) -> None:
+        self.budget.record(clauses)
