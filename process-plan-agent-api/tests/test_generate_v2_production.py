@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -14,7 +15,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.database import Base, get_db
 from app.main import app
-from app.models.models import FinalizedRulePackage, GeneratedRoute, Project
+from app.models.models import (
+    FinalizedRulePackage,
+    GeneratedRoute,
+    NormalizedRouteSegmentRuleReview,
+    NormalizedRouteVersion,
+    Project,
+)
 from app.routers.generate import _normalize_input_values
 from app.schemas.schemas import GenerateRequest
 from app.services.db_schema_maintenance import ensure_project_schema
@@ -181,6 +188,72 @@ async def _published_fingerprint(session_factory, project_id: int) -> dict[str, 
         }
 
 
+async def _rule_package_status(session_factory, project_id: int) -> str:
+    async with session_factory() as db:
+        return (await db.execute(
+            select(FinalizedRulePackage.status).where(
+                FinalizedRulePackage.project_id == project_id,
+            )
+        )).scalar_one()
+
+
+async def _seed_source_drifted_v2(session_factory) -> tuple[int, dict[str, Any]]:
+    confirmed_at = datetime(2026, 8, 6, 0, 0, tzinfo=timezone.utc)
+
+    def configure(payload: dict[str, Any]) -> None:
+        rule = payload["route_rules"]["rules"][0]
+        rule.update({
+            "source": "user_confirmed",
+            "source_segment_id": "segment-quench",
+            "source_text": "材料与硬度满足条件时纳入淬火",
+            "confirmed_by": "reviewer",
+            "confirmed_at": confirmed_at.isoformat(),
+        })
+
+    project_id, payload = await _seed_published_v2(
+        session_factory,
+        "v2-source-drift",
+        configure,
+    )
+    rule = payload["route_rules"]["rules"][0]
+    candidate = {
+        "kind": "condition",
+        "when": rule["when"],
+        "then": {
+            "include_process_ids": rule["then"]["include_process_ids"],
+            "exclude_process_ids": rule["then"]["exclude_process_ids"],
+        },
+    }
+    async with session_factory() as db:
+        route = NormalizedRouteVersion(
+            project_id=project_id,
+            version=1,
+            route_json=json.dumps([{"id": "segment-quench"}], ensure_ascii=False),
+        )
+        db.add(route)
+        await db.flush()
+        db.add(NormalizedRouteSegmentRuleReview(
+            project_id=project_id,
+            route_version_id=route.id,
+            segment_id="segment-quench",
+            condition_source_text="数据库中已经变化的条件",
+            condition_source_hash="changed-source",
+            condition_status="confirmed",
+            condition_candidate_json=json.dumps(candidate, ensure_ascii=False),
+            condition_confirmed_json=json.dumps(candidate, ensure_ascii=False),
+            condition_confirmed_by="reviewer",
+            condition_confirmed_at=confirmed_at,
+        ))
+        package = (await db.execute(
+            select(FinalizedRulePackage).where(
+                FinalizedRulePackage.project_id == project_id,
+            )
+        )).scalar_one()
+        package.route_version_id = route.id
+        await db.commit()
+    return project_id, payload
+
+
 async def _unpublish_rule_package(session_factory, project_id: int) -> None:
     async with session_factory() as db:
         package = (
@@ -259,6 +332,34 @@ def test_generate_accepts_matching_published_rule_package_fingerprint(generation
     assert response.status_code == 200, response.text
     assert response.json()["rule_package_version"] == 1
     assert asyncio.run(_generation_state(session_factory, project_id)) == ("GENERATED", 1)
+
+
+def test_generate_archives_source_drifted_v2_before_planning(generation_context):
+    client, session_factory = generation_context
+    project_id, _ = asyncio.run(_seed_source_drifted_v2(session_factory))
+    fingerprint = asyncio.run(_published_fingerprint(session_factory, project_id))
+
+    response = client.post(
+        "/api/generate/",
+        json={
+            "project_id": project_id,
+            **fingerprint,
+            "factor_values": {
+                "material": {"grade": "9Cr18"},
+                "cad": {"features": ["槽类特征"]},
+                "target_hardness_hrc": 58,
+            },
+        },
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == {
+        "code": "published_rule_package_changed",
+        "message": "当前规则内容已变化，请返回第四步重新发布后再生成。",
+        "current_rule_package": None,
+    }
+    assert asyncio.run(_rule_package_status(session_factory, project_id)) == "archived"
+    _assert_generation_not_persisted(session_factory, project_id)
 
 
 @pytest.mark.parametrize(

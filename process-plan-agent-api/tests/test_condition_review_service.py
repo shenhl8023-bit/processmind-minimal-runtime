@@ -1,15 +1,17 @@
 import pytest
 import pytest_asyncio
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.database import Base
-from app.models.models import NormalizedRouteVersion, Project
+from app.models.models import FinalizedRulePackage, NormalizedRouteVersion, Project
 from app.services.rule_packages import condition_review_service as service
 from app.services.rule_packages.condition_contracts import (
     ConfirmRuleConditionRequest,
     ParseRuleConditionRequest,
     RuleConditionCandidate,
     RuleConditionProcessOption,
+    SaveRuleConditionDraftRequest,
 )
 from app.services.rule_packages.condition_review_errors import (
     ConditionReviewConflict,
@@ -17,6 +19,24 @@ from app.services.rule_packages.condition_review_errors import (
 )
 from app.services.rule_packages.condition_review_repository import load_route_and_review
 from app.services.rule_packages.condition_review_state import condition_source_hash
+
+
+def _published_package(project_id: int = 7, version: int = 1) -> FinalizedRulePackage:
+    return FinalizedRulePackage(
+        project_id=project_id,
+        version=version,
+        package_name=f"published-{project_id}-{version}",
+        schema_version="2.0",
+        status="published",
+    )
+
+
+async def _package_status(db, project_id: int = 7) -> str:
+    return (await db.execute(
+        select(FinalizedRulePackage.status).where(
+            FinalizedRulePackage.project_id == project_id,
+        )
+    )).scalar_one()
 
 
 @pytest_asyncio.fixture
@@ -91,6 +111,44 @@ def confirm_request(parse_request):
 
 
 @pytest.mark.asyncio
+async def test_save_draft_archives_package_without_committing(db):
+    package = _published_package()
+    db.add(package)
+    await db.commit()
+    body = SaveRuleConditionDraftRequest(
+        project_id=7,
+        route_id=1,
+        segment_id="process_grind_outer",
+        source_text="outer diameter reaches IT8",
+    )
+
+    response = await service.save_condition_draft(body, db)
+
+    assert response.review.status == "draft"
+    assert await _package_status(db) == "archived"
+    await db.rollback()
+    assert await _package_status(db) == "published"
+
+
+@pytest.mark.asyncio
+async def test_save_unchanged_draft_keeps_package_published(db):
+    body = SaveRuleConditionDraftRequest(
+        project_id=7,
+        route_id=1,
+        segment_id="process_grind_outer",
+        source_text="outer diameter reaches IT8",
+    )
+    await service.save_condition_draft(body, db)
+    await db.commit()
+    db.add(_published_package())
+    await db.commit()
+
+    await service.save_condition_draft(body, db)
+
+    assert await _package_status(db) == "published"
+
+
+@pytest.mark.asyncio
 async def test_prepare_parse_returns_cached_response_without_reparsing(
     db,
     parse_request,
@@ -119,10 +177,21 @@ async def test_prepare_parse_returns_cached_response_without_reparsing(
     await service.complete_condition_parse(parse_request, first, (candidate, 0.9, []), db)
     await db.commit()
 
+    db.add(_published_package())
+    await db.commit()
+
     cached = await service.prepare_condition_parse(parse_request, db)
     assert cached.cache_hit is True
     assert cached.cached_response is not None
     assert cached.cached_response.review.candidate is not None
+    assert await _package_status(db) == "published"
+
+    changed = await service.prepare_condition_parse(
+        parse_request.model_copy(update={"source_text": "outer diameter reaches IT7"}),
+        db,
+    )
+    assert changed.cache_hit is False
+    assert await _package_status(db) == "archived"
 
 
 @pytest.mark.asyncio
@@ -143,6 +212,7 @@ async def test_confirm_uses_domain_validation_for_unbound_factor(db, confirm_req
     review.condition_source_text = source_text
     review.condition_source_hash = condition_source_hash(source_text)
     review.condition_status = "pending_confirmation"
+    db.add(_published_package())
     await db.commit()
 
     with pytest.raises(ConditionReviewValidation) as error:
@@ -151,6 +221,49 @@ async def test_confirm_uses_domain_validation_for_unbound_factor(db, confirm_req
         }), db)
 
     assert error.value.detail["message"] == "标准因子绑定校验未通过"
+    assert await _package_status(db) == "published"
+
+
+@pytest.mark.asyncio
+async def test_confirm_archives_published_package(db, parse_request):
+    _, review = await load_route_and_review(7, 1, "process_grind_outer", db)
+    source_text = parse_request.source_text.strip()
+    source_hash = condition_source_hash(source_text)
+    candidate = RuleConditionCandidate.model_validate({
+        "kind": "condition",
+        "when": {
+            "field": "precision.outer_diameter_it",
+            "op": "lte",
+            "value": 8,
+            "factor_id": "measurement.outer_diameter_it",
+        },
+        "then": {
+            "include_process_ids": ["process_grind_outer"],
+            "exclude_process_ids": [],
+        },
+    })
+    review.condition_source_text = source_text
+    review.condition_source_hash = source_hash
+    review.condition_status = "pending_confirmation"
+    review.condition_candidate_json = candidate.model_dump_json()
+    db.add(_published_package())
+    await db.commit()
+
+    await service.confirm_condition_review(
+        ConfirmRuleConditionRequest(
+            project_id=7,
+            route_id=1,
+            segment_id="process_grind_outer",
+            source_text=source_text,
+            source_hash=source_hash,
+            candidate=candidate,
+            processes=parse_request.processes,
+            confirmed_by="reviewer",
+        ),
+        db,
+    )
+
+    assert await _package_status(db) == "archived"
 
 
 @pytest.mark.asyncio

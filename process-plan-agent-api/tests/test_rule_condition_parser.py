@@ -7,7 +7,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.database import Base
-from app.models.models import NormalizedRouteSegmentRuleReview, NormalizedRouteVersion, Project
+from app.models.models import (
+    FinalizedRulePackage,
+    NormalizedRouteSegmentRuleReview,
+    NormalizedRouteVersion,
+    Project,
+)
 from app.services.rule_packages import condition_parser, condition_parser_llm
 from app.services.rule_packages.condition_contracts import (
     ConfirmRuleConditionRequest,
@@ -857,12 +862,22 @@ async def test_manual_boolean_rule_is_confirmed_without_model_parsing():
     })
 
     async with session_factory() as session:
-        session.add(NormalizedRouteVersion(
-            id=1,
-            project_id=7,
-            version=1,
-            route_json='[{"id":"process_mark"}]',
-        ))
+        session.add_all([
+            Project(id=7, name="manual"),
+            NormalizedRouteVersion(
+                id=1,
+                project_id=7,
+                version=1,
+                route_json='[{"id":"process_mark"}]',
+            ),
+            FinalizedRulePackage(
+                project_id=7,
+                version=1,
+                package_name="manual-current",
+                schema_version="2.0",
+                status="published",
+            ),
+        ])
         await session.commit()
         response = await set_manual_condition_review(
             ManualRuleConditionRequest(
@@ -884,6 +899,12 @@ async def test_manual_boolean_rule_is_confirmed_without_model_parsing():
         assert response.review.confirmed.when.field == "project_factor.manual_process_487e1c0a"
         assert response.review.confirmed.when.factor_id is None
         assert response.review.confirmed_by == "用户直接设定"
+        package_status = (await session.execute(
+            select(FinalizedRulePackage.status).where(
+                FinalizedRulePackage.project_id == 7,
+            )
+        )).scalar_one()
+        assert package_status == "archived"
 
     await engine.dispose()
 
@@ -1472,7 +1493,16 @@ async def test_invalidates_legacy_nondestructive_process_relation_for_re_review(
             version=1,
             route_json='[{"id":"process_inspect","normalized_step_name":"检验"},{"id":"process_ndt","normalized_step_name":"无损检查"}]',
         )
+        package = FinalizedRulePackage(
+            project_id=7,
+            version=1,
+            package_name="legacy-ndt-current",
+            schema_version="2.0",
+            status="published",
+        )
+        session.add(Project(id=7, name="legacy NDT"))
         session.add(route)
+        session.add(package)
         session.add(NormalizedRouteSegmentRuleReview(
             project_id=7,
             route_version_id=1,
@@ -1495,6 +1525,7 @@ async def test_invalidates_legacy_nondestructive_process_relation_for_re_review(
         assert review.condition_status == "draft"
         assert review.condition_confirmed_json is None
         assert review.condition_source_text == '当零件有无损检测要求时，纳入“无损检查”工序。'
+        assert package.status == "archived"
 
     await engine.dispose()
 
@@ -1652,11 +1683,28 @@ async def test_migrates_only_valid_unpublished_standard_factor_reviews():
             unknown_row,
             compound_row,
             removed_target_row,
+            FinalizedRulePackage(
+                project_id=7,
+                version=1,
+                package_name="legacy-factor-current",
+                schema_version="2.0",
+                status="published",
+            ),
         ])
         await session.commit()
 
         assert await migrate_legacy_standard_factor_reviews(route, session) is True
+        package = (await session.execute(
+            select(FinalizedRulePackage).where(
+                FinalizedRulePackage.project_id == 7,
+            )
+        )).scalar_one()
+        assert package.status == "archived"
+
+        package.status = "published"
+        await session.flush()
         assert await migrate_legacy_standard_factor_reviews(route, session) is False
+        assert package.status == "published"
 
         known = serialize_condition_review(known_row)
         unknown = serialize_condition_review(unknown_row)

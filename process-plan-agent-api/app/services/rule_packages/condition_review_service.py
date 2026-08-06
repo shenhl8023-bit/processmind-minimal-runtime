@@ -58,6 +58,7 @@ from app.services.rule_packages.condition_review_state import (
     parsing_update,
 )
 from app.services.rule_packages.contracts import ConditionNode
+from app.services.rule_packages.lifecycle import archive_published_rule_packages
 from app.services.rule_packages.standard_factors import (
     STANDARD_FACTOR_CATALOG_VERSION,
     bind_unambiguous_factor_ids,
@@ -192,6 +193,7 @@ async def save_condition_draft(
         review,
         new_draft_update(source_text, source_hash, FIELD_REGISTRY_VERSION),
     )
+    await archive_published_rule_packages(body.project_id, db)
     return review_response(body, review)
 
 
@@ -236,6 +238,7 @@ async def prepare_condition_parse(
         review,
         parsing_update(source_text, source_hash, parser_version, FIELD_REGISTRY_VERSION),
     )
+    await archive_published_rule_packages(body.project_id, db)
     return ParseReviewPreparation(
         cache_hit=False,
         cached_response=None,
@@ -354,6 +357,7 @@ async def confirm_condition_review(
             datetime.now(timezone.utc),
         ),
     )
+    await archive_published_rule_packages(body.project_id, db)
     return review_response(body, review)
 
 
@@ -414,6 +418,7 @@ async def set_manual_condition_review(
             datetime.now(timezone.utc),
         ),
     )
+    await archive_published_rule_packages(body.project_id, db)
     return review_response(body, review)
 
 
@@ -458,6 +463,8 @@ async def invalidate_legacy_nondestructive_relation_reviews(
             ),
         )
         changed = True
+    if changed:
+        await archive_published_rule_packages(route.project_id, db)
     return changed
 
 
@@ -532,6 +539,8 @@ async def migrate_legacy_standard_factor_reviews(
             review.condition_issues_json = next_issues_json
             review.condition_field_registry_version = STANDARD_FACTOR_CATALOG_VERSION
             changed = True
+    if changed:
+        await archive_published_rule_packages(route.project_id, db)
     return changed
 
 

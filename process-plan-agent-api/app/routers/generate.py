@@ -58,6 +58,7 @@ from app.services.rule_packages.execution import (
     PublishedRulePackageChanged,
     PublishedRulePackageInputInvalid,
     PublishedRulePackageInvalid,
+    PublishedRulePackageSourcesChanged,
     RulePackageExpectation,
     execute_published_v2_rule_package,
     load_published_rule_package_for_execution,
@@ -1027,6 +1028,13 @@ async def generate_route(
             db,
             expectation=rule_package_expectation,
         )
+    except PublishedRulePackageSourcesChanged as exc:
+        try:
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
     except PublishedRulePackageChanged as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
     if not finalized_package:

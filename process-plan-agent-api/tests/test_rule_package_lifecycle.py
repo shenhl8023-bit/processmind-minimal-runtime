@@ -16,7 +16,10 @@ from app.services.rule_packages.condition_contracts import RuleConditionCandidat
 from app.services.rule_packages.contracts import RulePackageV2
 from app.services.rule_packages.kmai_compatibility_runner import compare_kmai_v1
 from app.services.rule_packages.kmai_export import builtin_legacy_mapping_snapshot
-from app.services.rule_packages.lifecycle import publish_rule_package
+from app.services.rule_packages.lifecycle import (
+    archive_published_rule_packages,
+    publish_rule_package,
+)
 from app.services.rule_packages.standard_factors import bind_unambiguous_factor_ids
 
 
@@ -504,3 +507,113 @@ def test_publish_helper_does_not_commit_before_caller(lifecycle_client, rule_pac
             return (await db.execute(select(FinalizedRulePackage))).scalars().all()
 
     assert asyncio.run(exercise()) == []
+
+
+def test_archive_published_rule_packages_is_project_scoped_and_caller_owned(lifecycle_client):
+    async def run():
+        factory = lifecycle_client.lifecycle_session_factory
+        async with factory() as db:
+            db.add(Project(id=13, name="other project", status="ROUTE_SET_READY"))
+            db.add_all([
+                FinalizedRulePackage(
+                    project_id=12,
+                    version=1,
+                    package_name="target-current",
+                    schema_version="2.0",
+                    status="published",
+                ),
+                FinalizedRulePackage(
+                    project_id=12,
+                    version=0,
+                    package_name="target-history",
+                    schema_version="2.0",
+                    status="superseded",
+                ),
+                FinalizedRulePackage(
+                    project_id=13,
+                    version=1,
+                    package_name="other-current",
+                    schema_version="2.0",
+                    status="published",
+                ),
+            ])
+            await db.commit()
+
+        async with factory() as db:
+            archived_versions = await archive_published_rule_packages(12, db)
+            statuses = dict((await db.execute(
+                select(FinalizedRulePackage.package_name, FinalizedRulePackage.status)
+            )).all())
+            assert archived_versions == [1]
+            assert statuses == {
+                "target-current": "archived",
+                "target-history": "superseded",
+                "other-current": "published",
+            }
+            await db.rollback()
+
+        async with factory() as db:
+            statuses = dict((await db.execute(
+                select(FinalizedRulePackage.package_name, FinalizedRulePackage.status)
+            )).all())
+            assert statuses["target-current"] == "published"
+            assert statuses["other-current"] == "published"
+
+    asyncio.run(run())
+
+
+def test_changed_condition_draft_archives_published_package_but_noop_does_not(
+    lifecycle_client,
+    rule_package_v2_payload,
+):
+    source_text = "当存在孔精加工要求时，纳入铣槽工序"
+    initial = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages/rule-conditions/draft",
+        json={
+            "project_id": 12,
+            "route_id": 31,
+            "segment_id": "process_mill_slot",
+            "source_text": source_text,
+        },
+    )
+    assert initial.status_code == 200
+    published = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages",
+        json=_v2_save_payload(rule_package_v2_payload),
+    )
+    assert published.status_code == 200
+
+    unchanged = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages/rule-conditions/draft",
+        json={
+            "project_id": 12,
+            "route_id": 31,
+            "segment_id": "process_mill_slot",
+            "source_text": source_text,
+        },
+    )
+    assert unchanged.status_code == 200
+    assert lifecycle_client.get(
+        "/api/extract/finalized-rule-packages/latest",
+        params={"project_id": 12},
+    ).status_code == 200
+
+    changed = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages/rule-conditions/draft",
+        json={
+            "project_id": 12,
+            "route_id": 31,
+            "segment_id": "process_mill_slot",
+            "source_text": f"{source_text}，且表面粗糙度满足要求",
+        },
+    )
+    assert changed.status_code == 200
+    assert lifecycle_client.get(
+        "/api/extract/finalized-rule-packages/latest",
+        params={"project_id": 12},
+    ).status_code == 404
+    rows = lifecycle_client.get(
+        "/api/extract/finalized-rule-packages",
+        params={"project_id": 12},
+    ).json()
+    assert rows[0]["status"] == "archived"

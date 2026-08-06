@@ -8,9 +8,16 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import FinalizedRulePackage
+from app.services.rule_packages.confirmation_validation import (
+    ConfirmedRuleSourcesChanged,
+    require_confirmed_user_rule_sources,
+)
 from app.services.rule_packages.contracts import RoutePlan, RulePackageValidationReport
 from app.services.rule_packages.input_validation import InputValidationIssue, validate_inputs
-from app.services.rule_packages.lifecycle import v2_package_from_row
+from app.services.rule_packages.lifecycle import (
+    archive_published_rule_packages,
+    v2_package_from_row,
+)
 from app.services.rule_packages.loader import load_published_rule_package
 from app.services.rule_packages.planner import plan_route
 from app.services.rule_packages.validator import validate_rule_package
@@ -41,6 +48,16 @@ class PublishedRulePackageChanged(Exception):
                 if current is not None
                 else None
             ),
+        }
+        super().__init__(self.detail["message"])
+
+
+class PublishedRulePackageSourcesChanged(Exception):
+    def __init__(self):
+        self.detail = {
+            "code": "published_rule_package_changed",
+            "message": "当前规则内容已变化，请返回第四步重新发布后再生成。",
+            "current_rule_package": None,
         }
         super().__init__(self.detail["message"])
 
@@ -83,6 +100,19 @@ async def load_published_rule_package_for_execution(
         )
     ):
         raise PublishedRulePackageChanged(current)
+
+    if str(current.schema_version or "1.0") == "2.0":
+        package = v2_package_from_row(current)
+        try:
+            await require_confirmed_user_rule_sources(
+                package,
+                project_id=project_id,
+                route_version_id=int(current.route_version_id or 0),
+                db=db,
+            )
+        except ConfirmedRuleSourcesChanged as exc:
+            await archive_published_rule_packages(project_id, db)
+            raise PublishedRulePackageSourcesChanged() from exc
     return current
 
 
