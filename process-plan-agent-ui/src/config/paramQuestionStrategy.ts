@@ -1,4 +1,4 @@
-import rawStrategy from './paramQuestionStrategy.json'
+import rawStrategy from '../../../docs/配置模板/第五步参数问答策略.json'
 import { normalizeCoverageReasonPriority } from './questionPriorityPolicy'
 
 export type CoverageRootReasonValue =
@@ -23,12 +23,14 @@ interface FamilyRule {
 }
 
 interface ParamQuestionStrategy {
+  version: string
   familyRules: FamilyRule[]
   rootReasonPriority: Record<CoverageOperationFamily, CoverageRootReasonValue[]>
   terminalQuestionTypes: string[]
 }
 
 const strategy = rawStrategy as ParamQuestionStrategy
+export const PARAM_QUESTION_STRATEGY_VERSION = strategy.version
 const familyRules = strategy.familyRules || []
 const rootReasonPriority = strategy.rootReasonPriority || {} as Record<CoverageOperationFamily, CoverageRootReasonValue[]>
 const terminalQuestionTypes = new Set(strategy.terminalQuestionTypes || [])

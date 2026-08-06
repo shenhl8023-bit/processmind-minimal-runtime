@@ -14,6 +14,7 @@ COPY process-plan-agent-ui/tsconfig.node.json /app/tsconfig.node.json
 COPY process-plan-agent-ui/public /app/public
 COPY process-plan-agent-ui/src /app/src
 COPY docs/配置模板/第三步工序问答共享模板.json /docs/配置模板/第三步工序问答共享模板.json
+COPY docs/配置模板/第五步参数问答策略.json /docs/配置模板/第五步参数问答策略.json
 RUN npm run build
 
 FROM nginx:1.27-alpine

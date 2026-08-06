@@ -57,6 +57,7 @@ def test_stage_excludes_runtime_data_settings_and_env_files(tmp_path: Path):
     _write(source, "process-plan-agent-api/app/main.py")
     _write(source, "process-plan-agent-ui/src/main.ts")
     _write(source, "process-plan-agent-ui/node_modules/vite/bin/vite.js")
+    _write(source, "docs/配置模板/第五步参数问答策略.json", '{"version":"1.0.0"}')
     _write(source, "scripts/example.ps1")
     _write(source, "README.md")
     _write(source, ".env.example", "LLM_API_KEY=\n")
@@ -80,6 +81,7 @@ def test_stage_excludes_runtime_data_settings_and_env_files(tmp_path: Path):
     assert (destination / ".runtime/python/Lib/site-packages/certifi/cacert.pem").is_file()
     assert (destination / ".env.example").read_text(encoding="utf-8") == "LLM_API_KEY=\n"
     assert (destination / "docker-compose.yml").is_file()
+    assert (destination / "docs/配置模板/第五步参数问答策略.json").is_file()
     assert not (destination / ".env").exists()
     assert not (destination / "data").exists()
     assert not (destination / "process-plan-agent-api/process_settings.json").exists()

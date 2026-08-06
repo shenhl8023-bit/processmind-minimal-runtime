@@ -8,11 +8,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import init_db
 from app.routers import documents, extract, generate, projects, rule_packages, settings
+from app.services.param_question_strategy import load_param_question_strategy
 from app.services.route_rules_builtin_knowledge import preload_builtin_knowledge_cache
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Validate delivery configuration before creating runtime state.
+    load_param_question_strategy(force=True)
     # Startup: 创建数据库表
     await init_db()
     preload_builtin_knowledge_cache(force=True)
