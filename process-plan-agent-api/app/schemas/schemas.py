@@ -345,6 +345,7 @@ class NormalizedRouteSegmentSaveItem(BaseModel):
 
 class SaveNormalizedSupersetRouteRequest(BaseModel):
     project_id: int
+    expected_workflow_revision: int = 0
     normalized_superset_route: List[NormalizedRouteSegmentSaveItem] = []
 
 
@@ -433,6 +434,7 @@ class SupersetRouteOut(BaseModel):
 
 class MergeSuggestionReviewRequest(BaseModel):
     project_id: int
+    expected_workflow_revision: int = 0
     suggestion_id: str
     action: str
     manual_label: Optional[str] = None

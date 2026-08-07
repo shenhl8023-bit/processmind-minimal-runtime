@@ -542,7 +542,6 @@ async def ensure_route_merge_snapshot(
             document_source_keys,
         )
         await save_route_merge_snapshot(project_id, db, payload, review_state={})
-        await db.commit()
         return payload
 
 async def persist_normalized_superset_route(
@@ -575,7 +574,6 @@ async def persist_normalized_superset_route(
         snapshot,
         review_state=review_state,
     )
-    await db.commit()
     return normalized_route
 
 

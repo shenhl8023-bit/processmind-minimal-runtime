@@ -257,6 +257,7 @@ import {
   type MergeSuggestion,
 } from '@/api'
 import { getWorkflowDataRevision } from '@/composables/workflowDataCache'
+import { workflowResetSignal } from '@/composables/workflowResetState'
 
 const MergeQueuePanel = defineAsyncComponent(() => import('@/components/extract/MergeQueuePanel.vue'))
 const NormalizedRoutePanel = defineAsyncComponent(() => import('@/components/extract/NormalizedRoutePanel.vue'))
@@ -279,6 +280,7 @@ const route = useRoute()
 const router = useRouter()
 const routes = ref<OperationItem[]>([])
 const projectId = ref<number | null>(null)
+const workflowRevision = ref(0)
 const routeMergeGroups = ref<RouteMergeGroup[]>([])
 const routeMergeSuggestions = ref<MergeSuggestion[]>([])
 const routeMergeNormalizedSegments = ref<any[]>([])
@@ -551,6 +553,7 @@ const {
   saveRouteMergeWorkspace: saveRouteMergeWorkspaceBase,
 } = useRouteMergeWorkspace({
   projectId,
+  workflowRevision,
   routes,
   routeMergeGroups,
   routeMergeSuggestions,
@@ -667,6 +670,7 @@ const {
   selectMergeGroupByOperation,
 } = useRouteMergeInteractionActions({
   projectId,
+  workflowRevision,
   routeMergeGroups,
   routeMergeSuggestions,
   routeMergeCandidateGroups,
@@ -956,10 +960,12 @@ async function initializeExtractView() {
     const current = projects.find((item) => item.id === projectId.value)
     if (!current) {
       projectId.value = null
+      workflowRevision.value = 0
       errorMsg.value = '当前任务已不存在，请重新创建任务。'
       status.value = 'error'
       return
     }
+    workflowRevision.value = Number(current.workflow_revision || 0)
     if (resumeRouteMerge) {
       await loadRouteRulesResults()
       lastInitializedDataRevision.value = getWorkflowDataRevision()
@@ -1008,6 +1014,11 @@ onMounted(async () => {
 watch(() => [route.path, route.query.project_id, route.query.resume, route.query.from], () => {
   if (!route.path.startsWith('/extract')) return
   void initializeExtractView()
+})
+
+watch(workflowResetSignal, (signal) => {
+  if (!signal || signal.projectId !== projectId.value) return
+  workflowRevision.value = signal.workflowRevision
 })
 
 onActivated(() => {

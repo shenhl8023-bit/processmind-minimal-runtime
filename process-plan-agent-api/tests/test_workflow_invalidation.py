@@ -406,6 +406,109 @@ def test_segment_review_save_rejects_stale_revision(workflow_client):
     assert "页面已过期" in str(response.json()["detail"])
 
 
+def test_segment_review_save_commits_current_revision(workflow_client):
+    """Breaks if the route stops committing the review service's staged write."""
+    response = workflow_client.post("/api/extract/segment-rule-reviews", json={
+        "project_id": 9,
+        "route_id": 90,
+        "segment_id": "seg-1",
+        "decision": "accepted",
+        "note": "当前版本审核说明",
+        "summary_lines": ["当前版本答案"],
+        "question_trail": [],
+        "expected_workflow_revision": 7,
+    })
+
+    assert response.status_code == 200
+    assert response.json()["rule_review"]["note"] == "当前版本审核说明"
+
+    async def read_state():
+        async with workflow_client.workflow_session_factory() as db:
+            review = (
+                await db.execute(
+                    select(NormalizedRouteSegmentRuleReview).where(
+                        NormalizedRouteSegmentRuleReview.project_id == 9,
+                        NormalizedRouteSegmentRuleReview.route_version_id == 90,
+                        NormalizedRouteSegmentRuleReview.segment_id == "seg-1",
+                    )
+                )
+            ).scalar_one()
+            return review.note, review.summary_json
+
+    assert asyncio.run(read_state()) == ("当前版本审核说明", '["当前版本答案"]')
+
+
+def test_normalized_route_save_rejects_stale_revision(workflow_client):
+    response = workflow_client.post("/api/extract/normalized-superset-route/save", json={
+        "project_id": 9,
+        "expected_workflow_revision": 6,
+        "normalized_superset_route": [{
+            "id": "seg-1",
+            "normalized_step_name": "旧页面路线",
+            "source_operation_ids": [900],
+            "source_nodes": ["旧页面"],
+        }],
+    })
+
+    assert response.status_code == 409
+    assert "页面已过期" in str(response.json()["detail"])
+
+
+def test_merge_review_rejects_stale_revision(workflow_client):
+    response = workflow_client.post("/api/extract/merge-suggestions/review", json={
+        "project_id": 9,
+        "expected_workflow_revision": 6,
+        "suggestion_id": "stale-page",
+        "action": "accept",
+    })
+
+    assert response.status_code == 409
+    assert "页面已过期" in str(response.json()["detail"])
+
+
+def test_normalized_route_save_rolls_back_snapshot_when_version_save_fails(
+    workflow_client,
+    monkeypatch,
+):
+    """Breaks if a staged snapshot commits before the route version save completes."""
+
+    async def fail_after_snapshot(*_args, **_kwargs):
+        raise RuntimeError("simulated route version failure")
+
+    monkeypatch.setattr(
+        "app.routers.extract.save_normalized_route_version",
+        fail_after_snapshot,
+    )
+
+    with pytest.raises(RuntimeError, match="simulated route version failure"):
+        workflow_client.post("/api/extract/normalized-superset-route/save", json={
+            "project_id": 9,
+            "expected_workflow_revision": 7,
+            "normalized_superset_route": [{
+                "id": "seg-1",
+                "normalized_step_name": "失败保存路线",
+                "source_operation_ids": [900],
+                "source_nodes": ["失败保存"],
+            }],
+        })
+
+    async def read_state():
+        async with workflow_client.workflow_session_factory() as db:
+            snapshot = (
+                await db.execute(
+                    select(RouteMergeSnapshot).where(RouteMergeSnapshot.project_id == 9)
+                )
+            ).scalar_one()
+            route_versions = (
+                await db.execute(
+                    select(NormalizedRouteVersion).where(NormalizedRouteVersion.project_id == 9)
+                )
+            ).scalars().all()
+            return snapshot.normalized_superset_route_json, len(route_versions)
+
+    assert asyncio.run(read_state()) == ("[]", 1)
+
+
 def test_rule_package_publish_rejects_user_rule_that_differs_from_confirmed_ast(
     workflow_client,
     rule_package_v2_payload,

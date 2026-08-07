@@ -21,6 +21,7 @@ import {
 
 type UseRouteMergeWorkspaceOptions = {
   projectId: Ref<number | null>
+  workflowRevision: Ref<number>
   routes: Ref<OperationItem[]>
   routeMergeGroups: Ref<RouteMergeGroup[]>
   routeMergeSuggestions: Ref<MergeSuggestion[]>
@@ -233,6 +234,7 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
     try {
       await reviewMergeSuggestion({
         project_id: options.projectId.value,
+        expected_workflow_revision: options.workflowRevision.value,
         suggestion_id: suggestion.suggestion_id,
         action,
       })
@@ -328,6 +330,7 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
         }))
         const saved = await saveNormalizedSupersetRoute({
           project_id: options.projectId.value,
+          expected_workflow_revision: options.workflowRevision.value,
           normalized_superset_route: payload,
         })
         clearWorkflowProjectDataCache(options.projectId.value)
@@ -347,6 +350,7 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
         clearWorkflowDataCache(routeMergeWorkspaceCacheKey(options.projectId.value))
         await reviewMergeSuggestion({
           project_id: options.projectId.value,
+          expected_workflow_revision: options.workflowRevision.value,
           suggestion_id: suggestion.suggestion_id,
           action: 'rename',
           manual_label: current.standard_name,

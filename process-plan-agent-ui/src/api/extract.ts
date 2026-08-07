@@ -453,6 +453,7 @@ export async function getSavedNormalizedRoute(projectId: number, forceRefresh = 
 
 export async function saveNormalizedSupersetRoute(body: {
   project_id: number
+  expected_workflow_revision: number
   normalized_superset_route: Array<{
     id: string
     normalized_step_name: string
@@ -615,6 +616,7 @@ export interface FinalizedRulePackageSimulationResult {
 
 export async function reviewMergeSuggestion(body: {
   project_id: number
+  expected_workflow_revision: number
   suggestion_id: string
   action: 'accept' | 'reject' | 'rename' | 'unsure'
   manual_label?: string

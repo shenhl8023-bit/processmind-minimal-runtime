@@ -115,6 +115,35 @@ def test_identical_content_reuses_version_without_bump(route_version_db):
     asyncio.run(run())
 
 
+def test_save_normalized_route_version_leaves_new_row_rollbackable(route_version_db):
+    """Breaks if the service commits a route version before its caller can finish."""
+    session_factory = route_version_db
+
+    async def run():
+        async with session_factory() as db:
+            await save_normalized_route_version(
+                project_id=1,
+                db=db,
+                source_signature="rollback-only",
+                total_docs=1,
+                normalized_route=_sample_route("回滚路线"),
+            )
+            await db.rollback()
+
+        async with session_factory() as db:
+            rows = (
+                await db.execute(
+                    select(NormalizedRouteVersion).where(
+                        NormalizedRouteVersion.project_id == 1,
+                        NormalizedRouteVersion.source_signature == "rollback-only",
+                    )
+                )
+            ).scalars().all()
+            assert rows == []
+
+    asyncio.run(run())
+
+
 def test_changed_content_bumps_version(route_version_db):
     session_factory = route_version_db
 
