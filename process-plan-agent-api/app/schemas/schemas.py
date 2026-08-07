@@ -204,6 +204,7 @@ class MergeSuggestionListOut(BaseModel):
 
 class NormalizedRouteSegmentOut(BaseModel):
     id: str
+    export_process_id: str = ""
     sequence: int
     normalized_step_name: str
     parent_segment: str = ""
@@ -280,6 +281,7 @@ class SegmentRuleReviewOut(BaseModel):
 
 class SavedNormalizedRouteSegmentOut(BaseModel):
     id: str
+    export_process_id: str = ""
     sequence: int
     normalized_step_name: str
     step_family: str = ""
@@ -316,6 +318,7 @@ class SavedNormalizedRouteVersionOut(BaseModel):
 
 class NormalizedRouteSegmentSaveItem(BaseModel):
     id: str
+    export_process_id: str = ""
     normalized_step_name: str
     source_operation_ids: List[int] = []
     source_nodes: List[str] = []

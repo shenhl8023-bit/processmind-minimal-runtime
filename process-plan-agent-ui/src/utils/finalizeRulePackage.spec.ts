@@ -4,6 +4,7 @@ import {
   buildCompileRequestFromCards,
   buildManualBooleanRuleCandidate,
   finalizeRuleMode,
+  exportProcessIdForItem,
   hasCurrentConfirmedUserRule,
   isActionableConditionText,
   isSafeForBatchRuleConfirmation,
@@ -87,6 +88,26 @@ function scalarFactor(
     runtime_source: 'manual_override',
   }
 }
+
+describe('server-owned route process identity', () => {
+  it('prefers the exported process id returned with the route segment', () => {
+    expect(exportProcessIdForItem({
+      segment: {
+        id: 'segment-heat',
+        normalized_step_name: '淬火',
+        export_process_id: 'process_quench',
+      },
+    })).toBe('process_quench')
+
+    expect(exportProcessIdForItem({
+      segment: {
+        id: 'segment-renamed',
+        normalized_step_name: '淬火',
+        export_process_id: 'segment-renamed',
+      },
+    })).toBe('segment-renamed')
+  })
+})
 
 const factors: StandardFactorDefinition[] = [
   {

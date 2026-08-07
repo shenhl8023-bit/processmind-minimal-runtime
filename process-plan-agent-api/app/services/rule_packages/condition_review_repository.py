@@ -16,6 +16,7 @@ from app.services.rule_packages.condition_contracts import (
 )
 from app.services.rule_packages.condition_review_errors import ConditionReviewNotFound
 from app.services.rule_packages.condition_review_state import ConditionReviewStateUpdate
+from app.services.rule_packages.process_identity import route_process_identities
 
 
 def loads_candidate(raw: str | None) -> RuleConditionCandidate | None:
@@ -45,16 +46,20 @@ def route_process_options(route: NormalizedRouteVersion) -> list[RuleConditionPr
     except Exception:
         route_items = []
     options: list[RuleConditionProcessOption] = []
-    for item in route_items:
+    for identity, item in zip(route_process_identities(route_items), route_items):
         if not isinstance(item, dict):
             continue
-        process_id = str(item.get("id") or "").strip()
+        process_id = identity.export_process_id
         if not process_id:
             continue
         display_name = str(
             item.get("normalized_step_name") or item.get("process_name") or process_id
         ).strip() or process_id
-        options.append(RuleConditionProcessOption(process_id=process_id, display_name=display_name))
+        options.append(RuleConditionProcessOption(
+            process_id=process_id,
+            display_name=display_name,
+            main=bool(item.get("main")),
+        ))
     return options
 
 

@@ -19,6 +19,7 @@ from app.schemas.schemas import (
 )
 from app.services.route_merge.workspace import sort_route_items_with_terminal_release
 from app.services.rule_packages.condition_review_repository import serialize_condition_review
+from app.services.rule_packages.process_identity import enrich_route_item_export_process_id
 
 
 def serialize_saved_normalized_route_version(version_row: NormalizedRouteVersion) -> SavedNormalizedRouteVersionOut:
@@ -26,6 +27,11 @@ def serialize_saved_normalized_route_version(version_row: NormalizedRouteVersion
         segments = json.loads(version_row.route_json or "[]")
     except Exception:
         segments = []
+    normalized_segments = [
+        enrich_route_item_export_process_id(item)
+        for item in list(segments or [])
+        if isinstance(item, dict)
+    ]
     return SavedNormalizedRouteVersionOut(
         route_id=version_row.id,
         project_id=version_row.project_id,
@@ -35,7 +41,7 @@ def serialize_saved_normalized_route_version(version_row: NormalizedRouteVersion
         saved_at=version_row.created_at,
         total_docs=int(version_row.total_docs or 0),
         segment_count=int(version_row.segment_count or 0),
-        segments=list(segments or []),
+        segments=normalized_segments,
     )
 
 

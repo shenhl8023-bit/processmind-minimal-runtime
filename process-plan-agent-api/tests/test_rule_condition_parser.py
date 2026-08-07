@@ -1531,6 +1531,65 @@ async def test_invalidates_legacy_nondestructive_process_relation_for_re_review(
 
 
 @pytest.mark.asyncio
+async def test_preserves_currently_confirmed_nondestructive_relation_when_reopening_route():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    relation = {
+        "kind": "process_relation",
+        "relation": {
+            "relation_type": "trigger_after",
+            "source_process_ids": ["process_inspect"],
+            "target_process_ids": ["process_ndt"],
+        },
+        "preview": "检验进入路线后安排无损检查",
+    }
+
+    async with session_factory() as session:
+        route = NormalizedRouteVersion(
+            id=1,
+            project_id=7,
+            version=1,
+            route_json='[{"id":"process_inspect","normalized_step_name":"检验"},{"id":"process_ndt","normalized_step_name":"无损检查"}]',
+        )
+        package = FinalizedRulePackage(
+            project_id=7,
+            version=1,
+            package_name="current-ndt-rule",
+            schema_version="2.0",
+            status="published",
+        )
+        review = NormalizedRouteSegmentRuleReview(
+            project_id=7,
+            route_version_id=1,
+            segment_id="process_ndt",
+            decision="accepted",
+            note="",
+            summary_json="[]",
+            question_trail_json="[]",
+            condition_status="confirmed",
+            condition_source_text="前面有检验时安排无损检查",
+            condition_source_hash="b" * 64,
+            condition_candidate_json=json.dumps(relation, ensure_ascii=False),
+            condition_confirmed_json=json.dumps(relation, ensure_ascii=False),
+            condition_field_registry_version="2026.11",
+            condition_parser_version="2026.08.04.2:12345678",
+            condition_confirmed_by="规则包整体审核",
+            condition_confirmed_at=datetime(2026, 8, 7, tzinfo=timezone.utc),
+        )
+        session.add_all([Project(id=7, name="current NDT"), route, package, review])
+        await session.commit()
+
+        assert await invalidate_legacy_nondestructive_relation_reviews(route, session) is False
+        assert review.condition_status == "confirmed"
+        assert json.loads(review.condition_confirmed_json) == relation
+        assert package.status == "published"
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("boolean_value", [True, False], ids=["eq_true", "eq_false"])
 async def test_saved_route_reopens_confirmed_custom_boolean_without_rewriting_semantics(boolean_value):
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")

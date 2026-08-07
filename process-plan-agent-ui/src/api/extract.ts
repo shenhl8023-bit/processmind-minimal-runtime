@@ -122,6 +122,7 @@ export interface TemplateGroupAliasBinding {
 
 export interface NormalizedRouteSegment {
   id: string
+  export_process_id?: string
   sequence: number
   normalized_step_name: string
   step_family: string
@@ -207,6 +208,7 @@ export interface SegmentRuleReview {
 
 export interface SavedNormalizedRouteSegment {
   id: string
+  export_process_id?: string
   sequence: number
   normalized_step_name: string
   step_family: string

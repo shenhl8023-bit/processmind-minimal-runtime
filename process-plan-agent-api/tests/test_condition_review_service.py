@@ -340,3 +340,42 @@ async def test_complete_parse_refreshes_review_before_stale_write_check(tmp_path
         assert response.review.candidate is None
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_migration_keeps_export_process_id_for_segment_route(db):
+    route = NormalizedRouteVersion(
+        id=2,
+        project_id=7,
+        version=2,
+        route_json='[{"id":"segment-heat","normalized_step_name":"淬火"}]',
+    )
+    db.add(route)
+    await db.commit()
+
+    _, review = await load_route_and_review(7, 2, "segment-heat", db)
+    candidate = RuleConditionCandidate.model_validate({
+        "kind": "condition",
+        "when": {
+            "field": "precision.outer_diameter_it",
+            "op": "lte",
+            "value": 8,
+            "factor_id": "measurement.outer_diameter_it",
+        },
+        "then": {
+            "include_process_ids": ["process_quench"],
+            "exclude_process_ids": [],
+        },
+    })
+    review.condition_status = "confirmed"
+    review.condition_candidate_json = candidate.model_dump_json()
+    review.condition_confirmed_json = candidate.model_dump_json()
+    review.condition_issues_json = "[]"
+    await db.commit()
+
+    changed = await service.migrate_legacy_standard_factor_reviews(route, db)
+
+    assert changed is True
+    await db.refresh(review)
+    assert review.condition_status == "confirmed"
+    assert "process_quench" in review.condition_confirmed_json

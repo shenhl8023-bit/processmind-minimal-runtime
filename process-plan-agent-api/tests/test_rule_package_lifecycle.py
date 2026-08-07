@@ -20,6 +20,7 @@ from app.services.rule_packages.lifecycle import (
     archive_published_rule_packages,
     publish_rule_package,
 )
+from app.services.rule_packages.process_identity import package_process_reference_issues
 from app.services.rule_packages.standard_factors import bind_unambiguous_factor_ids
 
 
@@ -121,6 +122,101 @@ def _all_json_keys(value):
     if isinstance(value, list):
         return {key for child in value for key in _all_json_keys(child)}
     return set()
+
+
+def test_package_process_references_use_route_export_identity(rule_package_v2):
+    package = rule_package_v2.model_copy(deep=True)
+    quench = next(
+        process for process in package.route_catalog.processes
+        if process.process_id == "process_quench"
+    )
+    quench.constraints.requires = []
+    quench.constraints.must_run_after = []
+    quench.constraints.must_run_before = []
+    quench.constraints.conflicts_with = []
+    package.route_catalog.processes = [quench]
+    package.route_rules.rules = []
+    package.route_rules.process_relations = []
+    package.test_cases = []
+    route_items = [{
+        "id": "segment-heat",
+        "normalized_step_name": chr(0x6dec) + chr(0x706b),
+    }]
+
+    assert package_process_reference_issues(package, route_items) == []
+
+    package.route_catalog.processes.append(quench.model_copy(update={"process_id": "process_missing"}))
+    issues = package_process_reference_issues(package, route_items)
+    assert any("process_missing" in issue for issue in issues)
+
+    conflict_issues = package_process_reference_issues(package.model_copy(deep=True), [
+        *route_items,
+        {"id": "segment-heat-2", "normalized_step_name": chr(0x6dec) + chr(0x706b)},
+    ])
+    assert any("process_quench" in issue for issue in conflict_issues)
+
+
+def test_publish_rejects_unknown_process_for_segment_route_without_persisting(
+    lifecycle_client,
+    rule_package_v2_payload,
+):
+    async def set_segment_route():
+        async with lifecycle_client.lifecycle_session_factory() as db:
+            route = await db.get(NormalizedRouteVersion, 31)
+            route.route_json = json.dumps([{
+                "id": "segment-heat",
+                "normalized_step_name": "淬火",
+            }], ensure_ascii=False)
+            await db.commit()
+
+    asyncio.run(set_segment_route())
+
+    payload = deepcopy(rule_package_v2_payload)
+    quench = next(
+        process for process in payload["route_catalog"]["processes"]
+        if process["process_id"] == "process_quench"
+    )
+    quench["constraints"] = {
+        "requires": [],
+        "must_run_after": [],
+        "must_run_before": [],
+        "conflicts_with": [],
+    }
+    quench["main"] = True
+    payload["route_catalog"]["processes"] = [quench]
+    payload["route_rules"] = {
+        "schema_version": "2.0",
+        "rules": [],
+        "process_relations": [],
+    }
+    payload["test_cases"] = []
+
+    accepted = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages",
+        json=_v2_save_payload(payload),
+    )
+    assert accepted.status_code == 200, accepted.text
+
+    payload["route_catalog"]["processes"][0]["process_id"] = "process_missing"
+    rejected = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages",
+        json=_v2_save_payload(payload),
+    )
+
+    assert rejected.status_code == 422, rejected.text
+    assert "process_missing" in str(rejected.json()["detail"])
+
+    async def read_packages():
+        async with lifecycle_client.lifecycle_session_factory() as db:
+            return (
+                await db.execute(
+                    select(FinalizedRulePackage).order_by(FinalizedRulePackage.version)
+                )
+            ).scalars().all()
+
+    packages = asyncio.run(read_packages())
+    assert len(packages) == 1
+    assert packages[0].status == "published"
 
 
 def _parse_body(source_text):

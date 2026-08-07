@@ -80,3 +80,16 @@ def test_template_group_aliases_round_trip_without_changing_operation_names():
     assert response.segments[0].normalized_step_name == "钻孔"
     assert response.segments[0].source_operation_names == ["钻孔", "铣扁"]
     assert [alias.model_dump() for alias in response.segments[0].template_group_aliases] == aliases[:2]
+
+
+def test_saved_segments_keep_unique_fallback_process_ids_without_segment_ids():
+    saved_segments = build_saved_route_version_segments([
+        {"normalized_step_name": "工序一"},
+        {"normalized_step_name": "工序二"},
+    ], [], total_docs=0)
+
+    assert [item["id"] for item in saved_segments] == ["manual-route-1", "manual-route-2"]
+    assert [item["export_process_id"] for item in saved_segments] == [
+        "manual-route-1",
+        "manual-route-2",
+    ]

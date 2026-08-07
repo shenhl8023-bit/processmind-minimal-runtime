@@ -232,8 +232,14 @@ export function buildManualBooleanRuleCandidate(item: any, label: string): RuleC
 }
 
 export function exportProcessIdForItem(item: any) {
+  const serverProcessId = String(item.segment?.export_process_id || '').trim()
+  if (serverProcessId) return serverProcessId
+  const rawProcessId = String(item.segment?.id || '').trim()
+  if (rawProcessId.startsWith('process_')) return rawProcessId
+  // Compatibility for route responses produced before export_process_id was
+  // added. New responses always take the server-owned branch above.
   if (/真空淬火|淬火/.test(String(item.segment?.normalized_step_name || ''))) return 'process_quench'
-  return item.segment?.id || ''
+  return rawProcessId
 }
 
 function stableProcessId(rawId: string, displayName: string) {

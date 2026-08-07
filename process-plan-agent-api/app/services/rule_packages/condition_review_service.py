@@ -58,6 +58,10 @@ from app.services.rule_packages.condition_review_state import (
     parsing_update,
 )
 from app.services.rule_packages.contracts import ConditionNode
+from app.services.rule_packages.process_identity import (
+    route_process_identities,
+    route_process_identity_issues,
+)
 from app.services.rule_packages.lifecycle import archive_published_rule_packages
 from app.services.rule_packages.standard_factors import (
     STANDARD_FACTOR_CATALOG_VERSION,
@@ -99,12 +103,17 @@ def _validate_process_catalog(
         route_items = json.loads(route.route_json or "[]")
     except Exception:
         route_items = []
+    identity_issues = route_process_identity_issues(route_items)
+    if identity_issues:
+        raise ConditionReviewValidation({
+            "message": "当前路线存在无法唯一映射的稳定工序 ID。",
+            "issues": identity_issues,
+        })
     allowed_route_ids = {
-        str(item.get("id") or "")
-        for item in route_items
-        if isinstance(item, dict)
+        identity.export_process_id
+        for identity in route_process_identities(route_items)
+        if identity.export_process_id
     }
-    allowed_route_ids.add("process_quench")
     unknown = [process_id for process_id in process_ids if process_id not in allowed_route_ids]
     if unknown:
         raise ConditionReviewValidation(
@@ -452,6 +461,17 @@ async def invalidate_legacy_nondestructive_relation_reviews(
             continue
         if not confirmed or confirmed.kind != "process_relation":
             continue
+        # Only rows written before condition-review metadata existed are
+        # eligible for this one-time legacy correction. A parser version or
+        # confirmation audit fields mean the relation is a current user
+        # decision and must survive a read of the fourth step.
+        if (
+            review.condition_parser_version
+            or review.condition_field_registry_version
+            or review.condition_confirmed_by
+            or review.condition_confirmed_at
+        ):
+            continue
         source_text = f"当零件有无损检测要求时，纳入“{process_name}”工序。"
         apply_state_update(
             review,
@@ -480,7 +500,12 @@ async def migrate_legacy_standard_factor_reviews(
             )
         )
     ).scalars().all()
+    try:
+        route_items = json.loads(route.route_json or "[]")
+    except Exception:
+        route_items = []
     processes = route_process_options(route)
+    identity_issues = route_process_identity_issues(route_items)
     changed = False
     for review in reviews:
         candidate = loads_candidate(review.condition_candidate_json)
@@ -495,6 +520,7 @@ async def migrate_legacy_standard_factor_reviews(
             migrated_confirmed, confirmed_issues = _migrate_review_candidate(confirmed, processes)
         all_issues = list(dict.fromkeys([
             *_semantic_review_issues(review.condition_issues_json),
+            *identity_issues,
             *candidate_issues,
             *confirmed_issues,
         ]))
