@@ -1,11 +1,17 @@
+from datetime import datetime, timezone
+
 import pytest
 import pytest_asyncio
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.database import Base
-from app.models.models import NormalizedRouteVersion, Project
+from app.models.models import NormalizedRouteSegmentRuleReview, NormalizedRouteVersion, Project
 from app.services.rule_packages.condition_review_errors import ConditionReviewNotFound
-from app.services.rule_packages.condition_review_repository import load_route_and_review
+from app.services.rule_packages.condition_review_repository import (
+    load_route_and_review,
+    serialize_condition_review,
+)
 
 
 @pytest_asyncio.fixture
@@ -52,3 +58,22 @@ async def test_repository_uses_domain_not_found_error_for_unknown_segment(db_wit
         await load_route_and_review(7, 1, "process_missing", db_with_route)
 
     assert error.value.detail == "当前工序不属于该保存路线版本。"
+
+
+@pytest.mark.asyncio
+async def test_repository_keeps_utc_offset_after_sqlite_round_trip(db_with_route):
+    _, review = await load_route_and_review(7, 1, "process_mark", db_with_route)
+    review_id = review.id
+    review.condition_confirmed_at = datetime(2026, 8, 7, 3, 54, 1, tzinfo=timezone.utc)
+    await db_with_route.commit()
+    db_with_route.expire_all()
+
+    stored_review = (
+        await db_with_route.execute(
+            select(NormalizedRouteSegmentRuleReview).where(
+                NormalizedRouteSegmentRuleReview.id == review_id,
+            )
+        )
+    ).scalar_one()
+
+    assert serialize_condition_review(stored_review).confirmed_at == "2026-08-07T03:54:01+00:00"

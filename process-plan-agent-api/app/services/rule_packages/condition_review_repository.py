@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -120,8 +121,17 @@ def apply_state_update(
         setattr(review, field_name, value)
 
 
+def _utc_isoformat(value: datetime | None) -> str:
+    if value is None:
+        return ""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    else:
+        value = value.astimezone(timezone.utc)
+    return value.isoformat()
+
+
 def serialize_condition_review(row: NormalizedRouteSegmentRuleReview) -> RuleConditionReview:
-    confirmed_at = row.condition_confirmed_at
     return RuleConditionReview(
         source_text=row.condition_source_text or "",
         source_hash=row.condition_source_hash or "",
@@ -134,7 +144,7 @@ def serialize_condition_review(row: NormalizedRouteSegmentRuleReview) -> RuleCon
         parser_version=row.condition_parser_version or "",
         parse_duration_ms=row.condition_parse_duration_ms,
         confirmed_by=row.condition_confirmed_by or "",
-        confirmed_at=confirmed_at.isoformat() if confirmed_at else "",
+        confirmed_at=_utc_isoformat(row.condition_confirmed_at),
     )
 
 
