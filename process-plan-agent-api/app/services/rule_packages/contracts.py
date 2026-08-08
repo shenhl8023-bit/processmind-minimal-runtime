@@ -386,5 +386,58 @@ class KmaiCompatibilityTestResponse(StrictModel):
     semantic_gaps: list[str] = Field(default_factory=list)
 
 
+RulePackageCapability = Literal["publish", "generate"]
+
+
+class RulePackageStatusBlocker(StrictModel):
+    code: str
+    message: str
+    blocks: list[RulePackageCapability]
+    count: int | None = None
+
+
+class RulePackageStatusRoute(StrictModel):
+    id: int
+    version: int
+
+
+class RulePackageStatusPackage(StrictModel):
+    id: int
+    version: int
+    route_version_id: int | None = None
+    schema_version: str
+    content_hash: str
+    status: str
+
+
+class RulePackageReviewSummary(StrictModel):
+    total: int = 0
+    confirmed: int = 0
+    pending: int = 0
+    invalid_factor_bindings: int = 0
+
+
+class RulePackageKmaiSummary(StrictModel):
+    available: bool = False
+    valid: bool = False
+    error_count: int = 0
+    warning_count: int = 0
+    factor_catalog_version: str = ""
+
+
+class RulePackageStatusResponse(StrictModel):
+    project_id: int
+    project_status: str
+    workflow_revision: int
+    route: RulePackageStatusRoute | None = None
+    latest_package: RulePackageStatusPackage | None = None
+    can_publish: bool
+    can_generate: bool
+    package_executable: bool
+    blockers: list[RulePackageStatusBlocker] = Field(default_factory=list)
+    review_summary: RulePackageReviewSummary = Field(default_factory=RulePackageReviewSummary)
+    kmai_compatibility: RulePackageKmaiSummary = Field(default_factory=RulePackageKmaiSummary)
+
+
 ConditionNode.model_rebuild()
 ConditionTrace.model_rebuild()

@@ -12,7 +12,11 @@ from app.services.rule_packages.confirmation_validation import (
     ConfirmedRuleSourcesChanged,
     require_confirmed_user_rule_sources,
 )
-from app.services.rule_packages.contracts import RoutePlan, RulePackageValidationReport
+from app.services.rule_packages.contracts import (
+    RoutePlan,
+    RulePackageV2,
+    RulePackageValidationReport,
+)
 from app.services.rule_packages.input_validation import InputValidationIssue, validate_inputs
 from app.services.rule_packages.lifecycle import (
     archive_published_rule_packages,
@@ -79,6 +83,57 @@ class PublishedRulePackageInputInvalid(ValueError):
         super().__init__("已发布规则包输入校验未通过，无法生成")
 
 
+@dataclass(frozen=True)
+class PublishedRulePackageInspection:
+    package: RulePackageV2 | None
+    validation: RulePackageValidationReport | None
+    sources_current: bool
+    parse_error: str | None = None
+
+
+async def inspect_published_rule_package(
+    row: FinalizedRulePackage,
+    *,
+    project_id: int,
+    db: AsyncSession,
+) -> PublishedRulePackageInspection:
+    if str(row.schema_version or "1.0") != "2.0":
+        return PublishedRulePackageInspection(
+            package=None,
+            validation=None,
+            sources_current=True,
+        )
+    try:
+        package = v2_package_from_row(row)
+    except Exception as exc:
+        return PublishedRulePackageInspection(
+            package=None,
+            validation=None,
+            sources_current=False,
+            parse_error=str(exc),
+        )
+
+    validation = validate_rule_package(package)
+    try:
+        await require_confirmed_user_rule_sources(
+            package,
+            project_id=project_id,
+            route_version_id=int(row.route_version_id or 0),
+            db=db,
+        )
+    except ConfirmedRuleSourcesChanged:
+        return PublishedRulePackageInspection(
+            package=package,
+            validation=validation,
+            sources_current=False,
+        )
+    return PublishedRulePackageInspection(
+        package=package,
+        validation=validation,
+        sources_current=True,
+    )
+
+
 async def load_published_rule_package_for_execution(
     project_id: int,
     db: AsyncSession,
@@ -101,18 +156,14 @@ async def load_published_rule_package_for_execution(
     ):
         raise PublishedRulePackageChanged(current)
 
-    if str(current.schema_version or "1.0") == "2.0":
-        package = v2_package_from_row(current)
-        try:
-            await require_confirmed_user_rule_sources(
-                package,
-                project_id=project_id,
-                route_version_id=int(current.route_version_id or 0),
-                db=db,
-            )
-        except ConfirmedRuleSourcesChanged as exc:
-            await archive_published_rule_packages(project_id, db)
-            raise PublishedRulePackageSourcesChanged() from exc
+    inspection = await inspect_published_rule_package(
+        current,
+        project_id=project_id,
+        db=db,
+    )
+    if inspection.parse_error is None and not inspection.sources_current:
+        await archive_published_rule_packages(project_id, db)
+        raise PublishedRulePackageSourcesChanged()
     return current
 
 

@@ -1,10 +1,9 @@
-import { computed } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   compileRulePackage: vi.fn(),
   getConditionFieldRegistry: vi.fn(),
-  getOptionalLatestFinalizedRulePackage: vi.fn(),
+  getFinalizedRulePackageStatus: vi.fn(),
   getSavedNormalizedRoute: vi.fn(),
   getSupersetRoute: vi.fn(),
   listOperations: vi.fn(),
@@ -12,7 +11,6 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@/api', () => ({
-  getOptionalLatestFinalizedRulePackage: mocks.getOptionalLatestFinalizedRulePackage,
   getSavedNormalizedRoute: mocks.getSavedNormalizedRoute,
   getSupersetRoute: mocks.getSupersetRoute,
   listOperations: mocks.listOperations,
@@ -22,6 +20,7 @@ vi.mock('@/api', () => ({
 vi.mock('@/api/rulePackages', () => ({
   compileRulePackage: mocks.compileRulePackage,
   getConditionFieldRegistry: mocks.getConditionFieldRegistry,
+  getFinalizedRulePackageStatus: mocks.getFinalizedRulePackageStatus,
 }))
 
 import { useFinalizeWorkspace } from './useFinalizeWorkspace'
@@ -36,17 +35,42 @@ function routeResult(projectId: number, routeId = projectId * 10) {
   } as any
 }
 
-function publishedPackage(projectId: number, routeId = projectId * 10) {
+function packageStatus(projectId: number, executable = true) {
   return {
-    id: projectId * 100,
     project_id: projectId,
-    route_version_id: routeId,
-    version: 3,
-    package_name: `project-${projectId}`,
-    schema_version: '2.0',
-    status: 'published',
-    content_hash: `hash-${projectId}`,
-  } as any
+    project_status: 'ROUTE_SET_READY',
+    workflow_revision: 7,
+    route: { id: projectId * 10, version: 1 },
+    latest_package: {
+      id: projectId * 100,
+      version: 3,
+      route_version_id: projectId * 10,
+      schema_version: '2.0',
+      content_hash: `hash-${projectId}`,
+      status: executable ? 'published' : 'archived',
+    },
+    can_publish: true,
+    can_generate: executable,
+    package_executable: executable,
+    blockers: executable ? [] : [{
+      code: 'published_rule_sources_changed',
+      message: '当前规则来源已变化。',
+      blocks: ['generate'],
+    }],
+    review_summary: {
+      total: 2,
+      confirmed: 2,
+      pending: 0,
+      invalid_factor_bindings: 0,
+    },
+    kmai_compatibility: {
+      available: executable,
+      valid: executable,
+      error_count: 0,
+      warning_count: 0,
+      factor_catalog_version: '2026.11',
+    },
+  }
 }
 
 function registry() {
@@ -70,8 +94,8 @@ describe('useFinalizeWorkspace', () => {
     mocks.getSavedNormalizedRoute.mockResolvedValue(routeResult(12))
     mocks.listOperations.mockResolvedValue([{ id: 1, name: '车削' }])
     mocks.getSupersetRoute.mockResolvedValue({ superset_route: [{ id: 2, name: '磨削' }] })
-    mocks.getOptionalLatestFinalizedRulePackage.mockResolvedValue(publishedPackage(12))
     mocks.getConditionFieldRegistry.mockResolvedValue(registry())
+    mocks.getFinalizedRulePackageStatus.mockResolvedValue(packageStatus(12))
     mocks.compileRulePackage.mockResolvedValue({ content_hash: 'hash-12' })
   })
 
@@ -83,9 +107,6 @@ describe('useFinalizeWorkspace', () => {
       onProjectResolved: vi.fn(),
       readDrafts,
       onRouteLoaded,
-      segmentCards: computed(() => []),
-      allCurrentRulesConfirmed: computed(() => true),
-      buildCompileRequest: vi.fn().mockReturnValue({ project_id: 12 }),
     })
 
     await workspace.loadWorkspace()
@@ -98,21 +119,19 @@ describe('useFinalizeWorkspace', () => {
     expect(workspace.factorCatalogVersion.value).toBe('2026.08')
     expect(workspace.currentPublishedPackage.value?.version).toBe(3)
     expect(workspace.outdatedRulePackageVersion.value).toBeNull()
+    expect(workspace.rulePackageStatus.value?.can_generate).toBe(true)
+    expect(mocks.compileRulePackage).not.toHaveBeenCalled()
     expect(readDrafts).toHaveBeenCalledOnce()
     expect(onRouteLoaded).toHaveBeenCalledWith(expect.objectContaining({ route_id: 120 }))
   })
 
   it('keeps the route usable when the condition registry fails independently', async () => {
     mocks.getConditionFieldRegistry.mockRejectedValueOnce(new Error('registry offline'))
-    mocks.getOptionalLatestFinalizedRulePackage.mockResolvedValueOnce(null)
     const workspace = useFinalizeWorkspace({
       requestedProjectId: () => '12',
       onProjectResolved: vi.fn(),
       readDrafts: vi.fn(),
       onRouteLoaded: vi.fn(),
-      segmentCards: computed(() => []),
-      allCurrentRulesConfirmed: computed(() => false),
-      buildCompileRequest: vi.fn(),
     })
 
     await workspace.loadWorkspace()
@@ -123,26 +142,76 @@ describe('useFinalizeWorkspace', () => {
     expect(workspace.factorCatalogError.value).toContain('标准因子目录加载失败')
   })
 
-  it('marks a published package outdated when the compiled content hash differs', async () => {
-    mocks.compileRulePackage.mockResolvedValueOnce({ content_hash: 'changed-hash' })
+  it('marks the latest historical package outdated from a stable server blocker', async () => {
+    mocks.getFinalizedRulePackageStatus.mockResolvedValueOnce(packageStatus(12, false))
     const workspace = useFinalizeWorkspace({
       requestedProjectId: () => '12',
       onProjectResolved: vi.fn(),
       readDrafts: vi.fn(),
       onRouteLoaded: vi.fn(),
-      segmentCards: computed(() => []),
-      allCurrentRulesConfirmed: computed(() => true),
-      buildCompileRequest: vi.fn().mockReturnValue({ project_id: 12 }),
     })
 
     await workspace.loadWorkspace()
 
     expect(workspace.currentPublishedPackage.value).toBeNull()
     expect(workspace.outdatedRulePackageVersion.value).toBe(3)
+    expect(workspace.rulePackageStatus.value?.blockers[0]?.code)
+      .toBe('published_rule_sources_changed')
+    expect(mocks.compileRulePackage).not.toHaveBeenCalled()
   })
 
-  it('ignores an older route response after a newer project load starts', async () => {
+  it('refreshes only the rule-package status after a persisted review change', async () => {
+    mocks.getFinalizedRulePackageStatus
+      .mockResolvedValueOnce({
+        ...packageStatus(12),
+        can_publish: false,
+        blockers: [{
+          code: 'pending_rule_reviews',
+          message: '仍有规则需要确认。',
+          blocks: ['publish'],
+          count: 1,
+        }],
+      })
+      .mockResolvedValueOnce(packageStatus(12))
+    const workspace = useFinalizeWorkspace({
+      requestedProjectId: () => '12',
+      onProjectResolved: vi.fn(),
+      readDrafts: vi.fn(),
+      onRouteLoaded: vi.fn(),
+    })
+
+    await workspace.loadWorkspace()
+    expect(workspace.rulePackageStatus.value?.can_publish).toBe(false)
+
+    await workspace.refreshRulePackageStatus()
+
+    expect(workspace.rulePackageStatus.value?.can_publish).toBe(true)
+    expect(workspace.currentPublishedPackage.value?.version).toBe(3)
+    expect(mocks.getSavedNormalizedRoute).toHaveBeenCalledOnce()
+    expect(mocks.getFinalizedRulePackageStatus).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps package capabilities unknown when the server status request fails', async () => {
+    mocks.getFinalizedRulePackageStatus.mockRejectedValueOnce({
+      response: { data: { detail: '规则包状态暂时不可用' } },
+    })
+    const workspace = useFinalizeWorkspace({
+      requestedProjectId: () => '12',
+      onProjectResolved: vi.fn(),
+      readDrafts: vi.fn(),
+      onRouteLoaded: vi.fn(),
+    })
+
+    await workspace.loadWorkspace()
+
+    expect(workspace.rulePackageStatus.value).toBeNull()
+    expect(workspace.currentPublishedPackage.value).toBeNull()
+    expect(workspace.error.value).toContain('规则包状态暂时不可用')
+  })
+
+  it('ignores older route and package status responses after a newer project load starts', async () => {
     const firstRoute = deferred<any>()
+    const firstStatus = deferred<any>()
     let requestedProjectId = '12'
     mocks.listProjects.mockResolvedValue([
       { id: 12, name: '旧项目' },
@@ -153,15 +222,14 @@ describe('useFinalizeWorkspace', () => {
     ))
     mocks.listOperations.mockImplementation((projectId: number) => Promise.resolve([{ id: projectId }]))
     mocks.getSupersetRoute.mockResolvedValue({ superset_route: [] })
-    mocks.getOptionalLatestFinalizedRulePackage.mockResolvedValue(null)
+    mocks.getFinalizedRulePackageStatus.mockImplementation((projectId: number) => (
+      projectId === 12 ? firstStatus.promise : Promise.resolve(packageStatus(22))
+    ))
     const workspace = useFinalizeWorkspace({
       requestedProjectId: () => requestedProjectId,
       onProjectResolved: vi.fn(),
       readDrafts: vi.fn(),
       onRouteLoaded: vi.fn(),
-      segmentCards: computed(() => []),
-      allCurrentRulesConfirmed: computed(() => false),
-      buildCompileRequest: vi.fn(),
     })
 
     const oldLoad = workspace.loadWorkspace()
@@ -169,10 +237,13 @@ describe('useFinalizeWorkspace', () => {
     requestedProjectId = '22'
     await workspace.loadWorkspace()
     firstRoute.resolve(routeResult(12))
+    firstStatus.resolve(packageStatus(12))
     await oldLoad
 
     expect(workspace.projectId.value).toBe(22)
     expect(workspace.projectName.value).toBe('新项目')
     expect(workspace.savedRoute.value?.route_id).toBe(220)
+    expect(workspace.rulePackageStatus.value?.project_id).toBe(22)
+    expect(workspace.currentPublishedPackage.value?.id).toBe(2200)
   })
 })

@@ -19,6 +19,7 @@ from app.services.rule_packages.contracts import (
     KmaiCompatibilityTestResponse,
     RulePackageV2,
     RulePackageValidationReport,
+    RulePackageStatusResponse,
     SimulateRulePackageRequest,
     SimulateRulePackageResponse,
 )
@@ -53,6 +54,7 @@ from app.services.rule_packages.condition_review_service import (
     set_manual_condition_review,
 )
 from app.services.project_workflow_lifecycle import acquire_workflow_revision
+from app.services.rule_packages.status import build_rule_package_status
 
 
 router = APIRouter(prefix="/api/extract/finalized-rule-packages", tags=["规则包 V2"])
@@ -64,6 +66,17 @@ def _condition_review_http_error(error: ConditionReviewError) -> HTTPException:
     if isinstance(error, ConditionReviewConflict):
         return HTTPException(status_code=409, detail=error.detail)
     return HTTPException(status_code=422, detail=error.detail)
+
+
+@router.get("/status", response_model=RulePackageStatusResponse)
+async def get_rule_package_status(
+    project_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await build_rule_package_status(project_id, db)
+    if result is None:
+        raise HTTPException(404, "任务不存在")
+    return result
 
 
 @router.get("/condition-fields", response_model=ConditionFieldRegistryResponse)

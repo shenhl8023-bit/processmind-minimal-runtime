@@ -25,7 +25,9 @@ from app.models.models import (
 from app.routers.generate import _normalize_input_values
 from app.schemas.schemas import GenerateRequest
 from app.services.db_schema_maintenance import ensure_project_schema
+from app.services.rule_packages.execution import inspect_published_rule_package
 from app.services.rule_packages.hashing import rule_package_content_hash
+from app.services.rule_packages.loader import load_published_rule_package
 from app.services.rule_packages.contracts import RulePackageV2
 from app.services.rule_packages.validator import validate_rule_package
 
@@ -254,6 +256,20 @@ async def _seed_source_drifted_v2(session_factory) -> tuple[int, dict[str, Any]]
     return project_id, payload
 
 
+async def _inspect_source_drift_without_write(session_factory, project_id: int):
+    async with session_factory() as db:
+        row = await load_published_rule_package(project_id, db)
+        assert row is not None
+        inspection = await inspect_published_rule_package(
+            row,
+            project_id=project_id,
+            db=db,
+        )
+        status_after_inspection = row.status
+        await db.rollback()
+        return inspection, status_after_inspection
+
+
 async def _unpublish_rule_package(session_factory, project_id: int) -> None:
     async with session_factory() as db:
         package = (
@@ -332,6 +348,24 @@ def test_generate_accepts_matching_published_rule_package_fingerprint(generation
     assert response.status_code == 200, response.text
     assert response.json()["rule_package_version"] == 1
     assert asyncio.run(_generation_state(session_factory, project_id)) == ("GENERATED", 1)
+
+
+def test_published_package_inspection_reports_source_drift_without_archiving(
+    generation_context,
+):
+    _, session_factory = generation_context
+    project_id, _ = asyncio.run(_seed_source_drifted_v2(session_factory))
+
+    inspection, status = asyncio.run(
+        _inspect_source_drift_without_write(session_factory, project_id)
+    )
+
+    assert inspection.package is not None
+    assert inspection.validation is not None
+    assert inspection.sources_current is False
+    assert inspection.parse_error is None
+    assert status == "published"
+    assert asyncio.run(_rule_package_status(session_factory, project_id)) == "published"
 
 
 def test_generate_archives_source_drifted_v2_before_planning(generation_context):

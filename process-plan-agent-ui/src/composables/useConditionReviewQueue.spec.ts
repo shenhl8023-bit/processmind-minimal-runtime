@@ -73,6 +73,7 @@ function createQueue() {
   const factorCatalogError = ref('')
   const onNotice = vi.fn()
   const onPublishedRuleOutdated = vi.fn()
+  const onPersistedStatusChanged = vi.fn()
   const onWorkflowConflict = vi.fn().mockResolvedValue(false)
   const queue = useConditionReviewQueue({
     projectId,
@@ -89,6 +90,7 @@ function createQueue() {
     activeSegmentId,
     displayName: () => '车削',
     onPublishedRuleOutdated,
+    onPersistedStatusChanged,
     onConditionTextDraft: vi.fn(),
     onNotice,
     onWorkflowConflict,
@@ -99,6 +101,7 @@ function createQueue() {
     factorCatalogError,
     onNotice,
     onPublishedRuleOutdated,
+    onPersistedStatusChanged,
     onWorkflowConflict,
     onlyPending,
     projectId,
@@ -183,6 +186,7 @@ describe('useConditionReviewQueue', () => {
 
     expect(state.savedRoute.value.segments[0].rule_review.condition_review.status).toBe('confirmed')
     expect(state.onPublishedRuleOutdated).toHaveBeenCalledOnce()
+    expect(state.onPersistedStatusChanged).toHaveBeenCalledOnce()
   })
 
   it('ignores a stale conflict after the request has been cancelled', async () => {

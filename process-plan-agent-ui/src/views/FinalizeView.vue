@@ -51,14 +51,14 @@
         <button
           class="ash-btn-primary ash-btn-phase-active"
           @click="publishRulePackage"
-          :disabled="actionDisabled.publish"
+          :disabled="loading || !rulePackageStatus?.can_publish || actionDisabled.publish"
         >
           {{ publishButtonLabel }}
         </button>
         <button
           class="ash-btn-outline"
           @click="downloadCurrentRulePackage"
-          :disabled="actionDisabled.download"
+          :disabled="!rulePackageStatus?.can_generate || actionDisabled.download"
           :title="actionDisabled.download && outdatedRulePackageVersion ? '当前规则已变更，请先重新发布' : '下载当前发布版本'"
         >
           {{ downloadButtonLabel }}
@@ -195,7 +195,7 @@
       previous-label="← 返回规则分析"
       next-label="进入路线生成 →"
       :previous-disabled="!projectId"
-      :next-disabled="!projectId || !lastExportedRulePackageVersion || !allCurrentRulesConfirmed"
+      :next-disabled="!projectId || !rulePackageStatus?.can_generate || !lastExportedRulePackageVersion || !allCurrentRulesConfirmed"
       @previous="goBackToAnalysis"
       @next="goToGenerate"
     />
@@ -285,7 +285,6 @@ import { getWorkflowDataRevision } from '@/composables/workflowDataCache'
 import { workflowResetSignal } from '@/composables/workflowResetState'
 import {
   exportProcessIdForItem,
-  buildCompileRequestFromCards,
   finalizeRuleMode,
   isSafeForBatchRuleConfirmation,
   needsFinalizeRuleReview,
@@ -316,6 +315,7 @@ const {
   savedRoute,
   operations,
   supersetOperations,
+  rulePackageStatus,
   currentPublishedPackage,
   outdatedRulePackageVersion,
   conditionFields,
@@ -326,6 +326,7 @@ const {
   factorCatalogReady,
   loadedDataRevision,
   loadWorkspace,
+  refreshRulePackageStatus,
   retryConditionRegistry,
   markPublishedRulePackageOutdated,
 } = useFinalizeWorkspace({
@@ -340,20 +341,6 @@ const {
   onRouteLoaded: routeResult => {
     activeSegmentId.value = routeResult.segments[0]?.id || ''
   },
-  segmentCards: computed(() => segmentCards.value),
-  allCurrentRulesConfirmed: computed(() => allCurrentRulesConfirmed.value),
-  buildCompileRequest: context => buildCompileRequestFromCards({
-    projectId: context.projectId,
-    packageName: context.packageName,
-    routeVersionId: context.routeVersionId,
-    cards: context.cards,
-    displayName: finalizeSegmentDisplayName,
-    phaseLabel: resolveFinalizePhase,
-    primarySteps: finalizeSegmentPrimarySteps,
-    attachedSteps: finalizeSegmentAttachedSteps,
-    conditionFields: context.conditionFields,
-    standardFactors: context.standardFactors,
-  }),
 })
 
 const rulePackageIssue = ref<{ title: string; summary: string; details?: string; context?: string } | null>(null)
@@ -430,6 +417,9 @@ const allCurrentRulesConfirmed = computed(() =>
   factorCatalogReady.value
   && pendingRuleCards.value.length === 0,
 )
+const persistedPublishBlocker = computed(() => (
+  rulePackageStatus.value?.blockers.find(blocker => blocker.blocks.includes('publish'))
+))
 const conditionProcessOptions = computed<RuleConditionProcessOption[]>(() => {
   const options = new Map<string, RuleConditionProcessOption>()
   segmentCards.value.forEach((item) => {
@@ -454,6 +444,7 @@ const finalizeNavSummary = computed(() => {
     return `还有 ${reviewableRuleCount.value - confirmedRuleCount.value} 条规则待人工审核，请先完成规则审核。`
   }
   if (!allCurrentRulesConfirmed.value) return '存在需要人工处理的规则，请完成规则审核。'
+  if (persistedPublishBlocker.value) return persistedPublishBlocker.value.message
   if (outdatedRulePackageVersion.value) return `规则内容已有变化，原规则包 V${outdatedRulePackageVersion.value} 已过期，请重新发布。`
   if (!lastExportedRulePackageVersion.value) return '规则审核已完成，可以发布规则包。'
   return `规则包 V${lastExportedRulePackageVersion.value} 已发布，可以下载或进入路线生成。`
@@ -557,6 +548,7 @@ const conditionReviewQueue = useConditionReviewQueue({
   activeSegmentId,
   displayName: finalizeSegmentDisplayName,
   onPublishedRuleOutdated: markPublishedRulePackageOutdated,
+  onPersistedStatusChanged: () => { void refreshRulePackageStatus() },
   onConditionTextDraft: setConditionTextDraft,
   onNotice: showFinalizeNotice,
   onWorkflowConflict: errorValue => handleWorkflowConflict(errorValue),
@@ -673,9 +665,9 @@ const {
   },
   onPublishReviewRequired: requestPublishReview,
   onPublished: (packageValue: SaveFinalizedRulePackageResponse) => {
-    currentPublishedPackage.value = packageValue
     outdatedRulePackageVersion.value = null
     setBatchNotice(`规则包 V${packageValue.version} 已发布。`)
+    void refreshRulePackageStatus()
   },
   onWorkflowConflict: () => workflowConflict.reloadAfterKnownConflict(),
 })

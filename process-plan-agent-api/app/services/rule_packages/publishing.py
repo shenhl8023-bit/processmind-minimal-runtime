@@ -31,6 +31,9 @@ from app.services.rule_packages.validator import (
 )
 
 
+PUBLISHABLE_PROJECT_STATUSES = frozenset({"ROUTE_SET_READY", "GENERATED"})
+
+
 class _RulePackagePublicationError(ValueError):
     def __init__(self, detail: object):
         super().__init__(detail)
@@ -75,7 +78,7 @@ async def _prepare_rule_package_publication(
     project: Project,
     db: AsyncSession,
 ) -> _PreparedRulePackagePublication:
-    if project.status not in {"ROUTE_SET_READY", "GENERATED"}:
+    if project.status not in PUBLISHABLE_PROJECT_STATUSES:
         raise RulePackagePublicationConflict(
             "当前资料已变更或尚未完成路线提炼，请重新完成第二至四步后再导出规则包。"
         )

@@ -1,46 +1,31 @@
-import { computed, nextTick, ref, type ComputedRef } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import {
-  getOptionalLatestFinalizedRulePackage,
   getSavedNormalizedRoute,
   getSupersetRoute,
   listOperations,
   listProjects,
-  type FinalizedRulePackageResult,
   type OperationItem,
   type SavedNormalizedRouteVersionResult,
 } from '@/api'
 import {
-  compileRulePackage,
   getConditionFieldRegistry,
+  getFinalizedRulePackageStatus,
   type CanonicalConditionField,
-  type CompileRulePackageRequest,
+  type RulePackageStatusResponse,
   type StandardFactorDefinition,
 } from '@/api/rulePackages'
 import { FINALIZE_VIEW_COPY } from '@/config/finalizeRulePresentation'
-import { type FinalizeCard } from '@/composables/finalizeViewHelpers'
 import { resolveAvailableProjectId } from '@/composables/useCurrentProject'
 import {
   createLatestWorkflowRequestGuard,
   getWorkflowDataRevision,
 } from '@/composables/workflowDataCache'
 
-export type FinalizeWorkspaceCompileContext = {
-  projectId: number
-  packageName: string
-  routeVersionId: number
-  cards: FinalizeCard[]
-  conditionFields: CanonicalConditionField[]
-  standardFactors: StandardFactorDefinition[]
-}
-
 export type FinalizeWorkspaceOptions = {
   requestedProjectId: () => string
   onProjectResolved?: (projectId: string) => void | Promise<void>
   readDrafts?: () => void
   onRouteLoaded?: (route: SavedNormalizedRouteVersionResult) => void
-  segmentCards: ComputedRef<FinalizeCard[]>
-  allCurrentRulesConfirmed: ComputedRef<boolean>
-  buildCompileRequest: (context: FinalizeWorkspaceCompileContext) => CompileRulePackageRequest
 }
 
 function errorDetail(error: unknown) {
@@ -62,7 +47,8 @@ export function useFinalizeWorkspace(options: FinalizeWorkspaceOptions) {
   const savedRoute = ref<SavedNormalizedRouteVersionResult | null>(null)
   const operations = ref<OperationItem[]>([])
   const supersetOperations = ref<OperationItem[]>([])
-  const currentPublishedPackage = ref<FinalizedRulePackageResult | null>(null)
+  const rulePackageStatus = ref<RulePackageStatusResponse | null>(null)
+  const currentPublishedPackage = ref<RulePackageStatusResponse['latest_package']>(null)
   const outdatedRulePackageVersion = ref<number | null>(null)
   const conditionFields = ref<CanonicalConditionField[]>([])
   const standardFactors = ref<StandardFactorDefinition[]>([])
@@ -71,6 +57,7 @@ export function useFinalizeWorkspace(options: FinalizeWorkspaceOptions) {
   const conditionRegistryLoading = ref(false)
   const loadedDataRevision = ref(-1)
   const workspaceRequestGuard = createLatestWorkflowRequestGuard()
+  let rulePackageStatusRequestId = 0
 
   const factorCatalogReady = computed(() => Boolean(
     conditionFields.value.length
@@ -115,6 +102,7 @@ export function useFinalizeWorkspace(options: FinalizeWorkspaceOptions) {
     savedRoute.value = null
     operations.value = []
     supersetOperations.value = []
+    rulePackageStatus.value = null
     currentPublishedPackage.value = null
     outdatedRulePackageVersion.value = null
     clearConditionRegistry()
@@ -127,8 +115,37 @@ export function useFinalizeWorkspace(options: FinalizeWorkspaceOptions) {
     currentPublishedPackage.value = null
   }
 
+  function applyRulePackageStatus(status: RulePackageStatusResponse) {
+    rulePackageStatus.value = status
+    currentPublishedPackage.value = status.package_executable
+      && status.latest_package?.status === 'published'
+      ? status.latest_package
+      : null
+    outdatedRulePackageVersion.value = status.latest_package
+      && !status.package_executable
+      ? status.latest_package.version
+      : null
+  }
+
+  async function refreshRulePackageStatus() {
+    const targetProjectId = projectId.value
+    if (!targetProjectId) return
+    const requestId = ++rulePackageStatusRequestId
+    try {
+      const status = await getFinalizedRulePackageStatus(targetProjectId)
+      if (requestId !== rulePackageStatusRequestId || projectId.value !== targetProjectId) return
+      applyRulePackageStatus(status)
+    } catch (statusError: unknown) {
+      if (requestId !== rulePackageStatusRequestId || projectId.value !== targetProjectId) return
+      console.error('第四步规则包状态刷新失败', statusError)
+      rulePackageStatus.value = null
+      currentPublishedPackage.value = null
+    }
+  }
+
   async function loadWorkspace(forceRefresh = false) {
     const request = workspaceRequestGuard.start()
+    const statusRequestId = ++rulePackageStatusRequestId
     loading.value = true
     error.value = ''
     workspaceErrorTitle.value = FINALIZE_VIEW_COPY.errorTitle
@@ -148,11 +165,11 @@ export function useFinalizeWorkspace(options: FinalizeWorkspaceOptions) {
       }
       const currentProject = projectList.find(project => Number(project.id) === projectId.value)
       projectName.value = currentProject?.name || `任务 #${projectId.value}`
-      const [routeResult, operationList, supersetResult, latestPackage, fieldRegistryResult] = await Promise.all([
+      const [routeResult, operationList, supersetResult, statusResult, fieldRegistryResult] = await Promise.all([
         getSavedNormalizedRoute(projectId.value, forceRefresh),
         listOperations(projectId.value, forceRefresh),
         getSupersetRoute(projectId.value, forceRefresh),
-        getOptionalLatestFinalizedRulePackage(projectId.value, forceRefresh),
+        getFinalizedRulePackageStatus(projectId.value),
         getConditionFieldRegistry()
           .then(registry => ({ registry, error: null as unknown }))
           .catch(registryError => ({ registry: null, error: registryError as unknown })),
@@ -162,6 +179,9 @@ export function useFinalizeWorkspace(options: FinalizeWorkspaceOptions) {
       savedRoute.value = routeResult
       operations.value = operationList
       supersetOperations.value = supersetResult.superset_route || []
+      if (statusRequestId === rulePackageStatusRequestId) {
+        applyRulePackageStatus(statusResult)
+      }
       if (fieldRegistryResult.registry) {
         applyConditionRegistry(fieldRegistryResult.registry)
       } else {
@@ -174,38 +194,6 @@ export function useFinalizeWorkspace(options: FinalizeWorkspaceOptions) {
       options.readDrafts?.()
       options.onRouteLoaded?.(routeResult)
       await nextTick()
-      currentPublishedPackage.value = null
-      outdatedRulePackageVersion.value = null
-      if (latestPackage) {
-        const routeMatches = latestPackage.status === 'published'
-          && latestPackage.schema_version === '2.0'
-          && latestPackage.route_version_id === routeResult.route_id
-          && options.allCurrentRulesConfirmed.value
-          && Boolean(latestPackage.content_hash)
-        if (!routeMatches) {
-          outdatedRulePackageVersion.value = latestPackage.version
-        } else {
-          try {
-            const currentPackage = await compileRulePackage(options.buildCompileRequest({
-              projectId: projectId.value,
-              packageName: latestPackage.package_name,
-              routeVersionId: routeResult.route_id,
-              cards: options.segmentCards.value,
-              conditionFields: conditionFields.value,
-              standardFactors: standardFactors.value,
-            }))
-            if (!request.isCurrent()) return
-            if (currentPackage.content_hash === latestPackage.content_hash) {
-              currentPublishedPackage.value = latestPackage
-            } else {
-              outdatedRulePackageVersion.value = latestPackage.version
-            }
-          } catch (hashCheckError) {
-            console.warn('无法校验现有规则包是否为最新版本', hashCheckError)
-            outdatedRulePackageVersion.value = latestPackage.version
-          }
-        }
-      }
     } catch (loadError: unknown) {
       if (!request.isCurrent()) return
       const status = Number((loadError as { response?: { status?: unknown } } | null)?.response?.status)
@@ -213,6 +201,7 @@ export function useFinalizeWorkspace(options: FinalizeWorkspaceOptions) {
       savedRoute.value = null
       operations.value = []
       supersetOperations.value = []
+      rulePackageStatus.value = null
       currentPublishedPackage.value = null
       outdatedRulePackageVersion.value = null
       clearConditionRegistry()
@@ -220,7 +209,9 @@ export function useFinalizeWorkspace(options: FinalizeWorkspaceOptions) {
         ? '当前任务尚未完成第三步保存'
         : FINALIZE_VIEW_COPY.errorTitle
       error.value = errorDetail(loadError)
-        || '当前任务还没有第三步可预览的已保存结果，请先回到第三步完成分析。'
+        || (status === 404
+          ? '当前任务还没有第三步可预览的已保存结果，请先回到第三步完成分析。'
+          : '第四步工作台或规则包状态加载失败，请重试。')
     } finally {
       if (!request.isLatest()) return
       loading.value = false
@@ -237,6 +228,7 @@ export function useFinalizeWorkspace(options: FinalizeWorkspaceOptions) {
     savedRoute,
     operations,
     supersetOperations,
+    rulePackageStatus,
     currentPublishedPackage,
     outdatedRulePackageVersion,
     conditionFields,
@@ -250,6 +242,7 @@ export function useFinalizeWorkspace(options: FinalizeWorkspaceOptions) {
     applyConditionRegistry,
     retryConditionRegistry,
     markPublishedRulePackageOutdated,
+    refreshRulePackageStatus,
     loadWorkspace,
   }
 }

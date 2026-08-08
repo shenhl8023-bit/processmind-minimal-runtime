@@ -35,6 +35,7 @@ export type ConditionReviewQueueOptions = {
   activeSegmentId: Ref<string>
   displayName: (segment: SavedNormalizedRouteVersionResult['segments'][number]) => string
   onPublishedRuleOutdated: () => void
+  onPersistedStatusChanged?: () => void
   onConditionTextDraft: (item: FinalizeCard, sourceText: string) => void
   onNotice: FinalizeIssueHandler
   onWorkflowConflict: (error: unknown) => Promise<boolean>
@@ -129,6 +130,7 @@ export function useConditionReviewQueue(options: ConditionReviewQueueOptions) {
       }
     segment.rule_review = ruleReview
     ruleReview.condition_review = review
+    options.onPersistedStatusChanged?.()
   }
 
   function hasCurrentConditionText(segmentId: string, sourceText: string) {
