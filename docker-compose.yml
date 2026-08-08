@@ -12,6 +12,7 @@ services:
     restart: unless-stopped
     environment:
       PROCESSMIND_DATA_DIR: /runtime-data
+      # The current API supports only SQLite through the async aiosqlite driver.
       DATABASE_URL: ${DATABASE_URL:-sqlite+aiosqlite:////runtime-data/db/process_mind.db}
       LLM_API_URL: ${LLM_API_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}

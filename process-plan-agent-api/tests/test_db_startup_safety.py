@@ -1,6 +1,10 @@
 import asyncio
 import json
+import os
 import shutil
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 from sqlalchemy import text
@@ -58,6 +62,50 @@ SNAPSHOT_SECOND = {
     "target_factor_name": "Heat treatment",
     "target_factor_category": "process",
 }
+
+API_ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.parametrize(
+    ("database_url", "expected_detail", "secret"),
+    [
+        (
+            "postgresql+asyncpg://user:super-secret@localhost/processmind",
+            "received driver 'postgresql+asyncpg'",
+            "super-secret",
+        ),
+        ("sqlite:///runtime/process_mind.db", "received driver 'sqlite'", None),
+        ("not-a-database-url", "DATABASE_URL is invalid", None),
+    ],
+)
+def test_database_module_rejects_unsupported_url_before_engine_creation(
+    database_url,
+    expected_detail,
+    secret,
+):
+    env = os.environ.copy()
+    env["DATABASE_URL"] = database_url
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            f"import sys; sys.path.insert(0, {str(API_ROOT)!r}); import app.database",
+        ],
+        cwd=API_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "ProcessMind currently supports SQLite only" in result.stderr
+    assert "sqlite+aiosqlite" in result.stderr
+    assert expected_detail in result.stderr
+    assert "ModuleNotFoundError" not in result.stderr
+    if secret:
+        assert secret not in result.stderr
 
 
 def test_schema_migrations_run_in_order_only_once(tmp_path):

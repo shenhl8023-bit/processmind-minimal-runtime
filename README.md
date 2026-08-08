@@ -114,6 +114,8 @@ docker compose up -d --build
 
 后端默认在当前包内创建并读取 `data/` 目录；Docker 运行时会把宿主机 `./data` 挂载到容器内 `/runtime-data`。
 
+当前版本只支持 `sqlite+aiosqlite` 数据库 URL。省略 `DATABASE_URL` 时使用默认的 `data/db/process_mind.db`（Docker 中为 `/runtime-data/db/process_mind.db`）；配置 PostgreSQL 或其他数据库会在创建引擎前以明确错误拒绝。多数据库支持需要单独的兼容性与迁移项目。
+
 关键目录：
 
 1. `data/db/process_mind.db`
