@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy.orm import DeclarativeBase
 
 from app.core.paths import DEFAULT_DB_PATH
-from app.services.db_schema_maintenance import ensure_project_schema
+from app.services.db_schema_migrations import run_schema_migrations
 
 DEFAULT_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite+aiosqlite:///{DEFAULT_DB_PATH}")
@@ -60,4 +60,4 @@ async def init_db():
             await conn.execute(text("PRAGMA foreign_keys=ON"))
             await conn.execute(text("PRAGMA busy_timeout=30000"))
         await conn.run_sync(Base.metadata.create_all)
-        await ensure_project_schema(conn)
+        await run_schema_migrations(conn)
