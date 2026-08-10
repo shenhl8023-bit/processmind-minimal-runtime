@@ -1,5 +1,9 @@
 import { api } from './client'
 import type {
+  ConditionReviewStatus,
+  RulePackageStatusDto,
+} from './dto'
+import type {
   FinalizedRulePackageResult,
   FinalizedRulePackageSimulationResult,
   TemplateGroupAliasBinding,
@@ -158,7 +162,7 @@ export type RuleConditionCandidate = {
 export type RuleConditionReview = {
   source_text: string
   source_hash: string
-  status: 'draft' | 'parsing' | 'pending_confirmation' | 'confirmed' | 'invalid'
+  status: ConditionReviewStatus
   candidate?: RuleConditionCandidate | null
   confirmed?: RuleConditionCandidate | null
   confidence?: number | null
@@ -252,53 +256,7 @@ export type KmaiCompatibilityTestResult = {
   semantic_gaps: string[]
 }
 
-export type RulePackageStatusBlockerCode =
-  | 'project_not_ready'
-  | 'route_missing'
-  | 'pending_rule_reviews'
-  | 'invalid_factor_bindings'
-  | 'no_published_package'
-  | 'published_package_route_changed'
-  | 'published_rule_sources_changed'
-  | 'published_package_invalid'
-  | 'kmai_incompatible'
-
-export type RulePackageStatusResponse = {
-  project_id: number
-  project_status: string
-  workflow_revision: number
-  route: { id: number; version: number } | null
-  latest_package: {
-    id: number
-    version: number
-    route_version_id: number | null
-    schema_version: string
-    content_hash: string
-    status: string
-  } | null
-  can_publish: boolean
-  can_generate: boolean
-  package_executable: boolean
-  blockers: Array<{
-    code: RulePackageStatusBlockerCode
-    message: string
-    blocks: Array<'publish' | 'generate'>
-    count?: number | null
-  }>
-  review_summary: {
-    total: number
-    confirmed: number
-    pending: number
-    invalid_factor_bindings: number
-  }
-  kmai_compatibility: {
-    available: boolean
-    valid: boolean
-    error_count: number
-    warning_count: number
-    factor_catalog_version: string
-  }
-}
+export type RulePackageStatusResponse = RulePackageStatusDto
 
 export async function getFinalizedRulePackageStatus(projectId: number) {
   const { data } = await api.get('/api/extract/finalized-rule-packages/status', {

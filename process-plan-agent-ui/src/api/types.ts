@@ -1,1 +1,1 @@
-export type ProjectMode = 'route_rules'
+export type { ProjectMode } from './dto'

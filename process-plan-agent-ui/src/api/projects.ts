@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { ProjectMode } from './types'
+import type { ProjectDto, ProjectMode, RuleEngine } from './dto'
 import {
   clearWorkflowDataCache,
   clearWorkflowProjectDataCache,
@@ -10,17 +10,7 @@ import {
 
 const PROJECT_LIST_CACHE_KEY = 'api:projects:list'
 
-export interface Project {
-  id: number
-  name: string
-  mode: ProjectMode
-  profile: string
-  rule_engine?: 'auto' | 'v1' | 'v2' | string
-  workflow_revision: number
-  status: string
-  created_at: string
-  updated_at: string
-}
+export type Project = ProjectDto
 
 export interface ProjectProfile {
   key: string
@@ -64,7 +54,7 @@ export async function deleteProject(id: number) {
   return data
 }
 
-export async function updateProjectRuleEngine(id: number, ruleEngine: 'auto' | 'v1' | 'v2') {
+export async function updateProjectRuleEngine(id: number, ruleEngine: RuleEngine) {
   const { data } = await api.patch(`/api/projects/${id}/rule-engine`, { rule_engine: ruleEngine })
   clearWorkflowDataCache(PROJECT_LIST_CACHE_KEY)
   return data as Project

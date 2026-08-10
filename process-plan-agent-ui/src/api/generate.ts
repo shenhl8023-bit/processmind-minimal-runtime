@@ -1,5 +1,6 @@
 import { api } from './client'
 import { clearAllWorkflowDataCache } from '@/composables/workflowDataCache'
+import type { ApiRecord } from './dto'
 import type { TemplateGroupAliasBinding } from './extract'
 
 export interface GeneratedRouteStep {
@@ -29,7 +30,7 @@ export interface GenerateRouteResult {
 export async function generateRoute(body: {
   project_id: number
   expected_workflow_revision: number
-  factor_values: Record<string, any>
+  factor_values: ApiRecord
   expected_rule_package_id?: number
   expected_rule_package_version?: number
   expected_rule_package_hash?: string

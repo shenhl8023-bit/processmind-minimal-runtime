@@ -6,6 +6,21 @@ import {
   getWorkflowDataRevision,
   setWorkflowDataCache,
 } from '@/composables/workflowDataCache'
+import type {
+  AnalysisStatus,
+  ApiRecord,
+  ExtractionTaskStartDto,
+  ExtractionTaskStatusDto,
+  FactorReviewDecision,
+  FinalizedRulePackageDto,
+  FinalizedRulePackageListItemDto,
+  HarnessValidationIssueDto,
+  HarnessValidationPayloadDto,
+  OperationReviewStatus,
+  RouteMergeReviewStatus,
+  RouteReviewDecision,
+  WorkflowResetDto,
+} from './dto'
 import type { KmaiCompatibilityExport } from './rulePackages'
 
 export interface OperationFactor {
@@ -27,7 +42,7 @@ export interface OperationItem {
   source?: string | null
   confidence: string
   factors: OperationFactor[]
-  review_status?: 'stable' | 'pending_confirm' | 'exception' | 'evidence' | 'data_issue' | null
+  review_status?: OperationReviewStatus | null
   review_label?: string | null
   review_reason?: string | null
   sample_count?: number
@@ -103,7 +118,7 @@ export interface MergeSuggestion {
   equipment_support_result: string
   equipment_support_reason: string
   suggested_action: string
-  status: string
+  status: RouteMergeReviewStatus
 }
 
 export interface MergeSuggestionResult {
@@ -130,7 +145,7 @@ export interface NormalizedRouteSegment {
   source_nodes: string[]
   source_operation_names?: string[]
   source_operation_ids: number[]
-  review_status: string
+  review_status: RouteMergeReviewStatus
   source_type: string
   coverage_label: string
   separator_result: string
@@ -181,7 +196,7 @@ export interface SavedRouteEquipmentProfile {
 export interface SegmentFactorReview {
   id: number
   factor_name: string
-  decision: 'confirmed' | 'excluded'
+  decision: FactorReviewDecision
   note: string
   source_type: 'aggregated' | 'manual' | 'heuristic'
   evidence_refs: string[]
@@ -193,7 +208,7 @@ export interface SegmentFactorReview {
 
 export interface SegmentRuleReview {
   id: number
-  decision: 'accepted' | 'rejected'
+  decision: Exclude<RouteReviewDecision, 'pending'>
   note: string
   summary_lines: string[]
   question_trail: Array<{
@@ -225,7 +240,7 @@ export interface SavedNormalizedRouteSegment {
   matched_detail_rows: MergeMatchedDetailRow[]
   template_group_aliases?: TemplateGroupAliasBinding[]
   equipment_profile: SavedRouteEquipmentProfile
-  analysis_status: string
+  analysis_status: AnalysisStatus
   factor_reviews: SegmentFactorReview[]
   rule_review?: SegmentRuleReview | null
 }
@@ -247,109 +262,28 @@ export interface SegmentRuleReviewSaveResult {
   project_id: number
   route_id: number
   segment_id: string
-  analysis_status: string
+  analysis_status: AnalysisStatus
   normalized_step_name?: string | null
   rule_review?: SegmentRuleReview | null
 }
 
-export interface FinalizedRulePackageResult {
-  id: number
-  project_id: number
-  route_version_id?: number | null
-  version: number
-  package_name: string
-  schema_version: string
-  status: 'draft' | 'published' | 'superseded' | 'archived' | string
-  manifest: Record<string, any>
-  input_schema: Record<string, any>
-  route_catalog: Record<string, any>
-  route_rules: Record<string, any>
-  test_cases: Array<Record<string, any>>
-  rule_report_md: string
-  validation_report: Record<string, any>
-  content_hash: string
-  created_by: string
-  created_at: string
-  published_by?: string | null
-  published_at?: string | null
-  supersedes_id?: number | null
-  kmai_compatibility?: KmaiCompatibilityExport
-}
+export type FinalizedRulePackageResult = FinalizedRulePackageDto<KmaiCompatibilityExport>
 
 export type SaveFinalizedRulePackageResponse = Omit<FinalizedRulePackageResult, 'kmai_compatibility'> & {
   kmai_compatibility: KmaiCompatibilityExport
 }
 
-export interface FinalizedRulePackageListItem {
-  id: number
-  project_id: number
-  route_version_id?: number | null
-  version: number
-  package_name: string
-  schema_version: string
-  status: 'draft' | 'published' | 'superseded' | 'archived' | string
-  content_hash: string
-  created_by: string
-  created_at: string
-  published_by?: string | null
-  published_at?: string | null
-  supersedes_id?: number | null
-  validation_report?: Record<string, any>
-  test_case_count?: number
-}
+export type FinalizedRulePackageListItem = FinalizedRulePackageListItemDto
 
-export interface ExtractionTaskStartResult {
-  ok: boolean
-  project_id: number
-  task_status: string
-  stage: string
-  message: string
-  workflow_revision: number
-}
+export type ExtractionTaskStartResult = ExtractionTaskStartDto
 
-export interface WorkflowResetResult {
-  project_id: number
-  from_step: 3 | 4
-  workflow_revision: number
-  deleted_operations: number
-  deleted_route_merge_snapshots: number
-  deleted_route_versions: number
-  deleted_factor_reviews: number
-  deleted_rule_reviews: number
-  reset_condition_reviews: number
-  preserved_manual_condition_reviews: number
-  deleted_generated_routes: number
-  archived_rule_package_versions: number[]
-}
+export type WorkflowResetResult = WorkflowResetDto
 
-export interface HarnessValidationIssue {
-  level: 'error' | 'warning'
-  code: string
-  message: string
-  target?: string
-  suggested_action?: string
-}
+export type HarnessValidationIssue = HarnessValidationIssueDto
 
-export interface HarnessValidationPayload {
-  ok: boolean
-  stage: string
-  errors: HarnessValidationIssue[]
-  warnings: HarnessValidationIssue[]
-}
+export type HarnessValidationPayload = HarnessValidationPayloadDto
 
-export interface ExtractionTaskStatus {
-  project_id: number
-  task_status: 'idle' | 'running' | 'completed' | 'failed'
-  stage: string
-  message: string
-  error?: string | null
-  progress: number
-  started_at?: string | null
-  updated_at?: string | null
-  finished_at?: string | null
-  project_status?: string | null
-  harness?: HarnessValidationPayload | null
-}
+export type ExtractionTaskStatus = ExtractionTaskStatusDto
 
 export async function startExtraction(projectId: number, forceReextract: boolean = false) {
   const { data } = await api.post('/api/extract/start', null, {
@@ -460,7 +394,7 @@ export async function saveNormalizedSupersetRoute(body: {
     source_operation_ids: number[]
     source_nodes: string[]
     source_operation_names?: string[]
-    review_status?: string
+    review_status?: RouteMergeReviewStatus
     step_family?: string
     phase?: string
     parent_segment?: string
@@ -476,7 +410,7 @@ export async function saveNormalizedSupersetRoute(body: {
     manual_review_required?: boolean
     reason_codes?: string[]
     evidence_excerpt?: string[]
-    matched_detail_rows?: Array<Record<string, any>>
+    matched_detail_rows?: MergeMatchedDetailRow[]
     template_group_aliases?: TemplateGroupAliasBinding[]
   }>
 }) {
@@ -490,7 +424,7 @@ export async function saveSegmentRuleReview(body: {
   route_id: number
   expected_workflow_revision: number
   segment_id: string
-  decision: 'accepted' | 'rejected' | 'pending'
+  decision: RouteReviewDecision
   note?: string
   summary_lines?: string[]
   question_trail?: Array<{
@@ -510,13 +444,13 @@ export async function saveFinalizedRulePackage(body: {
   route_version_id?: number | null
   package_name?: string
   schema_version?: string
-  manifest?: Record<string, any>
-  input_schema: Record<string, any>
-  route_catalog: Record<string, any>
-  route_rules: Record<string, any>
-  test_cases?: Array<Record<string, any>>
+  manifest?: ApiRecord
+  input_schema: ApiRecord
+  route_catalog: ApiRecord
+  route_rules: ApiRecord
+  test_cases?: ApiRecord[]
   rule_report_md: string
-  validation_report?: Record<string, any>
+  validation_report?: ApiRecord
   created_by?: string
 }) {
   const { data } = await api.post('/api/extract/finalized-rule-packages', body)
@@ -603,14 +537,14 @@ export interface FinalizedRulePackageSimulationResult {
   content_hash: string
   validation: {
     valid: boolean
-    errors: Array<Record<string, any>>
-    warnings: Array<Record<string, any>>
-    test_results: Array<Record<string, any>>
+    errors: ApiRecord[]
+    warnings: ApiRecord[]
+    test_results: ApiRecord[]
   }
   plan?: {
-    steps: Array<Record<string, any>>
+    steps: ApiRecord[]
     selected_process_ids: string[]
-    traces: Array<Record<string, any>>
+    traces: ApiRecord[]
   } | null
 }
 

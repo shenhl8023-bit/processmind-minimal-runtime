@@ -6,6 +6,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.contracts.status import (
+    ProjectStatus,
+    RulePackageStatus,
+    RulePackageStatusBlockerCode,
+    WorkflowCapability,
+)
+
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
@@ -386,13 +393,13 @@ class KmaiCompatibilityTestResponse(StrictModel):
     semantic_gaps: list[str] = Field(default_factory=list)
 
 
-RulePackageCapability = Literal["publish", "generate"]
+RulePackageCapability = WorkflowCapability
 
 
 class RulePackageStatusBlocker(StrictModel):
-    code: str
+    code: RulePackageStatusBlockerCode
     message: str
-    blocks: list[RulePackageCapability]
+    blocks: list[WorkflowCapability]
     count: int | None = None
 
 
@@ -407,7 +414,7 @@ class RulePackageStatusPackage(StrictModel):
     route_version_id: int | None = None
     schema_version: str
     content_hash: str
-    status: str
+    status: RulePackageStatus
 
 
 class RulePackageReviewSummary(StrictModel):
@@ -427,7 +434,7 @@ class RulePackageKmaiSummary(StrictModel):
 
 class RulePackageStatusResponse(StrictModel):
     project_id: int
-    project_status: str
+    project_status: ProjectStatus
     workflow_revision: int
     route: RulePackageStatusRoute | None = None
     latest_package: RulePackageStatusPackage | None = None
