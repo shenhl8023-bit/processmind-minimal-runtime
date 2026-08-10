@@ -297,6 +297,7 @@ def _assert_generation_not_persisted(session_factory, project_id: int) -> None:
     assert asyncio.run(_generation_state(session_factory, project_id)) == ("ROUTE_SET_READY", 0)
 
 
+@pytest.mark.delivery_smoke
 def test_generate_uses_published_v2_plan_route(generation_context):
     client, session_factory = generation_context
     project_id, _ = asyncio.run(_seed_published_v2(session_factory))
@@ -368,6 +369,7 @@ def test_published_package_inspection_reports_source_drift_without_archiving(
     assert asyncio.run(_rule_package_status(session_factory, project_id)) == "published"
 
 
+@pytest.mark.delivery_smoke
 def test_generate_archives_source_drifted_v2_before_planning(generation_context):
     client, session_factory = generation_context
     project_id, _ = asyncio.run(_seed_source_drifted_v2(session_factory))

@@ -100,6 +100,66 @@ def _v2_save_payload(package_payload):
     }
 
 
+@pytest.mark.delivery_smoke
+def test_uploaded_document_can_publish_v2_and_generate_route(
+    rule_package_v2_payload,
+    isolated_rule_package_db,
+):
+    uploaded = client.post(
+        "/api/documents/upload",
+        data={"project_id": "12"},
+        files={"files": ("release-smoke.json", b'{"operations": []}', "application/json")},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    assert len(uploaded.json()) == 1
+
+    async def restore_reviewed_route():
+        async with isolated_rule_package_db() as session:
+            route = NormalizedRouteVersion(
+                project_id=12,
+                version=2,
+                source_signature="release-smoke-reviewed",
+                route_json="[]",
+            )
+            session.add(route)
+            await session.flush()
+            route_id = route.id
+            project = await session.get(Project, 12)
+            project.status = "ROUTE_SET_READY"
+            await session.commit()
+            return route_id
+
+    route_id = asyncio.run(restore_reviewed_route())
+    rule_package_v2_payload["manifest"]["route_version_id"] = route_id
+
+    published = client.post(
+        "/api/extract/finalized-rule-packages",
+        json=_v2_save_payload(rule_package_v2_payload),
+    )
+    assert published.status_code == 200, published.text
+    assert published.json()["status"] == "published"
+
+    generated = client.post(
+        "/api/generate/",
+        json={
+            "project_id": 12,
+            "factor_values": {
+                "material": {"grade": "9Cr18"},
+                "cad": {"features": ["槽类特征"]},
+                "target_hardness_hrc": 58,
+            },
+        },
+    )
+    assert generated.status_code == 200, generated.text
+    assert generated.json()["output_mode"] == "finalized_rule_package_v2"
+    assert generated.json()["selected_process_ids"] == [
+        "process_prepare",
+        "process_rough_machine",
+        "process_mill_slot",
+        "process_quench",
+    ]
+
+
 def _compile_payload_with_manual_pair(package_payload, process_id="process_nitriding"):
     payload = deepcopy(package_payload)
     payload["test_cases"] = []

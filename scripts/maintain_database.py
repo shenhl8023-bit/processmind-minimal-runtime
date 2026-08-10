@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import sqlite3
 import sys
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -27,7 +28,7 @@ def backup_database(source: sqlite3.Connection, database_path: Path) -> Path:
     backup_path = database_path.with_name(f"{database_path.name}.bak-{stamp}")
     if backup_path.exists():
         raise FileExistsError(f"Refusing to overwrite existing backup: {backup_path}")
-    with sqlite3.connect(backup_path) as destination:
+    with closing(sqlite3.connect(backup_path)) as destination:
         source.backup(destination)
     return backup_path
 
@@ -61,14 +62,14 @@ def _print_audit(database_path: Path, conn: sqlite3.Connection) -> None:
 
 
 def _run_audit(database_path: Path) -> int:
-    with sqlite3.connect(database_path) as conn:
+    with closing(sqlite3.connect(database_path)) as conn:
         conn.row_factory = sqlite3.Row
         _print_audit(database_path, conn)
     return 0
 
 
 def _run_repair(database_path: Path, *, apply: bool) -> int:
-    with sqlite3.connect(database_path) as conn:
+    with closing(sqlite3.connect(database_path)) as conn:
         conn.row_factory = sqlite3.Row
         plan = plan_duplicate_operation_repair(conn)
         if not apply:

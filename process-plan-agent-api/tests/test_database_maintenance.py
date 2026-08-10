@@ -1,6 +1,9 @@
+import gc
 import json
 import sqlite3
 import sys
+import warnings
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -186,9 +189,9 @@ def test_cli_apply_writes_backup_and_repair_can_be_restored(duplicate_database, 
     assert len(backups) == 1
     assert str(backups[0].resolve()) in output
 
-    with sqlite3.connect(path) as repaired:
+    with closing(sqlite3.connect(path)) as repaired:
         assert repaired.execute("SELECT COUNT(*) FROM operations").fetchone()[0] == 2
-    with sqlite3.connect(backups[0]) as backup:
+    with closing(sqlite3.connect(backups[0])) as backup:
         assert _business_snapshot(backup) == before
 
 
@@ -211,5 +214,24 @@ def test_cli_apply_rolls_back_and_keeps_backup_when_delete_fails(duplicate_datab
     backups = list(path.parent.glob(f"{path.name}.bak-*"))
     assert len(backups) == 1
     assert str(backups[0].resolve()) in error_output
-    with sqlite3.connect(path) as unchanged:
+    with closing(sqlite3.connect(path)) as unchanged:
         assert _business_snapshot(unchanged) == before
+
+
+def test_cli_apply_closes_all_database_connections(duplicate_database, capsys):
+    conn, path = duplicate_database
+    conn.close()
+    main = _load_maintenance_cli()
+
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always", ResourceWarning)
+        assert main(["--db", str(path), "repair-operation-duplicates", "--apply"]) == 0
+        gc.collect()
+
+    capsys.readouterr()
+    unclosed = [
+        str(item.message)
+        for item in captured
+        if issubclass(item.category, ResourceWarning) and "unclosed database" in str(item.message)
+    ]
+    assert unclosed == []

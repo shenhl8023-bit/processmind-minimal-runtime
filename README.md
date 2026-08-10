@@ -110,6 +110,37 @@ docker compose up -d --build
 2. Node.js 20+
 3. npm 10+
 
+## 质量验证
+
+GitHub Actions 门禁位于 `.github/workflows/quality-gates.yml`，覆盖 Python 3.11/3.13 后端全量测试、Ruff、规则包覆盖率、交付冒烟、Node 20 前端验证、Docker 交付和 Windows 离线包启动。开发机可运行相同的核心命令。
+
+后端：
+
+```powershell
+cd process-plan-agent-api
+..\.runtime\python\python.exe -m pip install -r requirements-dev.txt
+..\.runtime\python\python.exe -m ruff check app tests ..\scripts
+..\.runtime\python\python.exe -m pytest -q
+..\.runtime\python\python.exe -m pytest -q -m delivery_smoke
+..\.runtime\python\python.exe -m pytest -q --cov=app.services.rule_packages --cov-report=term --cov-report=xml
+```
+
+规则包覆盖率门槛为 `85%`。Ruff 当前只启用 `E9,F63,F7,F82` 高置信度规则；更广泛的格式和现代化检查需要单独建立增量基线。
+
+前端：
+
+```powershell
+cd process-plan-agent-ui
+npm.cmd ci
+npm.cmd run check:api-contract
+npm.cmd test
+npm.cmd run build
+```
+
+Docker 交付验证使用 `docker compose build api web` 和 `docker compose up -d --wait`，随后检查 Web/API 健康状态及镜像内共享策略文件。Windows 离线交付使用 `bootstrap-windows.cmd` 和 `scripts\pack-offline-windows.ps1`；打包会先执行允许清单和敏感信息扫描。
+
+`httpx2` 是 FastAPI/Starlette TestClient 的开发测试依赖；业务代码访问外部 HTTP 服务仍使用运行时依赖 `httpx`。
+
 ## 数据说明
 
 后端默认在当前包内创建并读取 `data/` 目录；Docker 运行时会把宿主机 `./data` 挂载到容器内 `/runtime-data`。

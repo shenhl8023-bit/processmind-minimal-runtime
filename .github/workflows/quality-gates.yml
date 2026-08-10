@@ -1,0 +1,170 @@
+name: quality-gates
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "codex/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-tests:
+    name: backend-tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    defaults:
+      run:
+        working-directory: process-plan-agent-api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            process-plan-agent-api/requirements.txt
+            process-plan-agent-api/requirements-dev.txt
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+      - run: python -m compileall -q app tests ../scripts
+
+  backend-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: process-plan-agent-api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            process-plan-agent-api/requirements.txt
+            process-plan-agent-api/requirements-dev.txt
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m ruff check app tests ../scripts
+      - run: python -m pytest -q --cov=app.services.rule_packages --cov-report=term --cov-report=xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rule-package-coverage
+          path: process-plan-agent-api/coverage.xml
+          if-no-files-found: ignore
+
+  delivery-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: process-plan-agent-api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            process-plan-agent-api/requirements.txt
+            process-plan-agent-api/requirements-dev.txt
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pytest -q -m delivery_smoke
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: process-plan-agent-ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: process-plan-agent-api/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: process-plan-agent-ui/package-lock.json
+      - run: python -m pip install -r ../process-plan-agent-api/requirements.txt
+      - run: npm ci
+      - run: npm run check:api-contract
+      - run: npm test
+      - run: npm run build
+
+  docker-delivery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build images
+        run: docker compose build api web
+      - name: Start delivery stack
+        run: docker compose up -d --wait --wait-timeout 180
+      - name: Verify images, shared policy, and HTTP
+        shell: bash
+        run: |
+          docker compose exec -T api python -c "from pathlib import Path; required = [Path('/app/process-plan-agent-api/knowledge'), Path('/app/process-plan-agent-api/prompt_parts'), Path('/app/docs/配置模板/第五步参数问答策略.json')]; missing = [str(path) for path in required if not path.exists()]; assert not missing, missing"
+          curl --fail --retry 10 --retry-delay 2 http://127.0.0.1:8080/
+          curl --fail --retry 10 --retry-delay 2 http://127.0.0.1:8080/api/projects/
+      - name: Show container logs
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Stop delivery stack
+        if: always()
+        run: docker compose down -v --remove-orphans
+
+  windows-offline-delivery:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: process-plan-agent-ui/package-lock.json
+      - name: Build, scan, unpack, and start the offline package
+        shell: pwsh
+        env:
+          PROCESSMIND_NO_PAUSE: "1"
+          PROCESSMIND_NO_BROWSER: "1"
+        run: |
+          $output = Join-Path $env:RUNNER_TEMP 'processmind-offline-output'
+          $ready = Join-Path $env:RUNNER_TEMP 'processmind-offline-ready'
+          .\bootstrap-windows.cmd
+          if ($LASTEXITCODE -ne 0) { throw 'bootstrap-windows.cmd failed' }
+          & .\scripts\pack-offline-windows.ps1 -OutputDir $output
+          $archives = @(Get-ChildItem -LiteralPath $output -Filter 'processmind-offline-windows-*.zip')
+          if ($archives.Count -ne 1) { throw "Expected one offline archive, found $($archives.Count)." }
+          $zip = $archives[0]
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $ready -Force
+          $env:PROCESSMIND_OFFLINE = '1'
+          Push-Location $ready
+          try {
+            & .\scripts\manage-windows.ps1 -Action Start
+            Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/ | Out-Null
+            Invoke-WebRequest -UseBasicParsing http://127.0.0.1:5173/ | Out-Null
+          }
+          finally {
+            & .\scripts\manage-windows.ps1 -Action Stop
+            Pop-Location
+          }
