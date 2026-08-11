@@ -1,5 +1,11 @@
 # ProcessMind Agent 协作说明
 
+## 适用范围
+
+本文件适用于仓库根目录及其所有子目录。若更深层目录存在新的 `AGENTS.md`，应同时遵守其中更具体的约定；用户请求、密钥安全和运行环境限制优先于本文件。
+
+开始修改前，先读取与变更直接相关的源码、配置、测试和设计文档，确认现有实现和工作区状态。不要根据 README 的单一描述推断行为，也不要覆盖、回退或删除工作区中已有的用户修改。
+
 ## 项目定位
 
 ProcessMind 是工艺规划与规则管理平台，负责从文档、CAD/MPS 特征和人工确认中整理工艺因素，维护工艺路线规则，编译、验证、模拟和发布规则包。
@@ -78,6 +84,14 @@ PROCESSMIND_KMAI_MAX_CONDITION_OBJECTS
 
 不要把真实数据库、上传文档、`.env`、API 密钥或运行时输出提交到源码包。离线交付应使用项目提供的打包脚本和安全扫描流程，不要直接压缩开发目录。
 
+## 运行与依赖约定
+
+- Windows 优先使用 `bootstrap-windows.cmd` 安装或准备运行时，再使用 `start-windows.cmd` 和 `stop-windows.cmd` 管理 API 与前端；脚本会检查并只管理能够确认属于本项目的 8000、5173 端口进程。
+- Windows 可优先使用仓库内 `.runtime\python\python.exe` 和 `.runtime\node\node.exe`；Unix/macOS 使用 `./bootstrap.sh`、`./start-api.sh`、`./start-ui.sh` 或 `scripts/manage-macos.sh`。
+- 前端在 Windows 上执行 npm 命令时使用 `npm.cmd`，避免 PowerShell 执行策略阻止 `npm.ps1`。开发代理默认把 `/api` 转发到 `http://127.0.0.1:8000`。
+- 当前后端只支持 `sqlite+aiosqlite`。默认数据位于 `data/db/process_mind.db`，上传文件位于 `data/uploads/`；不要把这些运行时数据当作源码修改提交。
+- `.runtime/`、`data/`、`output/`、`node_modules/`、覆盖率文件、pytest 临时目录和 `.env` 属于本地运行或交付产物，除非任务明确要求，不要修改或纳入提交。
+
 ## 常用验证入口
 
 本地启动要求 Python 3.11+、Node.js 20+ 和 npm。推荐使用项目已有启动脚本，不要另行创建临时运行方式：
@@ -96,6 +110,40 @@ docker compose up -d --build
 ```
 
 修改后至少运行与变更范围对应的测试。规则包相关改动优先检查 `process-plan-agent-api/tests/` 中的规则包编译、验证、归档、生命周期和 KmAI 兼容性测试；前端改动同时运行前端类型检查/构建和相关组件测试。完成前必须读取验证输出，不能只根据代码静态阅读声称通过。
+
+### 按变更范围选择验证
+
+后端或规则包变更，在 `process-plan-agent-api/` 下至少运行：
+
+```powershell
+..\.runtime\python\python.exe -m ruff check app tests ..\scripts
+..\.runtime\python\python.exe -m pytest -q <相关测试文件>
+```
+
+涉及规则包编译、校验、归档、生命周期、发布或 KmAI 导出时，再运行全量测试和覆盖率门禁：
+
+```powershell
+..\.runtime\python\python.exe -m pytest -q
+..\.runtime\python\python.exe -m pytest -q -m delivery_smoke
+..\.runtime\python\python.exe -m pytest -q --cov=app.services.rule_packages --cov-report=term --cov-report=xml
+```
+
+前端或 API 契约变更，在 `process-plan-agent-ui/` 下运行：
+
+```powershell
+npm.cmd run check:api-contract
+npm.cmd test
+npm.cmd run build
+```
+
+`src/api/generated/status.ts` 是由契约检查生成的文件；只有在 OpenAPI 源定义改变且检查需要更新时，才运行 `node scripts/check_api_contract.mjs --write`，不要手工编辑生成内容。离线打包或 Docker 变更还应按范围运行 `docker compose build api web`、`docker compose up -d --wait` 或 `scripts\pack-offline-windows.ps1`，并记录因缺少 Docker、Node 或网络而未执行的检查。
+
+## 交付前检查
+
+- 用 `git diff --check` 检查空白和冲突标记，用 `git status --short` 确认只包含任务相关文件。
+- 修改规则包协议、导出格式或发布生命周期时，必须同步检查 contracts、validator、compiler、archive、loader、兼容性校验和测试；不要只修改单个 JSON 示例或 UI 文案。
+- 不要自动执行 `commit`、`push`、`rebase`、`reset` 或强制推送；只有用户明确要求时才执行，并且只暂存任务相关文件。
+- 最终说明实际修改的文件、执行过的验证及结果，并明确列出未验证内容和剩余风险。
 
 ## 变更前检查清单
 
