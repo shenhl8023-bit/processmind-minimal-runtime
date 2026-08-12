@@ -376,8 +376,9 @@ def test_production_schema_migrations_are_ordered_and_idempotent(tmp_path):
         (3, "route_review_indexes_v1"),
         (4, "rule_package_lifecycle_v2"),
         (5, "retire_kmai_factor_mappings_v1"),
+        (6, "extraction_task_lease_v1"),
     ]
-    assert len(SCHEMA_MIGRATIONS) == 5
+    assert len(SCHEMA_MIGRATIONS) == 6
     assert after == before
     assert profile == "invalid.profile"
 
@@ -861,6 +862,7 @@ def test_kmai_init_db_twice_retires_a_copied_legacy_fixture(tmp_path, monkeypatc
         (3, "route_review_indexes_v1"),
         (4, "rule_package_lifecycle_v2"),
         (5, "retire_kmai_factor_mappings_v1"),
+        (6, "extraction_task_lease_v1"),
     ]
     assert copied_business_columns == source_business_columns
 

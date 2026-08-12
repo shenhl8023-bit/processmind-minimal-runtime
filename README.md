@@ -147,6 +147,16 @@ Docker 交付验证使用 `docker compose build api web` 和 `docker compose up 
 
 当前版本只支持 `sqlite+aiosqlite` 数据库 URL。省略 `DATABASE_URL` 时使用默认的 `data/db/process_mind.db`（Docker 中为 `/runtime-data/db/process_mind.db`）；配置 PostgreSQL 或其他数据库会在创建引擎前以明确错误拒绝。多数据库支持需要单独的兼容性与迁移项目。
 
+### 单 worker 约束
+
+后台提取任务的状态注册表（`EXTRACTION_TASKS` / `EXTRACTION_RUNNING` / `EXTRACTION_JOBS`）保存在单个进程内存中，**不会跨 worker/进程共享**。因此后端必须按**单 worker** 运行，不能配置多个 uvicorn worker，否则：
+
+- worker B 看不到 worker A 的 `asyncio.Task`，任务状态不可靠；
+- worker 重启后数据库可能仍显示 `running`，而原任务已不存在；
+- 多个 worker 可能同时认为自己在处理同一项目，导致重复的 LLM 调用。
+
+所有启动脚本（`start-api.sh` / `start-api.cmd` / `scripts/manage-windows.ps1` / `scripts/manage-macos.sh` / `Dockerfile.api`）均已显式带 `--workers 1`。启动时后端会校验 worker 模式：若环境变量 `UVICORN_WORKERS` / `WEB_CONCURRENCY` 显式给出 >1 而仍声明单 worker，API **拒绝启动**（抛出 `MultiWorkerConfiguredError`）。通过 `PROCESSMIND_SINGLE_WORKER=false` 可显式放开约束（仅用于试验，不建议生产使用）。根接口 `/` 的 `single_worker_declared` 字段是部署声明值；uvicorn 的 `--workers` CLI 参数不经过环境变量，应用层无法探测，实际 worker 数由脚本里的 `--workers 1` 与启动检查共同保证。
+
 关键目录：
 
 1. `data/db/process_mind.db`

@@ -82,6 +82,12 @@ API_PROPERTY_CONTRACTS: dict[tuple[str, str], ApiPropertyContract] = {
     ("ExtractionTaskStatusOut", "project_status"): ApiPropertyContract(
         "string", False, nullable=True, enum_name="ProjectStatus"
     ),
+    ("ExtractionTaskStatusOut", "local_execution_active"): ApiPropertyContract(
+        "boolean", False, default=False
+    ),
+    ("ExtractionTaskStatusOut", "lease_valid"): ApiPropertyContract(
+        "boolean", False, default=False
+    ),
     ("WorkflowResetRequest", "expected_workflow_revision"): ApiPropertyContract(
         "integer", False, default=0
     ),

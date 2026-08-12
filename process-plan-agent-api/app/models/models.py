@@ -64,6 +64,13 @@ class ExtractionTaskState(Base):
     project_status = Column(String(30))
     harness_json = Column(Text)
     force_reextract = Column(Boolean, nullable=False, default=False)
+    # 提取任务租约：区分“本进程正在执行”和“数据库租约有效”。
+    # 单 worker 约束下本进程即为唯一 owner；未来放开多 worker 时，任务由
+    # owner_id + lease_expires_at 抢占，仅租约过期后允许其他 worker 接管。
+    owner_id = Column(String(64))
+    lease_expires_at = Column(String(64))
+    heartbeat_at = Column(String(64))
+    attempt = Column(Integer, nullable=False, default=0)
 
     project = relationship("Project", back_populates="extraction_task_state")
 

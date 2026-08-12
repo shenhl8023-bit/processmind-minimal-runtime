@@ -803,6 +803,32 @@ async def _retire_kmai_factor_mappings_v1(conn) -> MigrationResult:
     return {"legacy_tables_retired": retired}
 
 
+async def _extraction_task_lease_v1(conn) -> MigrationResult:
+    """为提取任务状态表增加租约列。
+
+    引入 owner_id / lease_expires_at / heartbeat_at / attempt 用于区分“本进程正在
+    执行”与“数据库租约有效”。历史遗留的无租约 running 状态由任务状态解析与队列
+    入口按中断任务条件回收，迁移本身只负责补列。
+    """
+    columns = (
+        ("owner_id", "owner_id VARCHAR(64)"),
+        ("lease_expires_at", "lease_expires_at VARCHAR(64)"),
+        ("heartbeat_at", "heartbeat_at VARCHAR(64)"),
+        ("attempt", "attempt INTEGER NOT NULL DEFAULT 0"),
+    )
+    added = 0
+    for column_name, ddl in columns:
+        added += int(
+            await _ensure_column(
+                conn,
+                "extraction_task_states",
+                column_name,
+                ddl,
+            )
+        )
+    return {"columns_added": added}
+
+
 SCHEMA_MIGRATIONS: tuple[SchemaMigration, ...] = (
     SchemaMigration(1, "legacy_project_schema_v1", _legacy_project_schema_v1),
     SchemaMigration(2, "workflow_review_schema_v1", _workflow_review_schema_v1),
@@ -812,6 +838,11 @@ SCHEMA_MIGRATIONS: tuple[SchemaMigration, ...] = (
         5,
         "retire_kmai_factor_mappings_v1",
         _retire_kmai_factor_mappings_v1,
+    ),
+    SchemaMigration(
+        6,
+        "extraction_task_lease_v1",
+        _extraction_task_lease_v1,
     ),
 )
 

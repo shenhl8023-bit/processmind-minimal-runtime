@@ -500,6 +500,8 @@ class ExtractionTaskStatusOut(BaseModel):
     finished_at: Optional[str] = None
     project_status: Optional[ProjectStatus] = None
     harness: Optional[Dict[str, Any]] = None
+    local_execution_active: bool = False
+    lease_valid: bool = False
 
 
 # ---------- 工艺路线生成 ----------

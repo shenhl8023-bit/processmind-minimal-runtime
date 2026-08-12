@@ -101,6 +101,8 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
         updated_at: null,
         finished_at: null,
         project_status: 'ROUTE_SET_READY',
+        local_execution_active: false,
+        lease_valid: false,
       }),
       task_status: 'completed',
       stage: 'loading_route_merge',
@@ -200,6 +202,8 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
         updated_at: null,
         finished_at: null,
         project_status: null,
+        local_execution_active: false,
+        lease_valid: false,
       }
       await pollExtractionTask()
     } catch (e: any) {

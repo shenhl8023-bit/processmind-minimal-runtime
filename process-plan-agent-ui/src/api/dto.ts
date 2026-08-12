@@ -129,6 +129,8 @@ export interface ExtractionTaskStatusDto {
   finished_at?: string | null
   project_status?: ProjectStatus | null
   harness?: HarnessValidationPayloadDto | null
+  local_execution_active: boolean
+  lease_valid: boolean
 }
 
 export interface WorkflowResetDto {

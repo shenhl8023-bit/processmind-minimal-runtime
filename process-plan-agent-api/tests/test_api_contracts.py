@@ -105,6 +105,20 @@ def test_legacy_failed_project_status_is_accepted_by_response_models():
     assert task.project_status is ProjectStatus.FAILED
 
 
+def test_extraction_task_status_exposes_execution_and_lease_state():
+    task = ExtractionTaskStatusOut(
+        project_id=1,
+        task_status="running",
+        stage="extracting_operations",
+        local_execution_active=True,
+        lease_valid=True,
+    )
+
+    payload = task.model_dump()
+    assert payload["local_execution_active"] is True
+    assert payload["lease_valid"] is True
+
+
 def test_projects_endpoint_serializes_legacy_failed_status():
     now = datetime.now(timezone.utc)
 
@@ -156,9 +170,12 @@ def test_openapi_exposes_workflow_status_enums_and_revision_contract():
 
     project_schema = _schema(openapi, "ProjectOut")
     workflow_reset_schema = _schema(openapi, "WorkflowResetRequest")
+    extraction_task_schema = _schema(openapi, "ExtractionTaskStatusOut")
     assert "status" in set(project_schema.get("required", []))
     assert project_schema["properties"]["workflow_revision"]["type"] == "integer"
     assert workflow_reset_schema["properties"]["expected_workflow_revision"]["type"] == "integer"
+    assert extraction_task_schema["properties"]["local_execution_active"]["type"] == "boolean"
+    assert extraction_task_schema["properties"]["lease_valid"]["type"] == "boolean"
 
 
 def test_contract_validator_accepts_current_openapi_and_reports_drift():

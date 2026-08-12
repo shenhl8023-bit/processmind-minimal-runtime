@@ -106,8 +106,9 @@ start_application() {
     echo "API is already running (PID $api_pid)."
   else
     cd "$ROOT_DIR/process-plan-agent-api"
+    # 提取任务状态保存在进程内存，必须单 worker 运行（--workers 1 为显式声明）。
     PROCESSMIND_DATA_DIR="$ROOT_DIR/data" nohup "$PYTHON_EXE" -m uvicorn app.main:app \
-      --host 127.0.0.1 --port 8000 \
+      --host 127.0.0.1 --port 8000 --workers 1 \
       > "$LOG_DIR/api.out.log" 2> "$LOG_DIR/api.err.log" < /dev/null &
     api_pid=$!
     api_started=1
