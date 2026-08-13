@@ -23,7 +23,13 @@ import type {
   RouteMergeReviewStatus,
   RouteReviewDecision,
   RulePackageStatus,
+  RulePackageStatusBlocker,
   RulePackageStatusBlockerCode,
+  RulePackageKmaiSummary,
+  RulePackageReviewSummary,
+  RulePackageStatusPackage,
+  RulePackageStatusResponse,
+  RulePackageStatusRoute,
   WorkflowCapability,
 } from './generated/status'
 
@@ -52,7 +58,13 @@ export type {
   RouteMergeReviewStatus,
   RouteReviewDecision,
   RulePackageStatus,
+  RulePackageStatusBlocker,
   RulePackageStatusBlockerCode,
+  RulePackageKmaiSummary,
+  RulePackageReviewSummary,
+  RulePackageStatusPackage,
+  RulePackageStatusResponse,
+  RulePackageStatusRoute,
   WorkflowCapability,
 }
 
@@ -190,39 +202,4 @@ export interface FinalizedRulePackageListItemDto {
   test_case_count?: number
 }
 
-export interface RulePackageStatusDto {
-  project_id: number
-  project_status: ProjectStatus
-  workflow_revision: number
-  route: { id: number; version: number } | null
-  latest_package: {
-    id: number
-    version: number
-    route_version_id: number | null
-    schema_version: string
-    content_hash: string
-    status: RulePackageStatus
-  } | null
-  can_publish: boolean
-  can_generate: boolean
-  package_executable: boolean
-  blockers: Array<{
-    code: RulePackageStatusBlockerCode
-    message: string
-    blocks: WorkflowCapability[]
-    count?: number | null
-  }>
-  review_summary: {
-    total: number
-    confirmed: number
-    pending: number
-    invalid_factor_bindings: number
-  }
-  kmai_compatibility: {
-    available: boolean
-    valid: boolean
-    error_count: number
-    warning_count: number
-    factor_catalog_version: string
-  }
-}
+export type RulePackageStatusDto = RulePackageStatusResponse

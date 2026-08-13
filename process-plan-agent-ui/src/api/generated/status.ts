@@ -98,3 +98,53 @@ export const WORKFLOW_CAPABILITY_VALUES = [
   "generate",
 ] as const
 export type WorkflowCapability = typeof WORKFLOW_CAPABILITY_VALUES[number]
+
+export interface RulePackageStatusRoute {
+  id: number
+  version: number
+}
+
+export interface RulePackageStatusPackage {
+  id: number
+  version: number
+  route_version_id?: number | null
+  schema_version: string
+  content_hash: string
+  status: RulePackageStatus
+}
+
+export interface RulePackageStatusBlocker {
+  code: RulePackageStatusBlockerCode
+  message: string
+  blocks: WorkflowCapability[]
+  count?: number | null
+}
+
+export interface RulePackageReviewSummary {
+  total?: number
+  confirmed?: number
+  pending?: number
+  invalid_factor_bindings?: number
+}
+
+export interface RulePackageKmaiSummary {
+  available?: boolean
+  valid?: boolean
+  error_count?: number
+  warning_count?: number
+  factor_catalog_version?: string
+}
+
+export interface RulePackageStatusResponse {
+  project_id: number
+  project_status: ProjectStatus
+  workflow_revision: number
+  route: RulePackageStatusRoute | null
+  latest_package: RulePackageStatusPackage | null
+  can_publish: boolean
+  can_generate: boolean
+  package_executable: boolean
+  blockers: RulePackageStatusBlocker[]
+  review_summary: RulePackageReviewSummary
+  kmai_compatibility: RulePackageKmaiSummary
+}

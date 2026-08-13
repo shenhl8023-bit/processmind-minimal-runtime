@@ -113,19 +113,55 @@ API_PROPERTY_CONTRACTS: dict[tuple[str, str], ApiPropertyContract] = {
     ("RulePackageStatusPackage", "status"): ApiPropertyContract(
         "string", True, enum_name="RulePackageStatus"
     ),
+    ("RulePackageStatusResponse", "project_id"): ApiPropertyContract("integer", True),
     ("RulePackageStatusResponse", "project_status"): ApiPropertyContract(
         "string", True, enum_name="ProjectStatus"
     ),
     ("RulePackageStatusResponse", "workflow_revision"): ApiPropertyContract("integer", True),
+    ("RulePackageStatusResponse", "route"): ApiPropertyContract("object", True, nullable=True),
+    ("RulePackageStatusResponse", "latest_package"): ApiPropertyContract(
+        "object", True, nullable=True
+    ),
     ("RulePackageStatusResponse", "can_publish"): ApiPropertyContract("boolean", True),
     ("RulePackageStatusResponse", "can_generate"): ApiPropertyContract("boolean", True),
     ("RulePackageStatusResponse", "package_executable"): ApiPropertyContract("boolean", True),
-    ("RulePackageStatusResponse", "blockers"): ApiPropertyContract("array", False),
+    ("RulePackageStatusResponse", "blockers"): ApiPropertyContract("array", True),
+    ("RulePackageStatusResponse", "review_summary"): ApiPropertyContract("object", True),
+    ("RulePackageStatusResponse", "kmai_compatibility"): ApiPropertyContract("object", True),
+    ("RulePackageStatusRoute", "id"): ApiPropertyContract("integer", True),
+    ("RulePackageStatusRoute", "version"): ApiPropertyContract("integer", True),
+    ("RulePackageStatusPackage", "id"): ApiPropertyContract("integer", True),
+    ("RulePackageStatusPackage", "version"): ApiPropertyContract("integer", True),
+    ("RulePackageStatusPackage", "route_version_id"): ApiPropertyContract(
+        "integer", False, nullable=True
+    ),
+    ("RulePackageStatusPackage", "schema_version"): ApiPropertyContract("string", True),
+    ("RulePackageStatusPackage", "content_hash"): ApiPropertyContract("string", True),
+    ("RulePackageStatusPackage", "status"): ApiPropertyContract(
+        "string", True, enum_name="RulePackageStatus"
+    ),
     ("RulePackageStatusBlocker", "code"): ApiPropertyContract(
         "string", True, enum_name="RulePackageStatusBlockerCode"
     ),
+    ("RulePackageStatusBlocker", "message"): ApiPropertyContract("string", True),
     ("RulePackageStatusBlocker", "blocks"): ApiPropertyContract(
         "array", True, enum_name="WorkflowCapability"
+    ),
+    ("RulePackageStatusBlocker", "count"): ApiPropertyContract(
+        "integer", False, nullable=True
+    ),
+    ("RulePackageReviewSummary", "total"): ApiPropertyContract("integer", False, default=0),
+    ("RulePackageReviewSummary", "confirmed"): ApiPropertyContract("integer", False, default=0),
+    ("RulePackageReviewSummary", "pending"): ApiPropertyContract("integer", False, default=0),
+    ("RulePackageReviewSummary", "invalid_factor_bindings"): ApiPropertyContract(
+        "integer", False, default=0
+    ),
+    ("RulePackageKmaiSummary", "available"): ApiPropertyContract("boolean", False, default=False),
+    ("RulePackageKmaiSummary", "valid"): ApiPropertyContract("boolean", False, default=False),
+    ("RulePackageKmaiSummary", "error_count"): ApiPropertyContract("integer", False, default=0),
+    ("RulePackageKmaiSummary", "warning_count"): ApiPropertyContract("integer", False, default=0),
+    ("RulePackageKmaiSummary", "factor_catalog_version"): ApiPropertyContract(
+        "string", False, default=""
     ),
 }
 
@@ -232,6 +268,55 @@ def validate_openapi_contract(openapi: dict[str, Any]) -> list[str]:
     return errors
 
 
+FRONTEND_STATUS_DTOS = (
+    "RulePackageStatusRoute",
+    "RulePackageStatusPackage",
+    "RulePackageStatusBlocker",
+    "RulePackageReviewSummary",
+    "RulePackageKmaiSummary",
+    "RulePackageStatusResponse",
+)
+
+_TS_PRIMITIVES = {
+    "integer": "number",
+    "number": "number",
+    "string": "string",
+    "boolean": "boolean",
+    "object": "object",
+}
+
+
+def _ts_property_type(openapi: dict[str, Any], schema: dict[str, Any]) -> str:
+    non_null = _non_null_schema(schema)
+    ref = non_null.get("$ref")
+    if isinstance(ref, str):
+        base = ref.rsplit("/", 1)[-1]
+    elif non_null.get("type") == "array":
+        base = f"{_ts_property_type(openapi, non_null.get('items', {}))}[]"
+    else:
+        base = _TS_PRIMITIVES.get(str(non_null.get("type")), "unknown")
+    return f"{base} | null" if _is_nullable(schema) else base
+
+
+def _render_status_dtos(openapi: dict[str, Any]) -> list[str]:
+    schemas = _schemas(openapi)
+    lines: list[str] = []
+    for schema_name in FRONTEND_STATUS_DTOS:
+        schema = schemas.get(schema_name)
+        if not isinstance(schema, dict):
+            raise ValueError(f"OpenAPI schema {schema_name} is missing for the frontend DTO contract")
+        required = set(schema.get("required", []))
+        lines.append(f"export interface {schema_name} {{")
+        for property_name, property_schema in schema.get("properties", {}).items():
+            marker = "" if property_name in required else "?"
+            lines.append(
+                f"  {property_name}{marker}: {_ts_property_type(openapi, property_schema)}"
+            )
+        lines.append("}")
+        lines.append("")
+    return lines
+
+
 def render_frontend_status_contract(openapi: dict[str, Any]) -> str:
     lines = [
         "// Generated by scripts/check_api_contract.py --write. Do not edit by hand.",
@@ -247,4 +332,5 @@ def render_frontend_status_contract(openapi: dict[str, Any]) -> str:
         lines.append("] as const")
         lines.append(f"export type {schema_name} = typeof {const_name}[number]")
         lines.append("")
+    lines.extend(_render_status_dtos(openapi))
     return "\n".join(lines)

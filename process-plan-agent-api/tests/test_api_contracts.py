@@ -269,6 +269,44 @@ def test_contract_validator_reports_missing_enum_attachment(schema_name, propert
     assert any(f"{schema_name}.{property_name}" in error for error in errors)
 
 
+@pytest.mark.parametrize(
+    ("schema_name", "property_name"),
+    (
+        ("RulePackageStatusResponse", "project_id"),
+        ("RulePackageStatusResponse", "route"),
+        ("RulePackageStatusResponse", "latest_package"),
+        ("RulePackageStatusResponse", "review_summary"),
+        ("RulePackageStatusResponse", "kmai_compatibility"),
+        ("RulePackageStatusRoute", "id"),
+        ("RulePackageStatusRoute", "version"),
+        ("RulePackageStatusPackage", "id"),
+        ("RulePackageStatusPackage", "version"),
+        ("RulePackageStatusPackage", "route_version_id"),
+        ("RulePackageStatusPackage", "schema_version"),
+        ("RulePackageStatusPackage", "content_hash"),
+        ("RulePackageStatusPackage", "status"),
+        ("RulePackageStatusBlocker", "message"),
+        ("RulePackageStatusBlocker", "count"),
+        ("RulePackageReviewSummary", "total"),
+        ("RulePackageReviewSummary", "confirmed"),
+        ("RulePackageReviewSummary", "pending"),
+        ("RulePackageReviewSummary", "invalid_factor_bindings"),
+        ("RulePackageKmaiSummary", "available"),
+        ("RulePackageKmaiSummary", "valid"),
+        ("RulePackageKmaiSummary", "error_count"),
+        ("RulePackageKmaiSummary", "warning_count"),
+        ("RulePackageKmaiSummary", "factor_catalog_version"),
+    ),
+)
+def test_contract_validator_covers_full_status_response_dto(schema_name, property_name):
+    drifted = deepcopy(app.openapi())
+    del drifted["components"]["schemas"][schema_name]["properties"][property_name]
+
+    errors = validate_openapi_contract(drifted)
+
+    assert any(f"missing OpenAPI property {schema_name}.{property_name}" in error for error in errors)
+
+
 def test_generated_frontend_status_contract_matches_openapi():
     generated_path = (
         Path(__file__).resolve().parents[2]

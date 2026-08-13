@@ -87,7 +87,11 @@ async def _review_summary(
     confirmed = [
         row
         for row in relevant
-        if row.condition_status == "confirmed" and row.condition_confirmed_json
+        if (
+            row.condition_status == "confirmed"
+            and row.condition_confirmed_json
+            and loads_candidate(row.condition_confirmed_json) is not None
+        )
     ]
     invalid_binding_count = 0
     for row in confirmed:

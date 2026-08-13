@@ -436,14 +436,14 @@ class RulePackageStatusResponse(StrictModel):
     project_id: int
     project_status: ProjectStatus
     workflow_revision: int
-    route: RulePackageStatusRoute | None = None
-    latest_package: RulePackageStatusPackage | None = None
+    route: RulePackageStatusRoute | None
+    latest_package: RulePackageStatusPackage | None
     can_publish: bool
     can_generate: bool
     package_executable: bool
-    blockers: list[RulePackageStatusBlocker] = Field(default_factory=list)
-    review_summary: RulePackageReviewSummary = Field(default_factory=RulePackageReviewSummary)
-    kmai_compatibility: RulePackageKmaiSummary = Field(default_factory=RulePackageKmaiSummary)
+    blockers: list[RulePackageStatusBlocker]
+    review_summary: RulePackageReviewSummary
+    kmai_compatibility: RulePackageKmaiSummary
 
 
 ConditionNode.model_rebuild()

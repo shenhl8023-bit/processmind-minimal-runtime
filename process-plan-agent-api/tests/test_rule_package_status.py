@@ -216,6 +216,14 @@ async def _stored_package_status(session_factory, package_id: int) -> str:
         )).scalar_one()
 
 
+async def _set_project_status(session_factory, status: str) -> None:
+    async with session_factory() as db:
+        project = await db.get(Project, 12)
+        assert project is not None
+        project.status = status
+        await db.commit()
+
+
 async def _seed_confirmed_review_with_unbound_factor(session_factory) -> None:
     candidate = {
         "kind": "condition",
@@ -236,6 +244,50 @@ async def _seed_confirmed_review_with_unbound_factor(session_factory) -> None:
         candidate=candidate,
         confirmed=True,
     )
+
+
+async def _seed_route_review_and_published_v2(
+    session_factory,
+    payload: dict,
+    *,
+    condition_status: str,
+    candidate: dict | None = None,
+    confirmed: bool = False,
+) -> int:
+    await _seed_route(session_factory)
+    review_candidate = candidate or {
+        "kind": "condition",
+        "when": {
+            "field": "precision.grades",
+            "op": "contains",
+            "value": "孔精加工",
+            "factor_id": "precision.hole_finish",
+        },
+        "then": {
+            "include_process_ids": ["process_quench"],
+            "exclude_process_ids": [],
+        },
+    }
+    raw = json.dumps(review_candidate, ensure_ascii=False)
+    async with session_factory() as db:
+        db.add(NormalizedRouteSegmentRuleReview(
+            project_id=12,
+            route_version_id=31,
+            segment_id="process_quench",
+            decision="accepted",
+            note="",
+            summary_json="[]",
+            question_trail_json="[]",
+            condition_source_text="满足条件时纳入淬火",
+            condition_status=condition_status,
+            condition_candidate_json=raw,
+            condition_confirmed_json=raw if confirmed else None,
+        ))
+        row = _v2_row(deepcopy(payload))
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+        return row.id
 
 
 async def _seed_current_v1_package(session_factory) -> None:
@@ -513,3 +565,312 @@ def test_rule_package_status_uses_stable_generate_blockers(
         assert body["package_executable"] is True
         assert body["kmai_compatibility"]["available"] is True
         assert body["kmai_compatibility"]["valid"] is False
+
+
+# ---------- 状态矩阵:项目未完成路线提取(project_not_ready) ----------
+
+@pytest.mark.parametrize("project_status", ["CREATED", "UPLOADED", "EXTRACTING", "EXTRACT_ERROR", "FAILED"])
+def test_rule_package_status_blocks_when_project_not_ready(
+    status_context,
+    project_status,
+):
+    client, session_factory = status_context
+    asyncio.run(_set_project_status(session_factory, project_status))
+
+    body = client.get(
+        "/api/extract/finalized-rule-packages/status",
+        params={"project_id": 12},
+    ).json()
+
+    assert [item["code"] for item in body["blockers"]] == [
+        "project_not_ready",
+        "route_missing",
+        "no_published_package",
+    ]
+    assert body["can_publish"] is False
+    assert body["can_generate"] is False
+    assert body["package_executable"] is False
+
+
+@pytest.mark.parametrize("project_status", ["CREATED", "UPLOADED", "EXTRACTING", "EXTRACT_ERROR", "FAILED"])
+def test_rule_package_status_keeps_package_executable_when_project_not_ready(
+    status_context,
+    rule_package_v2_payload,
+    project_status,
+):
+    client, session_factory = status_context
+    asyncio.run(_set_project_status(session_factory, project_status))
+    asyncio.run(_seed_valid_published_v2(session_factory, rule_package_v2_payload))
+
+    body = client.get(
+        "/api/extract/finalized-rule-packages/status",
+        params={"project_id": 12},
+    ).json()
+
+    assert [item["code"] for item in body["blockers"]] == ["project_not_ready"]
+    assert body["can_publish"] is False
+    assert body["can_generate"] is False
+    assert body["package_executable"] is True
+
+
+@pytest.mark.parametrize("project_status", ["ROUTE_SET_READY", "GENERATED"])
+def test_rule_package_status_allows_publish_for_each_publishable_status(
+    status_context,
+    rule_package_v2_payload,
+    project_status,
+):
+    client, session_factory = status_context
+    if project_status != "ROUTE_SET_READY":
+        asyncio.run(_set_project_status(session_factory, project_status))
+    asyncio.run(_seed_valid_published_v2(session_factory, rule_package_v2_payload))
+
+    body = client.get(
+        "/api/extract/finalized-rule-packages/status",
+        params={"project_id": 12},
+    ).json()
+
+    assert "project_not_ready" not in [item["code"] for item in body["blockers"]]
+    assert body["can_publish"] is True
+    assert body["can_generate"] is True
+    assert body["package_executable"] is True
+
+
+# ---------- 状态矩阵:confirmed 规则确认内容无法解析(视为待确认,阻塞发布) ----------
+
+def test_rule_package_status_treats_unparseable_confirmed_rule_as_pending(
+    status_context,
+):
+    client, session_factory = status_context
+    # confirmed_json 是合法 JSON 但无法通过 RuleConditionCandidate schema 校验,
+    # loads_candidate 返回 None —— 该确认不可信,必须按待确认处理而非已确认。
+    asyncio.run(_seed_route_review(
+        session_factory,
+        condition_status="confirmed",
+        candidate={"malformed": True},
+        confirmed=True,
+    ))
+
+    body = client.get(
+        "/api/extract/finalized-rule-packages/status",
+        params={"project_id": 12},
+    ).json()
+
+    assert body["review_summary"] == {
+        "total": 1,
+        "confirmed": 0,
+        "pending": 1,
+        "invalid_factor_bindings": 0,
+    }
+    assert [item["code"] for item in body["blockers"]] == [
+        "pending_rule_reviews",
+        "no_published_package",
+    ]
+    assert body["can_publish"] is False
+    assert body["can_generate"] is False
+    assert body["package_executable"] is False
+
+
+def test_rule_package_status_counts_parsed_non_condition_confirmation_as_confirmed(
+    status_context,
+):
+    client, session_factory = status_context
+    # 合法的 process_relation 确认(可解析但 kind != condition)仍计入 confirmed,
+    # 不进入无效绑定检查、不阻塞发布。
+    candidate = {
+        "kind": "process_relation",
+        "relation": {
+            "relation_type": "order_after",
+            "source_process_ids": ["process_quench"],
+            "target_process_ids": ["process_prepare"],
+        },
+    }
+    asyncio.run(_seed_route_review(
+        session_factory,
+        condition_status="confirmed",
+        candidate=candidate,
+        confirmed=True,
+    ))
+
+    body = client.get(
+        "/api/extract/finalized-rule-packages/status",
+        params={"project_id": 12},
+    ).json()
+
+    assert body["review_summary"] == {
+        "total": 1,
+        "confirmed": 1,
+        "pending": 0,
+        "invalid_factor_bindings": 0,
+    }
+    assert [item["code"] for item in body["blockers"]] == ["no_published_package"]
+    assert body["can_publish"] is True
+    assert body["can_generate"] is False
+    assert body["package_executable"] is False
+
+
+# ---------- 状态矩阵:能力组合断言 ----------
+
+@pytest.mark.parametrize(
+    ("scenario", "expected_blockers", "expected_triple"),
+    [
+        ("route_only", ["no_published_package"], (True, False, False)),
+        (
+            "pending_review",
+            ["pending_rule_reviews", "no_published_package"],
+            (False, False, False),
+        ),
+        (
+            "invalid_factor_binding",
+            ["invalid_factor_bindings", "no_published_package"],
+            (False, False, False),
+        ),
+        # 发布专属 blocker 必须只阻塞 publish,不能连带阻塞 generate:
+        # 已发布包可用(package_executable=True)但发布被审核/绑定问题阻塞。
+        (
+            "pending_review_published",
+            ["pending_rule_reviews"],
+            (False, True, True),
+        ),
+        (
+            "invalid_binding_published",
+            ["invalid_factor_bindings"],
+            (False, True, True),
+        ),
+        ("valid_v2", [], (True, True, True)),
+        ("source_drift", ["published_rule_sources_changed"], (True, False, False)),
+        ("route_changed", ["published_package_route_changed"], (True, False, False)),
+        ("malformed_v2", ["published_package_invalid"], (True, False, False)),
+        ("invalid_v2", ["published_package_invalid"], (True, False, False)),
+        ("kmai_invalid", ["kmai_incompatible"], (True, False, True)),
+        ("current_v1", [], (True, True, True)),
+    ],
+)
+def test_rule_package_status_capability_matrix(
+    status_context,
+    rule_package_v2_payload,
+    scenario,
+    expected_blockers,
+    expected_triple,
+):
+    client, session_factory = status_context
+    if scenario == "route_only":
+        asyncio.run(_seed_route(session_factory))
+    elif scenario == "pending_review":
+        asyncio.run(_seed_route_review(
+            session_factory,
+            condition_status="pending_confirmation",
+        ))
+    elif scenario == "invalid_factor_binding":
+        asyncio.run(_seed_confirmed_review_with_unbound_factor(session_factory))
+    elif scenario == "pending_review_published":
+        asyncio.run(_seed_route_review_and_published_v2(
+            session_factory,
+            rule_package_v2_payload,
+            condition_status="pending_confirmation",
+        ))
+    elif scenario == "invalid_binding_published":
+        asyncio.run(_seed_route_review_and_published_v2(
+            session_factory,
+            rule_package_v2_payload,
+            condition_status="confirmed",
+            candidate={
+                "kind": "condition",
+                "when": {
+                    "field": "precision.grades",
+                    "op": "contains",
+                    "value": "孔精加工",
+                    "factor_id": "precision.removed_factor",
+                },
+                "then": {
+                    "include_process_ids": ["process_quench"],
+                    "exclude_process_ids": [],
+                },
+            },
+            confirmed=True,
+        ))
+    elif scenario == "valid_v2":
+        asyncio.run(_seed_valid_published_v2(session_factory, rule_package_v2_payload))
+    elif scenario == "source_drift":
+        asyncio.run(_seed_source_drifted_v2(session_factory, rule_package_v2_payload))
+    elif scenario == "current_v1":
+        asyncio.run(_seed_current_v1_package(session_factory))
+    else:
+        asyncio.run(_seed_status_scenario(session_factory, rule_package_v2_payload, scenario))
+
+    body = client.get(
+        "/api/extract/finalized-rule-packages/status",
+        params={"project_id": 12},
+    ).json()
+
+    assert [item["code"] for item in body["blockers"]] == expected_blockers
+    assert (
+        body["can_publish"],
+        body["can_generate"],
+        body["package_executable"],
+    ) == expected_triple
+
+    if scenario == "valid_v2":
+        assert body["route"] == {"id": 31, "version": 1}
+        assert body["latest_package"]["id"] > 0
+        assert body["latest_package"]["version"] == 1
+        assert body["latest_package"]["route_version_id"] == 31
+        assert body["latest_package"]["schema_version"] == "2.0"
+        assert body["latest_package"]["status"] == "published"
+        assert body["latest_package"]["content_hash"]
+        assert body["kmai_compatibility"]["available"] is True
+        assert body["kmai_compatibility"]["valid"] is True
+        assert body["kmai_compatibility"]["factor_catalog_version"]
+    elif scenario in ("pending_review_published", "invalid_binding_published"):
+        # 发布专属 blocker 只阻塞 publish,不能阻塞 generate。
+        assert [item["blocks"] for item in body["blockers"]] == [["publish"]]
+    elif scenario == "kmai_invalid":
+        assert body["kmai_compatibility"]["available"] is True
+        assert body["kmai_compatibility"]["valid"] is False
+        assert body["kmai_compatibility"]["error_count"] >= 1
+
+
+# ---------- 状态矩阵:latest_package 变体与无路线交叉场景 ----------
+
+def test_rule_package_status_reports_superseded_latest_package_as_history(
+    status_context,
+    rule_package_v2_payload,
+):
+    client, session_factory = status_context
+    asyncio.run(_seed_route_and_package(
+        session_factory,
+        rule_package_v2_payload,
+        package_status="superseded",
+    ))
+
+    body = client.get(
+        "/api/extract/finalized-rule-packages/status",
+        params={"project_id": 12},
+    ).json()
+
+    assert body["latest_package"]["status"] == "superseded"
+    assert body["package_executable"] is False
+    assert body["can_generate"] is False
+    assert "no_published_package" in [item["code"] for item in body["blockers"]]
+
+
+def test_rule_package_status_reports_missing_route_despite_published_package(
+    status_context,
+    rule_package_v2_payload,
+):
+    client, session_factory = status_context
+
+    async def seed() -> None:
+        async with session_factory() as db:
+            db.add(_v2_row(deepcopy(rule_package_v2_payload)))
+            await db.commit()
+
+    asyncio.run(seed())
+    body = client.get(
+        "/api/extract/finalized-rule-packages/status",
+        params={"project_id": 12},
+    ).json()
+
+    assert [item["code"] for item in body["blockers"]] == ["route_missing"]
+    assert body["can_publish"] is False
+    assert body["can_generate"] is False
+    assert body["package_executable"] is False
