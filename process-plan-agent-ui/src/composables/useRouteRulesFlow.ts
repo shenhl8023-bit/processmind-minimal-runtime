@@ -14,6 +14,7 @@ import { canLoadRouteMergeWorkspace } from '@/composables/extractViewHelpers'
 type UseRouteRulesFlowOptions = {
   projectId: Ref<number | null>
   projectStatus: Ref<string>
+  workflowRevision: Ref<number>
   routeWorkspaceLoading: Ref<boolean>
   routes: Ref<OperationItem[]>
   routeMergeGroups: Ref<RouteMergeGroup[]>
@@ -183,6 +184,7 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
     errorMsg.value = ''
     try {
       const task = await apiStartExtraction(options.projectId.value, forceReextract)
+      options.workflowRevision.value = task.workflow_revision
       if (forceReextract) {
         clearProjectQuestionTreeStorage(options.projectId.value)
         publishWorkflowReset({

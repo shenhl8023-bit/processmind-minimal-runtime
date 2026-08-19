@@ -609,6 +609,7 @@ const {
 } = useRouteRulesFlow({
   projectId,
   projectStatus,
+  workflowRevision,
   routeWorkspaceLoading,
   routes,
   routeMergeGroups,
