@@ -83,6 +83,7 @@ async def _seed_route_review(
     condition_status: str,
     candidate: dict | None = None,
     confirmed: bool = False,
+    source_text: str = "满足条件时纳入淬火",
 ) -> None:
     await _seed_route(session_factory)
     payload = candidate or {
@@ -108,7 +109,7 @@ async def _seed_route_review(
             note="",
             summary_json="[]",
             question_trail_json="[]",
-            condition_source_text="满足条件时纳入淬火",
+            condition_source_text=source_text,
             condition_status=condition_status,
             condition_candidate_json=raw,
             condition_confirmed_json=raw if confirmed else None,
@@ -406,6 +407,31 @@ def test_rule_package_status_reports_each_persisted_pending_review(
     }
     assert "pending_rule_reviews" in [item["code"] for item in body["blockers"]]
     assert body["can_publish"] is False
+
+
+def test_rule_package_status_does_not_block_on_persisted_mainline_instruction(
+    status_context,
+):
+    client, session_factory = status_context
+    asyncio.run(_seed_route_review(
+        session_factory,
+        condition_status="draft",
+        source_text='设置为主工序，始终纳入“淬火”工序。',
+    ))
+
+    body = client.get(
+        "/api/extract/finalized-rule-packages/status",
+        params={"project_id": 12},
+    ).json()
+
+    assert body["review_summary"] == {
+        "total": 0,
+        "confirmed": 0,
+        "pending": 0,
+        "invalid_factor_bindings": 0,
+    }
+    assert "pending_rule_reviews" not in [item["code"] for item in body["blockers"]]
+    assert body["can_publish"] is True
 
 
 def test_rule_package_status_returns_archived_latest_package_as_history(

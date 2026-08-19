@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +27,29 @@ from app.services.rule_packages.kmai_export import build_kmai_compatibility_expo
 from app.services.rule_packages.loader import load_published_rule_package
 from app.services.rule_packages.publishing import PUBLISHABLE_PROJECT_STATUSES
 from app.services.rule_packages.standard_factors import validate_factor_bindings
+
+
+def _is_mainline_instruction(source_text: str | None) -> bool:
+    text = str(source_text or "").strip()
+    if not text or re.search(r"(?:可选|视情况|按需|条件满足|不一定|可能)", text):
+        return False
+    return bool(
+        re.search(
+            r"(?:主工序|主线工序|基础工序|固定工序|必经工序).{0,12}"
+            r"(?:保留|固定|不参与条件|始终|无条件|默认|必经)",
+            text,
+        )
+        or re.search(
+            r"(?:设为|设置为|设定为|指定为|作为|标记为|固定为|保留为|调整为|改为)"
+            r".{0,12}(?:主工序|主线工序|基础工序|固定工序|必经工序)",
+            text,
+        )
+        or re.search(
+            r"(?:该|此|本)?(?:工序|步骤).{0,10}(?:为|属于|作为).{0,10}"
+            r"(?:主工序|主线工序|基础工序|固定工序|必经工序)",
+            text,
+        )
+    )
 
 
 def _blocker(
@@ -82,7 +107,7 @@ async def _review_summary(
             row.condition_source_text
             or row.condition_candidate_json
             or row.condition_confirmed_json
-        )
+        ) and not _is_mainline_instruction(row.condition_source_text)
     ]
     confirmed = [
         row
