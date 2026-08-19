@@ -443,6 +443,15 @@ class SupersetRouteOut(BaseModel):
     superset_route: List[OperationOut] = []
 
 
+class RouteMergeWorkspaceOut(BaseModel):
+    project_id: int
+    superset_route: List[OperationOut] = []
+    merge_suggestions: List[MergeSuggestionOut] = []
+    normalized_superset_route: List[NormalizedRouteSegmentOut] = []
+    source_signature: str = ""
+    algo_version: str = ""
+
+
 class MergeSuggestionReviewRequest(BaseModel):
     project_id: int
     expected_workflow_revision: int = 0

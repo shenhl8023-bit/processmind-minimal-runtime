@@ -1,12 +1,13 @@
 import { nextTick, ref, type ComputedRef, type Ref } from 'vue'
 import {
-  getMergeSuggestions,
-  getNormalizedSupersetRoute,
-  getSupersetRoute,
+  getRouteMergeWorkspace,
   reviewMergeSuggestion,
   saveNormalizedSupersetRoute,
   type MergeSuggestion,
+  type MergeSuggestionResult,
+  type NormalizedSupersetRouteResult,
   type OperationItem,
+  type SupersetRouteResult,
   type TemplateGroupAliasBinding,
 } from '@/api'
 import type { RouteMergeGroup, RouteMergePreviewItem } from '@/composables/useRouteMergeResultWorkspace'
@@ -53,9 +54,9 @@ type UseRouteMergeWorkspaceOptions = {
 }
 
 type RouteMergeWorkspaceSnapshot = {
-  supersetResult: Awaited<ReturnType<typeof getSupersetRoute>>
-  mergeResult: Awaited<ReturnType<typeof getMergeSuggestions>>
-  normalizedResult: Awaited<ReturnType<typeof getNormalizedSupersetRoute>>
+  supersetResult: SupersetRouteResult
+  mergeResult: MergeSuggestionResult
+  normalizedResult: NormalizedSupersetRouteResult
 }
 
 function routeMergeWorkspaceCacheKey(projectId: number | string) {
@@ -170,15 +171,24 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
   }
 
   async function fetchRouteMergeWorkspace(projectId: number, forceRefresh = false) {
-    const [supersetResult, mergeResult, normalizedResult] = await Promise.all([
-      getSupersetRoute(projectId, forceRefresh),
-      getMergeSuggestions(projectId, forceRefresh),
-      getNormalizedSupersetRoute(projectId, forceRefresh),
-    ])
+    const workspace = await getRouteMergeWorkspace(projectId, forceRefresh)
     return {
-      supersetResult,
-      mergeResult,
-      normalizedResult,
+      supersetResult: {
+        project_id: workspace.project_id,
+        superset_route: workspace.superset_route,
+      },
+      mergeResult: {
+        project_id: workspace.project_id,
+        merge_suggestions: workspace.merge_suggestions,
+        source_signature: workspace.source_signature,
+        algo_version: workspace.algo_version,
+      },
+      normalizedResult: {
+        project_id: workspace.project_id,
+        normalized_superset_route: workspace.normalized_superset_route,
+        source_signature: workspace.source_signature,
+        algo_version: workspace.algo_version,
+      },
     }
   }
 

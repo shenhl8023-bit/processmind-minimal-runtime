@@ -176,6 +176,15 @@ export interface NormalizedSupersetRouteResult {
   algo_version: string
 }
 
+export interface RouteMergeWorkspaceResult {
+  project_id: number
+  superset_route: OperationItem[]
+  merge_suggestions: MergeSuggestion[]
+  normalized_superset_route: NormalizedRouteSegment[]
+  source_signature: string
+  algo_version: string
+}
+
 export interface SavedRouteCoverage {
   hit_docs: number
   total_docs: number
@@ -342,6 +351,19 @@ export async function getSupersetRoute(projectId: number, forceRefresh = false) 
   const requestRevision = getWorkflowDataRevision()
   const { data } = await api.get('/api/extract/superset-route', { params: { project_id: projectId } })
   const result = data as SupersetRouteResult
+  setWorkflowDataCache(cacheKey, result, requestRevision)
+  return result
+}
+
+export async function getRouteMergeWorkspace(projectId: number, forceRefresh = false) {
+  const cacheKey = `api:extract:route-merge-workspace:${projectId}`
+  if (!forceRefresh) {
+    const cached = getWorkflowDataCache<RouteMergeWorkspaceResult>(cacheKey)
+    if (cached) return cached
+  }
+  const requestRevision = getWorkflowDataRevision()
+  const { data } = await api.get('/api/extract/route-merge-workspace', { params: { project_id: projectId } })
+  const result = data as RouteMergeWorkspaceResult
   setWorkflowDataCache(cacheKey, result, requestRevision)
   return result
 }

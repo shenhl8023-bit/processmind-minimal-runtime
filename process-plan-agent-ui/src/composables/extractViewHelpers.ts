@@ -675,3 +675,6 @@ export function displayFactorLabel(value?: string) {
   if (text === 'roughness') return '表面粗糙度 / 表面质量要求'
   return text
 }
+export function canLoadRouteMergeWorkspace(status?: string | null) {
+  return status === 'ROUTE_SET_READY' || status === 'GENERATED'
+}

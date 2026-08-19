@@ -9,9 +9,11 @@ import {
 import type { RouteMergeGroup } from '@/composables/useRouteMergeResultWorkspace'
 import { clearProjectQuestionTreeStorage } from '@/composables/analysisQuestionTreeState'
 import { publishWorkflowReset } from '@/composables/workflowResetState'
+import { canLoadRouteMergeWorkspace } from '@/composables/extractViewHelpers'
 
 type UseRouteRulesFlowOptions = {
   projectId: Ref<number | null>
+  projectStatus: Ref<string>
   routeWorkspaceLoading: Ref<boolean>
   routes: Ref<OperationItem[]>
   routeMergeGroups: Ref<RouteMergeGroup[]>
@@ -86,7 +88,10 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
   }
 
   async function loadRouteRulesResults(forceRefresh = false) {
-    if (!options.projectId.value) return
+    if (!options.projectId.value || !canLoadRouteMergeWorkspace(options.projectStatus.value)) {
+      options.routeWorkspaceLoading.value = false
+      return false
+    }
     options.routeWorkspaceLoading.value = true
     status.value = 'done'
     extractTask.value = {
@@ -114,10 +119,12 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
       const loaded = await options.loadRouteMergeWorkspaceFromBackend(true, forceRefresh)
       if (!loaded) throw new Error('路线归并工作台加载失败，请刷新后重试。')
       extractTask.value = null
+      return true
     } catch (e: any) {
       console.error('加载路线归并结果失败', e)
       errorMsg.value = e?.response?.data?.detail || e?.message || '加载路线归并结果失败'
       status.value = 'error'
+      return false
     } finally {
       options.routeWorkspaceLoading.value = false
     }
@@ -129,6 +136,7 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
       const task = await getExtractTaskStatus(options.projectId.value)
       extractTaskPollRetryCount = 0
       extractTask.value = task
+      if (task.project_status) options.projectStatus.value = String(task.project_status)
       if (task.task_status === 'completed') {
         stopExtractTaskPolling()
         await loadRouteRulesResults()

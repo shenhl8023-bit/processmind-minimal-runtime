@@ -36,6 +36,7 @@ from app.schemas.schemas import (
     SavedNormalizedRouteVersionOut,
     SaveSegmentRuleReviewRequest,
     SaveNormalizedSupersetRouteRequest,
+    RouteMergeWorkspaceOut,
     SupersetRouteOut,
     WorkflowResetOut,
     WorkflowResetRequest,
@@ -113,6 +114,13 @@ async def _ensure_project_exists(project_id: int, db: AsyncSession) -> Project:
     project = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
     if not project:
         raise HTTPException(404, "任务不存在")
+    return project
+
+
+async def _ensure_route_merge_ready(project_id: int, db: AsyncSession) -> Project:
+    project = await _ensure_project_exists(project_id, db)
+    if project.status not in {"ROUTE_SET_READY", "GENERATED"}:
+        raise HTTPException(409, "工艺路线全集尚未生成，请先完成第二步提炼。")
     return project
 
 
@@ -295,6 +303,7 @@ async def get_document_operation_details(
     operation_name: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
+    await _ensure_route_merge_ready(project_id, db)
     await _ensure_document_operation_details(db, project_id)
     stmt = select(DocumentOperationDetail).where(DocumentOperationDetail.project_id == project_id)
     if document_id is not None:
@@ -316,6 +325,7 @@ async def get_document_operation_details(
 
 @router.get("/superset-route", response_model=SupersetRouteOut)
 async def get_superset_route(project_id: int, db: AsyncSession = Depends(get_db)):
+    await _ensure_route_merge_ready(project_id, db)
     ops = await _list_superset_route_tree(project_id=project_id, db=db)
     return {
         "project_id": project_id,
@@ -326,6 +336,7 @@ async def get_superset_route(project_id: int, db: AsyncSession = Depends(get_db)
 @router.get("/merge-suggestions", response_model=MergeSuggestionListOut)
 async def get_merge_suggestions(project_id: int, db: AsyncSession = Depends(get_db)):
     try:
+        await _ensure_route_merge_ready(project_id, db)
         snapshot = await _ensure_project_route_merge_snapshot(project_id, db)
         response = {
             "project_id": project_id,
@@ -343,9 +354,30 @@ async def get_merge_suggestions(project_id: int, db: AsyncSession = Depends(get_
 @router.get("/normalized-superset-route", response_model=NormalizedSupersetRouteOut)
 async def get_normalized_superset_route(project_id: int, db: AsyncSession = Depends(get_db)):
     try:
+        await _ensure_route_merge_ready(project_id, db)
         snapshot = await _ensure_project_route_merge_snapshot(project_id, db)
         response = {
             "project_id": project_id,
+            "normalized_superset_route": snapshot.get("normalized_superset_route") or [],
+            "source_signature": str(snapshot.get("source_signature") or ""),
+            "algo_version": ROUTE_MERGE_ALGO_VERSION,
+        }
+        await db.commit()
+        return response
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.get("/route-merge-workspace", response_model=RouteMergeWorkspaceOut)
+async def get_route_merge_workspace(project_id: int, db: AsyncSession = Depends(get_db)):
+    try:
+        await _ensure_route_merge_ready(project_id, db)
+        snapshot = await _ensure_project_route_merge_snapshot(project_id, db)
+        response = {
+            "project_id": project_id,
+            "superset_route": snapshot.get("superset_route") or [],
+            "merge_suggestions": snapshot.get("merge_suggestions") or [],
             "normalized_superset_route": snapshot.get("normalized_superset_route") or [],
             "source_signature": str(snapshot.get("source_signature") or ""),
             "algo_version": ROUTE_MERGE_ALGO_VERSION,
@@ -362,7 +394,7 @@ async def get_saved_normalized_route(project_id: int, db: AsyncSession = Depends
     # Check the parent first.  Otherwise a stale browser project_id reaches the
     # snapshot writer and SQLite reports a misleading foreign-key 500.
     try:
-        await _ensure_project_exists(project_id, db)
+        await _ensure_route_merge_ready(project_id, db)
         await _ensure_project_route_merge_snapshot(project_id, db)
         version_row = await ensure_saved_normalized_route_version(
             project_id,

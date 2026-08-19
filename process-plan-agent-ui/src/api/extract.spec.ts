@@ -16,6 +16,7 @@ vi.mock('@/composables/workflowDataCache', () => ({
 }))
 
 import { api } from './client'
+import * as extractApi from './extract'
 import {
   getOptionalLatestFinalizedRulePackage,
   reviewMergeSuggestion,
@@ -77,5 +78,18 @@ describe('getOptionalLatestFinalizedRulePackage', () => {
       '/api/extract/merge-suggestions/review',
       expect.objectContaining({ project_id: 7, expected_workflow_revision: 12 }),
     )
+  })
+
+  it('loads the complete route merge workspace in one request', async () => {
+    const getRouteMergeWorkspace = (extractApi as any).getRouteMergeWorkspace
+    expect(getRouteMergeWorkspace).toBeTypeOf('function')
+    apiGetMock.mockResolvedValue({ data: { project_id: 7 } } as never)
+
+    await getRouteMergeWorkspace(7, true)
+
+    expect(apiGetMock).toHaveBeenCalledOnce()
+    expect(apiGetMock).toHaveBeenCalledWith('/api/extract/route-merge-workspace', {
+      params: { project_id: 7 },
+    })
   })
 })

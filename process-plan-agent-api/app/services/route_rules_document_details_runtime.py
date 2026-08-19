@@ -4,6 +4,7 @@ route_rules_runtime 的文档工序明细抽取与缓存复用逻辑。
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections import defaultdict
 from collections.abc import Callable
@@ -15,6 +16,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.paths import UPLOAD_DIR
 from app.models.models import Document, DocumentOperationDetail
 from app.services.document_operation_details import extract_pdf_operation_details
+
+
+DETAIL_BUILD_LOCKS: dict[int, asyncio.Lock] = {}
+
+
+def get_document_operation_details_lock(project_id: int) -> asyncio.Lock:
+    return DETAIL_BUILD_LOCKS.setdefault(int(project_id), asyncio.Lock())
 
 
 async def extract_document_operation_details(
@@ -70,6 +78,22 @@ async def extract_document_operation_details(
 
 
 async def ensure_document_operation_details(
+    db: AsyncSession,
+    project_id: int,
+    *,
+    extract_document_operation_details_fn: Callable[..., Any],
+    progress_callback: Callable[[str, int], None] | None = None,
+) -> list[DocumentOperationDetail]:
+    async with get_document_operation_details_lock(project_id):
+        return await _ensure_document_operation_details_locked(
+            db,
+            project_id,
+            extract_document_operation_details_fn=extract_document_operation_details_fn,
+            progress_callback=progress_callback,
+        )
+
+
+async def _ensure_document_operation_details_locked(
     db: AsyncSession,
     project_id: int,
     *,
@@ -150,6 +174,9 @@ async def ensure_document_operation_details(
         extracted_rows = await extract_document_operation_details_fn(db, project_id, docs=[doc])
         reusable_rows.extend(extracted_rows)
         modified = True
+        # PDF 解析可能较慢；每份文档落库后立即释放 SQLite 写锁，保证提取任务
+        # 心跳和状态轮询可在下一份文档解析期间续租、更新进度。
+        await db.commit()
 
     if modified:
         await db.commit()
@@ -164,6 +191,8 @@ async def ensure_document_operation_details(
 
 
 __all__ = [
+    "DETAIL_BUILD_LOCKS",
     "ensure_document_operation_details",
     "extract_document_operation_details",
+    "get_document_operation_details_lock",
 ]

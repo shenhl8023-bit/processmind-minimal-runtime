@@ -280,6 +280,7 @@ const route = useRoute()
 const router = useRouter()
 const routes = ref<OperationItem[]>([])
 const projectId = ref<number | null>(null)
+const projectStatus = ref('')
 const workflowRevision = ref(0)
 const routeMergeGroups = ref<RouteMergeGroup[]>([])
 const routeMergeSuggestions = ref<MergeSuggestion[]>([])
@@ -607,6 +608,7 @@ const {
   startExtraction,
 } = useRouteRulesFlow({
   projectId,
+  projectStatus,
   routeWorkspaceLoading,
   routes,
   routeMergeGroups,
@@ -966,6 +968,7 @@ async function initializeExtractView() {
       return
     }
     workflowRevision.value = Number(current.workflow_revision || 0)
+    projectStatus.value = String(current.status || '')
     if (resumeRouteMerge) {
       await loadRouteRulesResults()
       lastInitializedDataRevision.value = getWorkflowDataRevision()
