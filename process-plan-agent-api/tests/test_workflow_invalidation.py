@@ -25,8 +25,12 @@ from app.models.models import (
 from app.services.project_workflow_lifecycle import invalidate_project_workflow
 from app.services.extraction_pipeline import queue_extraction_job
 from app.services.extraction_tasks import EXTRACTION_JOBS, EXTRACTION_RUNNING, EXTRACTION_TASKS
+from app.services.route_merge.workspace import route_merge_source_signature
+from app.services.rule_packages.condition_contracts import RuleConditionCandidate
+from app.services.rule_packages.condition_review_repository import candidate_json
 from app.services.rule_packages.confirmation_validation import require_confirmed_user_rule_sources
 from app.services.rule_packages.contracts import RulePackageV2
+from app.services.rule_packages.standard_factors import STANDARD_FACTOR_CATALOG_VERSION
 
 
 @pytest.fixture
@@ -68,6 +72,7 @@ def workflow_client(tmp_path):
 
     app.dependency_overrides[get_db] = override_get_db
     client = TestClient(app)
+    client.workflow_session_factory = session_factory
     try:
         yield client
     finally:
@@ -256,6 +261,84 @@ def test_saved_route_response_includes_current_workflow_revision(workflow_client
     assert response.json()["workflow_revision"] == 7
 
 
+def test_returning_to_finalize_keeps_segment_review_confirmed_for_export_identity(workflow_client):
+    candidate = RuleConditionCandidate.model_validate({
+        "kind": "condition",
+        "when": {
+            "field": "precision.outer_diameter_it",
+            "op": "lte",
+            "value": 8,
+            "factor_id": "measurement.outer_diameter_it",
+        },
+        "then": {
+            "include_process_ids": ["process_quench"],
+            "exclude_process_ids": [],
+        },
+    })
+    serialized_candidate = candidate_json(candidate)
+    route_items = [{
+        "id": "segment-heat",
+        "normalized_step_name": "淬火",
+    }]
+    source_signature = route_merge_source_signature([], [], [])
+
+    async def prepare_state():
+        async with workflow_client.workflow_session_factory() as db:
+            route = await db.get(NormalizedRouteVersion, 90)
+            route.route_json = json.dumps(route_items, ensure_ascii=False)
+            route.source_signature = source_signature
+            route.segment_count = 1
+            review = (
+                await db.execute(
+                    select(NormalizedRouteSegmentRuleReview).where(
+                        NormalizedRouteSegmentRuleReview.route_version_id == route.id,
+                    )
+                )
+            ).scalar_one()
+            review.segment_id = "segment-heat"
+            review.condition_status = "confirmed"
+            review.condition_candidate_json = serialized_candidate
+            review.condition_confirmed_json = serialized_candidate
+            review.condition_issues_json = "[]"
+            review.condition_field_registry_version = STANDARD_FACTOR_CATALOG_VERSION
+            snapshot = (
+                await db.execute(
+                    select(RouteMergeSnapshot).where(RouteMergeSnapshot.project_id == 9)
+                )
+            ).scalar_one()
+            snapshot.source_signature = source_signature
+            snapshot.superset_route_json = "[]"
+            snapshot.merge_groups_json = "[]"
+            snapshot.merge_suggestions_json = "[]"
+            snapshot.normalized_superset_route_json = json.dumps(route_items, ensure_ascii=False)
+            snapshot.review_state_json = "{}"
+            await db.commit()
+
+    asyncio.run(prepare_state())
+
+    response = workflow_client.get(
+        "/api/extract/saved-normalized-route",
+        params={"project_id": 9},
+    )
+
+    assert response.status_code == 200, response.text
+    segment = response.json()["segments"][0]
+    assert segment["export_process_id"] == "process_quench"
+    assert segment["rule_review"]["condition_review"]["status"] == "confirmed"
+
+    async def read_state():
+        async with workflow_client.workflow_session_factory() as db:
+            review = (
+                await db.execute(select(NormalizedRouteSegmentRuleReview))
+            ).scalar_one()
+            package = (
+                await db.execute(select(FinalizedRulePackage))
+            ).scalar_one()
+            return review.condition_status, package.status
+
+    assert asyncio.run(read_state()) == ("confirmed", "published")
+
+
 def test_workflow_reset_rejects_stale_revision(workflow_client):
     response = workflow_client.post("/api/extract/workflow/reset", json={
         "project_id": 9,
@@ -321,6 +404,109 @@ def test_segment_review_save_rejects_stale_revision(workflow_client):
 
     assert response.status_code == 409
     assert "页面已过期" in str(response.json()["detail"])
+
+
+def test_segment_review_save_commits_current_revision(workflow_client):
+    """Breaks if the route stops committing the review service's staged write."""
+    response = workflow_client.post("/api/extract/segment-rule-reviews", json={
+        "project_id": 9,
+        "route_id": 90,
+        "segment_id": "seg-1",
+        "decision": "accepted",
+        "note": "当前版本审核说明",
+        "summary_lines": ["当前版本答案"],
+        "question_trail": [],
+        "expected_workflow_revision": 7,
+    })
+
+    assert response.status_code == 200
+    assert response.json()["rule_review"]["note"] == "当前版本审核说明"
+
+    async def read_state():
+        async with workflow_client.workflow_session_factory() as db:
+            review = (
+                await db.execute(
+                    select(NormalizedRouteSegmentRuleReview).where(
+                        NormalizedRouteSegmentRuleReview.project_id == 9,
+                        NormalizedRouteSegmentRuleReview.route_version_id == 90,
+                        NormalizedRouteSegmentRuleReview.segment_id == "seg-1",
+                    )
+                )
+            ).scalar_one()
+            return review.note, review.summary_json
+
+    assert asyncio.run(read_state()) == ("当前版本审核说明", '["当前版本答案"]')
+
+
+def test_normalized_route_save_rejects_stale_revision(workflow_client):
+    response = workflow_client.post("/api/extract/normalized-superset-route/save", json={
+        "project_id": 9,
+        "expected_workflow_revision": 6,
+        "normalized_superset_route": [{
+            "id": "seg-1",
+            "normalized_step_name": "旧页面路线",
+            "source_operation_ids": [900],
+            "source_nodes": ["旧页面"],
+        }],
+    })
+
+    assert response.status_code == 409
+    assert "页面已过期" in str(response.json()["detail"])
+
+
+def test_merge_review_rejects_stale_revision(workflow_client):
+    response = workflow_client.post("/api/extract/merge-suggestions/review", json={
+        "project_id": 9,
+        "expected_workflow_revision": 6,
+        "suggestion_id": "stale-page",
+        "action": "accept",
+    })
+
+    assert response.status_code == 409
+    assert "页面已过期" in str(response.json()["detail"])
+
+
+def test_normalized_route_save_rolls_back_snapshot_when_version_save_fails(
+    workflow_client,
+    monkeypatch,
+):
+    """Breaks if a staged snapshot commits before the route version save completes."""
+
+    async def fail_after_snapshot(*_args, **_kwargs):
+        raise RuntimeError("simulated route version failure")
+
+    monkeypatch.setattr(
+        "app.routers.extract.save_normalized_route_version",
+        fail_after_snapshot,
+    )
+
+    with pytest.raises(RuntimeError, match="simulated route version failure"):
+        workflow_client.post("/api/extract/normalized-superset-route/save", json={
+            "project_id": 9,
+            "expected_workflow_revision": 7,
+            "normalized_superset_route": [{
+                "id": "seg-1",
+                "normalized_step_name": "失败保存路线",
+                "source_operation_ids": [900],
+                "source_nodes": ["失败保存"],
+            }],
+        })
+
+    async def read_state():
+        async with workflow_client.workflow_session_factory() as db:
+            snapshot = (
+                await db.execute(
+                    select(RouteMergeSnapshot).where(RouteMergeSnapshot.project_id == 9)
+                )
+            ).scalar_one()
+            route_versions = (
+                await db.execute(
+                    select(NormalizedRouteVersion).where(NormalizedRouteVersion.project_id == 9)
+                )
+            ).scalars().all()
+            return snapshot.normalized_superset_route_json, len(route_versions)
+
+    assert asyncio.run(read_state()) == ("[]", 1)
 
 
 def test_rule_package_publish_rejects_user_rule_that_differs_from_confirmed_ast(

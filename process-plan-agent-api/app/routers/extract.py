@@ -36,6 +36,7 @@ from app.schemas.schemas import (
     SavedNormalizedRouteVersionOut,
     SaveSegmentRuleReviewRequest,
     SaveNormalizedSupersetRouteRequest,
+    RouteMergeWorkspaceOut,
     SupersetRouteOut,
     WorkflowResetOut,
     WorkflowResetRequest,
@@ -100,6 +101,7 @@ from app.services.route_analysis import (
     save_segment_rule_review_record,
 )
 from app.services.operation_review_meta import get_project_sample_count
+from app.services.rule_packages.condition_review_service import migrate_legacy_condition_reviews
 from app.services.project_workflow_lifecycle import (
     acquire_workflow_revision,
     invalidate_project_workflow,
@@ -112,6 +114,13 @@ async def _ensure_project_exists(project_id: int, db: AsyncSession) -> Project:
     project = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
     if not project:
         raise HTTPException(404, "任务不存在")
+    return project
+
+
+async def _ensure_route_merge_ready(project_id: int, db: AsyncSession) -> Project:
+    project = await _ensure_project_exists(project_id, db)
+    if project.status not in {"ROUTE_SET_READY", "GENERATED"}:
+        raise HTTPException(409, "工艺路线全集尚未生成，请先完成第二步提炼。")
     return project
 
 
@@ -294,6 +303,7 @@ async def get_document_operation_details(
     operation_name: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
+    await _ensure_route_merge_ready(project_id, db)
     await _ensure_document_operation_details(db, project_id)
     stmt = select(DocumentOperationDetail).where(DocumentOperationDetail.project_id == project_id)
     if document_id is not None:
@@ -315,6 +325,7 @@ async def get_document_operation_details(
 
 @router.get("/superset-route", response_model=SupersetRouteOut)
 async def get_superset_route(project_id: int, db: AsyncSession = Depends(get_db)):
+    await _ensure_route_merge_ready(project_id, db)
     ops = await _list_superset_route_tree(project_id=project_id, db=db)
     return {
         "project_id": project_id,
@@ -324,40 +335,81 @@ async def get_superset_route(project_id: int, db: AsyncSession = Depends(get_db)
 
 @router.get("/merge-suggestions", response_model=MergeSuggestionListOut)
 async def get_merge_suggestions(project_id: int, db: AsyncSession = Depends(get_db)):
-    snapshot = await _ensure_project_route_merge_snapshot(project_id, db)
-    return {
-        "project_id": project_id,
-        "merge_suggestions": snapshot.get("merge_suggestions") or [],
-        "source_signature": str(snapshot.get("source_signature") or ""),
-        "algo_version": ROUTE_MERGE_ALGO_VERSION,
-    }
+    try:
+        await _ensure_route_merge_ready(project_id, db)
+        snapshot = await _ensure_project_route_merge_snapshot(project_id, db)
+        response = {
+            "project_id": project_id,
+            "merge_suggestions": snapshot.get("merge_suggestions") or [],
+            "source_signature": str(snapshot.get("source_signature") or ""),
+            "algo_version": ROUTE_MERGE_ALGO_VERSION,
+        }
+        await db.commit()
+        return response
+    except Exception:
+        await db.rollback()
+        raise
 
 
 @router.get("/normalized-superset-route", response_model=NormalizedSupersetRouteOut)
 async def get_normalized_superset_route(project_id: int, db: AsyncSession = Depends(get_db)):
-    snapshot = await _ensure_project_route_merge_snapshot(project_id, db)
-    return {
-        "project_id": project_id,
-        "normalized_superset_route": snapshot.get("normalized_superset_route") or [],
-        "source_signature": str(snapshot.get("source_signature") or ""),
-        "algo_version": ROUTE_MERGE_ALGO_VERSION,
-    }
+    try:
+        await _ensure_route_merge_ready(project_id, db)
+        snapshot = await _ensure_project_route_merge_snapshot(project_id, db)
+        response = {
+            "project_id": project_id,
+            "normalized_superset_route": snapshot.get("normalized_superset_route") or [],
+            "source_signature": str(snapshot.get("source_signature") or ""),
+            "algo_version": ROUTE_MERGE_ALGO_VERSION,
+        }
+        await db.commit()
+        return response
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.get("/route-merge-workspace", response_model=RouteMergeWorkspaceOut)
+async def get_route_merge_workspace(project_id: int, db: AsyncSession = Depends(get_db)):
+    try:
+        await _ensure_route_merge_ready(project_id, db)
+        snapshot = await _ensure_project_route_merge_snapshot(project_id, db)
+        response = {
+            "project_id": project_id,
+            "superset_route": snapshot.get("superset_route") or [],
+            "merge_suggestions": snapshot.get("merge_suggestions") or [],
+            "normalized_superset_route": snapshot.get("normalized_superset_route") or [],
+            "source_signature": str(snapshot.get("source_signature") or ""),
+            "algo_version": ROUTE_MERGE_ALGO_VERSION,
+        }
+        await db.commit()
+        return response
+    except Exception:
+        await db.rollback()
+        raise
 
 
 @router.get("/saved-normalized-route", response_model=SavedNormalizedRouteVersionOut)
 async def get_saved_normalized_route(project_id: int, db: AsyncSession = Depends(get_db)):
     # Check the parent first.  Otherwise a stale browser project_id reaches the
     # snapshot writer and SQLite reports a misleading foreign-key 500.
-    await _ensure_project_exists(project_id, db)
-    await _ensure_project_route_merge_snapshot(project_id, db)
-    version_row = await ensure_saved_normalized_route_version(
-        project_id,
-        db,
-        lambda: _ensure_document_operation_details(db, project_id),
-    )
-    if not version_row:
-        raise HTTPException(404, "当前任务还没有已保存的标准化路线。")
-    return await build_saved_normalized_route_response(version_row, db)
+    try:
+        await _ensure_route_merge_ready(project_id, db)
+        await _ensure_project_route_merge_snapshot(project_id, db)
+        version_row = await ensure_saved_normalized_route_version(
+            project_id,
+            db,
+            lambda: _ensure_document_operation_details(db, project_id),
+        )
+        if not version_row:
+            raise HTTPException(404, "当前任务还没有已保存的标准化路线。")
+        await migrate_legacy_condition_reviews(version_row, db)
+        response = await build_saved_normalized_route_response(version_row, db)
+        await db.commit()
+        return response
+    except Exception:
+        await db.rollback()
+        raise
 
 
 @router.post("/normalized-superset-route/save", response_model=NormalizedSupersetRouteOut)
@@ -365,35 +417,46 @@ async def save_normalized_superset_route(
     body: SaveNormalizedSupersetRouteRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    snapshot = await _ensure_project_route_merge_snapshot(body.project_id, db)
-    detail_rows = await _ensure_document_operation_details(db, body.project_id)
-    total_docs = await _count_project_documents(body.project_id, db)
-    normalized_route = await persist_normalized_superset_route(
-        project_id=body.project_id,
-        db=db,
-        snapshot=snapshot,
-        items=list(body.normalized_superset_route or []),
-        detail_rows=detail_rows,
-        total_docs=total_docs,
-    )
-    latest_version = await get_latest_normalized_route_version(body.project_id, db)
-    force_new_version = bool(
-        latest_version
-        and str(latest_version.source_signature or "") != str(snapshot.get("source_signature") or "")
-    )
-    version_row = await save_normalized_route_version(
-        project_id=body.project_id,
-        db=db,
-        source_signature=str(snapshot.get("source_signature") or ""),
-        total_docs=total_docs,
-        normalized_route=normalized_route,
-        force_new_version=force_new_version,
-    )
-    return {
-        "project_id": body.project_id,
-        "normalized_superset_route": normalized_route,
-        "saved_route_version": version_row.version,
-    }
+    try:
+        await acquire_workflow_revision(
+            db,
+            body.project_id,
+            body.expected_workflow_revision,
+        )
+        snapshot = await _ensure_project_route_merge_snapshot(body.project_id, db)
+        detail_rows = await _ensure_document_operation_details(db, body.project_id)
+        total_docs = await _count_project_documents(body.project_id, db)
+        normalized_route = await persist_normalized_superset_route(
+            project_id=body.project_id,
+            db=db,
+            snapshot=snapshot,
+            items=list(body.normalized_superset_route or []),
+            detail_rows=detail_rows,
+            total_docs=total_docs,
+        )
+        latest_version = await get_latest_normalized_route_version(body.project_id, db)
+        force_new_version = bool(
+            latest_version
+            and str(latest_version.source_signature or "") != str(snapshot.get("source_signature") or "")
+        )
+        version_row = await save_normalized_route_version(
+            project_id=body.project_id,
+            db=db,
+            source_signature=str(snapshot.get("source_signature") or ""),
+            total_docs=total_docs,
+            normalized_route=normalized_route,
+            force_new_version=force_new_version,
+        )
+        await db.commit()
+        await db.refresh(version_row)
+        return {
+            "project_id": body.project_id,
+            "normalized_superset_route": normalized_route,
+            "saved_route_version": version_row.version,
+        }
+    except Exception:
+        await db.rollback()
+        raise
 
 
 @router.post("/segment-rule-reviews", response_model=SegmentRuleReviewSaveOut)
@@ -401,17 +464,23 @@ async def save_segment_rule_review(
     body: SaveSegmentRuleReviewRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
-    return await save_segment_rule_review_record(
-        project_id=body.project_id,
-        route_id=body.route_id,
-        segment_id=body.segment_id,
-        decision=str(body.decision or "accepted").strip().lower(),
-        note=str(body.note or "").strip(),
-        summary_lines=list(body.summary_lines or []),
-        question_trail=list(body.question_trail or []),
-        db=db,
-    )
+    try:
+        await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
+        response = await save_segment_rule_review_record(
+            project_id=body.project_id,
+            route_id=body.route_id,
+            segment_id=body.segment_id,
+            decision=str(body.decision or "accepted").strip().lower(),
+            note=str(body.note or "").strip(),
+            summary_lines=list(body.summary_lines or []),
+            question_trail=list(body.question_trail or []),
+            db=db,
+        )
+        await db.commit()
+        return response
+    except Exception:
+        await db.rollback()
+        raise
 
 
 @router.post("/finalized-rule-packages", response_model=FinalizedRulePackageOut)
@@ -523,51 +592,60 @@ async def review_merge_suggestion(
     body: MergeSuggestionReviewRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    snapshot = await _ensure_project_route_merge_snapshot(body.project_id, db)
-    tree_operations = await _list_superset_route_tree(project_id=body.project_id, db=db)
-    operations_by_id = _route_tree_operations_by_id(tree_operations)
-    detail_rows = (
-        await db.execute(
-            select(DocumentOperationDetail)
-            .where(DocumentOperationDetail.project_id == body.project_id)
-            .order_by(
-                DocumentOperationDetail.operation_seq.asc(),
-                DocumentOperationDetail.page_no.asc(),
-                DocumentOperationDetail.id.asc(),
-            )
-        )
-    ).scalars().all()
-    action = (body.action or "").strip().lower()
     try:
-        snapshot = apply_merge_suggestion_review(
-            snapshot=snapshot,
-            suggestion_id=body.suggestion_id,
-            action=action,
-            manual_label=(body.manual_label or ""),
-            operations_by_id=operations_by_id,
-            detail_rows=detail_rows,
+        await acquire_workflow_revision(
+            db,
+            body.project_id,
+            body.expected_workflow_revision,
         )
-    except ValueError:
-        raise HTTPException(400, "不支持的审核动作")
-    except KeyError as exc:
-        if str(exc) == "'missing_suggestion'":
-            raise HTTPException(404, "归并建议不存在")
-        if str(exc) == "'missing_group'":
-            raise HTTPException(404, "归并段不存在")
+        snapshot = await _ensure_project_route_merge_snapshot(body.project_id, db)
+        tree_operations = await _list_superset_route_tree(project_id=body.project_id, db=db)
+        operations_by_id = _route_tree_operations_by_id(tree_operations)
+        detail_rows = (
+            await db.execute(
+                select(DocumentOperationDetail)
+                .where(DocumentOperationDetail.project_id == body.project_id)
+                .order_by(
+                    DocumentOperationDetail.operation_seq.asc(),
+                    DocumentOperationDetail.page_no.asc(),
+                    DocumentOperationDetail.id.asc(),
+                )
+            )
+        ).scalars().all()
+        action = (body.action or "").strip().lower()
+        try:
+            snapshot = apply_merge_suggestion_review(
+                snapshot=snapshot,
+                suggestion_id=body.suggestion_id,
+                action=action,
+                manual_label=(body.manual_label or ""),
+                operations_by_id=operations_by_id,
+                detail_rows=detail_rows,
+            )
+        except ValueError:
+            raise HTTPException(400, "不支持的审核动作")
+        except KeyError as exc:
+            if str(exc) == "'missing_suggestion'":
+                raise HTTPException(404, "归并建议不存在")
+            if str(exc) == "'missing_group'":
+                raise HTTPException(404, "归并段不存在")
+            raise
+        await save_route_merge_snapshot(
+            body.project_id,
+            db,
+            snapshot,
+            review_state=dict(snapshot.get("review_state") or {}),
+        )
+        await db.commit()
+        return {
+            "ok": True,
+            "project_id": body.project_id,
+            "suggestion_id": body.suggestion_id,
+            "action": action,
+        }
+    except Exception:
+        await db.rollback()
         raise
-    await save_route_merge_snapshot(
-        body.project_id,
-        db,
-        snapshot,
-        review_state=dict(snapshot.get("review_state") or {}),
-    )
-    await db.commit()
-    return {
-        "ok": True,
-        "project_id": body.project_id,
-        "suggestion_id": body.suggestion_id,
-        "action": action,
-    }
 
 
 @router.get("/task-status", response_model=ExtractionTaskStatusOut)

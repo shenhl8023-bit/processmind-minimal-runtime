@@ -19,6 +19,7 @@ from app.services.rule_packages.contracts import (
     KmaiCompatibilityTestResponse,
     RulePackageV2,
     RulePackageValidationReport,
+    RulePackageStatusResponse,
     SimulateRulePackageRequest,
     SimulateRulePackageResponse,
 )
@@ -38,16 +39,44 @@ from app.services.rule_packages.condition_contracts import (
 )
 from app.services.rule_packages.condition_registry import FIELD_REGISTRY_VERSION, condition_fields
 from app.services.rule_packages.standard_factors import standard_factors
-from app.services.rule_packages.condition_reviews import (
+from app.services.rule_packages.condition_review_errors import (
+    ConditionReviewConflict,
+    ConditionReviewError,
+    ConditionReviewNotFound,
+    ConditionReviewValidation,
+)
+from app.services.rule_packages.condition_review_service import (
+    complete_condition_parse,
     confirm_condition_review,
-    set_manual_condition_review,
-    parse_condition_review,
+    execute_condition_parse,
+    prepare_condition_parse,
     save_condition_draft,
+    set_manual_condition_review,
 )
 from app.services.project_workflow_lifecycle import acquire_workflow_revision
+from app.services.rule_packages.status import build_rule_package_status
 
 
 router = APIRouter(prefix="/api/extract/finalized-rule-packages", tags=["规则包 V2"])
+
+
+def _condition_review_http_error(error: ConditionReviewError) -> HTTPException:
+    if isinstance(error, ConditionReviewNotFound):
+        return HTTPException(status_code=404, detail=error.detail)
+    if isinstance(error, ConditionReviewConflict):
+        return HTTPException(status_code=409, detail=error.detail)
+    return HTTPException(status_code=422, detail=error.detail)
+
+
+@router.get("/status", response_model=RulePackageStatusResponse)
+async def get_rule_package_status(
+    project_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await build_rule_package_status(project_id, db)
+    if result is None:
+        raise HTTPException(404, "任务不存在")
+    return result
 
 
 @router.get("/condition-fields", response_model=ConditionFieldRegistryResponse)
@@ -64,8 +93,20 @@ async def save_rule_condition_draft(
     body: SaveRuleConditionDraftRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
-    return await save_condition_draft(body, db)
+    try:
+        await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
+        response = await save_condition_draft(body, db)
+        await db.commit()
+        return response
+    except ConditionReviewError as error:
+        await db.rollback()
+        raise _condition_review_http_error(error) from error
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception:
+        await db.rollback()
+        raise
 
 
 @router.post("/rule-conditions/parse", response_model=RuleConditionReviewResponse)
@@ -73,8 +114,43 @@ async def parse_user_rule_condition(
     body: ParseRuleConditionRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
-    return await parse_condition_review(body, db)
+    try:
+        await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
+        preparation = await prepare_condition_parse(body, db)
+        if preparation.cache_hit:
+            await db.rollback()
+            return preparation.cached_response
+        await db.commit()
+    except ConditionReviewError as error:
+        await db.rollback()
+        raise _condition_review_http_error(error) from error
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception:
+        await db.rollback()
+        raise
+
+    try:
+        result = await execute_condition_parse(body, preparation)
+    except Exception:
+        await db.rollback()
+        raise
+
+    try:
+        await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
+        response = await complete_condition_parse(body, preparation, result, db)
+        await db.commit()
+        return response
+    except ConditionReviewError as error:
+        await db.rollback()
+        raise _condition_review_http_error(error) from error
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception:
+        await db.rollback()
+        raise
 
 
 @router.post("/rule-conditions/confirm", response_model=RuleConditionReviewResponse)
@@ -82,8 +158,20 @@ async def confirm_user_rule_condition(
     body: ConfirmRuleConditionRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
-    return await confirm_condition_review(body, db)
+    try:
+        await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
+        response = await confirm_condition_review(body, db)
+        await db.commit()
+        return response
+    except ConditionReviewError as error:
+        await db.rollback()
+        raise _condition_review_http_error(error) from error
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception:
+        await db.rollback()
+        raise
 
 
 @router.post("/rule-conditions/manual", response_model=RuleConditionReviewResponse)
@@ -91,8 +179,20 @@ async def set_manual_user_rule_condition(
     body: ManualRuleConditionRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
-    return await set_manual_condition_review(body, db)
+    try:
+        await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
+        response = await set_manual_condition_review(body, db)
+        await db.commit()
+        return response
+    except ConditionReviewError as error:
+        await db.rollback()
+        raise _condition_review_http_error(error) from error
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception:
+        await db.rollback()
+        raise
 
 
 @router.post("/compile", response_model=CompileRulePackageResponse)

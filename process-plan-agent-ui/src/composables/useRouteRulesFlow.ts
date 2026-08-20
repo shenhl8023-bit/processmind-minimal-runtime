@@ -9,9 +9,12 @@ import {
 import type { RouteMergeGroup } from '@/composables/useRouteMergeResultWorkspace'
 import { clearProjectQuestionTreeStorage } from '@/composables/analysisQuestionTreeState'
 import { publishWorkflowReset } from '@/composables/workflowResetState'
+import { canLoadRouteMergeWorkspace } from '@/composables/extractViewHelpers'
 
 type UseRouteRulesFlowOptions = {
   projectId: Ref<number | null>
+  projectStatus: Ref<string>
+  workflowRevision: Ref<number>
   routeWorkspaceLoading: Ref<boolean>
   routes: Ref<OperationItem[]>
   routeMergeGroups: Ref<RouteMergeGroup[]>
@@ -45,7 +48,9 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
       if (message.includes('工序明细')) {
         return message.includes('复用') ? '正在复用工序明细...' : '正在解析工序明细...'
       }
+      if (message.includes('读取工艺文档')) return '正在读取工艺文档...'
       if (message.includes('汇总')) return '正在汇总工艺路线全集...'
+      if (message.includes('整理')) return '正在整理工艺路线全集...'
       if (message.includes('保存')) return '正在保存工艺路线全集...'
       return '正在提取工艺路线全集...'
     }
@@ -86,7 +91,10 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
   }
 
   async function loadRouteRulesResults(forceRefresh = false) {
-    if (!options.projectId.value) return
+    if (!options.projectId.value || !canLoadRouteMergeWorkspace(options.projectStatus.value)) {
+      options.routeWorkspaceLoading.value = false
+      return false
+    }
     options.routeWorkspaceLoading.value = true
     status.value = 'done'
     extractTask.value = {
@@ -101,6 +109,8 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
         updated_at: null,
         finished_at: null,
         project_status: 'ROUTE_SET_READY',
+        local_execution_active: false,
+        lease_valid: false,
       }),
       task_status: 'completed',
       stage: 'loading_route_merge',
@@ -112,10 +122,12 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
       const loaded = await options.loadRouteMergeWorkspaceFromBackend(true, forceRefresh)
       if (!loaded) throw new Error('路线归并工作台加载失败，请刷新后重试。')
       extractTask.value = null
+      return true
     } catch (e: any) {
       console.error('加载路线归并结果失败', e)
       errorMsg.value = e?.response?.data?.detail || e?.message || '加载路线归并结果失败'
       status.value = 'error'
+      return false
     } finally {
       options.routeWorkspaceLoading.value = false
     }
@@ -127,6 +139,7 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
       const task = await getExtractTaskStatus(options.projectId.value)
       extractTaskPollRetryCount = 0
       extractTask.value = task
+      if (task.project_status) options.projectStatus.value = String(task.project_status)
       if (task.task_status === 'completed') {
         stopExtractTaskPolling()
         await loadRouteRulesResults()
@@ -147,7 +160,7 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
       stopExtractTaskPolling()
       extractTaskPollTimer = window.setTimeout(() => {
         void pollExtractionTask()
-      }, 2000)
+      }, 800)
     } catch (e: any) {
       extractTaskPollRetryCount += 1
       if (extractTaskPollRetryCount <= 3) {
@@ -173,6 +186,7 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
     errorMsg.value = ''
     try {
       const task = await apiStartExtraction(options.projectId.value, forceReextract)
+      options.workflowRevision.value = task.workflow_revision
       if (forceReextract) {
         clearProjectQuestionTreeStorage(options.projectId.value)
         publishWorkflowReset({
@@ -200,6 +214,8 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
         updated_at: null,
         finished_at: null,
         project_status: null,
+        local_execution_active: false,
+        lease_valid: false,
       }
       await pollExtractionTask()
     } catch (e: any) {

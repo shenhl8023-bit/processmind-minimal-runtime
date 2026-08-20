@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import FinalizedRulePackage, NormalizedRouteVersion, Project
 from app.schemas.schemas import FinalizedRulePackageSaveRequest
-from app.services.finalized_rule_package_helpers import json_dumps, json_dumps_list
+from app.services.finalized_rule_package_helpers import json_dumps, json_dumps_list, json_loads_list
 from app.services.rule_packages.confirmation_validation import (
     ConfirmedRuleSourcesChanged,
     require_confirmed_user_rule_sources,
@@ -24,10 +24,14 @@ from app.services.rule_packages.hashing import (
 )
 from app.services.rule_packages.kmai_export import build_kmai_compatibility_export
 from app.services.rule_packages.lifecycle import publish_rule_package
+from app.services.rule_packages.process_identity import package_process_reference_issues
 from app.services.rule_packages.validator import (
     validate_rule_package,
     validate_rule_package_factor_bindings,
 )
+
+
+PUBLISHABLE_PROJECT_STATUSES = frozenset({"ROUTE_SET_READY", "GENERATED"})
 
 
 class _RulePackagePublicationError(ValueError):
@@ -74,7 +78,7 @@ async def _prepare_rule_package_publication(
     project: Project,
     db: AsyncSession,
 ) -> _PreparedRulePackagePublication:
-    if project.status not in {"ROUTE_SET_READY", "GENERATED"}:
+    if project.status not in PUBLISHABLE_PROJECT_STATUSES:
         raise RulePackagePublicationConflict(
             "当前资料已变更或尚未完成路线提炼，请重新完成第二至四步后再导出规则包。"
         )
@@ -93,6 +97,21 @@ async def _prepare_rule_package_publication(
             f"不支持的规则包 schema_version：{schema_version}"
         )
     package_name = (body.package_name or "process_route_rules").strip() or "process_route_rules"
+
+    route_row = None
+    if body.route_version_id is not None:
+        route_row = (
+            await db.execute(
+                select(NormalizedRouteVersion).where(
+                    NormalizedRouteVersion.id == body.route_version_id,
+                    NormalizedRouteVersion.project_id == body.project_id,
+                )
+            )
+        ).scalars().first()
+        if not route_row:
+            raise RulePackagePublicationUnprocessable(
+                "规则包关联的路线版本不属于当前任务"
+            )
 
     server_validation = dict(body.validation_report or {})
     manifest = dict(body.manifest or {})
@@ -132,6 +151,16 @@ async def _prepare_rule_package_publication(
                 "message": "规则包校验未通过，无法导出。",
                 "validation": server_validation,
             })
+        if route_row is not None:
+            identity_issues = package_process_reference_issues(
+                package_v2,
+                json_loads_list(route_row.route_json),
+            )
+            if identity_issues:
+                raise RulePackagePublicationUnprocessable({
+                    "message": "规则包工序引用与当前路线不一致，无法发布。",
+                    "issues": identity_issues,
+                })
         if body.route_version_id is None:
             raise RulePackagePublicationUnprocessable("V2 规则包必须关联当前路线版本")
         try:

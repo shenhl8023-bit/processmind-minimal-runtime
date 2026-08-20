@@ -23,6 +23,29 @@ def test_docker_context_and_web_copy_are_restricted():
     assert "COPY process-plan-agent-ui/public /app/public" in dockerfile
 
 
+def test_param_question_strategy_is_shared_across_delivery_targets():
+    shared_path = PROJECT_ROOT / "docs" / "配置模板" / "第五步参数问答策略.json"
+    assert shared_path.is_file()
+    assert shared_path.read_text(encoding="utf-8").find('"version": "1.0.0"') >= 0
+    assert not (
+        PROJECT_ROOT
+        / "process-plan-agent-ui"
+        / "src"
+        / "config"
+        / "paramQuestionStrategy.json"
+    ).exists()
+
+    api_dockerfile = (PROJECT_ROOT / "Dockerfile.api").read_text(encoding="utf-8")
+    web_dockerfile = (PROJECT_ROOT / "Dockerfile.web").read_text(encoding="utf-8")
+    assert "COPY docs/配置模板/第五步参数问答策略.json /app/docs/配置模板/第五步参数问答策略.json" in api_dockerfile
+    assert "COPY docs/配置模板/第五步参数问答策略.json /docs/配置模板/第五步参数问答策略.json" in web_dockerfile
+
+    frontend_strategy = (
+        PROJECT_ROOT / "process-plan-agent-ui" / "src" / "config" / "paramQuestionStrategy.ts"
+    ).read_text(encoding="utf-8")
+    assert "../../../docs/配置模板/第五步参数问答策略.json" in frontend_strategy
+
+
 def test_delivery_uses_locked_dependencies_and_current_scripts():
     root_requirements = (PROJECT_ROOT / "requirement.txt").read_text(encoding="utf-8")
     api_requirements = (

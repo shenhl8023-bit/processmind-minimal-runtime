@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
+from app.contracts.status import ConditionReviewStatus
 from app.services.rule_packages.contracts import (
     ConditionNode,
     ProcessRelationType,
@@ -93,7 +94,7 @@ class ManualRuleConditionRequest(SaveRuleConditionDraftRequest):
 class RuleConditionReview(StrictModel):
     source_text: str = ""
     source_hash: str = ""
-    status: Literal["draft", "parsing", "pending_confirmation", "confirmed", "invalid"] = "draft"
+    status: ConditionReviewStatus = ConditionReviewStatus.DRAFT
     candidate: RuleConditionCandidate | None = None
     confirmed: RuleConditionCandidate | None = None
     confidence: float | None = None

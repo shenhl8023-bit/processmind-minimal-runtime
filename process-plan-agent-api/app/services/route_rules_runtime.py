@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import inspect
 from collections import defaultdict
 from collections.abc import Callable
 from typing import Any
@@ -146,7 +147,7 @@ async def extract_route_set_with_llm(
     db: AsyncSession,
     project_id: int,
     *,
-    collect_candidate_summary: Callable[[list[Document]], tuple[dict[str, Any], list[str], dict[str, list[str]]]],
+    collect_candidate_summary: Callable[..., Any],
     ensure_document_operation_details_fn: Callable[..., Any],
     merge_document_detail_rows_into_candidate_summary: Callable[[dict[str, Any], dict[str, list[str]], list[DocumentOperationDetail], dict[int, str]], None],
     build_route_set_ops_from_candidates: Callable[[dict[str, Any], int, dict[str, list[str]] | None], list[dict[str, Any]]],
@@ -157,7 +158,24 @@ async def extract_route_set_with_llm(
     if not docs:
         return None
 
-    candidate_summary, doc_names, doc_orders = collect_candidate_summary(docs)
+    def _progress(message: str, progress: int) -> None:
+        set_extraction_task_state(
+            project_id,
+            task_status="running",
+            stage="extracting_operations",
+            message=message,
+            progress=progress,
+        )
+
+    _progress(f"正在读取工艺文档（0/{len(docs)}）...", 12)
+    try:
+        summary_result = collect_candidate_summary(docs, progress_callback=_progress)
+    except TypeError:
+        summary_result = collect_candidate_summary(docs)
+    if inspect.isawaitable(summary_result):
+        candidate_summary, doc_names, doc_orders = await summary_result
+    else:
+        candidate_summary, doc_names, doc_orders = summary_result
     if not candidate_summary:
         return None
     total_docs = len(doc_names)

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
+    "check:api-contract": "node ../scripts/check_api_contract.mjs",
     "preview": "vite preview",
     "test": "vitest run"
   },

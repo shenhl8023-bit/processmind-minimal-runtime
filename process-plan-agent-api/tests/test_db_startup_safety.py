@@ -1,6 +1,10 @@
 import asyncio
 import json
+import os
 import shutil
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 from sqlalchemy import text
@@ -9,6 +13,12 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app import database
 from app.database import Base, configure_sqlite_engine
+from app.services.db_schema_migrations import (
+    DatabaseMigrationError,
+    SCHEMA_MIGRATIONS,
+    SchemaMigration,
+    run_schema_migrations,
+)
 from app.services.db_schema_maintenance import ensure_project_schema
 
 
@@ -52,6 +62,325 @@ SNAPSHOT_SECOND = {
     "target_factor_name": "Heat treatment",
     "target_factor_category": "process",
 }
+
+API_ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.parametrize(
+    ("database_url", "expected_detail", "secret"),
+    [
+        (
+            "postgresql+asyncpg://user:super-secret@localhost/processmind",
+            "received driver 'postgresql+asyncpg'",
+            "super-secret",
+        ),
+        ("sqlite:///runtime/process_mind.db", "received driver 'sqlite'", None),
+        ("not-a-database-url", "DATABASE_URL is invalid", None),
+    ],
+)
+def test_database_module_rejects_unsupported_url_before_engine_creation(
+    database_url,
+    expected_detail,
+    secret,
+):
+    env = os.environ.copy()
+    env["DATABASE_URL"] = database_url
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            f"import sys; sys.path.insert(0, {str(API_ROOT)!r}); import app.database",
+        ],
+        cwd=API_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "ProcessMind currently supports SQLite only" in result.stderr
+    assert "sqlite+aiosqlite" in result.stderr
+    assert expected_detail in result.stderr
+    assert "ModuleNotFoundError" not in result.stderr
+    if secret:
+        assert secret not in result.stderr
+
+
+def test_schema_migrations_run_in_order_only_once(tmp_path):
+    calls: list[str] = []
+
+    async def first(conn):
+        calls.append("first")
+        await conn.execute(text("CREATE TABLE runner_first (id INTEGER PRIMARY KEY)"))
+        return {"created": "runner_first"}
+
+    async def second(conn):
+        calls.append("second")
+        await conn.execute(text("CREATE TABLE runner_second (id INTEGER PRIMARY KEY)"))
+        return {"created": "runner_second"}
+
+    migrations = (
+        SchemaMigration(1, "runner_first_v1", first),
+        SchemaMigration(2, "runner_second_v1", second),
+    )
+
+    async def run():
+        engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'runner.db'}")
+        try:
+            async with engine.begin() as conn:
+                await run_schema_migrations(conn, migrations=migrations)
+            async with engine.connect() as conn:
+                before = (
+                    await conn.execute(text("""
+                        SELECT version, name, applied_at, result_json
+                        FROM schema_migrations
+                        ORDER BY version
+                    """))
+                ).all()
+
+            async with engine.begin() as conn:
+                await run_schema_migrations(conn, migrations=migrations)
+            async with engine.connect() as conn:
+                after = (
+                    await conn.execute(text("""
+                        SELECT version, name, applied_at, result_json
+                        FROM schema_migrations
+                        ORDER BY version
+                    """))
+                ).all()
+            return before, after
+        finally:
+            await engine.dispose()
+
+    before, after = asyncio.run(run())
+
+    assert calls == ["first", "second"]
+    assert [(row.version, row.name) for row in before] == [
+        (1, "runner_first_v1"),
+        (2, "runner_second_v1"),
+    ]
+    assert [json.loads(row.result_json) for row in before] == [
+        {"created": "runner_first", "status": "applied"},
+        {"created": "runner_second", "status": "applied"},
+    ]
+    assert after == before
+
+
+def test_schema_migration_failure_reports_identity_and_rolls_back(tmp_path):
+    async def first(conn):
+        await conn.execute(text("CREATE TABLE runner_first (id INTEGER PRIMARY KEY)"))
+        return {"created": "runner_first"}
+
+    async def failing(conn):
+        await conn.execute(text("CREATE TABLE runner_partial (id INTEGER PRIMARY KEY)"))
+        await conn.execute(text("INSERT INTO runner_partial (id) VALUES (1)"))
+        raise RuntimeError("forced migration failure")
+
+    first_migration = SchemaMigration(1, "runner_first_v1", first)
+    failing_migration = SchemaMigration(2, "runner_fails_v1", failing)
+
+    async def run():
+        engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'rollback.db'}")
+        try:
+            async with engine.begin() as conn:
+                await run_schema_migrations(conn, migrations=(first_migration,))
+
+            with pytest.raises(
+                DatabaseMigrationError,
+                match=r"Database migration 2 \(runner_fails_v1\) failed",
+            ):
+                async with engine.begin() as conn:
+                    await run_schema_migrations(
+                        conn,
+                        migrations=(first_migration, failing_migration),
+                    )
+
+            async with engine.connect() as conn:
+                tables = await _table_names(conn)
+                history = (
+                    await conn.execute(text("""
+                        SELECT version, name
+                        FROM schema_migrations
+                        ORDER BY version
+                    """))
+                ).all()
+            return tables, history
+        finally:
+            await engine.dispose()
+
+    tables, history = asyncio.run(run())
+
+    assert "runner_first" in tables
+    assert "runner_partial" not in tables
+    assert history == [(1, "runner_first_v1")]
+
+
+def test_schema_migrations_adopt_legacy_kmai_history_record(tmp_path):
+    calls: list[str] = []
+
+    async def retired_mapping_migration(_conn):
+        calls.append("retire")
+
+    migration = SchemaMigration(
+        5,
+        "retire_kmai_factor_mappings_v1",
+        retired_mapping_migration,
+    )
+
+    async def run():
+        engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'legacy-history.db'}")
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text("""
+                    CREATE TABLE schema_migrations (
+                        name VARCHAR(100) PRIMARY KEY,
+                        applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                await conn.execute(text("""
+                    INSERT INTO schema_migrations (name)
+                    VALUES ('retire_kmai_factor_mappings_v1')
+                """))
+                await run_schema_migrations(conn, migrations=(migration,))
+                return (
+                    await conn.execute(text("""
+                        SELECT version, name, result_json
+                        FROM schema_migrations
+                    """))
+                ).one()
+        finally:
+            await engine.dispose()
+
+    row = asyncio.run(run())
+
+    assert calls == []
+    assert row == (
+        5,
+        "retire_kmai_factor_mappings_v1",
+        '{"status":"adopted_legacy_record"}',
+    )
+
+
+@pytest.mark.parametrize(
+    ("history_rows", "expected_error"),
+    [
+        (
+            [(99, "mystery_v1")],
+            "Unknown database migration history entry: mystery_v1",
+        ),
+        (
+            [(2, "runner_first_v1")],
+            (
+                "Database migration history mismatch for runner_first_v1: "
+                "expected version 1, found 2"
+            ),
+        ),
+        (
+            [(1, "runner_first_v1"), (1, "runner_second_v1")],
+            "Database migration history contains duplicate version 1",
+        ),
+    ],
+)
+def test_schema_migrations_reject_invalid_history_before_running(
+    tmp_path,
+    history_rows,
+    expected_error,
+):
+    calls: list[str] = []
+
+    async def first(_conn):
+        calls.append("first")
+
+    async def second(_conn):
+        calls.append("second")
+
+    migrations = (
+        SchemaMigration(1, "runner_first_v1", first),
+        SchemaMigration(2, "runner_second_v1", second),
+    )
+
+    async def run():
+        engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'invalid-history.db'}")
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text("""
+                    CREATE TABLE schema_migrations (
+                        name VARCHAR(100) PRIMARY KEY,
+                        version INTEGER,
+                        applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        result_json TEXT
+                    )
+                """))
+                for version, name in history_rows:
+                    await conn.execute(
+                        text("""
+                            INSERT INTO schema_migrations (name, version, result_json)
+                            VALUES (:name, :version, '{"status":"applied"}')
+                        """),
+                        {"name": name, "version": version},
+                    )
+                with pytest.raises(RuntimeError, match=expected_error):
+                    await run_schema_migrations(conn, migrations=migrations)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
+    assert calls == []
+
+
+def test_production_schema_migrations_are_ordered_and_idempotent(tmp_path):
+    async def run():
+        engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'production-registry.db'}")
+        configure_sqlite_engine(engine)
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+                await run_schema_migrations(conn)
+            async with engine.connect() as conn:
+                before = (
+                    await conn.execute(text("""
+                        SELECT version, name, applied_at, result_json
+                        FROM schema_migrations
+                        ORDER BY version
+                    """))
+                ).all()
+
+            async with engine.begin() as conn:
+                await conn.execute(text("""
+                    INSERT INTO projects (id, name, status, profile)
+                    VALUES (99, 'post-migration', 'CREATED', 'invalid.profile')
+                """))
+                await run_schema_migrations(conn)
+            async with engine.connect() as conn:
+                after = (
+                    await conn.execute(text("""
+                        SELECT version, name, applied_at, result_json
+                        FROM schema_migrations
+                        ORDER BY version
+                    """))
+                ).all()
+                profile = (
+                    await conn.execute(text("SELECT profile FROM projects WHERE id = 99"))
+                ).scalar_one()
+            return before, after, profile
+        finally:
+            await engine.dispose()
+
+    before, after, profile = asyncio.run(run())
+
+    assert [(row.version, row.name) for row in before] == [
+        (1, "legacy_project_schema_v1"),
+        (2, "workflow_review_schema_v1"),
+        (3, "route_review_indexes_v1"),
+        (4, "rule_package_lifecycle_v2"),
+        (5, "retire_kmai_factor_mappings_v1"),
+        (6, "extraction_task_lease_v1"),
+    ]
+    assert len(SCHEMA_MIGRATIONS) == 6
+    assert after == before
+    assert profile == "invalid.profile"
 
 
 async def _table_names(conn):
@@ -249,7 +578,7 @@ def test_startup_preserves_duplicate_operations_factors_and_manual_chain(tmp_pat
                 (3, "heat"),
             ]
             assert factor_count == 2
-            assert audit_count == 1
+            assert audit_count == 0
         finally:
             await engine.dispose()
 
@@ -343,18 +672,20 @@ def test_kmai_invalid_legacy_usage_snapshot_rolls_back_every_change(tmp_path, in
                     await ensure_project_schema(conn)
 
             async with engine.connect() as conn:
-                assert LEGACY_MAPPING_TABLES <= await _table_names(conn)
+                table_names = await _table_names(conn)
+                assert LEGACY_MAPPING_TABLES <= table_names
                 assert (
                     await conn.execute(
                         text("SELECT validation_report_json FROM finalized_rule_packages WHERE id=41")
                     )
                 ).scalar_one() == original_report
-                assert (
-                    await conn.execute(text("""
-                        SELECT COUNT(*) FROM schema_migrations
-                        WHERE name = 'retire_kmai_factor_mappings_v1'
-                    """))
-                ).scalar_one() == 0
+                if "schema_migrations" in table_names:
+                    assert (
+                        await conn.execute(text("""
+                            SELECT COUNT(*) FROM schema_migrations
+                            WHERE name = 'retire_kmai_factor_mappings_v1'
+                        """))
+                    ).scalar_one() == 0
         finally:
             await engine.dispose()
 
@@ -487,10 +818,11 @@ def test_kmai_init_db_twice_retires_a_copied_legacy_fixture(tmp_path, monkeypatc
         try:
             async with source_engine.begin() as conn:
                 await _create_legacy_mapping_fixture(conn)
+                return await _read_business_columns(conn, 41)
         finally:
             await source_engine.dispose()
 
-    asyncio.run(build_source())
+    source_business_columns = asyncio.run(build_source())
     shutil.copy2(source_path, copied_path)
 
     copied_engine = create_async_engine(f"sqlite+aiosqlite:///{copied_path}")
@@ -509,7 +841,37 @@ def test_kmai_init_db_twice_retires_a_copied_legacy_fixture(tmp_path, monkeypatc
                         await conn.execute(text("SELECT COUNT(*) FROM finalized_rule_packages"))
                     ).scalar_one() == 2
                     assert not (LEGACY_MAPPING_TABLES & await _table_names(conn))
+            async with copied_engine.connect() as conn:
+                history = (
+                    await conn.execute(text("""
+                        SELECT version, name
+                        FROM schema_migrations
+                        ORDER BY version
+                    """))
+                ).all()
+                business_columns = await _read_business_columns(conn, 41)
+            return history, business_columns
         finally:
             await copied_engine.dispose()
 
-    asyncio.run(start_twice())
+    history, copied_business_columns = asyncio.run(start_twice())
+
+    assert history == [
+        (1, "legacy_project_schema_v1"),
+        (2, "workflow_review_schema_v1"),
+        (3, "route_review_indexes_v1"),
+        (4, "rule_package_lifecycle_v2"),
+        (5, "retire_kmai_factor_mappings_v1"),
+        (6, "extraction_task_lease_v1"),
+    ]
+    assert copied_business_columns == source_business_columns
+
+    async def inspect_source():
+        source_engine = create_async_engine(f"sqlite+aiosqlite:///{source_path}")
+        try:
+            async with source_engine.connect() as conn:
+                return await _table_names(conn)
+        finally:
+            await source_engine.dispose()
+
+    assert LEGACY_MAPPING_TABLES <= asyncio.run(inspect_source())

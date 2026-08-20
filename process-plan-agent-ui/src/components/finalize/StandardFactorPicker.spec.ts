@@ -292,6 +292,7 @@ describe('StandardFactorPicker', () => {
     expect(html).not.toContain('class="candidate-editor"')
     expect(html).toContain('顶尖孔定位')
     expect(html).toContain('孔精加工')
+    expect(html).toContain('修改规则')
   })
 
   it('keeps a safely auto-confirmable candidate collapsed', async () => {

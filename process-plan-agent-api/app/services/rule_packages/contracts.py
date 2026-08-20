@@ -6,6 +6,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.contracts.status import (
+    ProjectStatus,
+    RulePackageStatus,
+    RulePackageStatusBlockerCode,
+    WorkflowCapability,
+)
+
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
@@ -384,6 +391,59 @@ class KmaiCompatibilityTestResponse(StrictModel):
     errors: list[ValidationIssue] = Field(default_factory=list)
     manual_factors: dict[str, Any] = Field(default_factory=dict)
     semantic_gaps: list[str] = Field(default_factory=list)
+
+
+RulePackageCapability = WorkflowCapability
+
+
+class RulePackageStatusBlocker(StrictModel):
+    code: RulePackageStatusBlockerCode
+    message: str
+    blocks: list[WorkflowCapability]
+    count: int | None = None
+
+
+class RulePackageStatusRoute(StrictModel):
+    id: int
+    version: int
+
+
+class RulePackageStatusPackage(StrictModel):
+    id: int
+    version: int
+    route_version_id: int | None = None
+    schema_version: str
+    content_hash: str
+    status: RulePackageStatus
+
+
+class RulePackageReviewSummary(StrictModel):
+    total: int = 0
+    confirmed: int = 0
+    pending: int = 0
+    invalid_factor_bindings: int = 0
+
+
+class RulePackageKmaiSummary(StrictModel):
+    available: bool = False
+    valid: bool = False
+    error_count: int = 0
+    warning_count: int = 0
+    factor_catalog_version: str = ""
+
+
+class RulePackageStatusResponse(StrictModel):
+    project_id: int
+    project_status: ProjectStatus
+    workflow_revision: int
+    route: RulePackageStatusRoute | None
+    latest_package: RulePackageStatusPackage | None
+    can_publish: bool
+    can_generate: bool
+    package_executable: bool
+    blockers: list[RulePackageStatusBlocker]
+    review_summary: RulePackageReviewSummary
+    kmai_compatibility: RulePackageKmaiSummary
 
 
 ConditionNode.model_rebuild()

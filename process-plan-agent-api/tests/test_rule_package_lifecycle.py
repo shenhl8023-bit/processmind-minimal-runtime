@@ -11,12 +11,16 @@ from app.database import Base, get_db
 from app.main import app
 from app.models.models import FinalizedRulePackage, NormalizedRouteVersion, Project
 from app.services.db_schema_maintenance import ensure_project_schema
-from app.services.rule_packages import condition_reviews
+from app.services.rule_packages import condition_review_service
 from app.services.rule_packages.condition_contracts import RuleConditionCandidate
 from app.services.rule_packages.contracts import RulePackageV2
 from app.services.rule_packages.kmai_compatibility_runner import compare_kmai_v1
 from app.services.rule_packages.kmai_export import builtin_legacy_mapping_snapshot
-from app.services.rule_packages.lifecycle import publish_rule_package
+from app.services.rule_packages.lifecycle import (
+    archive_published_rule_packages,
+    publish_rule_package,
+)
+from app.services.rule_packages.process_identity import package_process_reference_issues
 from app.services.rule_packages.standard_factors import bind_unambiguous_factor_ids
 
 
@@ -120,6 +124,101 @@ def _all_json_keys(value):
     return set()
 
 
+def test_package_process_references_use_route_export_identity(rule_package_v2):
+    package = rule_package_v2.model_copy(deep=True)
+    quench = next(
+        process for process in package.route_catalog.processes
+        if process.process_id == "process_quench"
+    )
+    quench.constraints.requires = []
+    quench.constraints.must_run_after = []
+    quench.constraints.must_run_before = []
+    quench.constraints.conflicts_with = []
+    package.route_catalog.processes = [quench]
+    package.route_rules.rules = []
+    package.route_rules.process_relations = []
+    package.test_cases = []
+    route_items = [{
+        "id": "segment-heat",
+        "normalized_step_name": chr(0x6dec) + chr(0x706b),
+    }]
+
+    assert package_process_reference_issues(package, route_items) == []
+
+    package.route_catalog.processes.append(quench.model_copy(update={"process_id": "process_missing"}))
+    issues = package_process_reference_issues(package, route_items)
+    assert any("process_missing" in issue for issue in issues)
+
+    conflict_issues = package_process_reference_issues(package.model_copy(deep=True), [
+        *route_items,
+        {"id": "segment-heat-2", "normalized_step_name": chr(0x6dec) + chr(0x706b)},
+    ])
+    assert any("process_quench" in issue for issue in conflict_issues)
+
+
+def test_publish_rejects_unknown_process_for_segment_route_without_persisting(
+    lifecycle_client,
+    rule_package_v2_payload,
+):
+    async def set_segment_route():
+        async with lifecycle_client.lifecycle_session_factory() as db:
+            route = await db.get(NormalizedRouteVersion, 31)
+            route.route_json = json.dumps([{
+                "id": "segment-heat",
+                "normalized_step_name": "淬火",
+            }], ensure_ascii=False)
+            await db.commit()
+
+    asyncio.run(set_segment_route())
+
+    payload = deepcopy(rule_package_v2_payload)
+    quench = next(
+        process for process in payload["route_catalog"]["processes"]
+        if process["process_id"] == "process_quench"
+    )
+    quench["constraints"] = {
+        "requires": [],
+        "must_run_after": [],
+        "must_run_before": [],
+        "conflicts_with": [],
+    }
+    quench["main"] = True
+    payload["route_catalog"]["processes"] = [quench]
+    payload["route_rules"] = {
+        "schema_version": "2.0",
+        "rules": [],
+        "process_relations": [],
+    }
+    payload["test_cases"] = []
+
+    accepted = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages",
+        json=_v2_save_payload(payload),
+    )
+    assert accepted.status_code == 200, accepted.text
+
+    payload["route_catalog"]["processes"][0]["process_id"] = "process_missing"
+    rejected = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages",
+        json=_v2_save_payload(payload),
+    )
+
+    assert rejected.status_code == 422, rejected.text
+    assert "process_missing" in str(rejected.json()["detail"])
+
+    async def read_packages():
+        async with lifecycle_client.lifecycle_session_factory() as db:
+            return (
+                await db.execute(
+                    select(FinalizedRulePackage).order_by(FinalizedRulePackage.version)
+                )
+            ).scalars().all()
+
+    packages = asyncio.run(read_packages())
+    assert len(packages) == 1
+    assert packages[0].status == "published"
+
+
 def _parse_body(source_text):
     return {
         "project_id": 12,
@@ -164,7 +263,7 @@ def test_confirmed_standard_factor_journey_compiles_and_saves_without_mappings(
     async def parse_hole_finish(*args, **kwargs):
         return _candidate("孔精加工"), 0.99, []
 
-    monkeypatch.setattr(condition_reviews, "parse_rule_condition", parse_hole_finish)
+    monkeypatch.setattr(condition_review_service, "parse_rule_condition", parse_hole_finish)
     registry = lifecycle_client.get("/api/extract/finalized-rule-packages/condition-fields")
     assert registry.status_code == 200
     registry_body = registry.json()
@@ -260,7 +359,7 @@ def test_unknown_custom_factor_cannot_be_confirmed_compiled_or_saved(
             [issue.message for issue in issues],
         )
 
-    monkeypatch.setattr(condition_reviews, "parse_rule_condition", parse_unknown)
+    monkeypatch.setattr(condition_review_service, "parse_rule_condition", parse_unknown)
     registry = lifecycle_client.get("/api/extract/finalized-rule-packages/condition-fields").json()
     precision_field = next(field for field in registry["fields"] if field["key"] == "precision.grades")
     source_text = "precision.grades contains 自定义精加工"
@@ -300,6 +399,41 @@ def test_unknown_custom_factor_cannot_be_confirmed_compiled_or_saved(
     )
     assert saved.status_code == 422
     assert saved.json()["detail"]["issues"][0]["code"] == "factor_unbound"
+
+
+def test_confirm_endpoint_preserves_source_changed_conflict(lifecycle_client):
+    source_text = "当外圆尺寸精度达到 IT8 时，纳入铣槽工序"
+    parsed = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages/rule-conditions/parse",
+        json=_parse_body(source_text),
+    )
+    assert parsed.status_code == 200
+
+    response = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages/rule-conditions/confirm",
+        json=_confirm_body("新的条件文字", parsed.json()["review"]["source_hash"], parsed.json()["review"]["candidate"]),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "条件文字已经发生变化，请重新解析后再确认。"
+
+
+def test_manual_endpoint_rejects_spoofed_target(lifecycle_client):
+    response = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages/rule-conditions/manual",
+        json={
+            "project_id": 12,
+            "route_id": 31,
+            "segment_id": "process_mill_slot",
+            "source_text": "用户决定是否纳入铣槽工序",
+            "process_id": "process_mill_slot",
+            "candidate": _candidate("孔精加工").model_dump(mode="json"),
+            "processes": [{"process_id": "process_mill_slot", "display_name": "铣槽"}],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "人工 Bool" in response.json()["detail"]
 
 
 def test_new_package_persists_catalog_version(lifecycle_client, rule_package_v2_payload):
@@ -469,3 +603,113 @@ def test_publish_helper_does_not_commit_before_caller(lifecycle_client, rule_pac
             return (await db.execute(select(FinalizedRulePackage))).scalars().all()
 
     assert asyncio.run(exercise()) == []
+
+
+def test_archive_published_rule_packages_is_project_scoped_and_caller_owned(lifecycle_client):
+    async def run():
+        factory = lifecycle_client.lifecycle_session_factory
+        async with factory() as db:
+            db.add(Project(id=13, name="other project", status="ROUTE_SET_READY"))
+            db.add_all([
+                FinalizedRulePackage(
+                    project_id=12,
+                    version=1,
+                    package_name="target-current",
+                    schema_version="2.0",
+                    status="published",
+                ),
+                FinalizedRulePackage(
+                    project_id=12,
+                    version=0,
+                    package_name="target-history",
+                    schema_version="2.0",
+                    status="superseded",
+                ),
+                FinalizedRulePackage(
+                    project_id=13,
+                    version=1,
+                    package_name="other-current",
+                    schema_version="2.0",
+                    status="published",
+                ),
+            ])
+            await db.commit()
+
+        async with factory() as db:
+            archived_versions = await archive_published_rule_packages(12, db)
+            statuses = dict((await db.execute(
+                select(FinalizedRulePackage.package_name, FinalizedRulePackage.status)
+            )).all())
+            assert archived_versions == [1]
+            assert statuses == {
+                "target-current": "archived",
+                "target-history": "superseded",
+                "other-current": "published",
+            }
+            await db.rollback()
+
+        async with factory() as db:
+            statuses = dict((await db.execute(
+                select(FinalizedRulePackage.package_name, FinalizedRulePackage.status)
+            )).all())
+            assert statuses["target-current"] == "published"
+            assert statuses["other-current"] == "published"
+
+    asyncio.run(run())
+
+
+def test_changed_condition_draft_archives_published_package_but_noop_does_not(
+    lifecycle_client,
+    rule_package_v2_payload,
+):
+    source_text = "当存在孔精加工要求时，纳入铣槽工序"
+    initial = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages/rule-conditions/draft",
+        json={
+            "project_id": 12,
+            "route_id": 31,
+            "segment_id": "process_mill_slot",
+            "source_text": source_text,
+        },
+    )
+    assert initial.status_code == 200
+    published = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages",
+        json=_v2_save_payload(rule_package_v2_payload),
+    )
+    assert published.status_code == 200
+
+    unchanged = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages/rule-conditions/draft",
+        json={
+            "project_id": 12,
+            "route_id": 31,
+            "segment_id": "process_mill_slot",
+            "source_text": source_text,
+        },
+    )
+    assert unchanged.status_code == 200
+    assert lifecycle_client.get(
+        "/api/extract/finalized-rule-packages/latest",
+        params={"project_id": 12},
+    ).status_code == 200
+
+    changed = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages/rule-conditions/draft",
+        json={
+            "project_id": 12,
+            "route_id": 31,
+            "segment_id": "process_mill_slot",
+            "source_text": f"{source_text}，且表面粗糙度满足要求",
+        },
+    )
+    assert changed.status_code == 200
+    assert lifecycle_client.get(
+        "/api/extract/finalized-rule-packages/latest",
+        params={"project_id": 12},
+    ).status_code == 404
+    rows = lifecycle_client.get(
+        "/api/extract/finalized-rule-packages",
+        params={"project_id": 12},
+    ).json()
+    assert rows[0]["status"] == "archived"

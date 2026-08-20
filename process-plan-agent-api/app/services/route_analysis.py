@@ -26,10 +26,6 @@ from app.services.route_analysis_helpers import (
     serialize_segment_rule_review,
     sort_and_resequence_saved_route,
 )
-from app.services.rule_packages.condition_reviews import (
-    invalidate_legacy_nondestructive_relation_reviews,
-    migrate_legacy_standard_factor_reviews,
-)
 from app.services.route_merge.workspace import (
     build_route_item_source_lookup,
     build_saved_route_version_segments,
@@ -133,7 +129,7 @@ async def save_normalized_route_version(
                 latest.segment_count = len(normalized_route)
                 dirty = True
             if dirty:
-                await db.commit()
+                await db.flush()
                 await db.refresh(latest)
             return latest
 
@@ -148,7 +144,7 @@ async def save_normalized_route_version(
         route_json=json.dumps(normalized_route, ensure_ascii=False),
     )
     db.add(version_row)
-    await db.commit()
+    await db.flush()
     await db.refresh(version_row)
     return version_row
 
@@ -256,7 +252,7 @@ async def ensure_saved_normalized_route_version(
             latest.segment_count = len(rebuilt_route)
             if snapshot_row and snapshot_row.source_signature:
                 latest.source_signature = snapshot_row.source_signature
-            await db.commit()
+            await db.flush()
             await db.refresh(latest)
         return latest
 
@@ -289,8 +285,6 @@ async def build_saved_normalized_route_response(
     version_row: NormalizedRouteVersion,
     db: AsyncSession,
 ) -> SavedNormalizedRouteVersionOut:
-    await invalidate_legacy_nondestructive_relation_reviews(version_row, db)
-    await migrate_legacy_standard_factor_reviews(version_row, db)
     response = serialize_saved_normalized_route_version(version_row)
     project = (
         await db.execute(select(Project).where(Project.id == version_row.project_id))
@@ -384,7 +378,7 @@ async def save_segment_rule_review_record(
     if normalized_decision == "pending":
         if existing:
             await db.delete(existing)
-            await db.commit()
+            await db.flush()
         rule_review = None
     else:
         normalized_step_name = _apply_segment_name_to_route_json(_resolved_merge_name_from_trail())
@@ -399,7 +393,7 @@ async def save_segment_rule_review_record(
         existing.note = note
         existing.summary_json = json.dumps(list(summary_lines or []), ensure_ascii=False)
         existing.question_trail_json = json.dumps(list(question_trail or []), ensure_ascii=False)
-        await db.commit()
+        await db.flush()
         await db.refresh(existing)
         rule_review = serialize_segment_rule_review(existing)
 

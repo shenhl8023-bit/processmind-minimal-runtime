@@ -40,6 +40,24 @@ async def supersede_published_rule_packages(
     return len(rows)
 
 
+async def archive_published_rule_packages(
+    project_id: int,
+    db: AsyncSession,
+) -> list[int]:
+    rows = (
+        await db.execute(
+            select(FinalizedRulePackage).where(
+                FinalizedRulePackage.project_id == project_id,
+                FinalizedRulePackage.status == "published",
+            )
+        )
+    ).scalars().all()
+    for row in rows:
+        row.status = "archived"
+    await db.flush()
+    return sorted(int(row.version or 0) for row in rows)
+
+
 def v2_package_from_row(row: FinalizedRulePackage) -> RulePackageV2:
     if str(row.schema_version or "1.0") != "2.0":
         raise RulePackageLifecycleError("只有 V2 规则包支持该操作")

@@ -25,6 +25,11 @@ from app.services.rule_packages.contracts import RulePackageV2
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
+def pytest_unconfigure(config):
+    del config
+    _TEST_DATA_ROOT.cleanup()
+
+
 @pytest.fixture
 def rule_package_v2_payload():
     return json.loads((FIXTURE_DIR / "rule_package_v2.json").read_text(encoding="utf-8"))

@@ -11,4 +11,5 @@ fi
 
 source .venv/bin/activate
 export PROCESSMIND_DATA_DIR="$ROOT_DIR/data"
-uvicorn app.main:app --host 127.0.0.1 --port 8000
+# 提取任务状态保存在进程内存，必须单 worker 运行（--workers 1 为显式声明）。
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1

@@ -366,6 +366,7 @@ def test_changed_document_file_version_forces_detail_and_snapshot_rebuild(
             old_payload = await ensure_route_merge_snapshot(1, db, old_route, old_details)
             old_signature = str(old_payload["source_signature"])
             assert old_payload["superset_route"][0]["name"] == "旧工序"
+            await db.commit()
 
         async with session_factory() as db:
             async def unexpected_loader():

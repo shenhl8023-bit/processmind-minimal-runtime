@@ -195,8 +195,9 @@ function Start-Application {
     }
     else {
       $env:PROCESSMIND_DATA_DIR = Join-Path $Root 'data'
+      # 提取任务状态保存在进程内存，必须单 worker 运行（--workers 1 为显式声明）。
       $apiProcess = Start-Process -FilePath $PythonExe `
-        -ArgumentList @('-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8000') `
+        -ArgumentList @('-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8000', '--workers', '1') `
         -WorkingDirectory $ApiDir `
         -RedirectStandardOutput $apiOut `
         -RedirectStandardError $apiErr `

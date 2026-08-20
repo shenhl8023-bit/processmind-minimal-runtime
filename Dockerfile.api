@@ -19,9 +19,11 @@ COPY process-plan-agent-api/knowledge /app/process-plan-agent-api/knowledge
 COPY process-plan-agent-api/prompt_templates.md /app/process-plan-agent-api/prompt_templates.md
 COPY process-plan-agent-api/prompt_parts /app/process-plan-agent-api/prompt_parts
 COPY docs/配置模板 /app/docs/配置模板
+COPY docs/配置模板/第五步参数问答策略.json /app/docs/配置模板/第五步参数问答策略.json
 
 RUN mkdir -p /app/process-plan-agent-api/uploads /data
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 提取任务状态保存在进程内存，必须单 worker 运行（--workers 1 为显式声明）。
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

@@ -4,12 +4,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from collections import defaultdict
+from collections.abc import Callable
 
 from app.core.paths import UPLOAD_DIR
 from app.models.models import Document, DocumentOperationDetail
+from app.services.extraction_parallel import run_extraction_cpu
 from app.services.file_parser import extract_text
 from app.services.route_candidate_summary import (
     build_missing_route_candidates as _build_missing_route_candidates,
@@ -33,56 +36,104 @@ dedupe_and_refine_ops = _dedupe_and_refine_ops
 describe_route_set_candidate = _describe_route_set_candidate
 
 
-def _collect_candidate_summary(docs: list[Document]) -> tuple[dict[str, dict], list[str], dict[str, list[str]]]:
+def _summarize_one_document(
+    filename: str,
+    file_type: str | None,
+    original_name: str,
+) -> tuple[str, list[dict], list[str]]:
+    filepath = os.path.join(UPLOAD_DIR, filename)
+    text = extract_text(filepath, file_type, max_chars=None)
+    logger.info("[Extract] 已提取文档 %s 内容，长度: %s 字符", original_name, len(text))
+    candidates = _extract_operations_from_text(text, original_name)
+    ordered_items = sorted(
+        candidates,
+        key=lambda row: (int(row.get("sequence") or 0), _normalize_operation_name(str(row.get("name") or ""))),
+    )
+    ordered_names: list[str] = []
+    seen_in_doc: set[str] = set()
+    for item in ordered_items:
+        key_name = _normalize_operation_name(item["name"])
+        if key_name and key_name not in seen_in_doc:
+            seen_in_doc.add(key_name)
+            ordered_names.append(key_name)
+    return original_name, ordered_items, ordered_names
+
+
+def _merge_ordered_items_into_summary(
+    grouped: dict[str, dict],
+    original_name: str,
+    ordered_items: list[dict],
+) -> None:
+    total_in_doc = max(1, len(ordered_items))
+    for idx, item in enumerate(ordered_items):
+        key = _normalize_operation_name(item["name"])
+        if key not in grouped:
+            grouped[key] = {
+                "name": key,
+                "sequences": [],
+                "sources": set(),
+                "card_sources": set(),
+                "occurrences": [],
+            }
+        grouped[key]["sequences"].append(item["sequence"])
+        grouped[key]["sources"].add(original_name)
+        if item.get("from_card"):
+            grouped[key]["card_sources"].add(original_name)
+        grouped[key]["occurrences"].append(
+            {
+                "source": original_name,
+                "sequence": int(item.get("sequence") or 0),
+                "from_card": bool(item.get("from_card")),
+                "index": idx,
+                "total": total_in_doc,
+            }
+        )
+
+
+async def _collect_candidate_summary(
+    docs: list[Document],
+    progress_callback: Callable[[str, int], None] | None = None,
+) -> tuple[dict[str, dict], list[str], dict[str, list[str]]]:
     grouped: dict[str, dict] = {}
     doc_names: list[str] = []
     doc_orders: dict[str, list[str]] = {}
+    total = len(docs)
+    if progress_callback and total:
+        progress_callback(f"正在读取工艺文档（0/{total}）...", 12)
 
-    for doc in docs:
-        filepath = os.path.join(UPLOAD_DIR, doc.filename)
-        text = extract_text(filepath, doc.file_type, max_chars=None)
-        logger.info("[Extract] 已提取文档 %s 内容，长度: %s 字符", doc.original_name, len(text))
+    results: list[tuple[str, list[dict], list[str]] | None] = [None] * total
+    completed = 0
+    progress_lock = asyncio.Lock()
 
-        candidates = _extract_operations_from_text(text, doc.original_name)
-        doc_names.append(doc.original_name)
-        ordered_names: list[str] = []
-        seen_in_doc: set[str] = set()
-        ordered_items = sorted(
-            candidates,
-            key=lambda row: (int(row.get("sequence") or 0), _normalize_operation_name(str(row.get("name") or ""))),
+    async def _run_one(index: int, doc: Document) -> None:
+        nonlocal completed
+        original_name = str(doc.original_name or doc.filename or "")
+        results[index] = await run_extraction_cpu(
+            _summarize_one_document,
+            str(doc.filename or ""),
+            doc.file_type,
+            original_name,
         )
-        for item in ordered_items:
-            key_name = _normalize_operation_name(item["name"])
-            if key_name and key_name not in seen_in_doc:
-                seen_in_doc.add(key_name)
-                ordered_names.append(key_name)
-        if ordered_names:
-            doc_orders[doc.original_name] = ordered_names
-
-        total_in_doc = max(1, len(ordered_items))
-        for idx, item in enumerate(ordered_items):
-            key = _normalize_operation_name(item["name"])
-            if key not in grouped:
-                grouped[key] = {
-                    "name": key,
-                    "sequences": [],
-                    "sources": set(),
-                    "card_sources": set(),
-                    "occurrences": [],
-                }
-            grouped[key]["sequences"].append(item["sequence"])
-            grouped[key]["sources"].add(doc.original_name)
-            if item.get("from_card"):
-                grouped[key]["card_sources"].add(doc.original_name)
-            grouped[key]["occurrences"].append(
-                {
-                    "source": doc.original_name,
-                    "sequence": int(item.get("sequence") or 0),
-                    "from_card": bool(item.get("from_card")),
-                    "index": idx,
-                    "total": total_in_doc,
-                }
+        async with progress_lock:
+            completed += 1
+            done = completed
+        if progress_callback:
+            progress_callback(
+                f"正在读取工艺文档（{done}/{total}）: {original_name}",
+                12 + int((done / max(total, 1)) * 16),
             )
+
+    if docs:
+        await asyncio.gather(*[_run_one(index, doc) for index, doc in enumerate(docs)])
+
+    for result in results:
+        if result is None:
+            continue
+        original_name, ordered_items, ordered_names = result
+        doc_names.append(original_name)
+        if ordered_names:
+            doc_orders[original_name] = ordered_names
+        _merge_ordered_items_into_summary(grouped, original_name, ordered_items)
 
     return grouped, doc_names, doc_orders
 

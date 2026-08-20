@@ -1,5 +1,9 @@
 import { api } from './client'
 import type {
+  ConditionReviewStatus,
+  RulePackageStatusDto,
+} from './dto'
+import type {
   FinalizedRulePackageResult,
   FinalizedRulePackageSimulationResult,
   TemplateGroupAliasBinding,
@@ -158,7 +162,7 @@ export type RuleConditionCandidate = {
 export type RuleConditionReview = {
   source_text: string
   source_hash: string
-  status: 'draft' | 'parsing' | 'pending_confirmation' | 'confirmed' | 'invalid'
+  status: ConditionReviewStatus
   candidate?: RuleConditionCandidate | null
   confirmed?: RuleConditionCandidate | null
   confidence?: number | null
@@ -250,6 +254,15 @@ export type KmaiCompatibilityTestResult = {
   errors: Array<{ code: string; path?: string; message: string }>
   manual_factors: Record<string, unknown>
   semantic_gaps: string[]
+}
+
+export type RulePackageStatusResponse = RulePackageStatusDto
+
+export async function getFinalizedRulePackageStatus(projectId: number) {
+  const { data } = await api.get('/api/extract/finalized-rule-packages/status', {
+    params: { project_id: projectId },
+  })
+  return data as RulePackageStatusResponse
 }
 
 export async function testKmaiCompatibility(projectId: number, inputs: Record<string, unknown>) {

@@ -4,6 +4,7 @@ route_rules_runtime 的文档工序明细抽取与缓存复用逻辑。
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections import defaultdict
 from collections.abc import Callable
@@ -15,6 +16,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.paths import UPLOAD_DIR
 from app.models.models import Document, DocumentOperationDetail
 from app.services.document_operation_details import extract_pdf_operation_details
+from app.services.extraction_parallel import run_extraction_cpu
+
+
+DETAIL_BUILD_LOCKS: dict[int, asyncio.Lock] = {}
+
+
+def get_document_operation_details_lock(project_id: int) -> asyncio.Lock:
+    return DETAIL_BUILD_LOCKS.setdefault(int(project_id), asyncio.Lock())
 
 
 async def extract_document_operation_details(
@@ -34,15 +43,18 @@ async def extract_document_operation_details(
     ).scalars().all()
 
     saved_rows: list[DocumentOperationDetail] = []
-    for doc in docs:
-        filepath = os.path.join(UPLOAD_DIR, doc.filename)
-        extracted_rows = []
-        if (doc.file_type or "").lower() == "pdf" and os.path.exists(filepath):
-            try:
-                extracted_rows = extract_pdf_operation_details(filepath)
-            except Exception:
-                extracted_rows = []
 
+    async def _parse_document(doc: Document) -> tuple[Document, list]:
+        filepath = os.path.join(UPLOAD_DIR, doc.filename)
+        if (doc.file_type or "").lower() != "pdf" or not os.path.exists(filepath):
+            return doc, []
+        try:
+            return doc, await run_extraction_cpu(extract_pdf_operation_details, filepath)
+        except Exception:
+            return doc, []
+
+    parsed_docs = await asyncio.gather(*[_parse_document(doc) for doc in docs]) if docs else []
+    for doc, extracted_rows in parsed_docs:
         for item in extracted_rows:
             normalized_names = detail_row_normalized_names(item.normalized_name or item.operation_name)
             if not normalized_names:
@@ -70,6 +82,22 @@ async def extract_document_operation_details(
 
 
 async def ensure_document_operation_details(
+    db: AsyncSession,
+    project_id: int,
+    *,
+    extract_document_operation_details_fn: Callable[..., Any],
+    progress_callback: Callable[[str, int], None] | None = None,
+) -> list[DocumentOperationDetail]:
+    async with get_document_operation_details_lock(project_id):
+        return await _ensure_document_operation_details_locked(
+            db,
+            project_id,
+            extract_document_operation_details_fn=extract_document_operation_details_fn,
+            progress_callback=progress_callback,
+        )
+
+
+async def _ensure_document_operation_details_locked(
     db: AsyncSession,
     project_id: int,
     *,
@@ -133,16 +161,16 @@ async def ensure_document_operation_details(
     reused_count = total_pdf_docs - len(missing_docs)
     if progress_callback:
         if total_pdf_docs and not missing_docs:
-            progress_callback(f"正在复用已缓存工序明细（{reused_count}/{total_pdf_docs}）...", 35)
+            progress_callback(f"正在复用已缓存工序明细（{reused_count}/{total_pdf_docs}）...", 38)
         elif total_pdf_docs:
             progress_callback(
                 f"正在核对工序明细缓存（已复用 {reused_count}/{total_pdf_docs}）...",
-                18 if reused_count else 14,
+                30 if reused_count else 28,
             )
 
     for index, doc in enumerate(missing_docs, start=1):
         if progress_callback:
-            progress = 18 + int((index / max(len(missing_docs), 1)) * 16)
+            progress = 30 + int((index / max(len(missing_docs), 1)) * 8)
             progress_callback(
                 f"正在解析工序明细（{index}/{len(missing_docs)}）: {doc.original_name or doc.filename}",
                 progress,
@@ -150,6 +178,9 @@ async def ensure_document_operation_details(
         extracted_rows = await extract_document_operation_details_fn(db, project_id, docs=[doc])
         reusable_rows.extend(extracted_rows)
         modified = True
+        # PDF 解析可能较慢；每份文档落库后立即释放 SQLite 写锁，保证提取任务
+        # 心跳和状态轮询可在下一份文档解析期间续租、更新进度。
+        await db.commit()
 
     if modified:
         await db.commit()
@@ -164,6 +195,8 @@ async def ensure_document_operation_details(
 
 
 __all__ = [
+    "DETAIL_BUILD_LOCKS",
     "ensure_document_operation_details",
     "extract_document_operation_details",
+    "get_document_operation_details_lock",
 ]

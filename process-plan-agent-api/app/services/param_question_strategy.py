@@ -10,15 +10,61 @@ import json
 from pathlib import Path
 from typing import Any
 
+from app.core.paths import PARAM_QUESTION_STRATEGY_PATH
 
-PARAM_QUESTION_STRATEGY_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "process-plan-agent-ui"
-    / "src"
-    / "config"
-    / "paramQuestionStrategy.json"
-)
 PARAM_QUESTION_STRATEGY_CACHE: dict[str, object] | None = None
+
+
+class ParamQuestionStrategyError(ValueError):
+    """参数问答策略配置不可用。"""
+
+
+def validate_param_question_strategy(payload: object, source: Path) -> dict[str, object]:
+    if not isinstance(payload, dict):
+        raise ParamQuestionStrategyError(f"参数问答策略配置必须是 JSON 对象: {source}")
+    version = payload.get("version")
+    if not isinstance(version, str) or not version.strip():
+        raise ParamQuestionStrategyError(f"参数问答策略缺少非空 version: {source}")
+
+    family_rules = payload.get("familyRules")
+    if not isinstance(family_rules, list) or not family_rules:
+        raise ParamQuestionStrategyError(f"参数问答策略 familyRules 必须是非空数组: {source}")
+    for index, item in enumerate(family_rules):
+        if not isinstance(item, dict):
+            raise ParamQuestionStrategyError(f"参数问答策略 familyRules[{index}] 必须是对象: {source}")
+        for key in ("family", "label"):
+            value = item.get(key)
+            if not isinstance(value, str) or not value.strip():
+                raise ParamQuestionStrategyError(
+                    f"参数问答策略 familyRules[{index}].{key} 必须是非空字符串: {source}"
+                )
+        patterns = item.get("patterns")
+        if not isinstance(patterns, list) or any(not isinstance(pattern, str) for pattern in patterns):
+            raise ParamQuestionStrategyError(
+                f"参数问答策略 familyRules[{index}].patterns 必须是字符串数组: {source}"
+            )
+
+    priority_map = payload.get("rootReasonPriority")
+    if not isinstance(priority_map, dict) or not isinstance(priority_map.get("other"), list) or not priority_map["other"]:
+        raise ParamQuestionStrategyError(
+            f"参数问答策略 rootReasonPriority 必须包含数组字段 other: {source}"
+        )
+    for family, values in priority_map.items():
+        if not isinstance(family, str) or not isinstance(values, list) or not values or any(
+            not isinstance(value, str) or not value.strip() for value in values
+        ):
+            raise ParamQuestionStrategyError(
+                f"参数问答策略 rootReasonPriority.{family} 必须是非空字符串数组: {source}"
+            )
+
+    terminal_types = payload.get("terminalQuestionTypes")
+    if not isinstance(terminal_types, list) or not terminal_types or any(
+        not isinstance(value, str) or not value.strip() for value in terminal_types
+    ):
+        raise ParamQuestionStrategyError(
+            f"参数问答策略 terminalQuestionTypes 必须是非空字符串数组: {source}"
+        )
+    return dict(payload)
 
 HOLE_OPERATION_HINTS = ("孔", "钻", "镗", "铰", "攻螺纹", "车螺纹")
 SLOT_OPERATION_HINTS = ("槽", "扁", "键", "花键")
@@ -27,37 +73,6 @@ FINISH_OPERATION_HINTS = ("磨", "研", "珩", "抛光")
 END_FACE_OPERATION_HINTS = ("端面", "平端面", "车端面")
 CHAMFER_OPERATION_HINTS = ("倒角", "倒圆", "孔口倒角", "车倒角")
 OUTER_SURFACE_OPERATION_HINTS = ("外圆", "车外形", "车外圆", "外形")
-
-DEFAULT_ROOT_REASON_VALUES = [
-    "coverage_reason::material",
-    "coverage_reason::structure",
-    "coverage_reason::size",
-    "coverage_reason::blank",
-    "coverage_reason::requirement",
-    "coverage_reason::multi",
-    "coverage_reason::uncertain",
-]
-
-FALLBACK_ROOT_REASON_ORDER_BY_FAMILY = {
-    "heat": [
-        "coverage_reason::material",
-        "coverage_reason::requirement",
-        "coverage_reason::size",
-        "coverage_reason::structure",
-        "coverage_reason::blank",
-        "coverage_reason::multi",
-        "coverage_reason::uncertain",
-    ],
-    "hole": [
-        "coverage_reason::structure",
-        "coverage_reason::size",
-        "coverage_reason::requirement",
-        "coverage_reason::material",
-        "coverage_reason::blank",
-        "coverage_reason::multi",
-        "coverage_reason::uncertain",
-    ],
-}
 
 PARAM_QUESTION_GOAL_MAP = {
     "merge_name_select": "先确认这组可无条件合并工序的统一名称",
@@ -83,16 +98,6 @@ PARAM_QUESTION_GOAL_MAP = {
     "missing_info_select": "先确认当前最缺的是哪一类信息",
     "manufacturability_select": "先确认是不是可加工性限制在驱动这道工序",
     "stress_risk_select": "先确认是不是变形或应力风险在驱动这道工序",
-}
-
-DEFAULT_TERMINAL_QUESTION_TYPES = {
-    "material_scope_select",
-    "generic_structure_select",
-    "size_select",
-    "blank_select",
-    "requirement_select",
-    "precision_select",
-    "heat_treatment_select",
 }
 
 PARAM_QUESTION_TREE_META = {
@@ -126,21 +131,28 @@ def _contains_any(text: str, hints: tuple[str, ...]) -> bool:
     return any(hint in (text or "") for hint in hints)
 
 
-def load_param_question_strategy() -> dict[str, object]:
+def load_param_question_strategy(
+    path: Path | None = None,
+    *,
+    force: bool = False,
+) -> dict[str, object]:
     global PARAM_QUESTION_STRATEGY_CACHE
-    if PARAM_QUESTION_STRATEGY_CACHE is not None:
+    source = Path(path) if path is not None else PARAM_QUESTION_STRATEGY_PATH
+    if path is None and PARAM_QUESTION_STRATEGY_CACHE is not None and not force:
         return dict(PARAM_QUESTION_STRATEGY_CACHE)
-    if not PARAM_QUESTION_STRATEGY_PATH.is_file():
-        PARAM_QUESTION_STRATEGY_CACHE = {}
-        return {}
+    if not source.is_file():
+        raise ParamQuestionStrategyError(f"参数问答策略配置不存在: {source}")
     try:
-        with PARAM_QUESTION_STRATEGY_PATH.open("r", encoding="utf-8") as handle:
+        with source.open("r", encoding="utf-8") as handle:
             payload = json.load(handle)
-    except Exception:
-        PARAM_QUESTION_STRATEGY_CACHE = {}
-        return {}
-    PARAM_QUESTION_STRATEGY_CACHE = payload if isinstance(payload, dict) else {}
-    return dict(PARAM_QUESTION_STRATEGY_CACHE)
+    except json.JSONDecodeError as exc:
+        raise ParamQuestionStrategyError(f"参数问答策略无法解析 JSON: {source}") from exc
+    except OSError as exc:
+        raise ParamQuestionStrategyError(f"参数问答策略无法读取: {source}") from exc
+    validated = validate_param_question_strategy(payload, source)
+    if path is None:
+        PARAM_QUESTION_STRATEGY_CACHE = validated
+    return dict(validated)
 
 
 def shared_param_operation_family(step_name: str) -> str:
@@ -202,27 +214,7 @@ def param_operation_family(step_name: str) -> str:
 
 def prioritized_root_reason_values(step_name: str) -> list[str]:
     shared = shared_prioritized_root_reason_values(step_name)
-    if shared:
-        ordered = list(shared)
-        for fallback in DEFAULT_ROOT_REASON_VALUES:
-            if fallback not in ordered:
-                ordered.append(fallback)
-        return ordered
-
-    family = param_operation_family(step_name)
-    if family in FALLBACK_ROOT_REASON_ORDER_BY_FAMILY:
-        return list(FALLBACK_ROOT_REASON_ORDER_BY_FAMILY[family])
-    if family in {"slot", "end_face", "finish", "outer_surface", "chamfer"}:
-        return [
-            "coverage_reason::structure",
-            "coverage_reason::requirement",
-            "coverage_reason::size",
-            "coverage_reason::blank",
-            "coverage_reason::material",
-            "coverage_reason::multi",
-            "coverage_reason::uncertain",
-        ]
-    return list(DEFAULT_ROOT_REASON_VALUES)
+    return list(shared)
 
 
 def default_param_question_meta(
@@ -233,7 +225,7 @@ def default_param_question_meta(
     round_total_hint: int,
 ) -> tuple[str, str]:
     goal = PARAM_QUESTION_GOAL_MAP.get(question_type, "先确认这一轮最关键的规则边界")
-    terminal_question_types = shared_terminal_question_types() or DEFAULT_TERMINAL_QUESTION_TYPES
+    terminal_question_types = shared_terminal_question_types()
 
     if question_type in terminal_question_types:
         reason = f"这题答完后，工序“{step_name}”通常就可以结束这一轮确认，不再默认追加额外追问。"

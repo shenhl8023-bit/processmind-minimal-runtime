@@ -51,14 +51,14 @@
         <button
           class="ash-btn-primary ash-btn-phase-active"
           @click="publishRulePackage"
-          :disabled="actionDisabled.publish"
+          :disabled="loading || !rulePackageStatus?.can_publish || actionDisabled.publish"
         >
           {{ publishButtonLabel }}
         </button>
         <button
           class="ash-btn-outline"
           @click="downloadCurrentRulePackage"
-          :disabled="actionDisabled.download"
+          :disabled="!rulePackageStatus?.can_generate || actionDisabled.download"
           :title="actionDisabled.download && outdatedRulePackageVersion ? '当前规则已变更，请先重新发布' : '下载当前发布版本'"
         >
           {{ downloadButtonLabel }}
@@ -195,7 +195,7 @@
       previous-label="← 返回规则分析"
       next-label="进入路线生成 →"
       :previous-disabled="!projectId"
-      :next-disabled="!projectId || !lastExportedRulePackageVersion || !allCurrentRulesConfirmed"
+      :next-disabled="!projectId || !rulePackageStatus?.can_generate || !lastExportedRulePackageVersion || !allCurrentRulesConfirmed"
       @previous="goBackToAnalysis"
       @next="goToGenerate"
     />
@@ -249,29 +249,11 @@ import RulePackagePublishReviewDialog from '@/components/finalize/RulePackagePub
 import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
 import WorkflowResetDialog from '@/components/workflow/WorkflowResetDialog.vue'
 import {
-  getSavedNormalizedRoute,
-  getOptionalLatestFinalizedRulePackage,
-  getSupersetRoute,
-  listOperations,
-  listProjects,
-  resetWorkflow,
-  type FinalizedRulePackageResult,
   type SaveFinalizedRulePackageResponse,
-  type OperationItem,
   type SavedNormalizedRouteVersionResult,
 } from '@/api'
 import {
-  confirmRuleCondition,
-  getConditionFieldRegistry,
-  compileRulePackage,
-  parseRuleCondition,
-  saveRuleConditionDraft,
-  setManualRuleCondition,
-  type CanonicalConditionField,
-  type RuleConditionCandidate,
   type RuleConditionProcessOption,
-  type RuleConditionReview,
-  type StandardFactorDefinition,
 } from '@/api/rulePackages'
 import {
   segmentDisplayMetaLabel,
@@ -293,16 +275,16 @@ import {
   useRulePackagePublishReview,
 } from '@/composables/useRulePackagePublishReview'
 import { useFinalizedRulePackageDownload } from '@/composables/useFinalizedRulePackageDownload'
+import { useFinalizeWorkspace } from '@/composables/useFinalizeWorkspace'
+import { useConditionReviewQueue } from '@/composables/useConditionReviewQueue'
+import { useFinalizeWorkflowConflict } from '@/composables/useFinalizeWorkflowConflict'
 import { useRouteSegmentSteps } from '@/composables/useRouteSegmentSteps'
-import { buildProjectRouteQuery, resolveAvailableProjectId } from '@/composables/useCurrentProject'
+import { buildProjectRouteQuery } from '@/composables/useCurrentProject'
 import { FINALIZE_VIEW_COPY } from '@/config/finalizeRulePresentation'
-import { createLatestWorkflowRequestGuard, getWorkflowDataRevision } from '@/composables/workflowDataCache'
-import { isWorkflowRevisionConflict, publishWorkflowReset, workflowResetSignal } from '@/composables/workflowResetState'
-import { createBackgroundTaskGuard, runBackgroundTask } from '@/composables/runBackgroundTask'
+import { getWorkflowDataRevision } from '@/composables/workflowDataCache'
+import { workflowResetSignal } from '@/composables/workflowResetState'
 import {
-  buildManualBooleanRuleCandidate,
   exportProcessIdForItem,
-  buildCompileRequestFromCards,
   finalizeRuleMode,
   isSafeForBatchRuleConfirmation,
   needsFinalizeRuleReview,
@@ -315,89 +297,52 @@ import {
   reviewActionLabel,
   rulePackageActionDisabled,
 } from '@/utils/finalizeRulePackageActionState'
-import { factorBindingState } from '@/utils/standardFactorBindings'
 
 const route = useRoute()
 const router = useRouter()
 let finalizeViewActive = false
 let initialLoadFinished = false
-let loadedDataRevision = -1
-let locallyHandledResetAt = 0
-const workspaceRequestGuard = createLatestWorkflowRequestGuard()
-
-const loading = ref(false)
-const error = ref('')
-const workspaceErrorTitle = ref<string>(FINALIZE_VIEW_COPY.errorTitle)
-const projectId = ref<number | null>(null)
-const projectName = ref('')
-const savedRoute = ref<SavedNormalizedRouteVersionResult | null>(null)
-const operations = ref<OperationItem[]>([])
-const supersetOperations = ref<OperationItem[]>([])
 const onlyPending = ref(true)
 const activeSegmentId = ref('')
 const locatedPublishBlockerId = ref('')
-const currentPublishedPackage = ref<FinalizedRulePackageResult | null>(null)
-const outdatedRulePackageVersion = ref<number | null>(null)
-const conditionFields = ref<CanonicalConditionField[]>([])
-const standardFactors = ref<StandardFactorDefinition[]>([])
-const factorCatalogVersion = ref('')
-const factorCatalogError = ref('')
-const conditionRegistryLoading = ref(false)
-const conditionBusySegmentIds = ref(new Set<string>())
-const conditionBusyCounts = new Map<string, number>()
-const batchParsing = ref(false)
-const batchParseCompleted = ref(0)
-const batchParseTotal = ref(0)
-const batchReviewing = ref(false)
-const batchReviewCompleted = ref(0)
-const batchReviewTotal = ref(0)
-const reviewingRules = ref(false)
-const batchNotice = ref('')
-const resetDialogVisible = ref(false)
-const resettingWorkflow = ref(false)
-let batchNoticeTimer: ReturnType<typeof setTimeout> | null = null
-let workflowConflictReload: Promise<void> | null = null
-let batchParseExecutionId = 0
-const recognitionTaskGuard = createBackgroundTaskGuard()
 
-function setBatchNotice(msg: string) {
-  batchNotice.value = msg
-  if (batchNoticeTimer) clearTimeout(batchNoticeTimer)
-  if (msg) {
-    batchNoticeTimer = setTimeout(() => { batchNotice.value = '' }, 4000)
-  }
-}
+const {
+  loading,
+  error,
+  workspaceErrorTitle,
+  projectId,
+  projectName,
+  savedRoute,
+  operations,
+  supersetOperations,
+  rulePackageStatus,
+  currentPublishedPackage,
+  outdatedRulePackageVersion,
+  conditionFields,
+  standardFactors,
+  factorCatalogVersion,
+  factorCatalogError,
+  conditionRegistryLoading,
+  factorCatalogReady,
+  loadedDataRevision,
+  loadWorkspace,
+  refreshRulePackageStatus,
+  retryConditionRegistry,
+  markPublishedRulePackageOutdated,
+} = useFinalizeWorkspace({
+  requestedProjectId: () => String(route.query.project_id || ''),
+  onProjectResolved: projectIdValue => {
+    void router.replace({
+      path: route.path,
+      query: { ...route.query, project_id: projectIdValue },
+    })
+  },
+  readDrafts: () => readDrafts(),
+  onRouteLoaded: routeResult => {
+    activeSegmentId.value = routeResult.segments[0]?.id || ''
+  },
+})
 
-function clearConditionRegistry(message = '') {
-  conditionFields.value = []
-  standardFactors.value = []
-  factorCatalogVersion.value = ''
-  factorCatalogError.value = message
-}
-
-function applyConditionRegistry(registry: Awaited<ReturnType<typeof getConditionFieldRegistry>>) {
-  conditionFields.value = registry.fields || []
-  standardFactors.value = registry.factors || []
-  factorCatalogVersion.value = registry.version || ''
-  factorCatalogError.value = factorCatalogReady.value
-    ? ''
-    : '标准字段与因子目录不完整，请重试加载。'
-}
-
-async function retryConditionRegistry() {
-  if (conditionRegistryLoading.value) return
-  conditionRegistryLoading.value = true
-  try {
-    applyConditionRegistry(await getConditionFieldRegistry())
-  } catch (registryError: any) {
-    console.error('第四步标准因子目录加载失败', registryError)
-    clearConditionRegistry(
-      registryError?.response?.data?.detail || '标准因子目录加载失败，请重试后再审核或发布。',
-    )
-  } finally {
-    conditionRegistryLoading.value = false
-  }
-}
 const rulePackageIssue = ref<{ title: string; summary: string; details?: string; context?: string } | null>(null)
 const {
   visible: publishReviewVisible,
@@ -440,11 +385,6 @@ const reviewableCards = computed(() => [...conditionalCards.value, ...relationCa
 const conditionalRuleCount = computed(() => conditionalCards.value.length)
 const relationRuleCount = computed(() => relationCards.value.length)
 const reviewableRuleCount = computed(() => reviewableCards.value.length)
-const factorCatalogReady = computed(() => Boolean(
-  conditionFields.value.length
-  && standardFactors.value.length
-  && factorCatalogVersion.value,
-))
 const unresolvedRuleCount = computed(() => segmentCards.value.filter(item => finalizeRuleMode(item) === 'unresolved').length)
 const pendingRuleCards = computed(() => segmentCards.value.filter(item => (
   needsFinalizeRuleReview(item, factorCatalogVersion.value)
@@ -477,6 +417,9 @@ const allCurrentRulesConfirmed = computed(() =>
   factorCatalogReady.value
   && pendingRuleCards.value.length === 0,
 )
+const persistedPublishBlocker = computed(() => (
+  rulePackageStatus.value?.blockers.find(blocker => blocker.blocks.includes('publish'))
+))
 const conditionProcessOptions = computed<RuleConditionProcessOption[]>(() => {
   const options = new Map<string, RuleConditionProcessOption>()
   segmentCards.value.forEach((item) => {
@@ -490,6 +433,7 @@ const conditionProcessOptions = computed<RuleConditionProcessOption[]>(() => {
   })
   return Array.from(options.values())
 })
+
 const finalizeNavSummary = computed(() => {
   if (!projectId.value) return '请先完成第三步规则分析，再进入规则定稿。'
   if (loading.value) return '正在装载第四步定稿结果。'
@@ -500,6 +444,7 @@ const finalizeNavSummary = computed(() => {
     return `还有 ${reviewableRuleCount.value - confirmedRuleCount.value} 条规则待人工审核，请先完成规则审核。`
   }
   if (!allCurrentRulesConfirmed.value) return '存在需要人工处理的规则，请完成规则审核。'
+  if (persistedPublishBlocker.value) return persistedPublishBlocker.value.message
   if (outdatedRulePackageVersion.value) return `规则内容已有变化，原规则包 V${outdatedRulePackageVersion.value} 已过期，请重新发布。`
   if (!lastExportedRulePackageVersion.value) return '规则审核已完成，可以发布规则包。'
   return `规则包 V${lastExportedRulePackageVersion.value} 已发布，可以下载或进入路线生成。`
@@ -586,334 +531,104 @@ function showFinalizeNotice(title: string, summary: string, details = '') {
   rulePackageIssue.value = { title, summary, details, context: '规则定稿' }
 }
 
-function setConditionBusy(segmentId: string, busy: boolean) {
-  const current = conditionBusyCounts.get(segmentId) || 0
-  const nextCount = busy ? current + 1 : Math.max(0, current - 1)
-  if (nextCount) conditionBusyCounts.set(segmentId, nextCount)
-  else conditionBusyCounts.delete(segmentId)
-  conditionBusySegmentIds.value = new Set(conditionBusyCounts.keys())
-}
+let handleWorkflowConflict = async (_error: unknown) => false
 
-function hasCurrentConditionText(segmentId: string, sourceText: string) {
-  const current = segmentCards.value.find(item => item.segment.id === segmentId)
-  return current?.conditionText.trim() === sourceText.trim()
-}
+const conditionReviewQueue = useConditionReviewQueue({
+  projectId,
+  savedRoute,
+  segmentCards,
+  batchEligibleCards,
+  autoConfirmableReviewCards,
+  pendingRuleCards,
+  conditionProcessOptions,
+  factorCatalogReady,
+  standardFactors,
+  factorCatalogError,
+  onlyPending,
+  activeSegmentId,
+  displayName: finalizeSegmentDisplayName,
+  onPublishedRuleOutdated: markPublishedRulePackageOutdated,
+  onPersistedStatusChanged: () => { void refreshRulePackageStatus() },
+  onConditionTextDraft: setConditionTextDraft,
+  onNotice: showFinalizeNotice,
+  onWorkflowConflict: errorValue => handleWorkflowConflict(errorValue),
+})
 
-function applyConditionReview(segmentId: string, review: RuleConditionReview) {
-  const segment = savedRoute.value?.segments.find(item => item.id === segmentId)
-  if (!segment) return
-  if (!segment.rule_review) {
-    segment.rule_review = {
-      id: 0,
-      decision: 'accepted',
-      note: '',
-      summary_lines: [],
-      question_trail: [],
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }
-  }
-  segment.rule_review.condition_review = review
-}
+const {
+  conditionBusySegmentIds,
+  batchParsing,
+  batchParseCompleted,
+  batchParseTotal,
+  batchReviewing,
+  batchReviewCompleted,
+  batchReviewTotal,
+  reviewingRules,
+  batchNotice,
+  beginConditionBusy,
+  setBatchNotice,
+  asErrorMessage: conditionErrorMessage,
+  parseConditionItem,
+  handleParseCondition,
+  handleBatchParseConditions,
+  handleConfirmCondition,
+  handleSetMainline,
+  handleSetBoolean,
+  handleRuleReview: runRuleReview,
+  cancelPendingRequests,
+} = conditionReviewQueue
 
-function conditionErrorMessage(err: any) {
-  const detail = err?.response?.data?.detail
-  if (typeof detail === 'string') return detail
-  if (Array.isArray(detail)) return detail.map(item => item?.msg || item?.message || String(item)).join('\n')
-  if (detail?.issues) return [detail.message, ...detail.issues].filter(Boolean).join('\n')
-  return detail?.message || err?.message || '规则条件处理失败'
-}
+const workflowConflict = useFinalizeWorkflowConflict({
+  projectId,
+  savedRoute,
+  workspaceError: error,
+  onlyPending,
+  loadWorkspace,
+  clearAllDrafts,
+  cancelPendingRequests,
+  getRecognitionQueue: () => [...batchEligibleCards.value],
+  runRecognitionQueue: (queue, isCurrent) => handleBatchParseConditions(queue, isCurrent),
+  showIssue: showFinalizeNotice,
+  setBatchNotice,
+  errorMessage: conditionErrorMessage,
+})
 
-function isConditionSourceConflict(err: any) {
-  return Number(err?.response?.status) === 409
-    && /条件文字已经发生变化|重新解析后再确认/.test(conditionErrorMessage(err))
-}
+handleWorkflowConflict = workflowConflict.handleWorkflowRevisionConflict
 
-async function handleWorkflowRevisionConflict(err: any) {
-  if (!isWorkflowRevisionConflict(err)) return false
-  showFinalizeNotice('页面状态已过期', '上游步骤已经重新处理，系统正在加载最新结果。')
-  if (!workflowConflictReload) {
-    workflowConflictReload = loadWorkspace(true).finally(() => {
-      workflowConflictReload = null
-    })
-  }
-  await workflowConflictReload
-  return true
-}
-
-function markPublishedRulePackageOutdated() {
-  if (currentPublishedPackage.value?.version) {
-    outdatedRulePackageVersion.value = currentPublishedPackage.value.version
-  }
-  currentPublishedPackage.value = null
-}
+const {
+  resetDialogVisible,
+  resettingWorkflow,
+  cancelInFlightWork,
+  handleWorkflowResetSignal,
+  handleResetAllRecognition,
+} = workflowConflict
 
 async function handleSaveInlineEdit(item: ReturnType<typeof buildFinalizeCards>[number]) {
   const sourceText = inlineEditingText.value.trim()
   const changed = saveInlineEdit(item)
   if (!changed) return
   markPublishedRulePackageOutdated()
-  setConditionBusy(item.segment.id, true)
+  const finishBusy = beginConditionBusy(item.segment.id)
   try {
     await nextTick()
     await parseConditionItem(item, true, sourceText)
-  } catch (err: any) {
-    showFinalizeNotice('规则识别失败', '修改内容已保存在本机草稿，请稍后重试识别。', conditionErrorMessage(err))
+  } catch (errorValue: unknown) {
+    showFinalizeNotice('规则识别失败', '修改内容已保存在本机草稿，请稍后重试识别。', conditionErrorMessage(errorValue))
   } finally {
-    setConditionBusy(item.segment.id, false)
+    finishBusy()
   }
 }
 
 async function handleResetInlineEdit(item: ReturnType<typeof buildFinalizeCards>[number]) {
   resetInlineEdit(item)
   markPublishedRulePackageOutdated()
-  setConditionBusy(item.segment.id, true)
+  const finishBusy = beginConditionBusy(item.segment.id)
   try {
     await nextTick()
     await parseConditionItem(item, false, item.defaultConditionText)
-  } catch (err: any) {
-    showFinalizeNotice('规则识别失败', '默认条件已恢复，请稍后重试识别。', conditionErrorMessage(err))
+  } catch (errorValue: unknown) {
+    showFinalizeNotice('规则识别失败', '默认条件已恢复，请稍后重试识别。', conditionErrorMessage(errorValue))
   } finally {
-    setConditionBusy(item.segment.id, false)
-  }
-}
-
-async function parseConditionItem(
-  item: ReturnType<typeof buildFinalizeCards>[number],
-  showError = false,
-  sourceText = item.conditionText,
-  isCurrent = () => true,
-) {
-  if (!isCurrent() || !projectId.value || !savedRoute.value) return false
-  setConditionBusy(item.segment.id, true)
-  try {
-    const response = await parseRuleCondition({
-      project_id: projectId.value,
-      route_id: savedRoute.value.route_id,
-      expected_workflow_revision: savedRoute.value.workflow_revision,
-      segment_id: item.segment.id,
-      source_text: sourceText,
-      process_id: exportProcessIdForItem(item),
-      process_name: normalizeExportProcessName(finalizeSegmentDisplayName(item.segment)),
-      processes: conditionProcessOptions.value,
-    })
-    if (!isCurrent() || !hasCurrentConditionText(item.segment.id, sourceText)) return false
-    applyConditionReview(item.segment.id, response.review)
-    return response.review.status !== 'invalid'
-  } catch (err: any) {
-    if (await handleWorkflowRevisionConflict(err)) return false
-    if (showError) {
-      console.error('条件候选规则生成失败', err)
-      showFinalizeNotice('暂时无法识别规则', '请补充明确的判断条件、比较关系或取值后重试。', conditionErrorMessage(err))
-    }
-    return false
-  } finally {
-    setConditionBusy(item.segment.id, false)
-  }
-}
-
-async function handleParseCondition(item: ReturnType<typeof buildFinalizeCards>[number]) {
-  await parseConditionItem(item, true)
-}
-
-async function handleBatchParseConditions(
-  queue = [...batchEligibleCards.value],
-  isCurrent = () => true,
-) {
-  if (batchParsing.value || !queue.length || !isCurrent()) return
-  const executionId = ++batchParseExecutionId
-  batchParsing.value = true
-  batchParseCompleted.value = 0
-  batchParseTotal.value = queue.length
-  batchNotice.value = ''
-  let cursor = 0
-  let successCount = 0
-
-  async function worker() {
-    while (cursor < queue.length && isCurrent()) {
-      const item = queue[cursor++]
-      if (!item) continue
-      if (await parseConditionItem(item, false, item.conditionText, isCurrent)) successCount += 1
-      if (!isCurrent()) return
-      batchParseCompleted.value += 1
-    }
-  }
-
-  try {
-    await Promise.all(Array.from({ length: Math.min(3, queue.length) }, () => worker()))
-    if (!isCurrent()) return
-    const failedCount = queue.length - successCount
-    setBatchNotice(failedCount
-      ? `已识别 ${successCount} 条规则；${failedCount} 条还需要补充。`
-      : `已识别 ${successCount} 条规则。`)
-    onlyPending.value = true
-
-  } finally {
-    if (executionId === batchParseExecutionId) batchParsing.value = false
-  }
-}
-
-async function handleCompleteReview() {
-  if (batchReviewing.value || !autoConfirmableReviewCards.value.length || !projectId.value || !savedRoute.value) return
-  const queue = [...autoConfirmableReviewCards.value]
-  batchReviewing.value = true
-  batchReviewCompleted.value = 0
-  batchReviewTotal.value = queue.length
-  batchNotice.value = ''
-  let cursor = 0
-  let successCount = 0
-
-  async function worker() {
-    while (cursor < queue.length) {
-      const item = queue[cursor++]
-      const review = item?.conditionReview
-      if (!item || !review?.candidate || !review.source_hash) continue
-      setConditionBusy(item.segment.id, true)
-      try {
-        const response = await confirmRuleCondition({
-          project_id: projectId.value!,
-          route_id: savedRoute.value!.route_id,
-          expected_workflow_revision: savedRoute.value!.workflow_revision,
-          segment_id: item.segment.id,
-          source_text: item.conditionText,
-          source_hash: review.source_hash,
-          candidate: review.candidate,
-          processes: conditionProcessOptions.value,
-          confirmed_by: '规则包整体审核',
-        })
-        applyConditionReview(item.segment.id, response.review)
-        successCount += 1
-      } catch (err: any) {
-        if (await handleWorkflowRevisionConflict(err)) continue
-        console.error(`规则审核失败：${item.segment.id}`, err)
-      } finally {
-        setConditionBusy(item.segment.id, false)
-        batchReviewCompleted.value += 1
-      }
-    }
-  }
-
-  try {
-    await Promise.all(Array.from({ length: Math.min(3, queue.length) }, () => worker()))
-    const failedCount = queue.length - successCount
-    setBatchNotice(failedCount
-      ? `已自动审核 ${successCount} 条规则；${failedCount} 条需要检查。`
-      : '')
-  } finally {
-    batchReviewing.value = false
-  }
-}
-
-async function handleConfirmCondition(
-  item: ReturnType<typeof buildFinalizeCards>[number],
-  candidate: RuleConditionCandidate,
-) {
-  if (!projectId.value || !savedRoute.value || !item.conditionReview?.source_hash) return
-  if (!factorCatalogReady.value) {
-    factorCatalogError.value ||= '标准因子目录尚未加载，请重试后再确认规则。'
-    return
-  }
-  if ((candidate.kind || 'condition') === 'condition' && candidate.when) {
-    const binding = factorBindingState(candidate.when, standardFactors.value)
-    if (!binding.complete) {
-      showFinalizeNotice(
-        '规则尚未完整绑定标准因子',
-        '请在条件编辑器中处理所有未绑定或冲突的条件后再保存。',
-        binding.issues.map(issue => `${issue.path || '条件'}：${issue.message}`).join('\n'),
-      )
-      return
-    }
-  }
-  // A quick confirm and a background candidate refresh must not submit two
-  // versions of the same card at once.
-  if (conditionBusySegmentIds.value.has(item.segment.id)) return
-  markPublishedRulePackageOutdated()
-  setConditionBusy(item.segment.id, true)
-  try {
-    const response = await confirmRuleCondition({
-      project_id: projectId.value,
-      route_id: savedRoute.value.route_id,
-      expected_workflow_revision: savedRoute.value.workflow_revision,
-      segment_id: item.segment.id,
-      source_text: item.conditionText,
-      source_hash: item.conditionReview.source_hash,
-      candidate,
-      processes: conditionProcessOptions.value,
-      confirmed_by: '默认用户',
-    })
-    applyConditionReview(item.segment.id, response.review)
-  } catch (err: any) {
-    if (await handleWorkflowRevisionConflict(err)) return
-    if (isConditionSourceConflict(err)) {
-      const refreshed = await parseConditionItem(item, false)
-      setBatchNotice(refreshed
-          ? `"「${finalizeSegmentDisplayName(item.segment)}」"的候选已按最新条件更新，请核对后再审核。`
-          : `"「${finalizeSegmentDisplayName(item.segment)}」"的条件已更新，请先补充条件后重新生成候选。`)
-      return
-    }
-    showFinalizeNotice('规则确认失败', '候选规则尚未确认，请检查条件和目标工序后重试。', conditionErrorMessage(err))
-  } finally {
-    setConditionBusy(item.segment.id, false)
-  }
-}
-
-async function handleSetMainline(item: ReturnType<typeof buildFinalizeCards>[number]) {
-  if (!projectId.value || !savedRoute.value || conditionBusySegmentIds.value.has(item.segment.id)) return
-  const processName = normalizeExportProcessName(finalizeSegmentDisplayName(item.segment))
-  const sourceText = `设置为主工序，始终纳入“${processName}”工序。`
-  markPublishedRulePackageOutdated()
-  setConditionBusy(item.segment.id, true)
-  try {
-    const response = await saveRuleConditionDraft({
-      project_id: projectId.value,
-      route_id: savedRoute.value.route_id,
-      expected_workflow_revision: savedRoute.value.workflow_revision,
-      segment_id: item.segment.id,
-      source_text: sourceText,
-    })
-    setConditionTextDraft(item, sourceText)
-    applyConditionReview(item.segment.id, response.review)
-    setBatchNotice(`"「${processName}」"已转为主工序。`)
-  } catch (err: any) {
-    if (await handleWorkflowRevisionConflict(err)) return
-    showFinalizeNotice('转换主工序失败', '当前工序尚未改变，请稍后重试。', conditionErrorMessage(err))
-  } finally {
-    setConditionBusy(item.segment.id, false)
-  }
-}
-
-async function handleSetBoolean(
-  item: ReturnType<typeof buildFinalizeCards>[number],
-  label: string,
-) {
-  if (!projectId.value || !savedRoute.value || conditionBusySegmentIds.value.has(item.segment.id)) return
-  const processName = normalizeExportProcessName(finalizeSegmentDisplayName(item.segment))
-  const switchLabel = label.trim()
-  if (!switchLabel) return
-  const sourceText = `当用户选择“${switchLabel}”为是时，纳入“${processName}”工序。`
-  const candidate = buildManualBooleanRuleCandidate(item, switchLabel)
-  markPublishedRulePackageOutdated()
-  setConditionBusy(item.segment.id, true)
-  try {
-    const response = await setManualRuleCondition({
-      project_id: projectId.value,
-      route_id: savedRoute.value.route_id,
-      expected_workflow_revision: savedRoute.value.workflow_revision,
-      segment_id: item.segment.id,
-      process_id: exportProcessIdForItem(item),
-      source_text: sourceText,
-      candidate,
-      processes: conditionProcessOptions.value,
-      confirmed_by: '用户直接设定',
-    })
-    setConditionTextDraft(item, sourceText)
-    applyConditionReview(item.segment.id, response.review)
-    setBatchNotice(`"「${processName}」"已转为用户控制的 Bool 条件。`)
-  } catch (err: any) {
-    if (await handleWorkflowRevisionConflict(err)) return
-    showFinalizeNotice('转换 Bool 条件失败', '当前工序尚未改变，请检查开关名称后重试。', conditionErrorMessage(err))
-  } finally {
-    setConditionBusy(item.segment.id, false)
+    finishBusy()
   }
 }
 
@@ -950,11 +665,11 @@ const {
   },
   onPublishReviewRequired: requestPublishReview,
   onPublished: (packageValue: SaveFinalizedRulePackageResponse) => {
-    currentPublishedPackage.value = packageValue
     outdatedRulePackageVersion.value = null
     setBatchNotice(`规则包 V${packageValue.version} 已发布。`)
+    void refreshRulePackageStatus()
   },
-  onWorkflowConflict: () => loadWorkspace(true),
+  onWorkflowConflict: () => workflowConflict.reloadAfterKnownConflict(),
 })
 
 const {
@@ -992,38 +707,10 @@ const downloadButtonLabel = computed(() => downloadActionLabel(rulePackageAction
 
 async function handleRuleReview() {
   if (
-    reviewingRules.value
-    || batchParsing.value
-    || batchReviewing.value
-    || publishingRulePackage.value
+    publishingRulePackage.value
     || downloadingRulePackage.value
   ) return
-  if (!factorCatalogReady.value) {
-    factorCatalogError.value ||= '标准因子目录尚未加载，请重试后再进行规则审核。'
-    return
-  }
-  reviewingRules.value = true
-  batchNotice.value = ''
-  try {
-    if (batchEligibleCards.value.length) {
-      await handleBatchParseConditions([...batchEligibleCards.value])
-      await nextTick()
-    }
-    if (autoConfirmableReviewCards.value.length) {
-      await handleCompleteReview()
-      await nextTick()
-    }
-    const remaining = [...pendingRuleCards.value]
-    onlyPending.value = Boolean(remaining.length)
-    if (remaining.length) {
-      activeSegmentId.value = remaining[0]?.segment.id || activeSegmentId.value
-      batchNotice.value = `系统已自动处理可安全确认的规则；还有 ${remaining.length} 道工序需要人工处理。`
-    } else {
-      setBatchNotice('规则审核完成。')
-    }
-  } finally {
-    reviewingRules.value = false
-  }
+  await runRuleReview()
 }
 
 function goBackToAnalysis() {
@@ -1040,205 +727,18 @@ function goToGenerate() {
   })
 }
 
-async function loadWorkspace(forceRefresh = false) {
-  const request = workspaceRequestGuard.start()
-  loading.value = true
-  error.value = ''
-  workspaceErrorTitle.value = FINALIZE_VIEW_COPY.errorTitle
-  try {
-    const projectList = await listProjects(forceRefresh)
-    if (!request.isCurrent()) return
-    const resolvedProjectId = resolveAvailableProjectId(String(route.query.project_id || ''), projectList)
-    if (!resolvedProjectId) {
-      projectId.value = null
-      projectName.value = ''
-      savedRoute.value = null
-      operations.value = []
-      supersetOperations.value = []
-      currentPublishedPackage.value = null
-      outdatedRulePackageVersion.value = null
-      clearConditionRegistry()
-      error.value = ''
-      return
-    }
-
-    projectId.value = Number(resolvedProjectId)
-    if (String(route.query.project_id || '') !== resolvedProjectId) {
-      void router.replace({
-        path: route.path,
-        query: { ...route.query, project_id: resolvedProjectId },
-      })
-    }
-    const currentProject = projectList.find(project => project.id === projectId.value)
-    projectName.value = currentProject?.name || `任务 #${projectId.value}`
-    const [routeResult, operationList, supersetResult, latestPackage, fieldRegistryResult] = await Promise.all([
-      getSavedNormalizedRoute(projectId.value, forceRefresh),
-      listOperations(projectId.value, forceRefresh),
-      getSupersetRoute(projectId.value, forceRefresh),
-      getOptionalLatestFinalizedRulePackage(projectId.value, forceRefresh),
-      getConditionFieldRegistry()
-        .then(registry => ({ registry, error: null }))
-        .catch(registryError => ({ registry: null, error: registryError })),
-    ])
-    if (!request.isCurrent()) return
-    savedRoute.value = routeResult
-    operations.value = operationList
-    supersetOperations.value = supersetResult.superset_route || []
-    if (fieldRegistryResult.registry) {
-      applyConditionRegistry(fieldRegistryResult.registry)
-    } else {
-      console.error('第四步标准因子目录加载失败', fieldRegistryResult.error)
-      clearConditionRegistry(
-        fieldRegistryResult.error?.response?.data?.detail
-          || '标准因子目录加载失败；现有编辑已保留，请重试加载后再审核或发布。',
-      )
-    }
-    readDrafts()
-    activeSegmentId.value = routeResult.segments[0]?.id || ''
-    await nextTick()
-    currentPublishedPackage.value = null
-    outdatedRulePackageVersion.value = null
-    if (latestPackage) {
-      const routeMatches = latestPackage.status === 'published'
-        && latestPackage.schema_version === '2.0'
-        && latestPackage.route_version_id === routeResult.route_id
-      if (!routeMatches || !allCurrentRulesConfirmed.value || !latestPackage.content_hash) {
-        outdatedRulePackageVersion.value = latestPackage.version
-      } else {
-        try {
-          const currentPackage = await compileRulePackage(buildCompileRequestFromCards({
-            projectId: projectId.value,
-            packageName: latestPackage.package_name,
-            routeVersionId: routeResult.route_id,
-            cards: segmentCards.value,
-            displayName: finalizeSegmentDisplayName,
-            phaseLabel: resolveFinalizePhase,
-            primarySteps: finalizeSegmentPrimarySteps,
-            attachedSteps: finalizeSegmentAttachedSteps,
-            conditionFields: conditionFields.value,
-            standardFactors: standardFactors.value,
-          }))
-          if (!request.isCurrent()) return
-          if (currentPackage.content_hash === latestPackage.content_hash) {
-            currentPublishedPackage.value = latestPackage
-          } else {
-            outdatedRulePackageVersion.value = latestPackage.version
-          }
-        } catch (hashCheckError) {
-          console.warn('无法校验现有规则包是否为最新版本', hashCheckError)
-          outdatedRulePackageVersion.value = latestPackage.version
-        }
-      }
-    }
-  } catch (err: any) {
-    if (!request.isCurrent()) return
-    if (Number(err?.response?.status) !== 404) console.error(err)
-    savedRoute.value = null
-    operations.value = []
-    supersetOperations.value = []
-    currentPublishedPackage.value = null
-    outdatedRulePackageVersion.value = null
-    clearConditionRegistry()
-    workspaceErrorTitle.value = Number(err?.response?.status) === 404
-      ? '当前任务尚未完成第三步保存'
-      : FINALIZE_VIEW_COPY.errorTitle
-    error.value = err?.response?.data?.detail || '当前任务还没有第三步可预览的已保存结果，请先回到第三步完成分析。'
-  } finally {
-    if (!request.isLatest()) return
-    loading.value = false
-    loadedDataRevision = getWorkflowDataRevision()
-  }
-}
-
 async function reloadWorkspace() {
   await loadWorkspace(true)
 }
 
-async function handleResetAllRecognition() {
-  if (resettingWorkflow.value || !projectId.value || !savedRoute.value) return
-  resettingWorkflow.value = true
-  batchNotice.value = ''
-  try {
-    const result = await resetWorkflow({
-      project_id: projectId.value,
-      from_step: 4,
-      expected_workflow_revision: savedRoute.value.workflow_revision,
-    })
-    publishWorkflowReset({
-      projectId: result.project_id,
-      fromStep: 4,
-      workflowRevision: result.workflow_revision,
-    })
-    locallyHandledResetAt = workflowResetSignal.value?.emittedAt || 0
-    resetDialogVisible.value = false
-    onlyPending.value = true
-    setBatchNotice('重置完成，正在后台准备重新识别。')
-    const task = recognitionTaskGuard.start()
-    const context = {
-      projectId: result.project_id,
-      workflowRevision: result.workflow_revision,
-      isCurrent: task.isCurrent,
-    }
-    runBackgroundTask(() => restartAllRecognitionInBackground(context), (err) => {
-      showFinalizeNotice(
-        '重新识别失败',
-        '现有条件原文仍然保留，请刷新页面后重试。',
-        conditionErrorMessage(err),
-      )
-    })
-  } catch (err: any) {
-    showFinalizeNotice(
-      '重新识别失败',
-      '现有条件原文仍然保留，请刷新页面后重试。',
-      conditionErrorMessage(err),
-    )
-  } finally {
-    resettingWorkflow.value = false
-  }
-}
-
-async function restartAllRecognitionInBackground(context: {
-  projectId: number
-  workflowRevision: number
-  isCurrent: () => boolean
-}) {
-  await loadWorkspace(true)
-  if (
-    !context.isCurrent()
-    || projectId.value !== context.projectId
-    || savedRoute.value?.workflow_revision !== context.workflowRevision
-  ) {
-    return
-  }
-  if (error.value) {
-    throw new Error(error.value)
-  }
-  await nextTick()
-  const queue = [...batchEligibleCards.value]
-  if (!queue.length) {
-    setBatchNotice('没有需要重新识别的普通规则；人工设定保持不变。')
-    return
-  }
-  await handleBatchParseConditions(queue, context.isCurrent)
-}
-
 watch(() => route.query.project_id, () => {
   if (!finalizeViewActive) return
-  recognitionTaskGuard.cancel()
-  batchParseExecutionId += 1
-  batchParsing.value = false
+  cancelInFlightWork()
   void loadWorkspace()
 })
 
 watch(workflowResetSignal, (signal) => {
-  if (!signal || signal.emittedAt === locallyHandledResetAt) return
-  if (signal.projectId !== projectId.value || signal.fromStep > 4) return
-  locallyHandledResetAt = signal.emittedAt
-  recognitionTaskGuard.cancel()
-  batchParseExecutionId += 1
-  batchParsing.value = false
-  if (signal.fromStep <= 3) clearAllDrafts()
-  void loadWorkspace(true)
+  void handleWorkflowResetSignal(signal)
 })
 
 watch(drafts, () => {
@@ -1263,16 +763,14 @@ onActivated(() => {
 
   const routeProjectId = Number(route.query.project_id || 0)
   const projectChanged = routeProjectId > 0 && routeProjectId !== projectId.value
-  if (!projectChanged && loadedDataRevision === getWorkflowDataRevision()) return
+  if (!projectChanged && loadedDataRevision.value === getWorkflowDataRevision()) return
   void loadWorkspace()
 })
 
 onDeactivated(() => {
   finalizeViewActive = false
-  recognitionTaskGuard.cancel()
-  batchParseExecutionId += 1
-  batchParsing.value = false
-  loadedDataRevision = getWorkflowDataRevision()
+  cancelInFlightWork()
+  loadedDataRevision.value = getWorkflowDataRevision()
 })
 </script>
 

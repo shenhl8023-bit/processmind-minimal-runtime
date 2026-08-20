@@ -15,6 +15,7 @@ from app.services.route_merge.source_lookup import (
     unique_nonblank_strings,
 )
 from app.services.route_merge.sorting import display_operation_name, route_item_phase, route_item_value
+from app.services.rule_packages.process_identity import route_process_identities
 
 
 def _parse_coverage_label(label: str) -> tuple[int, int]:
@@ -174,7 +175,8 @@ def build_saved_route_version_segments(
     source_lookup: dict[int, dict[str, object]] | None = None,
 ) -> list[dict[str, object]]:
     segments: list[dict[str, object]] = []
-    for idx, item in enumerate(items, start=1):
+    process_identities = route_process_identities(items)
+    for idx, (item, process_identity) in enumerate(zip(items, process_identities), start=1):
         source_operation_ids = route_item_source_operation_ids(item)
         source_nodes = resolved_route_item_source_nodes(item, source_lookup)
         source_operation_names = route_item_source_operation_names(item) or route_item_source_nodes(item)
@@ -193,6 +195,7 @@ def build_saved_route_version_segments(
 
         segments.append({
             "id": str(route_item_value(item, "id", f"manual-route-{idx}") or f"manual-route-{idx}"),
+            "export_process_id": process_identity.export_process_id,
             "sequence": idx * 10,
             "normalized_step_name": display_operation_name(route_item_value(item, "normalized_step_name", "")) or "未命名工序段",
             "parent_segment": display_operation_name(route_item_value(item, "parent_segment", "")),

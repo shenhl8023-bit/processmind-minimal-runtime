@@ -91,6 +91,10 @@ def test_persisted_running_task_without_local_job_is_interrupted(tmp_path):
                     progress=25,
                     project_status="EXTRACTING",
                     force_reextract=True,
+                    # 模拟已崩溃的旧 worker：owner 不同且租约已过期。
+                    owner_id="dead-worker",
+                    lease_expires_at="2000-01-01T00:00:00+00:00",
+                    heartbeat_at="2000-01-01T00:00:00+00:00",
                 )
                 await db.commit()
 
@@ -105,7 +109,7 @@ def test_persisted_running_task_without_local_job_is_interrupted(tmp_path):
                     db=db,
                 )
                 assert payload["task_status"] == "failed"
-                assert payload["error"] == "extraction task interrupted"
+                assert payload["error"] == "extraction task stale"
                 assert project.status == "EXTRACT_ERROR"
         finally:
             _clear_runtime_task_state()

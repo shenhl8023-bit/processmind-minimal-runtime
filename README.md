@@ -110,9 +110,52 @@ docker compose up -d --build
 2. Node.js 20+
 3. npm 10+
 
+## 质量验证
+
+GitHub Actions 门禁位于 `.github/workflows/quality-gates.yml`，覆盖 Python 3.11/3.13 后端全量测试、Ruff、规则包覆盖率、交付冒烟、Node 20 前端验证、Docker 交付和 Windows 离线包启动。开发机可运行相同的核心命令。
+
+后端：
+
+```powershell
+cd process-plan-agent-api
+..\.runtime\python\python.exe -m pip install -r requirements-dev.txt
+..\.runtime\python\python.exe -m ruff check app tests ..\scripts
+..\.runtime\python\python.exe -m pytest -q
+..\.runtime\python\python.exe -m pytest -q -m delivery_smoke
+..\.runtime\python\python.exe -m pytest -q --cov=app.services.rule_packages --cov-report=term --cov-report=xml
+```
+
+规则包覆盖率门槛为 `85%`。Ruff 当前只启用 `E9,F63,F7,F82` 高置信度规则；更广泛的格式和现代化检查需要单独建立增量基线。
+
+前端：
+
+```powershell
+cd process-plan-agent-ui
+npm.cmd ci
+npm.cmd run check:api-contract
+npm.cmd test
+npm.cmd run build
+```
+
+Docker 交付验证使用 `docker compose build api web` 和 `docker compose up -d --wait`，随后检查 Web/API 健康状态及镜像内共享策略文件。Windows 离线交付使用 `bootstrap-windows.cmd` 和 `scripts\pack-offline-windows.ps1`；打包会先执行允许清单和敏感信息扫描。
+
+`httpx2` 是 FastAPI/Starlette TestClient 的开发测试依赖；业务代码访问外部 HTTP 服务仍使用运行时依赖 `httpx`。
+
 ## 数据说明
 
 后端默认在当前包内创建并读取 `data/` 目录；Docker 运行时会把宿主机 `./data` 挂载到容器内 `/runtime-data`。
+
+当前版本只支持 `sqlite+aiosqlite` 数据库 URL。省略 `DATABASE_URL` 时使用默认的 `data/db/process_mind.db`（Docker 中为 `/runtime-data/db/process_mind.db`）；配置 PostgreSQL 或其他数据库会在创建引擎前以明确错误拒绝。多数据库支持需要单独的兼容性与迁移项目。
+
+### 单 worker 约束
+
+后台提取任务的状态注册表（`EXTRACTION_TASKS` / `EXTRACTION_RUNNING` / `EXTRACTION_JOBS`）保存在单个进程内存中，**不会跨 worker/进程共享**。因此后端必须按**单 worker** 运行，不能配置多个 uvicorn worker，否则：
+
+- worker B 看不到 worker A 的 `asyncio.Task`，任务状态不可靠；
+- worker 重启后数据库可能仍显示 `running`，而原任务已不存在；
+- 多个 worker 可能同时认为自己在处理同一项目，导致重复的 LLM 调用。
+
+所有启动脚本（`start-api.sh` / `start-api.cmd` / `scripts/manage-windows.ps1` / `scripts/manage-macos.sh` / `Dockerfile.api`）均已显式带 `--workers 1`。启动时后端会校验 worker 模式：若环境变量 `UVICORN_WORKERS` / `WEB_CONCURRENCY` 显式给出 >1 而仍声明单 worker，API **拒绝启动**（抛出 `MultiWorkerConfiguredError`）。通过 `PROCESSMIND_SINGLE_WORKER=false` 可显式放开约束（仅用于试验，不建议生产使用）。根接口 `/` 的 `single_worker_declared` 字段是部署声明值；uvicorn 的 `--workers` CLI 参数不经过环境变量，应用层无法探测，实际 worker 数由脚本里的 `--workers 1` 与启动检查共同保证。
 
 关键目录：
 

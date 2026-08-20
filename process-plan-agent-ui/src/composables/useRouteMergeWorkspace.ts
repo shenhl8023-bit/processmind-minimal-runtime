@@ -1,12 +1,13 @@
 import { nextTick, ref, type ComputedRef, type Ref } from 'vue'
 import {
-  getMergeSuggestions,
-  getNormalizedSupersetRoute,
-  getSupersetRoute,
+  getRouteMergeWorkspace,
   reviewMergeSuggestion,
   saveNormalizedSupersetRoute,
   type MergeSuggestion,
+  type MergeSuggestionResult,
+  type NormalizedSupersetRouteResult,
   type OperationItem,
+  type SupersetRouteResult,
   type TemplateGroupAliasBinding,
 } from '@/api'
 import type { RouteMergeGroup, RouteMergePreviewItem } from '@/composables/useRouteMergeResultWorkspace'
@@ -21,6 +22,7 @@ import {
 
 type UseRouteMergeWorkspaceOptions = {
   projectId: Ref<number | null>
+  workflowRevision: Ref<number>
   routes: Ref<OperationItem[]>
   routeMergeGroups: Ref<RouteMergeGroup[]>
   routeMergeSuggestions: Ref<MergeSuggestion[]>
@@ -52,9 +54,9 @@ type UseRouteMergeWorkspaceOptions = {
 }
 
 type RouteMergeWorkspaceSnapshot = {
-  supersetResult: Awaited<ReturnType<typeof getSupersetRoute>>
-  mergeResult: Awaited<ReturnType<typeof getMergeSuggestions>>
-  normalizedResult: Awaited<ReturnType<typeof getNormalizedSupersetRoute>>
+  supersetResult: SupersetRouteResult
+  mergeResult: MergeSuggestionResult
+  normalizedResult: NormalizedSupersetRouteResult
 }
 
 function routeMergeWorkspaceCacheKey(projectId: number | string) {
@@ -169,15 +171,24 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
   }
 
   async function fetchRouteMergeWorkspace(projectId: number, forceRefresh = false) {
-    const [supersetResult, mergeResult, normalizedResult] = await Promise.all([
-      getSupersetRoute(projectId, forceRefresh),
-      getMergeSuggestions(projectId, forceRefresh),
-      getNormalizedSupersetRoute(projectId, forceRefresh),
-    ])
+    const workspace = await getRouteMergeWorkspace(projectId, forceRefresh)
     return {
-      supersetResult,
-      mergeResult,
-      normalizedResult,
+      supersetResult: {
+        project_id: workspace.project_id,
+        superset_route: workspace.superset_route,
+      },
+      mergeResult: {
+        project_id: workspace.project_id,
+        merge_suggestions: workspace.merge_suggestions,
+        source_signature: workspace.source_signature,
+        algo_version: workspace.algo_version,
+      },
+      normalizedResult: {
+        project_id: workspace.project_id,
+        normalized_superset_route: workspace.normalized_superset_route,
+        source_signature: workspace.source_signature,
+        algo_version: workspace.algo_version,
+      },
     }
   }
 
@@ -233,6 +244,7 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
     try {
       await reviewMergeSuggestion({
         project_id: options.projectId.value,
+        expected_workflow_revision: options.workflowRevision.value,
         suggestion_id: suggestion.suggestion_id,
         action,
       })
@@ -328,6 +340,7 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
         }))
         const saved = await saveNormalizedSupersetRoute({
           project_id: options.projectId.value,
+          expected_workflow_revision: options.workflowRevision.value,
           normalized_superset_route: payload,
         })
         clearWorkflowProjectDataCache(options.projectId.value)
@@ -347,6 +360,7 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
         clearWorkflowDataCache(routeMergeWorkspaceCacheKey(options.projectId.value))
         await reviewMergeSuggestion({
           project_id: options.projectId.value,
+          expected_workflow_revision: options.workflowRevision.value,
           suggestion_id: suggestion.suggestion_id,
           action: 'rename',
           manual_label: current.standard_name,

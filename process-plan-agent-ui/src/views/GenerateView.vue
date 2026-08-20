@@ -98,11 +98,11 @@ import GenerateRouteOutputPanel from '@/components/generate/GenerateRouteOutputP
 import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
 import {
   generateRoute,
-  getOptionalLatestFinalizedRulePackage,
   listProjects,
   type FinalizedRulePackageResult,
   type GenerateRouteResult,
 } from '@/api'
+import { loadGenerateRulePackageContext } from '@/composables/loadGenerateRulePackageContext'
 import {
   buildProjectRouteQuery,
   resolveAvailableProjectId,
@@ -350,11 +350,11 @@ async function loadGenerateContext(forceRefresh = false) {
     }
     const currentProject = projects.find(project => project.id === targetProjectId)
     projectName.value = currentProject?.name || `任务 #${targetProjectId}`
-    workflowRevision.value = currentProject?.workflow_revision || 0
-    const latestPackage = await getOptionalLatestFinalizedRulePackage(
+    const context = await loadGenerateRulePackageContext(
       targetProjectId,
       forceRefresh,
     )
+    const latestPackage = context.rulePackage
     const currentRouteProjectId = String(route.query.project_id || '')
     if (
       !request.isCurrent()
@@ -369,7 +369,9 @@ async function loadGenerateContext(forceRefresh = false) {
       initializeFieldValues()
     } else {
       clearRulePackageContext()
+      error.value = context.blockerMessage
     }
+    workflowRevision.value = context.status.workflow_revision
   } catch (err: any) {
     if (!request.isCurrent() || requestId !== contextLoadRequestId) return
     console.warn('读取生成上下文失败', err)

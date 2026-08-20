@@ -3,6 +3,17 @@ Pydantic 响应与请求模型
 """
 from pydantic import BaseModel, Field
 
+from app.contracts.status import (
+    AnalysisStatus,
+    DocumentStatus,
+    ExtractionTaskStatus,
+    FactorReviewDecision,
+    OperationReviewStatus,
+    ProjectStatus,
+    RouteMergeReviewStatus,
+    RouteReviewDecision,
+    RulePackageStatus,
+)
 from app.services.rule_packages.condition_contracts import RuleConditionReview
 from typing import Optional, List, Any, Dict
 from datetime import datetime
@@ -22,7 +33,7 @@ class ProjectOut(BaseModel):
     profile: str
     rule_engine: str = "auto"
     workflow_revision: int = 0
-    status: str
+    status: ProjectStatus
     created_at: datetime
     updated_at: datetime
 
@@ -50,7 +61,7 @@ class DocumentOut(BaseModel):
     file_type: Optional[str] = None
     file_size: Optional[int] = None
     uploader: str
-    status: str
+    status: DocumentStatus
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -107,7 +118,7 @@ class OperationOut(BaseModel):
     source: Optional[str] = None
     confidence: str
     factors: List[FactorOut] = []
-    review_status: Optional[str] = None
+    review_status: Optional[OperationReviewStatus] = None
     review_label: Optional[str] = None
     review_reason: Optional[str] = None
     sample_count: int = 0
@@ -192,7 +203,7 @@ class MergeSuggestionOut(BaseModel):
     evidence_excerpt: List[str] = []
     matched_detail_rows: List[MergeMatchedDetailRowOut] = []
     suggested_action: str = "review"
-    status: str = "pending"
+    status: RouteMergeReviewStatus = RouteMergeReviewStatus.PENDING
 
 
 class MergeSuggestionListOut(BaseModel):
@@ -204,6 +215,7 @@ class MergeSuggestionListOut(BaseModel):
 
 class NormalizedRouteSegmentOut(BaseModel):
     id: str
+    export_process_id: str = ""
     sequence: int
     normalized_step_name: str
     parent_segment: str = ""
@@ -218,7 +230,7 @@ class NormalizedRouteSegmentOut(BaseModel):
     source_nodes: List[str] = []
     source_operation_names: List[str] = []
     source_operation_ids: List[int] = []
-    review_status: str = "pending"
+    review_status: RouteMergeReviewStatus = RouteMergeReviewStatus.PENDING
     source_type: str = "system_generated"
     coverage_label: str = ""
     separator_result: str = "pass"
@@ -257,7 +269,7 @@ class EquipmentProfileOut(BaseModel):
 class SegmentFactorReviewOut(BaseModel):
     id: int
     factor_name: str
-    decision: str
+    decision: FactorReviewDecision
     note: str = ""
     source_type: str = "aggregated"
     evidence_refs: List[str] = []
@@ -269,7 +281,7 @@ class SegmentFactorReviewOut(BaseModel):
 
 class SegmentRuleReviewOut(BaseModel):
     id: int
-    decision: str
+    decision: RouteReviewDecision
     note: str = ""
     summary_lines: List[str] = []
     question_trail: List[Dict[str, str]] = []
@@ -280,6 +292,7 @@ class SegmentRuleReviewOut(BaseModel):
 
 class SavedNormalizedRouteSegmentOut(BaseModel):
     id: str
+    export_process_id: str = ""
     sequence: int
     normalized_step_name: str
     step_family: str = ""
@@ -296,7 +309,7 @@ class SavedNormalizedRouteSegmentOut(BaseModel):
     matched_detail_rows: List[MergeMatchedDetailRowOut] = []
     template_group_aliases: List[TemplateGroupAliasBinding] = Field(default_factory=list)
     equipment_profile: EquipmentProfileOut = Field(default_factory=EquipmentProfileOut)
-    analysis_status: str = "pending"
+    analysis_status: AnalysisStatus = AnalysisStatus.PENDING
     factor_reviews: List[SegmentFactorReviewOut] = []
     rule_review: Optional[SegmentRuleReviewOut] = None
 
@@ -316,11 +329,12 @@ class SavedNormalizedRouteVersionOut(BaseModel):
 
 class NormalizedRouteSegmentSaveItem(BaseModel):
     id: str
+    export_process_id: str = ""
     normalized_step_name: str
     source_operation_ids: List[int] = []
     source_nodes: List[str] = []
     source_operation_names: List[str] = []
-    review_status: str = "merged"
+    review_status: RouteMergeReviewStatus = RouteMergeReviewStatus.MERGED
     step_family: str = ""
     phase: str = ""
     parent_segment: str = ""
@@ -342,6 +356,7 @@ class NormalizedRouteSegmentSaveItem(BaseModel):
 
 class SaveNormalizedSupersetRouteRequest(BaseModel):
     project_id: int
+    expected_workflow_revision: int = 0
     normalized_superset_route: List[NormalizedRouteSegmentSaveItem] = []
 
 
@@ -350,7 +365,7 @@ class SaveSegmentRuleReviewRequest(BaseModel):
     route_id: int
     expected_workflow_revision: int = 0
     segment_id: str
-    decision: str = "accepted"
+    decision: RouteReviewDecision = RouteReviewDecision.ACCEPTED
     note: str = ""
     summary_lines: List[str] = []
     question_trail: List[Dict[str, str]] = []
@@ -360,7 +375,7 @@ class SegmentRuleReviewSaveOut(BaseModel):
     project_id: int
     route_id: int
     segment_id: str
-    analysis_status: str = "pending"
+    analysis_status: AnalysisStatus = AnalysisStatus.PENDING
     normalized_step_name: Optional[str] = None
     rule_review: Optional[SegmentRuleReviewOut] = None
 
@@ -388,7 +403,7 @@ class FinalizedRulePackageOut(BaseModel):
     version: int
     package_name: str
     schema_version: str = "1.0"
-    status: str = "published"
+    status: RulePackageStatus = RulePackageStatus.PUBLISHED
     manifest: Dict[str, Any] = Field(default_factory=dict)
     input_schema: Dict[str, Any] = Field(default_factory=dict)
     route_catalog: Dict[str, Any] = Field(default_factory=dict)
@@ -412,7 +427,7 @@ class FinalizedRulePackageListItemOut(BaseModel):
     version: int
     package_name: str
     schema_version: str = "1.0"
-    status: str = "published"
+    status: RulePackageStatus = RulePackageStatus.PUBLISHED
     content_hash: str = ""
     created_by: str = "默认用户"
     created_at: datetime
@@ -428,8 +443,18 @@ class SupersetRouteOut(BaseModel):
     superset_route: List[OperationOut] = []
 
 
+class RouteMergeWorkspaceOut(BaseModel):
+    project_id: int
+    superset_route: List[OperationOut] = []
+    merge_suggestions: List[MergeSuggestionOut] = []
+    normalized_superset_route: List[NormalizedRouteSegmentOut] = []
+    source_signature: str = ""
+    algo_version: str = ""
+
+
 class MergeSuggestionReviewRequest(BaseModel):
     project_id: int
+    expected_workflow_revision: int = 0
     suggestion_id: str
     action: str
     manual_label: Optional[str] = None
@@ -445,7 +470,7 @@ class QuestionHarnessHookOut(BaseModel):
 class ExtractionTaskStartOut(BaseModel):
     ok: bool = True
     project_id: int
-    task_status: str
+    task_status: ExtractionTaskStatus
     stage: str
     message: str
     workflow_revision: int = 0
@@ -474,7 +499,7 @@ class WorkflowResetOut(BaseModel):
 
 class ExtractionTaskStatusOut(BaseModel):
     project_id: int
-    task_status: str
+    task_status: ExtractionTaskStatus
     stage: str
     message: str = ""
     error: Optional[str] = None
@@ -482,8 +507,10 @@ class ExtractionTaskStatusOut(BaseModel):
     started_at: Optional[str] = None
     updated_at: Optional[str] = None
     finished_at: Optional[str] = None
-    project_status: Optional[str] = None
+    project_status: Optional[ProjectStatus] = None
     harness: Optional[Dict[str, Any]] = None
+    local_execution_active: bool = False
+    lease_valid: bool = False
 
 
 # ---------- 工艺路线生成 ----------

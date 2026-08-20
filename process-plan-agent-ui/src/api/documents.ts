@@ -5,6 +5,7 @@ import {
   getWorkflowDataRevision,
   setWorkflowDataCache,
 } from '@/composables/workflowDataCache'
+import type { DocumentStatus } from './dto'
 
 export interface DocumentItem {
   id: number
@@ -14,7 +15,7 @@ export interface DocumentItem {
   file_type?: string | null
   file_size?: number | null
   uploader: string
-  status: string
+  status: DocumentStatus
   created_at: string
 }
 
@@ -23,6 +24,17 @@ export interface DocumentPreview {
   original_name: string
   file_type?: string | null
   preview_text: string
+}
+
+export interface ReferenceItem {
+  id: number
+  project_id?: number | null
+  title: string
+  content?: string | null
+  ref_type: string
+  filename?: string | null
+  document_id?: number | null
+  created_at: string
 }
 
 export async function uploadDocuments(files: File[], projectId: number) {
@@ -100,13 +112,14 @@ export async function uploadReferences(files: File[], projectId: number) {
 export async function listReferences(projectId: number, forceRefresh = false) {
   const cacheKey = `api:documents:references:${projectId}`
   if (!forceRefresh) {
-    const cached = getWorkflowDataCache<any[]>(cacheKey)
+    const cached = getWorkflowDataCache<ReferenceItem[]>(cacheKey)
     if (cached) return cached
   }
   const requestRevision = getWorkflowDataRevision()
   const { data } = await api.get('/api/documents/references', { params: { project_id: projectId } })
-  setWorkflowDataCache(cacheKey, data, requestRevision)
-  return data
+  const references = data as ReferenceItem[]
+  setWorkflowDataCache(cacheKey, references, requestRevision)
+  return references
 }
 
 export async function deleteReference(id: number) {

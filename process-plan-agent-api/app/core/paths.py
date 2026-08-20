@@ -27,6 +27,12 @@ KNOWLEDGE_DIR = API_ROOT / "knowledge"
 ROUTE_RULE_KNOWLEDGE_DIR = KNOWLEDGE_DIR / "route_rules"
 PROMPT_TEMPLATES_PATH = API_ROOT / "prompt_templates.md"
 THIRD_STEP_RULE_TREE_PATH = PROJECT_ROOT / "docs" / "配置模板" / "第三步规则分析-问题树节点配置.template.json"
+PARAM_QUESTION_STRATEGY_PATH = Path(
+    os.getenv(
+        "PROCESSMIND_PARAM_QUESTION_STRATEGY_PATH",
+        str(PROJECT_ROOT / "docs" / "配置模板" / "第五步参数问答策略.json"),
+    )
+)
 
 _default_settings_path = (
     LEGACY_SETTINGS_FILE if LEGACY_SETTINGS_FILE.exists() else (CONFIG_DIR / "process_settings.json")
