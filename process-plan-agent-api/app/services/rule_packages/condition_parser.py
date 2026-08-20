@@ -10,12 +10,21 @@ from app.services.rule_packages.condition_contracts import (
 )
 from app.services.rule_packages.condition_parser_llm import parse_with_llm
 from app.services.rule_packages.condition_parser_local import (
+    MANUAL_BOOLEAN_PREFILL_NOTE,
+    PRUNED_UNBOUND_LEAF_NOTE,
+    PROCESS_ALIGNED_FACTOR_NOTE,
+    align_candidate_to_process,
+    build_manual_boolean_draft,
+    fill_unbound_leaves_from_catalog,
+    is_manual_boolean_candidate,
     known_special_requirement,
     parse_condition_tree,
     parse_local_condition,
     parse_partial_condition_candidate,
     parse_process_relation,
+    prune_unbound_leaves,
 )
+from app.services.rule_packages.condition_registry import condition_preview
 from app.services.rule_packages.condition_semantics import (
     bind_candidate_factors,
     has_unregistered_project_factor,
@@ -23,8 +32,52 @@ from app.services.rule_packages.condition_semantics import (
     with_source_evidence,
 )
 
-CONDITION_PARSER_VERSION = "2026.08.04.2"
+CONDITION_PARSER_VERSION = "2026.08.19.2"
 logger = logging.getLogger(__name__)
+
+
+def _with_when(candidate: RuleConditionCandidate, when) -> RuleConditionCandidate:
+    return candidate.model_copy(update={"when": when, "preview": condition_preview(when)})
+
+
+def _bind_and_align(
+    candidate: RuleConditionCandidate,
+    process_name: str,
+    process_id: str,
+    source_text: str,
+) -> tuple[RuleConditionCandidate, list[str]]:
+    bound, issues = bind_candidate_factors(candidate)
+    if not issues:
+        return bound, []
+    if candidate.kind != "condition" or candidate.when is None:
+        return bound, issues
+
+    aligned, changed = align_candidate_to_process(bound, process_name)
+    current = aligned if changed else bound
+    current, issues = bind_candidate_factors(current)
+    if not issues:
+        return current, [PROCESS_ALIGNED_FACTOR_NOTE] if changed else []
+
+    filled_when = fill_unbound_leaves_from_catalog(current.when, process_name)
+    if filled_when != current.when:
+        current, issues = bind_candidate_factors(_with_when(current, filled_when))
+        if not issues:
+            return current, [PROCESS_ALIGNED_FACTOR_NOTE]
+
+    if current.when and (
+        str(current.when.field or "").startswith("custom.requirements.")
+        or is_manual_boolean_candidate(current)
+    ):
+        return current, issues
+
+    pruned = prune_unbound_leaves(current.when) if current.when is not None else None
+    if pruned is not None:
+        pruned_candidate, pruned_issues = bind_candidate_factors(_with_when(current, pruned))
+        if not pruned_issues:
+            return pruned_candidate, [PRUNED_UNBOUND_LEAF_NOTE]
+        current, issues = pruned_candidate, pruned_issues
+
+    return build_manual_boolean_draft(process_id, process_name, source_text), [MANUAL_BOOLEAN_PREFILL_NOTE]
 
 
 async def parse_rule_condition(
@@ -62,7 +115,12 @@ async def parse_rule_condition(
         relation_issues = validate_candidate(local_relation_candidate, processes)
         if not relation_issues:
             logger.info("rule_condition_parse_source source=local_relation")
-            bound_candidate, binding_issues = bind_candidate_factors(local_relation_candidate)
+            bound_candidate, binding_issues = _bind_and_align(
+                local_relation_candidate,
+                current_process_name,
+                current_process_id,
+                source_text,
+            )
             return bound_candidate, 0.9, binding_issues
 
     if local_condition_candidate and (
@@ -72,7 +130,12 @@ async def parse_rule_condition(
         local_issues = validate_candidate(local_condition_candidate, processes)
         if not local_issues:
             logger.info("rule_condition_parse_source source=local_condition")
-            bound_candidate, binding_issues = bind_candidate_factors(local_condition_candidate)
+            bound_candidate, binding_issues = _bind_and_align(
+                local_condition_candidate,
+                current_process_name,
+                current_process_id,
+                source_text,
+            )
             return bound_candidate, 0.9, binding_issues
 
     try:
@@ -108,7 +171,12 @@ async def parse_rule_condition(
             local_relation_candidate and candidate.kind != "process_relation"
         ) and not (expected_special_requirement and not model_uses_expected_special_requirement):
             logger.info("rule_condition_parse_source source=llm")
-            bound_candidate, binding_issues = bind_candidate_factors(candidate)
+            bound_candidate, binding_issues = _bind_and_align(
+                candidate,
+                current_process_name,
+                current_process_id,
+                source_text,
+            )
             return bound_candidate, confidence, [*issues, *binding_issues]
         issues.extend(validation_issues)
         if local_relation_candidate and candidate.kind != "process_relation":
@@ -123,7 +191,12 @@ async def parse_rule_condition(
         if not relation_issues:
             fallback_note = "已使用内置规则解析器生成候选结果，请重点核对。" if issues else ""
             logger.info("rule_condition_parse_source source=local_relation_fallback")
-            bound_candidate, binding_issues = bind_candidate_factors(local_relation_candidate)
+            bound_candidate, binding_issues = _bind_and_align(
+                local_relation_candidate,
+                current_process_name,
+                current_process_id,
+                source_text,
+            )
             return bound_candidate, 0.9, [*issues, *binding_issues, *([fallback_note] if fallback_note else [])]
         issues.extend(relation_issues)
 
@@ -133,7 +206,12 @@ async def parse_rule_condition(
         if not local_issues:
             fallback_note = "已使用内置规则解析器生成候选结果，请重点核对。" if issues else ""
             logger.info("rule_condition_parse_source source=local_condition_fallback")
-            bound_candidate, binding_issues = bind_candidate_factors(local_candidate)
+            bound_candidate, binding_issues = _bind_and_align(
+                local_candidate,
+                current_process_name,
+                current_process_id,
+                source_text,
+            )
             return bound_candidate, 0.65, [*issues, *binding_issues, *([fallback_note] if fallback_note else [])]
         issues.extend(local_issues)
 
@@ -146,7 +224,12 @@ async def parse_rule_condition(
         partial_validation_issues = validate_candidate(partial_candidate, processes)
         if not partial_validation_issues:
             logger.info("rule_condition_parse_source source=partial_local_fallback")
-            bound_candidate, binding_issues = bind_candidate_factors(partial_candidate)
+            bound_candidate, binding_issues = _bind_and_align(
+                partial_candidate,
+                current_process_name,
+                current_process_id,
+                source_text,
+            )
             return bound_candidate, 0.55, list(dict.fromkeys([
                 *issues,
                 *partial_issues,
@@ -154,5 +237,9 @@ async def parse_rule_condition(
             ]))
         issues.extend(partial_validation_issues)
 
-    logger.info("rule_condition_parse_source source=unresolved")
-    return None, confidence, list(dict.fromkeys([*issues, "条件无法可靠映射到标准字段，请补充字段、比较关系和阈值。"]))
+    logger.info("rule_condition_parse_source source=manual_boolean_prefill")
+    return (
+        build_manual_boolean_draft(current_process_id, current_process_name, source_text),
+        0.45,
+        list(dict.fromkeys([*issues, MANUAL_BOOLEAN_PREFILL_NOTE])),
+    )

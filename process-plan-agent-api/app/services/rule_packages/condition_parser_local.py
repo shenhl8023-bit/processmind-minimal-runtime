@@ -5,13 +5,16 @@ from __future__ import annotations
 import re
 
 from app.services.rule_packages.condition_contracts import (
+    CanonicalConditionField,
     ProcessRelationCandidate,
     RuleConditionCandidate,
     RuleConditionProcessOption,
 )
 from app.services.rule_packages.condition_registry import condition_preview
+from app.services.rule_packages.condition_review_state import manual_process_field_key
 from app.services.rule_packages.condition_semantics import with_source_evidence as _with_source_evidence
 from app.services.rule_packages.contracts import ConditionNode, RuleAction
+from app.services.rule_packages.standard_factors import matching_standard_factors, standard_factors
 
 
 def _normalized_process_name(value: str) -> str:
@@ -236,10 +239,283 @@ def parse_local_condition(
     )
 
 
-def _partial_hole_condition(text: str) -> ConditionNode | None:
+PROCESS_ALIGNED_FACTOR_NOTE = "已按工序语义预填标准因子，请核对。"
+MANUAL_BOOLEAN_PREFILL_NOTE = "目录中没有匹配的标准因子，已预填为用户开关，请核对。"
+PRUNED_UNBOUND_LEAF_NOTE = "已忽略未能绑定标准因子的条件，请核对。"
+
+_GENERIC_HOLE_STRUCTURE = re.compile(r"孔类结构|孔结构|孔类特征")
+_GENERIC_HOLE_REQUIREMENT = re.compile(r"孔加工要求")
+_GENERIC_SURFACE_REQUIREMENT = re.compile(r"防护、防腐蚀、绝缘或表面稳定性要求")
+_UMBRELLA_HOLE_PHRASE = re.compile(r"孔类结构.*孔加工要求|孔加工要求.*孔类结构")
+
+
+def _presence_leaf(field: str, value: str) -> ConditionNode:
+    return ConditionNode(field=field, op="contains", value=value)
+
+
+def _dedupe_condition_nodes(nodes: list[ConditionNode]) -> list[ConditionNode]:
+    unique: list[ConditionNode] = []
+    seen: set[str] = set()
+    for node in nodes:
+        signature = node.model_dump_json(by_alias=True, exclude_none=True)
+        if signature in seen:
+            continue
+        seen.add(signature)
+        unique.append(node)
+    return unique
+
+
+def _as_any_tree(nodes: list[ConditionNode | None]) -> ConditionNode | None:
+    unique = _dedupe_condition_nodes([node for node in nodes if node is not None])
+    if not unique:
+        return None
+    if len(unique) == 1:
+        return unique[0]
+    return ConditionNode(any_conditions=unique)
+
+
+def process_aligned_hole_leaves(process_name: str) -> tuple[ConditionNode | None, ConditionNode | None]:
+    """Map a generic hole phrase onto the factor that this process actually uses."""
+    name = str(process_name or "")
+    if re.search(r"研顶尖孔|顶尖孔", name):
+        center = _presence_leaf("cad.features", "顶尖孔")
+        return center, center
+    if re.search(r"珩孔", name):
+        honing = _presence_leaf("precision.grades", "珩孔要求")
+        return honing, honing
+    if re.search(r"研孔", name):
+        lapping = _presence_leaf("precision.grades", "研孔要求")
+        return lapping, lapping
+    if re.search(r"钻铰|铰孔", name):
+        return (
+            _presence_leaf("cad.features", "铰孔/精孔"),
+            _presence_leaf("precision.grades", "孔精加工"),
+        )
+    if re.search(r"割型孔|打型孔|型孔", name):
+        return (
+            _presence_leaf("cad.features", "型孔/割扁"),
+            _presence_leaf("precision.grades", "孔精加工"),
+        )
+    if re.search(r"钻孔|打孔", name):
+        return (
+            _presence_leaf("cad.features", "普通孔/辅助孔"),
+            _presence_leaf("precision.grades", "孔精加工"),
+        )
+    return None, None
+
+
+def process_aligned_surface_leaf(process_name: str) -> ConditionNode | None:
+    name = str(process_name or "")
+    if re.search(r"硬质阳极化", name):
+        return _presence_leaf("special.requirements", "硬质阳极化要求")
+    if re.search(r"铬酸阳极化", name):
+        return _presence_leaf("special.requirements", "铬酸阳极化要求")
+    return None
+
+
+def _align_generic_leaf(node: ConditionNode, process_name: str) -> ConditionNode:
+    text = node.value if isinstance(node.value, str) else ""
+    structure, requirement = process_aligned_hole_leaves(process_name)
+    is_structure = bool(_GENERIC_HOLE_STRUCTURE.search(text))
+    is_requirement = bool(_GENERIC_HOLE_REQUIREMENT.search(text))
+    if is_structure and is_requirement:
+        return _as_any_tree([structure, requirement]) or node
+    if is_structure:
+        return structure or node
+    if is_requirement:
+        return requirement or node
+    if _GENERIC_SURFACE_REQUIREMENT.search(text):
+        return process_aligned_surface_leaf(process_name) or node
+    return node
+
+
+def _flatten_any(nodes: list[ConditionNode]) -> list[ConditionNode]:
+    flattened: list[ConditionNode] = []
+    for node in nodes:
+        if node.any_conditions:
+            flattened.extend(node.any_conditions)
+        else:
+            flattened.append(node)
+    return _dedupe_condition_nodes(flattened)
+
+
+def align_generic_condition_to_process(node: ConditionNode, process_name: str) -> ConditionNode:
+    """Rewrite umbrella tags onto process-specific catalog values without inventing new facts."""
+    if node.field is not None:
+        return _align_generic_leaf(node, process_name)
+    if node.any_conditions is not None:
+        children = _flatten_any([
+            align_generic_condition_to_process(child, process_name)
+            for child in node.any_conditions
+        ])
+        return children[0] if len(children) == 1 else ConditionNode(any_conditions=children)
+    if node.all_conditions is not None:
+        return ConditionNode(all_conditions=[
+            align_generic_condition_to_process(child, process_name)
+            for child in node.all_conditions
+        ])
+    assert node.not_condition is not None
+    return ConditionNode(
+        not_condition=align_generic_condition_to_process(node.not_condition, process_name)
+    )
+
+
+def align_candidate_to_process(
+    candidate: RuleConditionCandidate,
+    process_name: str,
+) -> tuple[RuleConditionCandidate, bool]:
+    if candidate.kind != "condition" or candidate.when is None:
+        return candidate, False
+    aligned_when = align_generic_condition_to_process(candidate.when, process_name)
+    if aligned_when == candidate.when:
+        return candidate, False
+    return candidate.model_copy(update={
+        "when": aligned_when,
+        "preview": condition_preview(aligned_when),
+    }), True
+
+
+def _is_explicit_unbound_boolean(node: ConditionNode) -> bool:
+    field = str(node.field or "")
+    return (
+        node.op == "eq"
+        and isinstance(node.value, bool)
+        and (
+            field.startswith("project_factor.manual_process_")
+            or field.startswith("custom.requirements.")
+        )
+    )
+
+
+def _leaf_can_bind(node: ConditionNode) -> bool:
+    if _is_explicit_unbound_boolean(node):
+        return True
+    return len(matching_standard_factors(node)) == 1
+
+
+def _unique_catalog_factor_for_process(
+    process_name: str,
+    source_field: str | None = None,
+):
+    name = str(process_name or "").strip()
+    if len(name) < 2:
+        return None
+    matches = []
+    for factor in standard_factors():
+        labels = [factor.label, str(factor.canonical_value or "")]
+        if any(name in text for text in labels if text) or any(
+            len(text) >= 4 and text in name for text in labels if text
+        ):
+            matches.append(factor)
+    if source_field:
+        field_matches = [
+            factor
+            for factor in matches
+            if source_field in {factor.source_field, *factor.source_field_aliases}
+        ]
+        if len(field_matches) == 1:
+            return field_matches[0]
+        if len(field_matches) > 1:
+            return None
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _apply_standard_factor(node: ConditionNode, factor) -> ConditionNode:
+    operator = node.op if node.op in factor.allowed_operators else (factor.allowed_operators[0] if factor.allowed_operators else "eq")
+    if operator in {"exists", "not_exists"}:
+        return ConditionNode(field=factor.source_field, op=operator, factor_id=factor.factor_id)
+    value = factor.canonical_value if factor.canonical_value is not None else node.value
+    return ConditionNode(field=factor.source_field, op=operator, value=value, factor_id=factor.factor_id)
+
+
+def fill_unbound_leaves_from_catalog(node: ConditionNode, process_name: str) -> ConditionNode:
+    if node.field is not None:
+        if _leaf_can_bind(node):
+            return node
+        factor = _unique_catalog_factor_for_process(process_name, node.field)
+        if factor is None:
+            factor = _unique_catalog_factor_for_process(process_name)
+        return _apply_standard_factor(node, factor) if factor else node
+    if node.any_conditions is not None:
+        return ConditionNode(any_conditions=[
+            fill_unbound_leaves_from_catalog(child, process_name)
+            for child in node.any_conditions
+        ])
+    if node.all_conditions is not None:
+        return ConditionNode(all_conditions=[
+            fill_unbound_leaves_from_catalog(child, process_name)
+            for child in node.all_conditions
+        ])
+    assert node.not_condition is not None
+    return ConditionNode(not_condition=fill_unbound_leaves_from_catalog(node.not_condition, process_name))
+
+
+def prune_unbound_leaves(node: ConditionNode) -> ConditionNode | None:
+    if node.field is not None:
+        return node if _leaf_can_bind(node) else None
+    if node.any_conditions is not None:
+        return _as_any_tree([prune_unbound_leaves(child) for child in node.any_conditions])
+    if node.all_conditions is not None:
+        children = [child for item in node.all_conditions if (child := prune_unbound_leaves(item))]
+        if not children:
+            return None
+        return children[0] if len(children) == 1 else ConditionNode(all_conditions=children)
+    assert node.not_condition is not None
+    pruned = prune_unbound_leaves(node.not_condition)
+    return ConditionNode(not_condition=pruned) if pruned is not None else None
+
+
+def build_manual_boolean_draft(
+    process_id: str,
+    process_name: str,
+    source_text: str,
+) -> RuleConditionCandidate:
+    field_key = manual_process_field_key(process_id)
+    label = f"是否需要{process_name or '当前工序'}"
+    when = ConditionNode(field=field_key, op="eq", value=True)
+    return RuleConditionCandidate(
+        kind="condition",
+        when=when,
+        then=RuleAction(
+            include_process_ids=[process_id],
+            exclude_process_ids=[],
+            reason=f"目录暂无匹配标准因子，已预填用户开关：{label}",
+        ),
+        field_definitions=[
+            CanonicalConditionField(
+                key=field_key,
+                label=label,
+                category="可选工序",
+                type="boolean",
+                operators=["eq", "neq"],
+                source="用户直接设定",
+                allow_custom=False,
+            )
+        ],
+        preview=f"{label} 等于 是",
+        evidence=(source_text or "")[:160],
+    )
+
+
+def is_manual_boolean_candidate(candidate: RuleConditionCandidate) -> bool:
+    return (
+        candidate.kind == "condition"
+        and candidate.when is not None
+        and str(candidate.when.field or "").startswith("project_factor.manual_process_")
+        and candidate.when.op == "eq"
+        and candidate.when.value is True
+    )
+
+
+def _partial_hole_condition(text: str, process_name: str = "") -> ConditionNode | None:
     if re.search(r"(?:无|没有|不含|不存在).{0,4}(?:内孔|通孔|盲孔|中心孔|顶尖孔)", text):
         return None
-    if re.search(r"孔类结构.*孔加工要求|孔加工要求.*孔类结构", text):
+    if _UMBRELLA_HOLE_PHRASE.search(text):
+        aligned = _as_any_tree(list(process_aligned_hole_leaves(process_name)))
+        if aligned:
+            return aligned
         values = [
             ("cad.features", "普通孔/辅助孔"),
             ("cad.features", "铰孔/精孔"),
@@ -276,6 +552,10 @@ def parse_partial_condition_candidate(
     current_process_id: str,
     processes: list[RuleConditionProcessOption],
 ) -> tuple[RuleConditionCandidate | None, list[str]]:
+    process_name = next(
+        (item.display_name for item in processes if item.process_id == current_process_id),
+        "",
+    )
     condition_text = re.split(
         r"(?:则|时)[，,]?\s*(?:纳入|加入|安排|设置|排除|不纳入|取消)",
         source_text,
@@ -288,9 +568,13 @@ def parse_partial_condition_candidate(
     ]
     recognized: list[ConditionNode] = []
     ignored: list[str] = []
+    used_process_alignment = False
     for raw_part in parts:
         part = re.sub(r"^(?:当|如果|若)?(?:零件|产品|工件)?", "", raw_part).strip(" ，,。；;：:")
-        node = _partial_hole_condition(part) or _leaf_from_clause(part)
+        hole_node = _partial_hole_condition(part, process_name)
+        if hole_node is not None and _UMBRELLA_HOLE_PHRASE.search(part) and process_aligned_hole_leaves(process_name)[0]:
+            used_process_alignment = True
+        node = hole_node or _leaf_from_clause(part)
         if node is not None:
             recognized.append(node)
         elif part:
@@ -312,6 +596,8 @@ def parse_partial_condition_candidate(
         preview=condition_preview(when),
     )
     issues = [f"原文中“{part}”未能明确转化为具体条件，已忽略。" for part in ignored]
+    if used_process_alignment:
+        issues.append(PROCESS_ALIGNED_FACTOR_NOTE)
     return _with_source_evidence(candidate, source_text), issues
 
 
@@ -427,9 +713,17 @@ def parse_process_relation(
     )
 
 __all__ = [
+    "MANUAL_BOOLEAN_PREFILL_NOTE",
+    "PRUNED_UNBOUND_LEAF_NOTE",
+    "PROCESS_ALIGNED_FACTOR_NOTE",
+    "align_candidate_to_process",
+    "build_manual_boolean_draft",
+    "fill_unbound_leaves_from_catalog",
+    "is_manual_boolean_candidate",
     "known_special_requirement",
     "parse_condition_tree",
     "parse_local_condition",
     "parse_partial_condition_candidate",
     "parse_process_relation",
+    "prune_unbound_leaves",
 ]

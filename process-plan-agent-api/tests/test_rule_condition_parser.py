@@ -277,7 +277,70 @@ async def test_model_failure_still_returns_a_reviewable_partial_draft(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_broad_hole_requirement_builds_a_bound_editable_draft_when_llm_is_empty():
+@pytest.mark.parametrize(
+    ("process_id", "process_name", "factor_ids"),
+    [
+        ("process_drill", "钻孔", {"feature.standard_or_aux_hole", "precision.hole_finish"}),
+        ("process_drill_ream", "钻铰孔", {"feature.reamed_or_precision_hole", "precision.hole_finish"}),
+        ("process_punch", "打孔", {"feature.standard_or_aux_hole", "precision.hole_finish"}),
+        ("process_center", "研顶尖孔", {"feature.center_hole_location"}),
+    ],
+)
+async def test_umbrella_hole_phrase_prefills_process_aligned_standard_factors(
+    process_id,
+    process_name,
+    factor_ids,
+):
+    candidate, confidence, issues = await condition_parser.parse_rule_condition(
+        f"当零件存在孔类结构或孔加工要求时，纳入{process_name}工序。",
+        process_id,
+        process_name,
+        [RuleConditionProcessOption(process_id=process_id, display_name=process_name)],
+    )
+
+    assert candidate is not None
+    assert candidate.when is not None
+    leaves = candidate.when.any_conditions or [candidate.when]
+    assert {leaf.factor_id for leaf in leaves} == factor_ids
+    assert all(leaf.field in {"cad.features", "precision.grades"} for leaf in leaves)
+    assert all(leaf.op == "contains" for leaf in leaves)
+    assert all(leaf.factor_id for leaf in leaves)
+    assert candidate.then is not None
+    assert candidate.then.include_process_ids == [process_id]
+    assert candidate.then.exclude_process_ids == []
+    assert confidence == 0.55
+    assert any("预填标准因子" in issue for issue in issues)
+    assert not any("无法可靠映射" in issue for issue in issues)
+    assert not any("尚未绑定标准因子" in issue for issue in issues)
+
+
+@pytest.mark.asyncio
+async def test_llm_unbound_umbrella_hole_tags_are_aligned_to_standard_factors(monkeypatch):
+    async def unbound_llm(*args, **kwargs):
+        return json.dumps({
+            "candidate": {
+                "kind": "condition",
+                "when": {
+                    "any": [
+                        {"field": "cad.features", "op": "contains", "value": "孔类结构"},
+                        {"field": "special.requirements", "op": "contains", "value": "孔加工要求"},
+                    ],
+                },
+                "then": {
+                    "include_process_ids": ["process_drill"],
+                    "exclude_process_ids": [],
+                    "reason": "存在孔类结构或孔加工要求时纳入钻孔",
+                },
+                "field_definitions": [],
+                "preview": "",
+                "evidence": "孔类结构或孔加工要求",
+            },
+            "confidence": 0.86,
+            "warnings": [],
+            "unresolved": [],
+        }, ensure_ascii=False)
+
+    monkeypatch.setattr(condition_parser_llm, "call_llm", unbound_llm)
     candidate, confidence, issues = await condition_parser.parse_rule_condition(
         "当零件存在孔类结构或孔加工要求时，纳入钻孔工序。",
         "process_drill",
@@ -288,23 +351,43 @@ async def test_broad_hole_requirement_builds_a_bound_editable_draft_when_llm_is_
     assert candidate is not None
     assert candidate.when is not None
     assert candidate.when.any_conditions is not None
-    leaves = candidate.when.any_conditions
-    assert {leaf.factor_id for leaf in leaves} == {
+    assert {leaf.factor_id for leaf in candidate.when.any_conditions} == {
         "feature.standard_or_aux_hole",
-        "feature.reamed_or_precision_hole",
-        "feature.shaped_hole_or_cut_flat",
-        "feature.center_hole_location",
         "precision.hole_finish",
-        "precision.honing",
-        "precision.hole_lapping",
     }
-    assert all(leaf.field in {"cad.features", "precision.grades"} for leaf in leaves)
-    assert all(leaf.op == "contains" for leaf in leaves)
-    assert candidate.then is not None
-    assert candidate.then.include_process_ids == ["process_drill"]
-    assert candidate.then.exclude_process_ids == []
-    assert confidence == 0.55
-    assert not any("无法可靠映射" in issue for issue in issues)
+    assert confidence == 0.86
+    assert any("预填标准因子" in issue for issue in issues)
+    assert not any("尚未绑定标准因子" in issue for issue in issues)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("process_id", "process_name", "factor_id", "value"),
+    [
+        ("process_hard_anodize", "硬质阳极化", "requirement.hard_anodizing", "硬质阳极化要求"),
+        ("process_chromic", "铬酸阳极化", "requirement.chromic_acid_anodizing", "铬酸阳极化要求"),
+    ],
+)
+async def test_generic_surface_requirement_prefills_matching_anodizing_factor(
+    process_id,
+    process_name,
+    factor_id,
+    value,
+):
+    candidate, _, issues = await condition_parser.parse_rule_condition(
+        "当防护、防腐蚀、绝缘或表面稳定性要求满足时，安排此工序。",
+        process_id,
+        process_name,
+        [RuleConditionProcessOption(process_id=process_id, display_name=process_name)],
+    )
+
+    assert candidate is not None
+    assert candidate.when is not None
+    assert candidate.when.field == "special.requirements"
+    assert candidate.when.value == value
+    assert candidate.when.factor_id == factor_id
+    assert any("预填标准因子" in issue for issue in issues)
+    assert not any("尚未绑定标准因子" in issue for issue in issues)
 
 
 @pytest.mark.asyncio
@@ -560,8 +643,9 @@ async def test_parses_generic_surface_requirement_as_special_requirement():
     assert candidate.when.field == "special.requirements"
     assert candidate.when.op == "contains"
     assert candidate.when.value == "防护、防腐蚀、绝缘或表面稳定性要求"
+    assert candidate.when.factor_id is None
     assert candidate.field_definitions == []
-    assert any("标准因子" in issue for issue in issues)
+    assert any("尚未绑定标准因子" in issue for issue in issues)
 
 
 @pytest.mark.asyncio
@@ -582,10 +666,11 @@ async def test_generic_surface_requirement_never_uses_target_process_name(target
     assert candidate.when.field == "special.requirements"
     assert candidate.when.op == "contains"
     assert candidate.when.value == "防护、防腐蚀、绝缘或表面稳定性要求"
+    assert candidate.when.factor_id is None
     assert target_name not in candidate.when.value
     assert candidate.then is not None
     assert candidate.then.include_process_ids == [target_id]
-    assert any("标准因子" in issue for issue in issues)
+    assert any("尚未绑定标准因子" in issue for issue in issues)
 
 
 @pytest.mark.asyncio

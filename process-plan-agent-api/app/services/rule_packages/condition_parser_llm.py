@@ -15,6 +15,7 @@ from app.services.rule_packages.condition_registry import (
     condition_fields,
 )
 from app.services.rule_packages.condition_semantics import candidate_from_payload
+from app.services.rule_packages.standard_factors import standard_factors
 
 
 def condition_llm_timeout_seconds() -> float:
@@ -55,6 +56,9 @@ async def parse_with_llm(
     ]
     system_prompt = """你是机械加工规则条件解析器。只输出一个 JSON 对象，不要输出 Markdown 或解释。
 工序只能使用输入给出的 process_id，禁止创造工序。
+每个条件叶子必须绑定 allowed_standard_factors 中的 factor_id；presence 类因子的 value 必须使用该因子的 canonical_value，禁止把“孔类结构”“孔加工要求”“孔结构”等伞形短语原样当作条件值。
+原文是伞形孔类表述时，按 current_process 选择最接近的孔类标准因子：钻孔/打孔→普通孔/辅助孔，钻铰孔/铰孔→铰孔/精孔，研顶尖孔→顶尖孔，珩孔→珩孔要求，割型孔/型孔→型孔/割扁；“孔加工要求”对应孔精加工、珩孔要求或研孔要求中与当前工序一致的一项。
+原文是“防护、防腐蚀、绝缘或表面稳定性要求”，且当前工序是硬质阳极化或铬酸阳极化时，分别绑定硬质阳极化要求或铬酸阳极化要求。不要根据工序名凭空编造原文没有的条件。
 条件字段优先复用 allowed_fields。原文明确给出了新的属性名称和取值、但 allowed_fields 无法表达时，必须创建项目动态因素，并放入 candidate.field_definitions；禁止把明确的属性条件错误塞进“特殊要求”。
 动态因素 key 必须以 project_factor. 开头，只能使用小写英文字母、数字、点、下划线和连字符；label 保留用户原始中文字段名。类别取值使用 single_select，是否类使用 boolean，数值阈值使用 number；动态类别允许后续出现更多取值，所以 allow_custom 必须为 true。
 优先判断是否为工序关系：触发并排序(trigger_after)、仅排序(order_after)、前置依赖(requires)、互斥(conflicts)。
@@ -67,7 +71,7 @@ IT 等级数字越小代表精度越高；“达到 IT8/IT8及以上精度”通
 公差、粗糙度等“达到某值/不大于某值”转换为 <=。
 如果条件无法可靠映射，返回 unresolved，并且不要猜测。
 参数条件输出格式：
-{"candidate":{"kind":"condition","when":{"field":"...","op":"...","value":1},"then":{"include_process_ids":["..."],"exclude_process_ids":[],"reason":"..."},"field_definitions":[],"preview":"...","evidence":"原文关键片段"},"confidence":0.0,"warnings":[],"unresolved":[]}
+{"candidate":{"kind":"condition","when":{"field":"...","op":"...","value":1,"factor_id":"..."},"then":{"include_process_ids":["..."],"exclude_process_ids":[],"reason":"..."},"field_definitions":[],"preview":"...","evidence":"原文关键片段"},"confidence":0.0,"warnings":[],"unresolved":[]}
 动态类别示例：用户写“材料类别为不锈钢”，可输出 field=project_factor.material_category、op=eq、value=不锈钢，并定义 label=材料类别、category=材料、type=single_select、operators=[eq,neq,in]、options=[{value:不锈钢,label:不锈钢}]、allow_custom=true、source=用户条件。
 工序关系输出格式：
 {"candidate":{"kind":"process_relation","relation":{"relation_type":"trigger_after","source_process_ids":["process_a"],"target_process_ids":["process_b"]},"preview":"工序A进入路线 → 纳入工序B，并排在工序A之后","evidence":"原文关键片段"},"confidence":0.0,"warnings":[],"unresolved":[]}
@@ -83,6 +87,17 @@ IT 等级数字越小代表精度越高；“达到 IT8/IT8及以上精度”通
                 "display_name": current_process_name,
             },
             "allowed_fields": fields_payload,
+            "allowed_standard_factors": [
+                {
+                    "factor_id": item.factor_id,
+                    "label": item.label,
+                    "category": item.category,
+                    "source_field": item.source_field,
+                    "canonical_value": item.canonical_value,
+                    "allowed_operators": item.allowed_operators,
+                }
+                for item in standard_factors()
+            ],
             "allowed_processes": [item.model_dump(mode="json") for item in processes],
         },
         ensure_ascii=False,

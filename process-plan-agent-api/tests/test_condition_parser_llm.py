@@ -11,6 +11,7 @@ async def test_llm_boundary_passes_rule_specific_timeout_and_returns_candidate(m
     captured = {}
 
     async def fake_llm(*args, **kwargs):
+        captured["args"] = args
         captured.update(kwargs)
         return json.dumps(
             {
@@ -47,3 +48,7 @@ async def test_llm_boundary_passes_rule_specific_timeout_and_returns_candidate(m
     assert issues == []
     assert captured["timeout_seconds"] == 45.0
     assert captured["max_retries"] == 1
+    user_prompt = json.loads(captured["args"][1])
+    assert "allowed_standard_factors" in user_prompt
+    assert any(item["factor_id"] == "feature.standard_or_aux_hole" for item in user_prompt["allowed_standard_factors"])
+    assert "伞形" in captured["args"][0]
