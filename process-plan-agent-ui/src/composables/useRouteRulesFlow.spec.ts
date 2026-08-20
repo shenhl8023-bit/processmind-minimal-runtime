@@ -86,4 +86,24 @@ describe('useRouteRulesFlow', () => {
     expect(state.projectStatus.value).toBe('ROUTE_SET_READY')
     expect(state.loadRouteMergeWorkspaceFromBackend).toHaveBeenCalledWith(true, false)
   })
+
+  it('maps document-reading progress onto the extract stage title', () => {
+    const { flow } = createFlow()
+    flow.extractTask.value = {
+      project_id: 7,
+      task_status: 'running',
+      stage: 'extracting_operations',
+      message: '正在读取工艺文档（2/6）: 甲.pdf',
+      progress: 18,
+      error: null,
+      started_at: null,
+      updated_at: null,
+      finished_at: null,
+      project_status: 'EXTRACTING',
+      local_execution_active: true,
+      lease_valid: true,
+    }
+
+    expect(flow.extractTaskStageTitle.value).toBe('正在读取工艺文档...')
+  })
 })

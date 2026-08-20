@@ -48,7 +48,9 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
       if (message.includes('工序明细')) {
         return message.includes('复用') ? '正在复用工序明细...' : '正在解析工序明细...'
       }
+      if (message.includes('读取工艺文档')) return '正在读取工艺文档...'
       if (message.includes('汇总')) return '正在汇总工艺路线全集...'
+      if (message.includes('整理')) return '正在整理工艺路线全集...'
       if (message.includes('保存')) return '正在保存工艺路线全集...'
       return '正在提取工艺路线全集...'
     }
@@ -158,7 +160,7 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
       stopExtractTaskPolling()
       extractTaskPollTimer = window.setTimeout(() => {
         void pollExtractionTask()
-      }, 2000)
+      }, 800)
     } catch (e: any) {
       extractTaskPollRetryCount += 1
       if (extractTaskPollRetryCount <= 3) {
