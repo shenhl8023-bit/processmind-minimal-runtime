@@ -21,6 +21,7 @@ type UseAnalysisReviewPersistenceOptions = {
   clearQuestionTreeRejudging: (segmentId: string) => void
   goToNextPendingSegment: () => void
   onWorkflowConflict?: () => void | Promise<void>
+  onRuleReviewSaved?: () => void | Promise<void>
 }
 
 export function useAnalysisReviewPersistence(options: UseAnalysisReviewPersistenceOptions) {
@@ -54,6 +55,9 @@ export function useAnalysisReviewPersistence(options: UseAnalysisReviewPersisten
         question_trail: options.questionTreeTrail.value,
       })
       applyRuleReviewUpdate(result)
+      Promise.resolve(options.onRuleReviewSaved?.()).catch((err) => {
+        console.warn('保存规则判断后启动规则预处理失败', err)
+      })
       if (persistOptions?.autoAdvance && options.selectedSegmentId.value === segmentId) {
         options.goToNextPendingSegment()
       }

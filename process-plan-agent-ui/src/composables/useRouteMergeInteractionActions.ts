@@ -4,6 +4,7 @@ import type { MergeGroupStatus, RouteMergeGroup, RouteMergePreviewItem } from '@
 
 type UseRouteMergeInteractionActionsOptions = {
   projectId: Ref<number | null>
+  workflowRevision: Ref<number>
   routeMergeGroups: Ref<RouteMergeGroup[]>
   routeMergeSuggestions: Ref<MergeSuggestion[]>
   routeMergeCandidateGroups: ComputedRef<RouteMergeGroup[]>
@@ -185,6 +186,7 @@ export function useRouteMergeInteractionActions(options: UseRouteMergeInteractio
       const nextLabel = routeMergeRenameDraft.value.trim()
       await reviewMergeSuggestion({
         project_id: options.projectId.value,
+        expected_workflow_revision: options.workflowRevision.value,
         suggestion_id: suggestion.suggestion_id,
         action: 'rename',
         manual_label: nextLabel,

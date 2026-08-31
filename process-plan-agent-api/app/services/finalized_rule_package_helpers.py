@@ -40,8 +40,6 @@ def json_loads_list(value: str | None) -> list:
 
 def serialize_finalized_rule_package(
     row: FinalizedRulePackage,
-    *,
-    kmai_compatibility: dict | None = None,
 ) -> FinalizedRulePackageOut:
     return FinalizedRulePackageOut(
         id=row.id,
@@ -49,9 +47,10 @@ def serialize_finalized_rule_package(
         route_version_id=row.route_version_id,
         version=row.version,
         package_name=row.package_name,
-        schema_version=row.schema_version or "1.0",
+        schema_version="2.0",
         status=row.status or "published",
         manifest=json_loads(row.manifest_json),
+        factor_dictionary=json_loads(row.factor_dictionary_json),
         input_schema=json_loads(row.input_schema_json),
         route_catalog=json_loads(row.route_catalog_json),
         route_rules=json_loads(row.route_rules_json),
@@ -64,7 +63,6 @@ def serialize_finalized_rule_package(
         published_by=row.published_by,
         published_at=row.published_at,
         supersedes_id=row.supersedes_id,
-        kmai_compatibility=kmai_compatibility or {},
     )
 
 

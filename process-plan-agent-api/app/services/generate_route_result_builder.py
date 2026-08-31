@@ -9,39 +9,28 @@ import json
 from app.schemas.schemas import RouteStep
 
 
-def build_minimal_fallback_steps(
-    inputs: dict[str, object],
+def build_generate_output_json(
+    project_id: int,
+    output_mode: str,
+    steps: list[RouteStep],
     *,
-    to_bool,
-    to_float,
-) -> list[RouteStep]:
-    steps = [
-        RouteStep(name="下料 / 锻造", op_type="MAIN", reason="规则库为空，使用默认主线"),
-        RouteStep(name="粗车外圆", op_type="MAIN", reason="规则库为空，使用默认主线"),
-    ]
-    if to_bool(inputs.get("has_hole")):
-        steps.append(RouteStep(name="钻深孔", op_type="BRANCH", reason="因勾选「需要打孔」触发"))
-    if str(inputs.get("hardness", "")).upper() == "HIGH":
-        steps.append(RouteStep(name="调质处理", op_type="BRANCH", reason="高硬度要求触发"))
-    if to_bool(inputs.get("has_spline")):
-        steps.append(RouteStep(name="拉花键", op_type="BRANCH", reason="因勾选「有花键/键槽」触发"))
-    roughness = to_float(inputs.get("roughness"))
-    if roughness is not None and roughness <= 0.8:
-        steps.append(RouteStep(name="外圆精磨", op_type="BRANCH", reason=f"Ra <= {roughness}"))
-    steps.append(RouteStep(name="最终检验", op_type="MAIN", reason="规则库为空，使用默认收尾"))
-    return steps
-
-
-def build_generate_output_json(project_id: int, output_mode: str, steps: list[RouteStep]) -> str:
+    full_route_structure: list[dict[str, object]] | None = None,
+    input_factors: dict[str, object] | None = None,
+    input_metadata: dict[str, object] | None = None,
+) -> str:
     return json.dumps(
         {
             "project_id": project_id,
             "route_source": output_mode,
+            "input_factors": input_factors or {},
+            "input_metadata": input_metadata or {},
+            "full_route_structure": full_route_structure or [],
             "route": [
                 {
                     "process_id": step.process_id,
                     "sequence": step.sequence or index * 10,
                     "process_name": step.name,
+                    "phase": step.phase,
                     "process_steps": step.process_steps,
                     "template_group_aliases": [alias.model_dump() for alias in step.template_group_aliases],
                 }
@@ -60,5 +49,4 @@ def build_generate_summary(steps: list[RouteStep], source_summary: str) -> str:
 __all__ = [
     "build_generate_output_json",
     "build_generate_summary",
-    "build_minimal_fallback_steps",
 ]

@@ -13,6 +13,12 @@
           <span class="ash-meta-item">条件 <strong>{{ conditionalRuleCount }}</strong></span>
           <span class="ash-meta-item" v-if="relationRuleCount">关联 <strong>{{ relationRuleCount }}</strong></span>
           <span class="ash-meta-item" v-if="unresolvedRuleCount">待补充 <strong class="warning-text">{{ unresolvedRuleCount }}</strong></span>
+          <span class="ash-meta-item" v-if="preprocessStatus && preprocessStatus.total_count">
+            预处理
+            <strong :class="{ 'text-done': preprocessStatus.task_status === 'completed' && !preprocessStatus.failed_count, 'warning-text': preprocessStatus.failed_count }">
+              {{ preprocessStatus.completed_count }}/{{ preprocessStatus.total_count }}
+            </strong>
+          </span>
           <!-- Recognition progress: simplified when all done -->
           <span class="ash-meta-item ash-meta-progress-item" v-if="reviewableRuleCount > 0">
             <template v-if="readyRuleCount === reviewableRuleCount">
@@ -84,6 +90,54 @@
 
     <div v-if="batchNotice" class="batch-notice">{{ batchNotice }}</div>
 
+    <section v-if="preprocessFailureSummary" class="preprocess-failure-panel" role="alert">
+      <div class="preprocess-failure-head">
+        <span class="preprocess-failure-icon">!</span>
+        <div>
+          <strong>{{ preprocessFailureSummary.title }}</strong>
+          <p>{{ preprocessFailureSummary.message }}</p>
+        </div>
+      </div>
+      <ul v-if="preprocessFailureSummary.lines.length" class="preprocess-failure-list">
+        <li v-for="line in preprocessFailureSummary.lines" :key="line">{{ line }}</li>
+      </ul>
+      <p v-if="preprocessFailureSummary.overflowCount" class="preprocess-failure-more">
+        另有 {{ preprocessFailureSummary.overflowCount }} 条失败记录，修复后可刷新或重新识别。
+      </p>
+    </section>
+
+    <section v-if="precheckResult" class="precheck-panel" :class="{ 'precheck-panel--blocked': !precheckResult.ok }">
+      <div class="precheck-panel-head">
+        <div>
+          <span class="precheck-kicker">发布前预检</span>
+          <h2>{{ precheckResult.ok ? '规则包可以发布' : '还有项目需要处理' }}</h2>
+        </div>
+        <span class="precheck-state" :class="{ 'precheck-state--blocked': !precheckResult.ok }">
+          {{ precheckResult.ok ? '全部通过' : `${precheckResult.blockers.length} 项阻塞` }}
+        </span>
+      </div>
+      <div class="precheck-list">
+        <div v-for="item in precheckResult.checklist" :key="item.code" class="precheck-item">
+          <span class="precheck-item-icon" :class="{ 'precheck-item-icon--blocked': item.status === 'blocking' }">
+            {{ item.status === 'passed' ? '✓' : '!' }}
+          </span>
+          <div>
+            <strong>{{ item.label }}</strong>
+            <p>{{ item.message }}</p>
+          </div>
+        </div>
+      </div>
+      <div v-if="precheckResult.blockers.length" class="precheck-blockers">
+        <strong>必处理清单</strong>
+        <ul>
+          <li v-for="(blocker, index) in precheckResult.blockers" :key="`${blocker.code}-${blocker.process_id || index}`">
+            <span>{{ blocker.process_name || blocker.message }}</span>
+            <em v-if="blocker.process_name">{{ blocker.message }}<template v-if="blocker.required_by_labels?.length">（{{ blocker.required_by_labels.join('、') }}）</template></em>
+          </li>
+        </ul>
+      </div>
+    </section>
+
     <div v-if="!projectId" class="empty-state card">
       <div class="empty-mark">04</div>
       <div class="empty-title">{{ FINALIZE_VIEW_COPY.emptyProjectTitle }}</div>
@@ -112,7 +166,7 @@
     <div v-else-if="!visibleSegments.length" class="empty-state card">
       <div class="empty-mark">*</div>
       <div class="empty-title">当前没有需要处理的规则</div>
-      <div class="empty-text">系统已识别全部条件；可直接审核并导出，或切换到全部规则浏览。</div>
+      <div class="empty-text">系统已识别全部条件；可直接完成定稿并发布规则包，或切换到全部规则浏览。</div>
       <button class="btn btn-outline" @click="onlyPending = false">显示全部规则</button>
     </div>
 
@@ -170,7 +224,7 @@
     <WorkflowNavFooter
       :summary="finalizeNavSummary"
       previous-label="← 返回规则分析"
-      next-label="进入路线生成 →"
+      next-label="进入规则包验证 →"
       :previous-disabled="!projectId"
       :next-disabled="!projectId || !lastExportedRulePackageVersion || !allCurrentRulesConfirmed"
       @previous="goBackToAnalysis"
@@ -181,23 +235,28 @@
       <section class="export-blocker-dialog" role="dialog" aria-modal="true" aria-labelledby="export-blocker-title">
         <div class="export-blocker-header">
           <div>
-            <span class="export-blocker-kicker">规则包导出</span>
-            <h2 id="export-blocker-title">还有 {{ blockedExportCards.length }} 道工序需要处理</h2>
+            <span class="export-blocker-kicker">规则定稿检查</span>
+            <h2 id="export-blocker-title">还有 {{ blockedExportCards.length }} 道规则需要确认</h2>
           </div>
-          <button class="export-blocker-close" aria-label="关闭提示" @click="closeBlockedExportDialog">关闭</button>
+          <button class="export-blocker-close" aria-label="关闭提示" @click="closeBlockedExportDialog">✕</button>
         </div>
-        <p class="export-blocker-copy">系统已自动处理可识别规则；请只补充以下异常项，完成后即可再次审核并导出。</p>
-        <ol class="export-blocker-list">
-          <li v-for="item in blockedExportCards.slice(0, 6)" :key="item.segment.id">
-            <span>{{ item.segment.sequence }}</span>
-            <strong>{{ finalizeSegmentDisplayName(item.segment) }}</strong>
-            <em>{{ blockedExportStatusLabel(item) }}</em>
-          </li>
-        </ol>
-        <p v-if="blockedExportCards.length > 6" class="export-blocker-more">另有 {{ blockedExportCards.length - 6 }} 道工序待处理。</p>
+        <p class="export-blocker-copy">系统已自动处理可识别规则；候选项可以直接确认后继续发布，待补充条件仍需人工补齐。</p>
+        <div v-for="group in blockedExportGroups" :key="group.key" class="export-blocker-group">
+          <div class="export-blocker-group-head">
+            <strong>{{ group.label }}</strong>
+            <span>{{ group.cards.length }} 项</span>
+          </div>
+          <ol class="export-blocker-list">
+            <li v-for="item in group.cards" :key="item.segment.id" class="export-blocker-list-item export-blocker-list-item--clickable" @click="focusSegment(item.segment.id)">
+              <span>{{ item.segment.sequence }}</span>
+              <strong>{{ finalizeSegmentDisplayName(item.segment) }}</strong>
+              <em>{{ exportBlockedReasonLabel(item) }}</em>
+            </li>
+          </ol>
+        </div>
         <div class="export-blocker-actions">
           <button class="ash-btn-outline" @click="closeBlockedExportDialog">暂不处理</button>
-          <button class="ash-btn-primary" @click="showBlockedExportCards">查看待处理</button>
+          <button class="ash-btn-primary" @click="handleBlockedExportPrimaryAction">{{ blockedExportPrimaryActionLabelText }}</button>
         </div>
       </section>
     </div>
@@ -206,7 +265,7 @@
       <section class="export-issue-dialog" role="dialog" aria-modal="true" aria-labelledby="export-issue-title">
         <div class="export-issue-icon" aria-hidden="true">!</div>
         <div class="export-issue-content">
-          <span class="export-issue-kicker">{{ exportIssue.context || '规则包导出' }}</span>
+          <span class="export-issue-kicker">{{ exportIssue.context || '规则包发布' }}</span>
           <h2 id="export-issue-title">{{ exportIssue.title }}</h2>
           <p>{{ exportIssue.summary }}</p>
           <details v-if="exportIssue.details" class="export-issue-details">
@@ -232,15 +291,6 @@
       @confirm="handleResetAllRecognition"
     />
 
-    <KmaiMappingResolutionDialog
-      v-model="mappingDialogVisible"
-      :issues="mappingIssues"
-      :project-id="projectId"
-      :rule-package="mappingRulePackage"
-      :allow-global="false"
-      @resolved="completeMappingResolution(true)"
-      @cancelled="completeMappingResolution(false)"
-    />
   </div>
 </template>
 
@@ -249,7 +299,6 @@ import { computed, nextTick, onActivated, onDeactivated, onMounted, ref, watch }
 import { useRoute, useRouter } from 'vue-router'
 import FinalizeRouteNav from '@/components/finalize/FinalizeRouteNav.vue'
 import FinalizeRuleCard from '@/components/finalize/FinalizeRuleCard.vue'
-import KmaiMappingResolutionDialog from '@/components/kmai/KmaiMappingResolutionDialog.vue'
 import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
 import WorkflowResetDialog from '@/components/workflow/WorkflowResetDialog.vue'
 import {
@@ -258,6 +307,7 @@ import {
   getSupersetRoute,
   listOperations,
   listProjects,
+  type RulePackagePrecheckResult,
   resetWorkflow,
   type OperationItem,
   type SavedNormalizedRouteVersionResult,
@@ -265,17 +315,18 @@ import {
 import {
   confirmRuleCondition,
   getConditionFieldRegistry,
+  getRulePreprocessingStatus,
   compileRulePackage,
   parseRuleCondition,
   saveRuleConditionDraft,
+  startRulePreprocessing,
   setManualRuleCondition,
   type CanonicalConditionField,
   type RuleConditionCandidate,
   type RuleConditionProcessOption,
   type RuleConditionReview,
-  type RulePackageV2,
+  type RulePreprocessStatus,
 } from '@/api/rulePackages'
-import type { KmaiMappingIssue } from '@/api/kmaiFactorMappings'
 import {
   segmentDisplayMetaLabel,
   segmentDisplayName,
@@ -288,6 +339,7 @@ import type { FinalizeCard } from '@/composables/finalizeViewHelpers'
 import { useFinalizeDrafts } from '@/composables/useFinalizeDrafts'
 import { useFinalizeRulePackageExport } from '@/composables/useFinalizeRulePackageExport'
 import { useRouteSegmentSteps } from '@/composables/useRouteSegmentSteps'
+import { buildRulePreprocessFailureSummary, buildRulePreprocessingTriggerKey } from '@/composables/rulePreprocessingTrigger'
 import { buildProjectRouteQuery, resolveAvailableProjectId } from '@/composables/useCurrentProject'
 import { FINALIZE_VIEW_COPY } from '@/config/finalizeRulePresentation'
 import { createLatestWorkflowRequestGuard, getWorkflowDataRevision } from '@/composables/workflowDataCache'
@@ -297,6 +349,9 @@ import {
   buildManualBooleanRuleCandidate,
   exportProcessIdForItem,
   buildCompileRequestFromCards,
+  blockedExportPrimaryActionLabel,
+  exportBlockedReasonLabel,
+  groupExportBlockedCards,
   finalizeRuleMode,
   hasCurrentConfirmedUserRule,
   isSafeForBatchRuleConfirmation,
@@ -333,6 +388,12 @@ const batchParseTotal = ref(0)
 const batchReviewing = ref(false)
 const batchReviewCompleted = ref(0)
 const batchReviewTotal = ref(0)
+const preprocessStatus = ref<RulePreprocessStatus | null>(null)
+const preprocessFailureSummary = computed(() => buildRulePreprocessFailureSummary(preprocessStatus.value))
+const precheckResult = ref<RulePackagePrecheckResult | null>(null)
+let preprocessPollTimer: ReturnType<typeof window.setTimeout> | null = null
+let preprocessRefreshInFlight = false
+let lastRulePreprocessTriggerKey = ''
 const reviewAndExporting = ref(false)
 const batchNotice = ref('')
 const resetDialogVisible = ref(false)
@@ -350,11 +411,16 @@ function setBatchNotice(msg: string) {
   }
 }
 const blockedExportCards = ref<FinalizeCard[]>([])
+const blockedExportGroups = computed(() => {
+  const grouped = groupExportBlockedCards(blockedExportCards.value)
+  return [
+    { key: 'pending_candidate', label: '待审核候选', cards: grouped.pendingCandidateCards },
+    { key: 'missing_condition', label: '待补充条件', cards: grouped.missingConditionCards },
+    { key: 'rebuild_required', label: '需要重新识别', cards: grouped.rebuildRequiredCards },
+  ].filter(group => group.cards.length)
+})
+const blockedExportPrimaryActionLabelText = computed(() => blockedExportPrimaryActionLabel(blockedExportCards.value))
 const exportIssue = ref<{ title: string; summary: string; details?: string; context?: string } | null>(null)
-const mappingIssues = ref<KmaiMappingIssue[]>([])
-const mappingDialogVisible = ref(false)
-const mappingRulePackage = ref<RulePackageV2 | null>(null)
-let mappingResolutionPromise: ((resolved: boolean) => void) | null = null
 const {
   segmentAttachedSteps: finalizeSegmentAttachedSteps,
   segmentPrimarySteps: finalizeSegmentPrimarySteps,
@@ -438,12 +504,12 @@ const finalizeNavSummary = computed(() => {
     if (batchParsing.value) {
       return `正在识别规则；当前 ${readyRuleCount.value}/${reviewableRuleCount.value} 条已就绪。`
     }
-    return `还有 ${reviewableRuleCount.value - readyRuleCount.value} 条规则待识别，点击审核并导出即可批量处理。`
+    return `还有 ${reviewableRuleCount.value - readyRuleCount.value} 条规则待识别，点击完成定稿并发布即可批量处理。`
   }
-  if (!allCurrentRulesConfirmed.value) return '规则已识别，请审核并导出最新规则包。'
-  if (outdatedRulePackageVersion.value) return `规则内容已有变化，原规则包 V${outdatedRulePackageVersion.value} 已过期，请重新审核并导出。`
-  if (!lastExportedRulePackageVersion.value) return '规则已识别，可直接审核并导出规则包。'
-  return `规则包 V${lastExportedRulePackageVersion.value} 已就绪，可进入路线生成。`
+  if (!allCurrentRulesConfirmed.value) return '规则已识别，请完成审核并发布最新规则包。'
+  if (outdatedRulePackageVersion.value) return `规则内容已有变化，原规则包 V${outdatedRulePackageVersion.value} 已过期，请重新完成定稿并发布。`
+  if (!lastExportedRulePackageVersion.value) return '规则已识别，可直接完成定稿并发布规则包。'
+  return `规则包 V${lastExportedRulePackageVersion.value} 已就绪，可进入规则包验证与路线生成。`
 })
 
 /** Progress percent for the mini progress bar */
@@ -490,44 +556,55 @@ function closeBlockedExportDialog() {
   blockedExportCards.value = []
 }
 
-function blockedExportStatusLabel(item: FinalizeCard) {
-  if (finalizeRuleMode(item) === 'unresolved') return '待补充条件'
-  if (item.conditionReview?.status === 'invalid') return '未能识别'
-  if (
-    item.conditionReview?.status === 'pending_confirmation'
-    && item.conditionReview.candidate
-    && item.conditionReview.source_text.trim() === item.conditionText.trim()
-  ) {
-    return '待审核候选'
+async function handleBlockedExportPrimaryAction() {
+  const groups = groupExportBlockedCards(blockedExportCards.value)
+  if (groups.missingConditionCards.length) {
+    const first = groups.missingConditionCards[0]
+    onlyPending.value = true
+    blockedExportCards.value = []
+    await nextTick()
+    if (first) focusSegment(first.segment.id)
+    return
   }
-  return '需要重新识别'
+
+  if (!groups.pendingCandidateCards.length) {
+    await showBlockedExportCards()
+    return
+  }
+
+  for (const item of groups.pendingCandidateCards) {
+    const review = item.conditionReview
+    if (!review?.candidate || !review.source_hash || !projectId.value || !savedRoute.value) continue
+    setConditionBusy(item.segment.id, true)
+    try {
+      const response = await confirmRuleCondition({
+        project_id: projectId.value,
+        route_id: savedRoute.value.route_id,
+        expected_workflow_revision: savedRoute.value.workflow_revision,
+        segment_id: item.segment.id,
+        source_text: item.conditionText,
+        source_hash: review.source_hash,
+        candidate: review.candidate,
+        processes: conditionProcessOptions.value,
+        confirmed_by: '默认用户',
+      })
+      applyConditionReview(item.segment.id, response.review)
+    } catch (err: any) {
+      if (await handleWorkflowRevisionConflict(err)) return
+      showFinalizeNotice('规则确认失败', '候选规则尚未确认，请检查条件和目标工序后重试。', conditionErrorMessage(err))
+      return
+    } finally {
+      setConditionBusy(item.segment.id, false)
+    }
+  }
+
+  blockedExportCards.value = []
+  await nextTick()
+  await downloadRuleDocument()
 }
 
 function closeExportIssue() {
   exportIssue.value = null
-}
-
-function requestKmaiMappingResolution(
-  issues: KmaiMappingIssue[],
-  rulePackage: Record<string, unknown>,
-): Promise<boolean> {
-  if (!projectId.value) return Promise.resolve(false)
-  if (mappingResolutionPromise) mappingResolutionPromise(false)
-  mappingIssues.value = issues
-  mappingRulePackage.value = rulePackage as RulePackageV2
-  mappingDialogVisible.value = true
-  return new Promise((resolve) => {
-    mappingResolutionPromise = resolve
-  })
-}
-
-function completeMappingResolution(resolved: boolean) {
-  const complete = mappingResolutionPromise
-  mappingResolutionPromise = null
-  mappingDialogVisible.value = false
-  mappingRulePackage.value = null
-  mappingIssues.value = []
-  complete?.(resolved)
 }
 
 function showFinalizeNotice(title: string, summary: string, details = '') {
@@ -598,6 +675,7 @@ async function handleWorkflowRevisionConflict(err: any) {
 }
 
 function markExportedRulePackageOutdated() {
+  precheckResult.value = null
   if (lastExportedRulePackageVersion.value) {
     outdatedRulePackageVersion.value = lastExportedRulePackageVersion.value
   }
@@ -884,13 +962,15 @@ const {
     blockedExportCards.value = cards
   },
   onExportIssue: (issue) => {
-    exportIssue.value = { ...issue, context: '规则包导出' }
+    exportIssue.value = { ...issue, context: '规则包发布' }
   },
-  onKmaiMappingsRequired: requestKmaiMappingResolution,
+  onPrecheck: (result) => {
+    precheckResult.value = result
+  },
   onExportedVersion: (version, meta) => {
     lastExportedRulePackageVersion.value = version
     outdatedRulePackageVersion.value = null
-    console.info(`规则包 V${version} 已导出，可用于第 5 步。`, meta)
+    console.info(`规则包 V${version} 已发布，可用于第 5 步验证生成。`, meta)
   },
   onWorkflowConflict: () => loadWorkspace(true),
 })
@@ -898,8 +978,8 @@ const {
 const reviewAndExportButtonLabel = computed(() => {
   if (batchParsing.value) return `正在识别 ${batchParseCompleted.value}/${batchParseTotal.value}`
   if (batchReviewing.value) return `正在审核 ${batchReviewCompleted.value}/${batchReviewTotal.value}`
-  if (exportingRulePackage.value) return '正在导出规则包...'
-  return '审核并导出规则包'
+  if (exportingRulePackage.value) return '正在发布规则包...'
+  return '完成定稿并发布规则包'
 })
 
 async function handleReviewAndExport() {
@@ -942,6 +1022,73 @@ function goToGenerate() {
     path: '/generate',
     query: buildProjectRouteQuery(projectId.value),
   })
+}
+
+function stopPreprocessPolling() {
+  if (preprocessPollTimer !== null) {
+    window.clearTimeout(preprocessPollTimer)
+    preprocessPollTimer = null
+  }
+}
+
+async function pollRulePreprocessing() {
+  if (!projectId.value || !savedRoute.value || preprocessRefreshInFlight) return
+  preprocessRefreshInFlight = true
+  try {
+    const next = await getRulePreprocessingStatus(projectId.value, savedRoute.value.route_id)
+    const previous = preprocessStatus.value?.task_status
+    preprocessStatus.value = next
+    if (next.task_status === 'running' || next.task_status === 'queued') {
+      stopPreprocessPolling()
+      preprocessPollTimer = window.setTimeout(() => {
+        preprocessPollTimer = null
+        void pollRulePreprocessing()
+      }, 1200)
+    } else {
+      stopPreprocessPolling()
+      if (previous && previous !== next.task_status && next.task_status === 'completed') {
+        await loadWorkspace(true)
+      }
+    }
+  } catch (err) {
+    console.warn('读取规则预处理状态失败', err)
+  } finally {
+    preprocessRefreshInFlight = false
+  }
+}
+
+async function startRulePreprocessingForWorkspace() {
+  if (!projectId.value || !savedRoute.value || !reviewableCards.value.length) return
+  const triggerKey = buildRulePreprocessingTriggerKey({
+    projectId: projectId.value,
+    savedRoute: savedRoute.value,
+    supersetOperations: supersetOperations.value,
+    segmentDisplayName: finalizeSegmentDisplayName,
+  })
+  if (!triggerKey || triggerKey === lastRulePreprocessTriggerKey) return
+  const items = reviewableCards.value.map(item => ({
+    segment_id: item.segment.id,
+    process_id: exportProcessIdForItem(item),
+    process_name: normalizeExportProcessName(finalizeSegmentDisplayName(item.segment)),
+    source_text: item.conditionText,
+  })).filter(item => item.process_id && item.source_text.trim())
+  if (!items.length) return
+  try {
+    lastRulePreprocessTriggerKey = triggerKey
+    preprocessStatus.value = await startRulePreprocessing({
+      project_id: projectId.value,
+      route_id: savedRoute.value.route_id,
+      expected_workflow_revision: savedRoute.value.workflow_revision,
+      items,
+      processes: conditionProcessOptions.value,
+    })
+    if (preprocessStatus.value.task_status === 'running' || preprocessStatus.value.task_status === 'queued') {
+      void pollRulePreprocessing()
+    }
+  } catch (err) {
+    lastRulePreprocessTriggerKey = ''
+    console.warn('启动规则预处理失败', err)
+  }
 }
 
 async function loadWorkspace(forceRefresh = false) {
@@ -1037,6 +1184,9 @@ async function loadWorkspace(forceRefresh = false) {
     if (!request.isLatest()) return
     loading.value = false
     loadedDataRevision = getWorkflowDataRevision()
+    if (savedRoute.value && !error.value) {
+      void startRulePreprocessingForWorkspace()
+    }
   }
 }
 
@@ -1114,6 +1264,8 @@ async function restartAllRecognitionInBackground(context: {
 
 watch(() => route.query.project_id, () => {
   if (!finalizeViewActive) return
+  stopPreprocessPolling()
+  preprocessStatus.value = null
   recognitionTaskGuard.cancel()
   batchParseExecutionId += 1
   batchParsing.value = false
@@ -1159,6 +1311,7 @@ onActivated(() => {
 
 onDeactivated(() => {
   finalizeViewActive = false
+  stopPreprocessPolling()
   recognitionTaskGuard.cancel()
   batchParseExecutionId += 1
   batchParsing.value = false
@@ -1297,17 +1450,18 @@ onDeactivated(() => {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(15, 23, 42, 0.42);
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
 }
 
 .export-blocker-dialog {
-  width: min(540px, 100%);
+  width: min(520px, 100%);
   max-height: min(680px, calc(100vh - 48px));
   overflow: auto;
-  border: 1px solid #d8e1ec;
-  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
   background: #ffffff;
-  box-shadow: 0 20px 55px rgba(15, 23, 42, 0.22);
+  box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.12), 0 8px 10px -6px rgba(15, 23, 42, 0.08);
 }
 
 .export-blocker-header {
@@ -1315,83 +1469,150 @@ onDeactivated(() => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding: 22px 24px 15px;
-  border-bottom: 1px solid #e7edf4;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid #f1f5f9;
 }
 
 .export-blocker-kicker {
-  display: block;
-  margin-bottom: 5px;
-  color: #667991;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0;
+  display: inline-block;
+  margin-bottom: 4px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .export-blocker-header h2 {
   margin: 0;
-  color: #1e334c;
+  color: #0f172a;
   font-size: 19px;
-  line-height: 1.35;
+  font-weight: 650;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
 }
 
 .export-blocker-close {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
   border: 0;
+  border-radius: 6px;
   background: transparent;
-  color: #697b90;
-  font-size: 12px;
+  color: #64748b;
+  font-size: 13px;
   cursor: pointer;
-  padding: 4px 0;
+  transition: background-color 0.15s, color 0.15s;
 }
 
-.export-blocker-close:hover { color: #263b54; }
+.export-blocker-close:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+}
 
 .export-blocker-copy {
   margin: 0;
-  padding: 16px 24px 12px;
-  color: #566a82;
+  padding: 14px 24px;
+  color: #475569;
+  font-size: 14px;
+  line-height: 1.7;
+  font-weight: 400;
+  background: #f8fafc;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.export-blocker-group {
+  padding: 16px 24px 4px;
+}
+
+.export-blocker-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.export-blocker-group-head strong {
   font-size: 13px;
-  line-height: 1.65;
+  font-weight: 600;
+  color: #334155;
+}
+
+.export-blocker-group-head span {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #64748b;
+  background: #f1f5f9;
+  border-radius: 9999px;
+  font-variant-numeric: tabular-nums;
 }
 
 .export-blocker-list {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   margin: 0;
-  padding: 0 24px;
+  padding: 0;
   list-style: none;
 }
 
 .export-blocker-list li {
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) auto;
+  display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 38px;
-  padding: 0 10px;
-  border: 1px solid #e3eaf2;
-  border-radius: 5px;
+  gap: 12px;
+  min-height: 42px;
+  padding: 0 12px 0 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.export-blocker-list-item--clickable {
+  cursor: pointer;
+}
+
+.export-blocker-list-item--clickable:hover {
+  border-color: #cbd5e1;
   background: #f8fafc;
 }
 
 .export-blocker-list span {
-  color: #71839a;
-  font-size: 12px;
+  display: inline-block;
+  min-width: 28px;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
 }
 
 .export-blocker-list strong {
+  flex: 1;
   overflow: hidden;
-  color: #2c4058;
-  font-size: 13px;
+  color: #1e293b;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .export-blocker-list em {
-  color: #a35436;
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #ffedd5;
+  font-size: 12px;
+  font-weight: 600;
   font-style: normal;
   white-space: nowrap;
 }
@@ -1405,11 +1626,11 @@ onDeactivated(() => {
 .export-blocker-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 18px;
+  gap: 10px;
+  margin-top: 16px;
   padding: 14px 24px;
-  border-top: 1px solid #e7edf4;
-  background: #fbfcfe;
+  border-top: 1px solid #e2e8f0;
+  background: #ffffff;
 }
 
 .warning-text { color: #b4532f !important; }
@@ -1422,6 +1643,70 @@ onDeactivated(() => {
   color: #4d607b;
   font-size: 12px;
   line-height: 1.5;
+}
+
+.preprocess-failure-panel {
+  margin: -2px 0 12px;
+  padding: 12px 14px;
+  border: 1px solid #fed7aa;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #fff7ed 0%, #fffaf5 100%);
+  color: #7c2d12;
+  box-shadow: 0 8px 18px rgba(251, 146, 60, 0.10);
+}
+
+.preprocess-failure-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.preprocess-failure-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  border-radius: 50%;
+  background: #fb923c;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.preprocess-failure-head strong {
+  display: block;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.preprocess-failure-head p {
+  margin: 3px 0 0;
+  color: #9a3412;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.preprocess-failure-list {
+  margin: 10px 0 0 30px;
+  padding: 0;
+  color: #9a3412;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.preprocess-failure-list li {
+  margin: 2px 0;
+  word-break: break-word;
+}
+
+.preprocess-failure-more {
+  margin: 8px 0 0 30px;
+  color: #c2410c;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .highlight-text { color: #ea580c !important; }
@@ -2074,6 +2359,129 @@ onDeactivated(() => {
 .empty-state-error {
   border-color: #fecaca;
   background: linear-gradient(180deg, #ffffff 0%, #fff8f8 100%);
+}
+
+.precheck-panel {
+  margin: 16px 24px 0;
+  padding: 18px 20px;
+  border: 1px solid #bbf7d0;
+  border-radius: 14px;
+  background: #f0fdf4;
+}
+
+.precheck-panel--blocked {
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+
+.precheck-panel-head,
+.precheck-item,
+.precheck-blockers li {
+  display: flex;
+  align-items: center;
+}
+
+.precheck-panel-head {
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.precheck-kicker {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+}
+
+.precheck-panel h2 {
+  margin: 3px 0 0;
+  color: #0f172a;
+  font-size: 17px;
+}
+
+.precheck-state {
+  padding: 5px 10px;
+  border-radius: 999px;
+  color: #166534;
+  background: #dcfce7;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.precheck-state--blocked {
+  color: #9a3412;
+  background: #ffedd5;
+}
+
+.precheck-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.precheck-item {
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .78);
+}
+
+.precheck-item-icon {
+  display: inline-flex;
+  width: 19px;
+  height: 19px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  color: #166534;
+  background: #dcfce7;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.precheck-item-icon--blocked {
+  color: #9a3412;
+  background: #ffedd5;
+}
+
+.precheck-item strong {
+  color: #334155;
+  font-size: 12px;
+}
+
+.precheck-item p {
+  margin: 3px 0 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.precheck-blockers {
+  margin-top: 15px;
+  padding-top: 13px;
+  border-top: 1px solid rgba(251, 146, 60, .25);
+  color: #7c2d12;
+  font-size: 12px;
+}
+
+.precheck-blockers ul {
+  display: grid;
+  gap: 6px;
+  margin: 9px 0 0;
+  padding-left: 18px;
+}
+
+.precheck-blockers li {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.precheck-blockers em {
+  color: #9a3412;
+  font-style: normal;
 }
 
 .btn-sm {

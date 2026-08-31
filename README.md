@@ -134,22 +134,7 @@ docker compose up -d --build
 
 第 4 步「导出规则包」走 V2 主路径；导出后会成为第 5 步可用的当前规则包。第 5 步会优先使用已导出的 V2 规则包执行 `plan_route`；如果当前任务还没有规则包，则继续提示回到第 4 步导出。
 
-导出的 ZIP 同时包含 `kmai-v1/` 目录，可直接用于 KmAI：
-
-1. 停止 KmAI Agent。
-2. 备份 `KmMpsMcpServer\skills\process-route-generator\references\v1` 中的同名文件。
-3. 将 `kmai-v1/` 中的 `factor_schema.json`、`factor_expansion_rules.json`、`route_catalog.json`、`route_rules.json` 复制到上述目录并覆盖。
-4. 保留 KmAI 原有的 `group_match_rules.json`，重新启动 Agent。
-
-ProcessMind 会在下载前校验 KmAI 因素引用、工序引用和条件操作符；不兼容时会阻止导出，不会生成无法生效的替换文件。
-
-### KmAI 因素映射运维
-
-1. 不能自动解析的来源值，需要在第 4 步「规则定稿」中完成映射后再发布规则包。
-2. 在「模型设置」中管理全局映射和项目映射；同一来源值的优先级固定为项目映射 > 全局映射 > 内置映射。
-3. 将来源值映射到已有 KmAI 因素前，必须先确认两者的工艺语义一致；映射本身不会替代这项人工确认。
-4. 标记为手工因素的映射会以 `source_mode=manual_override` 导出。KmAI 运行时必须在输入中通过 `manual.factor_overrides` 提供对应因素值，不能从来源字段自动推断。
-5. 已发布 ZIP 会保留生成时使用的有效映射快照；之后修改全局或项目映射，不会改变既有 ZIP 的执行含义。
+导出的 ZIP 包含 `factor_table.json`、`full_route_structure.json` 和 `rule_table.json` 三张表，分别对应因素、全集路线和规则。
 
 ## 内网离线部署（Windows）
 
@@ -171,7 +156,6 @@ powershell -File scripts\pack-offline-windows.ps1
 
 打包脚本只复制明确允许的源码、便携运行时、前端依赖和示例配置，并在压缩前扫描运行时数据库、上传文件、`.env`、`process_settings.json` 与疑似真实密钥。扫描命中时会以非零退出码停止，且不会生成交付包。真实密钥请在目标机部署时通过环境变量或设置页单独注入；可从不含真实值的 `.env.example` 开始配置。
 
-KmAI 兼容导出的 `all` / `any` 条件组合数默认上限为 `10000`，展开后所有子句包含的条件对象总数默认上限为 `100000`。如确有需要，可在部署环境中分别通过 `PROCESSMIND_KMAI_MAX_COMBINATIONS` 和 `PROCESSMIND_KMAI_MAX_CONDITION_OBJECTS` 调整。
 
 ## 备注
 

@@ -10,5 +10,6 @@ if [ ! -d .venv ]; then
 fi
 
 source .venv/bin/activate
-export PROCESSMIND_DATA_DIR="$ROOT_DIR/data"
-uvicorn app.main:app --host 127.0.0.1 --port 8000
+export PROCESSMIND_DATA_DIR="${PROCESSMIND_DATA_DIR:-$ROOT_DIR/data}"
+API_PORT="${PROCESSMIND_API_PORT:-8000}"
+uvicorn app.main:app --host 127.0.0.1 --port "$API_PORT"

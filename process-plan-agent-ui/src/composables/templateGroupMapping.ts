@@ -18,7 +18,17 @@ export type TemplateOperation = {
   sequence?: number
   step_family?: string | null
   step_items?: string[]
+  rule_evidence?: string[]
+  rule_reasons?: string[]
   source_operation_id?: number | null
+}
+
+export type TemplateRouteStructureOperation = {
+  operation_id: number
+  operation_name: string
+  step_items: string[]
+  rule_evidence: string[]
+  rule_reasons: string[]
 }
 
 export type TemplateAliasBinding = {
@@ -98,6 +108,33 @@ function cleanId(value: unknown) {
 
 function cleanText(value: unknown) {
   return String(value ?? '').trim()
+}
+
+function cleanTextList(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value.map(cleanText).filter(Boolean)
+}
+
+export function buildTemplateRouteStructureOperations(
+  operations: TemplateOperation[],
+): TemplateRouteStructureOperation[] {
+  const seen = new Set<number>()
+  return operations
+    .map((operation) => ({
+      operation_id: cleanId(operation.source_operation_id || operation.id),
+      operation_name: cleanText(operation.name),
+      sequence: Number(operation.sequence || 0),
+      step_items: cleanTextList(operation.step_items),
+      rule_evidence: cleanTextList(operation.rule_evidence),
+      rule_reasons: cleanTextList(operation.rule_reasons),
+    }))
+    .filter((operation) => {
+      if (!operation.operation_id || !operation.operation_name || seen.has(operation.operation_id)) return false
+      seen.add(operation.operation_id)
+      return true
+    })
+    .sort((left, right) => left.sequence - right.sequence || left.operation_id - right.operation_id)
+    .map(({ sequence: _sequence, ...operation }) => operation)
 }
 
 function normalizePath(path: unknown): string[] {

@@ -238,6 +238,7 @@ import { buildProjectRouteQuery } from '@/composables/useCurrentProject'
 import { useAnalysisWorkspace } from '@/composables/useAnalysisWorkspace'
 import { useRouteSegmentSteps } from '@/composables/useRouteSegmentSteps'
 import { formatRoutePhaseLabel } from '@/composables/routeNameDisplay'
+import { startRulePreprocessingForSavedRoute } from '@/composables/rulePreprocessingTrigger'
 
 const EvidenceExcerptPanel = defineAsyncComponent(() => import('@/components/analysis/EvidenceExcerptPanel.vue'))
 const EvidenceRowsPanel = defineAsyncComponent(() => import('@/components/analysis/EvidenceRowsPanel.vue'))
@@ -378,6 +379,14 @@ function segmentPhaseLabel(segment: any) {
 
 
 function goToFinalize() {
+  void startRulePreprocessingForSavedRoute({
+    projectId: projectId.value,
+    savedRoute: savedRoute.value,
+    supersetOperations: supersetOperations.value,
+    segmentDisplayName,
+  }).catch((error) => {
+    console.warn('进入第4步前启动规则预处理失败', error)
+  })
   router.push({
     path: '/finalize',
     query: buildProjectRouteQuery(projectId.value),

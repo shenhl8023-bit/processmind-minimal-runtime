@@ -48,7 +48,6 @@
               <div class="project-name">{{ project.name }}</div>
               <div class="project-meta">
                 <span class="project-mode-chip">工艺规程规则</span>
-                <span v-if="profileShortLabel(project.profile)" class="project-profile-chip">{{ profileShortLabel(project.profile) }}</span>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
                 {{ formatTime(project.updated_at || project.created_at) }}
               </div>
@@ -81,7 +80,6 @@ defineProps<{
   projects: any[]
   selectedProjectId: string
   creatingProject: boolean
-  profileShortLabel: (profileKey?: string) => string
   formatTime: (value: string) => string
   projectStatusText: (status: string) => string
 }>()

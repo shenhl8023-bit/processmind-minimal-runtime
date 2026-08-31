@@ -59,13 +59,6 @@ def test_compile_validate_and_simulate_endpoints(rule_package_v2_payload):
     assert compiled_body["validation"]["valid"] is True
     assert compiled_body["package"]["manifest"]["schema_version"] == "2.0"
     assert len(compiled_body["content_hash"]) == 64
-    assert compiled_body["kmai_compatibility"]["valid"] is True
-    assert set(compiled_body["kmai_compatibility"]["files"]) == {
-        "factor_schema.json",
-        "factor_expansion_rules.json",
-        "route_catalog.json",
-        "route_rules.json",
-    }
 
     validated = client.post(
         "/api/extract/finalized-rule-packages/validate",
@@ -180,3 +173,33 @@ def test_simulate_rejects_invalid_option_with_allowed_values(rule_package_v2_pay
     assert error["code"] == "input_option_invalid"
     assert error["field"] == "material.grade"
     assert error["allowed_values"] == ["9Cr18", "95Cr18"]
+
+
+def test_simulate_uses_canonical_option_value_for_rule_evaluation(rule_package_v2_payload):
+    material_field = next(
+        field
+        for field in rule_package_v2_payload["input_schema"]["fields"]
+        if field["key"] == "material.grade"
+    )
+    material_field.update(
+        {
+            "type": "single_select",
+            "options": [{"value": "9Cr18", "label": "9Cr18", "aliases": ["X105CrMo17"]}],
+            "allow_custom": False,
+        }
+    )
+
+    response = client.post(
+        "/api/extract/finalized-rule-packages/simulate",
+        json={
+            "package": rule_package_v2_payload,
+            "inputs": {
+                "material": {"grade": "X105CrMo17"},
+                "cad": {"features": ["槽类特征"]},
+                "target_hardness_hrc": 58,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert "process_quench" in response.json()["plan"]["selected_process_ids"]

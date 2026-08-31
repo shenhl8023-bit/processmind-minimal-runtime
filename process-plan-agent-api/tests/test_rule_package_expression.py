@@ -1,5 +1,6 @@
-from app.services.rule_packages.contracts import ConditionNode
+from app.services.rule_packages.contracts import ConditionNode, InputSchemaV2
 from app.services.rule_packages.expression_engine import evaluate_condition
+from app.services.rule_packages.input_validation import canonicalize_inputs, validate_inputs
 
 
 def test_nested_condition_and_missing_field_trace():
@@ -41,3 +42,49 @@ def test_not_does_not_turn_missing_field_into_match():
 
     assert trace.matched is False
     assert trace.reason == "nested condition used a missing field"
+
+
+def _canonical_input_schema():
+    return InputSchemaV2.model_validate({
+        "fields": [
+            {
+                "key": "material.grade",
+                "label": "材料牌号",
+                "type": "single_select",
+                "options": [{
+                    "value": "W6Mo5Cr4V2",
+                    "label": "W6Mo5Cr4V2",
+                    "aliases": ["M2"],
+                }],
+                "allow_custom": False,
+            },
+            {
+                "key": "tolerance.roundness_mm",
+                "label": "圆度公差",
+                "type": "number",
+                "unit": "mm",
+            },
+        ],
+    })
+
+
+def test_canonicalizes_closed_option_aliases_before_planning():
+    values, errors = canonicalize_inputs(
+        _canonical_input_schema(),
+        {"material": {"grade": "M2"}},
+    )
+
+    assert errors == []
+    assert values == {"material": {"grade": "W6Mo5Cr4V2"}}
+
+
+def test_rejects_unknown_nested_input_factor():
+    errors = validate_inputs(
+        _canonical_input_schema(),
+        {
+            "material": {"grade": "W6Mo5Cr4V2"},
+            "geometry": {"diameter_mm": 12},
+        },
+    )
+
+    assert any(issue.code == "unknown_input_field" and issue.field == "geometry.diameter_mm" for issue in errors)

@@ -120,10 +120,68 @@ export function isSafeForBatchRuleConfirmation(item: any) {
   )
 }
 
-// The server owns parser and field-registry freshness. Every unconfirmed
-// candidate must pass through its version-aware cache before batch confirmation.
 export function requiresServerRuleConditionRefresh(item: any) {
-  return !hasCurrentConfirmedUserRule(item)
+  if (hasCurrentConfirmedUserRule(item)) return false
+  const review = item.conditionReview
+  const expectedKind = finalizeRuleMode(item) === 'relation' ? 'process_relation' : 'condition'
+  return !(
+    review?.status === 'pending_confirmation'
+    && review?.candidate
+    && String(review.source_text || '').trim() === String(item.conditionText || '').trim()
+    && (review.candidate.kind || 'condition') === expectedKind
+  )
+}
+
+export type ExportBlockedReason = 'pending_candidate' | 'missing_condition' | 'rebuild_required'
+
+export function exportBlockedReason(item: any): ExportBlockedReason {
+  if (finalizeRuleMode(item) === 'unresolved') return 'missing_condition'
+  const review = item.conditionReview
+  if (
+    review?.status === 'pending_confirmation'
+    && review.candidate
+    && String(review.source_text || '').trim() === String(item.conditionText || '').trim()
+  ) {
+    return 'pending_candidate'
+  }
+  return 'rebuild_required'
+}
+
+export function exportBlockedReasonLabel(item: any) {
+  switch (exportBlockedReason(item)) {
+    case 'pending_candidate':
+      return '待审核候选'
+    case 'missing_condition':
+      return '待补充条件'
+    default:
+      return '需要重新识别'
+  }
+}
+
+export function groupExportBlockedCards(cards: any[]) {
+  const pendingCandidateCards: any[] = []
+  const missingConditionCards: any[] = []
+  const rebuildRequiredCards: any[] = []
+  cards.forEach((item) => {
+    if (!item) return
+    const reason = exportBlockedReason(item)
+    if (reason === 'pending_candidate') pendingCandidateCards.push(item)
+    else if (reason === 'missing_condition') missingConditionCards.push(item)
+    else rebuildRequiredCards.push(item)
+  })
+  return {
+    pendingCandidateCards,
+    missingConditionCards,
+    rebuildRequiredCards,
+    total: cards.length,
+  }
+}
+
+export function blockedExportPrimaryActionLabel(cards: any[]) {
+  const groups = groupExportBlockedCards(cards)
+  if (groups.missingConditionCards.length) return '去处理待补充项'
+  if (groups.rebuildRequiredCards.length) return '去处理首项'
+  return '确认候选并发布'
 }
 
 function manualProcessFieldKey(processId: string) {
@@ -195,8 +253,7 @@ export function buildManualBooleanRuleCandidate(item: any, label: string): RuleC
 }
 
 export function exportProcessIdForItem(item: any) {
-  if (/真空淬火|淬火/.test(String(item.segment?.normalized_step_name || ''))) return 'process_quench'
-  return item.segment?.id || ''
+  return String(item.segment?.export_process_id || item.segment?.id || '').trim()
 }
 
 function stableProcessId(rawId: string, displayName: string) {
@@ -417,6 +474,7 @@ function defaultInputValueForField(field: CompileRulePackageRequest['fields'][nu
 function buildDefaultV2TestCases(
   fields: CompileRulePackageRequest['fields'],
   processes: CompileRulePackageRequest['processes'],
+  rules: RulePackageRule[],
 ): CompileRulePackageRequest['test_cases'] {
   const input: Record<string, any> = {}
   fields.forEach((field) => {
@@ -425,7 +483,9 @@ function buildDefaultV2TestCases(
   const mainProcessIds = processes
     .filter((process) => process.main)
     .map((process) => process.process_id)
-  return [
+  const fieldsByKey = new Map(fields.map(field => [field.key, field] as const))
+  const seenCaseIds = new Set<string>(['default-smoke'])
+  const testCases: NonNullable<CompileRulePackageRequest['test_cases']> = [
     {
       case_id: 'default-smoke',
       input,
@@ -435,6 +495,166 @@ function buildDefaultV2TestCases(
       },
     },
   ]
+  rules
+    .filter(rule => rule.enabled !== false)
+    .forEach((rule, index) => {
+      const ruleInput = JSON.parse(JSON.stringify(input)) as Record<string, any>
+      applyPositiveCondition(rule.when, ruleInput, fieldsByKey)
+      testCases.push({
+        case_id: uniqueRuleTestCaseId(rule, index, seenCaseIds),
+        input: ruleInput,
+        expect: {
+          included_process_ids: [...(rule.then.include_process_ids || [])],
+          excluded_process_ids: [...(rule.then.exclude_process_ids || [])],
+        },
+      })
+    })
+  return testCases
+}
+
+function deleteNestedInputValue(target: Record<string, any>, key: string) {
+  const parts = String(key || '').split('.').filter(Boolean)
+  if (!parts.length) return
+  let current: Record<string, any> | undefined = target
+  for (const part of parts.slice(0, -1)) {
+    if (!current || typeof current[part] !== 'object' || Array.isArray(current[part])) return
+    current = current[part]
+  }
+  if (current) delete current[parts[parts.length - 1]!]
+}
+
+function optionOutside(field: CompileRulePackageRequest['fields'][number] | undefined, excluded: unknown) {
+  const excludedValues = new Set((Array.isArray(excluded) ? excluded : [excluded]).map(value => String(value)))
+  const option = field?.options?.find(item => !excludedValues.has(item.value))?.value
+  if (option !== undefined) return option
+  if (typeof excluded === 'boolean') return !excluded
+  if (typeof excluded === 'number') return excluded + 1
+  return `${String(excluded ?? '示例值')}__other`
+}
+
+function listValueForField(
+  field: CompileRulePackageRequest['fields'][number] | undefined,
+  values: unknown[],
+) {
+  const normalized = values.map(value => String(value))
+  return field?.type === 'multi_select' ? normalized : normalized.join(' ')
+}
+
+function fieldDefaultValue(field: CompileRulePackageRequest['fields'][number] | undefined) {
+  return field ? defaultInputValueForField(field) : '示例值'
+}
+
+function numberValue(value: unknown, fallback: number) {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : fallback
+}
+
+function applyPositiveLeaf(
+  node: Record<string, unknown>,
+  input: Record<string, any>,
+  fieldsByKey: Map<string, CompileRulePackageRequest['fields'][number]>,
+) {
+  const key = String(node.field || '')
+  const op = String(node.op || '')
+  if (!key) return
+  const field = fieldsByKey.get(key)
+  const value = node.value
+  const set = (nextValue: unknown) => setNestedInputValue(input, key, nextValue)
+
+  if (op === 'exists') return set(fieldDefaultValue(field))
+  if (op === 'not_exists') return deleteNestedInputValue(input, key)
+  if (op === 'eq') return set(value)
+  if (op === 'neq') return set(optionOutside(field, value))
+  if (op === 'in') return set(Array.isArray(value) ? value[0] : value)
+  if (op === 'contains') return set(listValueForField(field, [value]))
+  if (op === 'contains_any') return set(listValueForField(field, Array.isArray(value) ? [value[0]] : [value]))
+  if (op === 'contains_all') return set(listValueForField(field, Array.isArray(value) ? value : [value]))
+  if (op === 'between') {
+    const bounds = Array.isArray(value) ? value : []
+    const low = numberValue(bounds[0], 0)
+    const high = numberValue(bounds[1], low)
+    return set((low + high) / 2)
+  }
+  const boundary = numberValue(value, 0)
+  if (op === 'gt') return set(boundary + 1)
+  if (op === 'gte' || op === 'lte') return set(boundary)
+  if (op === 'lt') return set(boundary - 1)
+}
+
+function applyNegativeCondition(
+  condition: RulePackageCondition,
+  input: Record<string, any>,
+  fieldsByKey: Map<string, CompileRulePackageRequest['fields'][number]>,
+) {
+  const node = condition as Record<string, unknown>
+  if (Array.isArray(node.all) && node.all.length) {
+    applyNegativeCondition(node.all[0] as RulePackageCondition, input, fieldsByKey)
+    return
+  }
+  if (Array.isArray(node.any)) {
+    node.any.forEach(child => applyNegativeCondition(child as RulePackageCondition, input, fieldsByKey))
+    return
+  }
+  if (node.not && typeof node.not === 'object') {
+    applyPositiveCondition(node.not as RulePackageCondition, input, fieldsByKey)
+    return
+  }
+  const key = String(node.field || '')
+  const op = String(node.op || '')
+  if (!key) return
+  const field = fieldsByKey.get(key)
+  const value = node.value
+  const set = (nextValue: unknown) => setNestedInputValue(input, key, nextValue)
+  if (op === 'exists') return deleteNestedInputValue(input, key)
+  if (op === 'not_exists') return set(fieldDefaultValue(field))
+  if (op === 'eq') return set(optionOutside(field, value))
+  if (op === 'neq') return set(value)
+  if (op === 'in') return set(optionOutside(field, value))
+  if (op === 'contains' || op === 'contains_any' || op === 'contains_all') {
+    const excluded = Array.isArray(value) ? value : [value]
+    return set(listValueForField(field, [optionOutside(field, excluded)]))
+  }
+  if (op === 'between') {
+    const bounds = Array.isArray(value) ? value : []
+    return set(numberValue(bounds[0], 0) - 1)
+  }
+  const boundary = numberValue(value, 0)
+  if (op === 'gt' || op === 'gte') return set(boundary - 1)
+  if (op === 'lt' || op === 'lte') return set(boundary + 1)
+}
+
+function applyPositiveCondition(
+  condition: RulePackageCondition,
+  input: Record<string, any>,
+  fieldsByKey: Map<string, CompileRulePackageRequest['fields'][number]>,
+) {
+  const node = condition as Record<string, unknown>
+  if (Array.isArray(node.all)) {
+    node.all.forEach(child => applyPositiveCondition(child as RulePackageCondition, input, fieldsByKey))
+    return
+  }
+  if (Array.isArray(node.any)) {
+    if (node.any[0]) applyPositiveCondition(node.any[0] as RulePackageCondition, input, fieldsByKey)
+    return
+  }
+  if (node.not && typeof node.not === 'object') {
+    applyNegativeCondition(node.not as RulePackageCondition, input, fieldsByKey)
+    return
+  }
+  applyPositiveLeaf(node, input, fieldsByKey)
+}
+
+function uniqueRuleTestCaseId(rule: RulePackageRule, index: number, seen: Set<string>) {
+  const normalizedRuleId = String(rule.rule_id || index + 1).replace(/[^a-zA-Z0-9_.-]+/g, '_')
+  const baseId = `rule-${normalizedRuleId || index + 1}`
+  let candidate = baseId
+  let suffix = 2
+  while (seen.has(candidate)) {
+    candidate = `${baseId}-${suffix}`
+    suffix += 1
+  }
+  seen.add(candidate)
+  return candidate
 }
 
 function collectConditionFields(condition: RulePackageCondition, target: Set<string>) {
@@ -448,6 +668,15 @@ function collectConditionFields(condition: RulePackageCondition, target: Set<str
   if (node.not && typeof node.not === 'object') collectConditionFields(node.not as RulePackageCondition, target)
 }
 
+function isPrecisionItFieldKey(key: string) {
+  return /^precision\.(?:dimension|outer_diameter|inner_diameter)_it$/.test(key)
+}
+
+function normalizeInputFieldValidation(field: CanonicalConditionField): CanonicalConditionField['validation'] {
+  if (isPrecisionItFieldKey(field.key)) return { ...(field.validation || {}), min: 5, max: 10 }
+  return field.validation || null
+}
+
 function registryFieldToInputField(field: CanonicalConditionField): CompileRulePackageRequest['fields'][number] {
   return {
     key: field.key,
@@ -458,7 +687,7 @@ function registryFieldToInputField(field: CanonicalConditionField): CompileRuleP
     options: field.options || [],
     allow_custom: field.allow_custom ?? true,
     unit: field.unit || null,
-    validation: field.validation || null,
+    validation: normalizeInputFieldValidation(field),
   }
 }
 
@@ -721,14 +950,21 @@ export function buildCompileRequestFromCards(args: {
   const finalRules = [...userRules, ...filteredStaticRules]
   const referencedFieldKeys = new Set<string>()
   finalRules.forEach(rule => collectConditionFields(rule.when, referencedFieldKeys))
-  const registryMap = new Map((args.conditionFields || []).map(field => [field.key, field] as const))
+  const factorDefinitionMap = new Map((args.conditionFields || []).map(field => [field.key, field] as const))
+  confirmedFieldDefinitions.forEach((definition, key) => {
+    factorDefinitionMap.set(key, definition)
+  })
   const fieldMap = new Map<string, CompileRulePackageRequest['fields'][number]>()
   referencedFieldKeys.forEach((key) => {
-    const definition = registryMap.get(key) || confirmedFieldDefinitions.get(key)
+    const definition = factorDefinitionMap.get(key)
     if (definition) fieldMap.set(key, registryFieldToInputField(definition))
   })
   const customTagValues = new Map<string, Set<string>>()
   finalRules.forEach(rule => collectCustomTagValues(rule.when, customTagValues))
+  const factorDictionary = compactV2InputSchema({
+    fields: Array.from(factorDefinitionMap.values()).map(registryFieldToInputField),
+    customTagValues,
+  })
   const compacted = compactV2InputSchema({
     fields: Array.from(fieldMap.values()),
     customTagValues,
@@ -743,11 +979,15 @@ export function buildCompileRequestFromCards(args: {
       part_families: [],
       manufacturing_modes: ['machining'],
     },
+    factor_dictionary: {
+      schema_version: '2.0',
+      fields: factorDictionary.fields,
+    },
     fields,
     processes,
     rules: finalRules,
     process_relations: processRelations,
-    test_cases: buildDefaultV2TestCases(fields, processes),
+    test_cases: buildDefaultV2TestCases(fields, processes, finalRules),
   }
 }
 

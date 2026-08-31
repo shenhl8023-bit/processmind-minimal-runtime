@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import heapq
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Any
 
@@ -140,6 +141,32 @@ def _topological_process_order(
     return ordered
 
 
+def _route_display_names(ordered_ids: list[str], process_map: dict[str, Any]) -> dict[str, str]:
+    """Keep repeated stage operations distinct without changing their catalog names."""
+    name_counts = Counter(process_map[process_id].display_name for process_id in ordered_ids)
+    phase_counts = Counter(
+        (process_map[process_id].display_name, str(process_map[process_id].phase or "").strip())
+        for process_id in ordered_ids
+    )
+    phase_positions: dict[tuple[str, str], int] = defaultdict(int)
+    names: dict[str, str] = {}
+
+    for process_id in ordered_ids:
+        process = process_map[process_id]
+        display_name = process.display_name
+        if name_counts[display_name] == 1:
+            names[process_id] = display_name
+            continue
+        phase = str(process.phase or "").strip() or process.process_code or process_id
+        phase_key = (display_name, str(process.phase or "").strip())
+        phase_positions[phase_key] += 1
+        suffix = phase
+        if phase_counts[phase_key] > 1:
+            suffix = f"{phase}·第 {phase_positions[phase_key]} 次"
+        names[process_id] = f"{display_name}（{suffix}）"
+    return names
+
+
 def plan_route(package: RulePackageV2, inputs: dict[str, Any]) -> RoutePlan:
     process_map = {process.process_id: process for process in package.route_catalog.processes}
     manual_field_keys = {
@@ -240,6 +267,7 @@ def plan_route(package: RulePackageV2, inputs: dict[str, Any]) -> RoutePlan:
     _expand_required_processes(selected, decisions, process_map, reasons, relation_requires)
     _assert_no_selected_conflicts(selected, process_map, relation_conflicts)
     ordered_ids = _topological_process_order(selected, process_map, relation_after)
+    display_names = _route_display_names(ordered_ids, process_map)
 
     steps = []
     for index, process_id in enumerate(ordered_ids, start=1):
@@ -248,7 +276,8 @@ def plan_route(package: RulePackageV2, inputs: dict[str, Any]) -> RoutePlan:
             PlannedRouteStep(
                 process_id=process_id,
                 sequence=index,
-                name=process.display_name,
+                name=display_names[process_id],
+                phase=process.phase,
                 op_type="MAIN" if process.main else "BRANCH",
                 reason=reasons.get(process_id, "规则包依赖命中"),
                 process_steps=[step.name for step in process.steps],

@@ -50,8 +50,6 @@ def test_compose_forwards_runtime_configuration():
         "KNOWLEDGE_SEARCH_PROVIDER",
         "KNOWLEDGE_SEARCH_API_URL",
         "KNOWLEDGE_SEARCH_API_KEY",
-        "PROCESSMIND_KMAI_MAX_COMBINATIONS",
-        "PROCESSMIND_KMAI_MAX_CONDITION_OBJECTS",
     ):
         assert f"{key}:" in compose
 

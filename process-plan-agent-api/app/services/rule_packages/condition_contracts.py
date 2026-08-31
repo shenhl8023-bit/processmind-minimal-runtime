@@ -109,3 +109,35 @@ class RuleConditionReviewResponse(StrictModel):
 class ConditionFieldRegistryResponse(StrictModel):
     version: str
     fields: list[CanonicalConditionField]
+
+
+class RulePreprocessItem(StrictModel):
+    segment_id: str = Field(min_length=1)
+    process_id: str = Field(min_length=1)
+    process_name: str = Field(min_length=1)
+    source_text: str = Field(min_length=1)
+
+
+class RulePreprocessStartRequest(StrictModel):
+    project_id: int = Field(gt=0)
+    route_id: int = Field(gt=0)
+    expected_workflow_revision: int = Field(default=0, ge=0)
+    items: list[RulePreprocessItem] = Field(default_factory=list)
+    processes: list[RuleConditionProcessOption] = Field(default_factory=list)
+
+
+class RulePreprocessStatusResponse(StrictModel):
+    project_id: int
+    route_id: int
+    workflow_revision: int
+    task_status: Literal["idle", "queued", "running", "completed", "failed"]
+    total_count: int = 0
+    completed_count: int = 0
+    failed_count: int = 0
+    current_segment_id: str = ""
+    message: str = ""
+    error: str = ""
+    input_hash: str = ""
+    started_at: str = ""
+    updated_at: str = ""
+    finished_at: str = ""

@@ -18,6 +18,19 @@ def test_valid_package_runs_embedded_cases(rule_package_v2):
     assert [result.passed for result in report.test_results] == [True]
 
 
+def test_validator_requires_an_action_assertion_for_each_enabled_rule(rule_package_v2_payload):
+    payload = deepcopy(rule_package_v2_payload)
+    payload["test_cases"][0]["expect"] = {
+        "included_process_ids": ["process_prepare"],
+        "excluded_process_ids": [],
+    }
+
+    report = validate_rule_package(RulePackageV2.model_validate(payload))
+
+    assert report.valid is False
+    assert "uncovered_conditional_rule" in {issue.code for issue in report.errors}
+
+
 def test_plan_uses_stable_ids_and_dependency_order(rule_package_v2):
     plan = plan_route(
         rule_package_v2,
@@ -75,6 +88,25 @@ def test_template_group_aliases_do_not_change_display_name_and_follow_plan(rule_
     assert output["route"][0]["template_group_aliases"] == process["template_group_aliases"]
 
 
+def test_generated_route_json_keeps_full_route_structure():
+    full_route_structure = [{
+        "process_name": "调质",
+        "process_type": "辅助工序",
+        "precision": "",
+        "technical_requirements": ["35HRC"],
+        "steps": [],
+    }]
+
+    output = json.loads(build_generate_output_json(
+        12,
+        "finalized_rule_package_v2",
+        [RouteStep(name="车削加工", op_type="MAIN", reason="主线工序")],
+        full_route_structure=full_route_structure,
+    ))
+
+    assert output["full_route_structure"] == full_route_structure
+
+
 def test_hash_is_stable_and_changes_with_semantics(rule_package_v2_payload):
     first = RulePackageV2.model_validate(rule_package_v2_payload)
     reordered = deepcopy(rule_package_v2_payload)
@@ -121,6 +153,149 @@ def test_validator_requires_main_process(rule_package_v2_payload):
 
     assert report.valid is False
     assert "missing_main_process" in {issue.code for issue in report.errors}
+
+
+def _manual_boolean_pair_payload(payload, process_id="process_nitriding"):
+    manual_field = f"project_factor.manual_process_{process_id.removeprefix('process_')}"
+    payload["input_schema"]["fields"].append({
+        "key": manual_field,
+        "label": "是否需要渗氮",
+        "type": "boolean",
+        "required": False,
+        "source": "用户直接设定",
+        "options": [],
+        "allow_custom": False,
+    })
+    audit = {
+        "priority": 2000,
+        "source": "user_confirmed",
+        "source_segment_id": process_id,
+        "source_text": "用户直接设定是否需要渗氮",
+        "confirmed_by": "测试用户",
+        "confirmed_at": "2026-08-06T10:00:00+00:00",
+    }
+    payload["route_rules"]["rules"].extend([
+        {
+            **audit,
+            "rule_id": f"user.{process_id}.manual.true",
+            "when": {"field": manual_field, "op": "eq", "value": True},
+            "then": {
+                "include_process_ids": [process_id],
+                "exclude_process_ids": [],
+                "reason": "用户选择需要",
+            },
+        },
+        {
+            **audit,
+            "rule_id": f"user.{process_id}.manual.false",
+            "when": {"field": manual_field, "op": "eq", "value": False},
+            "then": {
+                "include_process_ids": [],
+                "exclude_process_ids": [process_id],
+                "reason": "用户选择不需要",
+            },
+        },
+    ])
+    payload["test_cases"].extend([
+        {
+            "case_id": f"{process_id}-manual-true",
+            "input": {
+                "material": {"grade": "其他材料"},
+                "cad": {"features": ["无槽"]},
+                "target_hardness_hrc": 0,
+                "project_factor": {manual_field.removeprefix("project_factor."): True},
+            },
+            "expect": {"included_process_ids": [process_id], "excluded_process_ids": []},
+        },
+        {
+            "case_id": f"{process_id}-manual-false",
+            "input": {
+                "material": {"grade": "其他材料"},
+                "cad": {"features": ["无槽"]},
+                "target_hardness_hrc": 0,
+                "project_factor": {manual_field.removeprefix("project_factor."): False},
+            },
+            "expect": {"included_process_ids": [], "excluded_process_ids": [process_id]},
+        },
+    ])
+    return payload
+
+
+def test_validator_accepts_exact_manual_boolean_pair(rule_package_v2_payload):
+    package = RulePackageV2.model_validate(_manual_boolean_pair_payload(rule_package_v2_payload))
+
+    report = validate_rule_package(package)
+
+    assert report.valid is True
+    assert "same_priority_action_conflict" not in {issue.code for issue in report.errors}
+
+
+def test_validator_rejects_user_condition_that_targets_another_process(rule_package_v2_payload):
+    payload = deepcopy(rule_package_v2_payload)
+    payload["route_rules"]["rules"].append({
+        "rule_id": "user.process_quench.cross_target",
+        "priority": 1000,
+        "enabled": True,
+        "source": "user_confirmed",
+        "source_segment_id": "process_quench",
+        "source_text": "当材料为 9Cr18 时，纳入淬火工序。",
+        "confirmed_by": "tester",
+        "confirmed_at": "2026-08-07T00:00:00+00:00",
+        "when": {"field": "material.grade", "op": "eq", "value": "9Cr18"},
+        "then": {
+            "include_process_ids": ["process_quench", "process_mill_slot"],
+            "exclude_process_ids": [],
+            "reason": "test",
+        },
+    })
+
+    report = validate_rule_package(RulePackageV2.model_validate(payload))
+
+    assert report.valid is False
+    assert "user_rule_target_mismatch" in {issue.code for issue in report.errors}
+
+
+def test_plan_disambiguates_repeated_process_names_by_phase(rule_package_v2_payload):
+    payload = deepcopy(rule_package_v2_payload)
+    quench = next(item for item in payload["route_catalog"]["processes"] if item["process_id"] == "process_quench")
+    quench["display_name"] = "准备"
+    quench["phase"] = "热处理"
+    package = RulePackageV2.model_validate(payload)
+
+    plan = plan_route(package, {"material": {"grade": "9Cr18"}, "target_hardness_hrc": 58})
+    names = {step.process_id: step.name for step in plan.steps}
+
+    assert names["process_prepare"] == "准备（prepare）"
+    assert names["process_quench"] == "准备（热处理）"
+    assert next(step.phase for step in plan.steps if step.process_id == "process_quench") == "热处理"
+
+
+def test_validator_rejects_manual_pair_with_extra_same_priority_rule(rule_package_v2_payload):
+    payload = _manual_boolean_pair_payload(rule_package_v2_payload)
+    payload["route_rules"]["rules"].append({
+        "rule_id": "user.process_nitriding.manual.extra",
+        "priority": 2000,
+        "source": "user_confirmed",
+        "source_segment_id": "process_nitriding",
+        "source_text": "重复的用户设定",
+        "confirmed_by": "测试用户",
+        "confirmed_at": "2026-08-06T10:00:00+00:00",
+        "when": {
+            "field": "project_factor.manual_process_nitriding",
+            "op": "eq",
+            "value": True,
+        },
+        "then": {
+            "include_process_ids": ["process_nitriding"],
+            "exclude_process_ids": [],
+            "reason": "重复包含",
+        },
+    })
+    package = RulePackageV2.model_validate(payload)
+
+    report = validate_rule_package(package)
+
+    assert "same_priority_action_conflict" in {issue.code for issue in report.errors}
 
 
 def _relation(relation_type, source_ids, target_ids, *, source_match="any"):
@@ -245,7 +420,18 @@ def test_manual_boolean_false_overrides_mainline_and_trigger_inclusion(rule_pack
     payload["route_rules"]["process_relations"] = [
         _relation("trigger_after", ["process_quench"], ["process_nitriding"]),
     ]
-    payload["test_cases"] = []
+    for case in payload["test_cases"]:
+        case["input"]["project_factor"] = {"manual_process_nitriding": False}
+    payload["test_cases"].append({
+        "case_id": "manual-nitriding-false",
+        "input": {
+            "material": {"grade": "其他材料"},
+            "cad": {"features": ["无槽"]},
+            "target_hardness_hrc": 0,
+            "project_factor": {"manual_process_nitriding": False},
+        },
+        "expect": {"included_process_ids": [], "excluded_process_ids": ["process_nitriding"]},
+    })
     package = RulePackageV2.model_validate(payload)
     report = validate_rule_package(package)
 

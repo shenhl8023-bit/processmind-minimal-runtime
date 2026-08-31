@@ -11,35 +11,17 @@ from datetime import datetime
 # ---------- 项目 ----------
 class ProjectCreate(BaseModel):
     name: str
-    mode: str = "route_rules"
-    profile: Optional[str] = None
 
 
 class ProjectOut(BaseModel):
     id: int
     name: str
-    mode: str
-    profile: str
-    rule_engine: str = "auto"
     workflow_revision: int = 0
     status: str
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
-
-
-class ProjectRuleEngineUpdate(BaseModel):
-    rule_engine: str = "auto"
-
-
-class ProjectProfileOut(BaseModel):
-    key: str
-    mode: str
-    label: str
-    short_label: str
-    description: str
-
 
 # ---------- 文档 ----------
 class DocumentOut(BaseModel):
@@ -228,6 +210,20 @@ class GroupTemplateStepMappingOut(GroupTemplateStepMappingIn):
     template_group_name: str = ""
 
 
+class GroupTemplateMappingOutputStepOut(BaseModel):
+    step_name: str
+    candidates: Dict[str, List[str]] = Field(default_factory=dict)
+    is_last: bool = False
+
+
+class GroupTemplateMappingOutputProcessOut(BaseModel):
+    process_name: str
+    process_type: Literal["加工工序", "辅助工序"]
+    precision: str = ""
+    technical_requirements: List[str] = Field(default_factory=list)
+    steps: List[GroupTemplateMappingOutputStepOut] = Field(default_factory=list)
+
+
 class GroupTemplatePreviewOut(BaseModel):
     original_filename: str
     source_encoding: str = ""
@@ -252,6 +248,7 @@ class ProjectGroupTemplateOut(BaseModel):
     validation_issues: List[GroupTemplateValidationIssueOut] = Field(default_factory=list)
     mappings: List[GroupTemplateMappingOut] = Field(default_factory=list)
     step_mappings: List[GroupTemplateStepMappingOut] = Field(default_factory=list)
+    mapping_output: List[GroupTemplateMappingOutputProcessOut] = Field(default_factory=list)
     template_revision: int
     group_count: int = 0
     feature_selection_count: int = 0
@@ -272,25 +269,27 @@ class GroupTemplateMappingsUpdateRequest(BaseModel):
     mappings: List[GroupTemplateMappingIn] = Field(default_factory=list)
 
 
-class GroupTemplateStepMappingsUpdateRequest(BaseModel):
-    project_id: int = Field(gt=0)
-    expected_template_revision: int = Field(ge=1)
-    mappings: List[GroupTemplateStepMappingIn] = Field(default_factory=list)
-
-
-class TemplateGroupMappingCandidateIn(BaseModel):
-    group_id: str = Field(min_length=1)
-    path: List[str] = Field(min_length=1)
-    score: float = Field(default=0.0, ge=0.0, le=1.0)
-    reason: str = ""
-
-
 class TemplateGroupMappingOperationIn(BaseModel):
     operation_id: int = Field(gt=0)
     operation_name: str = Field(min_length=1)
     step_items: List[str] = Field(default_factory=list)
     rule_evidence: List[str] = Field(default_factory=list)
     rule_reasons: List[str] = Field(default_factory=list)
+
+
+class GroupTemplateStepMappingsUpdateRequest(BaseModel):
+    project_id: int = Field(gt=0)
+    expected_template_revision: int = Field(ge=1)
+    mappings: List[GroupTemplateStepMappingIn] = Field(default_factory=list)
+    operations: List[TemplateGroupMappingOperationIn] = Field(default_factory=list)
+
+
+class TemplateGroupMappingCandidateIn(BaseModel):
+    group_id: str = Field(min_length=1)
+    path: List[str] = Field(min_length=1)
+    feature_selections: List[str] = Field(default_factory=list)
+    score: float = Field(default=0.0, ge=0.0, le=1.0)
+    reason: str = ""
 
 
 class TemplateGroupMappingSuggestRequest(BaseModel):
@@ -320,6 +319,8 @@ class TemplateStepMappingSuggestRequest(BaseModel):
     project_id: int = Field(gt=0)
     expected_template_revision: int = Field(ge=1)
     target_group_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    target_group_ids: List[str] = Field(default_factory=list, max_length=100)
+    include_llm: bool = True
     operations: List[TemplateGroupMappingOperationIn] = Field(default_factory=list)
 
 
@@ -331,6 +332,7 @@ class TemplateStepMappingSuggestionOut(BaseModel):
     step_name: str
     step_text_hash: str
     recommended_group_ids: List[str] = Field(default_factory=list)
+    recommended_features_by_group: Dict[str, List[str]] = Field(default_factory=dict)
     candidates: List[TemplateGroupMappingCandidateIn] = Field(default_factory=list)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     source: str = "unresolved"
@@ -385,6 +387,7 @@ class MergeSuggestionListOut(BaseModel):
 
 class NormalizedRouteSegmentOut(BaseModel):
     id: str
+    export_process_id: str = ""
     sequence: int
     normalized_step_name: str
     parent_segment: str = ""
@@ -461,6 +464,7 @@ class SegmentRuleReviewOut(BaseModel):
 
 class SavedNormalizedRouteSegmentOut(BaseModel):
     id: str
+    export_process_id: str = ""
     sequence: int
     normalized_step_name: str
     step_family: str = ""
@@ -523,6 +527,7 @@ class NormalizedRouteSegmentSaveItem(BaseModel):
 
 class SaveNormalizedSupersetRouteRequest(BaseModel):
     project_id: int
+    expected_workflow_revision: int = 0
     normalized_superset_route: List[NormalizedRouteSegmentSaveItem] = []
 
 
@@ -551,8 +556,9 @@ class FinalizedRulePackageSaveRequest(BaseModel):
     route_version_id: Optional[int] = None
     expected_workflow_revision: int = 0
     package_name: str = "process_route_rules"
-    schema_version: str = "1.0"
+    schema_version: Literal["2.0"] = "2.0"
     manifest: Dict[str, Any] = Field(default_factory=dict)
+    factor_dictionary: Optional[Dict[str, Any]] = None
     input_schema: Dict[str, Any] = Field(default_factory=dict)
     route_catalog: Dict[str, Any] = Field(default_factory=dict)
     route_rules: Dict[str, Any] = Field(default_factory=dict)
@@ -562,15 +568,30 @@ class FinalizedRulePackageSaveRequest(BaseModel):
     created_by: str = "默认用户"
 
 
+class RulePackagePrecheckItemOut(BaseModel):
+    code: str
+    label: str
+    status: Literal["passed", "blocking"]
+    message: str
+
+
+class RulePackagePrecheckOut(BaseModel):
+    project_id: int
+    ok: bool
+    checklist: List[RulePackagePrecheckItemOut] = Field(default_factory=list)
+    blockers: List[Dict[str, Any]] = Field(default_factory=list)
+
+
 class FinalizedRulePackageOut(BaseModel):
     id: int
     project_id: int
     route_version_id: Optional[int] = None
     version: int
     package_name: str
-    schema_version: str = "1.0"
+    schema_version: Literal["2.0"] = "2.0"
     status: str = "published"
     manifest: Dict[str, Any] = Field(default_factory=dict)
+    factor_dictionary: Dict[str, Any] = Field(default_factory=dict)
     input_schema: Dict[str, Any] = Field(default_factory=dict)
     route_catalog: Dict[str, Any] = Field(default_factory=dict)
     route_rules: Dict[str, Any] = Field(default_factory=dict)
@@ -583,7 +604,6 @@ class FinalizedRulePackageOut(BaseModel):
     published_by: Optional[str] = None
     published_at: Optional[datetime] = None
     supersedes_id: Optional[int] = None
-    kmai_compatibility: Dict[str, Any] = Field(default_factory=dict)
 
 
 class FinalizedRulePackageListItemOut(BaseModel):
@@ -592,7 +612,7 @@ class FinalizedRulePackageListItemOut(BaseModel):
     route_version_id: Optional[int] = None
     version: int
     package_name: str
-    schema_version: str = "1.0"
+    schema_version: Literal["2.0"] = "2.0"
     status: str = "published"
     content_hash: str = ""
     created_by: str = "默认用户"
@@ -609,8 +629,18 @@ class SupersetRouteOut(BaseModel):
     superset_route: List[OperationOut] = []
 
 
+class RouteMergeWorkspaceOut(BaseModel):
+    project_id: int
+    superset_route: List[OperationOut] = []
+    merge_suggestions: List[MergeSuggestionOut] = []
+    normalized_superset_route: List[NormalizedRouteSegmentOut] = []
+    source_signature: str = ""
+    algo_version: str = ""
+
+
 class MergeSuggestionReviewRequest(BaseModel):
     project_id: int
+    expected_workflow_revision: int = 0
     suggestion_id: str
     action: str
     manual_label: Optional[str] = None
@@ -669,16 +699,17 @@ class ExtractionTaskStatusOut(BaseModel):
 
 
 # ---------- 工艺路线生成 ----------
+class InputValueMetadata(BaseModel):
+    origin: Literal["unset", "extracted", "manual", "example"]
+    unit: Optional[str] = None
+    evidence: List[str] = Field(default_factory=list)
+
+
 class GenerateRequest(BaseModel):
     project_id: Optional[int] = None
     expected_workflow_revision: int = 0
     factor_values: dict[str, Any] = Field(default_factory=dict)
-    family: str = ""
-    material: str = ""
-    hardness: str = "LOW"
-    has_hole: bool = False
-    has_spline: bool = False
-    roughness: float = 3.2
+    input_metadata: Dict[str, InputValueMetadata] = Field(default_factory=dict)
 
 
 class FactorFieldOption(BaseModel):
@@ -700,6 +731,7 @@ class RouteStep(BaseModel):
     process_id: str = ""
     sequence: Optional[int] = None
     name: str
+    phase: str = ""
     op_type: str  # MAIN / BRANCH
     reason: str
     process_steps: List[str] = Field(default_factory=list)
@@ -711,6 +743,7 @@ class GenerateResponse(BaseModel):
     steps: List[RouteStep]
     summary: str
     output_json_text: Optional[str] = None
+    full_route_structure: List[GroupTemplateMappingOutputProcessOut] = Field(default_factory=list)
     output_mode: str = "route_rules"
     rule_package_id: Optional[int] = None
     rule_package_version: Optional[int] = None
@@ -718,6 +751,7 @@ class GenerateResponse(BaseModel):
     schema_version: Optional[str] = None
     matched_rule_ids: List[str] = Field(default_factory=list)
     selected_process_ids: List[str] = Field(default_factory=list)
+    input_metadata: Dict[str, InputValueMetadata] = Field(default_factory=dict)
 
 
 class ParamJsonStepOut(BaseModel):

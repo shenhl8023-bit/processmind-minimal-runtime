@@ -20,17 +20,17 @@ _FIELDS = [
     CanonicalConditionField(
         key="precision.outer_diameter_it", label="外圆尺寸精度 IT", category="尺寸精度", type="number",
         operators=["eq", "gt", "gte", "lt", "lte", "between"], aliases=["外圆精度", "外径精度", "外圆IT"],
-        source="CAD/工艺要求", validation={"min": 1, "max": 18},
+        source="CAD/工艺要求", validation={"min": 5, "max": 10},
     ),
     CanonicalConditionField(
         key="precision.inner_diameter_it", label="内孔尺寸精度 IT", category="尺寸精度", type="number",
         operators=["eq", "gt", "gte", "lt", "lte", "between"], aliases=["内孔精度", "孔精度", "内径精度", "孔IT"],
-        source="CAD/工艺要求", validation={"min": 1, "max": 18},
+        source="CAD/工艺要求", validation={"min": 5, "max": 10},
     ),
     CanonicalConditionField(
         key="precision.dimension_it", label="尺寸精度 IT", category="尺寸精度", type="number",
         operators=["eq", "gt", "gte", "lt", "lte", "between"], aliases=["尺寸精度", "IT等级", "公差等级"],
-        source="CAD/工艺要求", validation={"min": 1, "max": 18},
+        source="CAD/工艺要求", validation={"min": 5, "max": 10},
     ),
     CanonicalConditionField(
         key="surface.roughness_ra", label="表面粗糙度 Ra", category="表面质量", type="number",

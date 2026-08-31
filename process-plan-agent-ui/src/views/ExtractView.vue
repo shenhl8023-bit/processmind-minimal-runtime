@@ -46,12 +46,9 @@
         :pending-count="routeMergePendingCount"
         :can-enter="canEnterRouteFactorAnalysis"
         :status-label="routeMergeStatusLabel"
-        :has-template-aliases="hasTemplateGroupAliases"
         :template-mapping-count="templateStepMappingCount"
-        :show-template-aliases="showTemplateAliasDetails"
         :notice="visibleRouteMergeNotice"
         @open-template-mapping="templateGroupMappingVisible = true"
-        @toggle-template-aliases="showTemplateAliasDetails = !showTemplateAliasDetails"
         @rerun="resetDialogVisible = true"
       />
 
@@ -152,8 +149,6 @@
             :can-remove="canRemoveSelectedPreviewItem"
             :rename-editing="previewRenameEditing"
             :rename-draft="previewRenameDraft"
-            :show-template-aliases="showTemplateAliasDetails"
-            :template-group-aliases="templateGroupAliases"
             @select="selectPreviewItem"
             @reorder="reorderPreviewItems"
             @move-up="movePreviewItemUp"
@@ -284,6 +279,7 @@ const route = useRoute()
 const router = useRouter()
 const routes = ref<OperationItem[]>([])
 const projectId = ref<number | null>(null)
+const workflowRevision = ref(0)
 const routeMergeGroups = ref<RouteMergeGroup[]>([])
 const routeMergeSuggestions = ref<MergeSuggestion[]>([])
 const routeMergeNormalizedSegments = ref<any[]>([])
@@ -368,7 +364,6 @@ const totalRouteSampleCount = computed(() =>
   }, 0)
 )
 const templateGroupMappingVisible = ref(false)
-const showTemplateAliasDetails = ref(false)
 const templateGroupAliases = ref<Record<string, TemplateAliasBinding>>({})
 const templateAliasesHydratedProjectId = ref<number | null>(null)
 const projectGroupTemplate = useProjectGroupTemplate(
@@ -418,6 +413,12 @@ const templateMappingOperations = computed<TemplateOperation[]>(() => {
         sequence: Number(operation.sequence || 0),
         step_family: stepFamily,
         step_items: stepItems,
+        rule_evidence: Array.isArray((operation as any).rule_evidence)
+          ? (operation as any).rule_evidence.map((item: unknown) => String(item || '').trim()).filter(Boolean)
+          : [],
+        rule_reasons: Array.isArray((operation as any).rule_reasons)
+          ? (operation as any).rule_reasons.map((item: unknown) => String(item || '').trim()).filter(Boolean)
+          : [],
       }
     })
     .filter((operation) => {
@@ -434,9 +435,6 @@ const templateAliasRouteFingerprint = computed(() => JSON.stringify(templateMapp
   name: operation.name,
   step_family: operation.step_family,
 }))))
-const hasTemplateGroupAliases = computed(() => templateMappableOperations.value.some(operation => (
-  Boolean(templateGroupAliases.value[String(operation.id)]?.alias)
-)))
 const templateStepMappingCount = computed(() => confirmedTemplateStepMappings(
   projectGroupTemplate.template.value?.step_mappings || [],
 ).length)
@@ -514,7 +512,6 @@ watch(projectId, async (nextProjectId, previousProjectId) => {
   if (nextProjectId === previousProjectId) return
   templateAliasesHydratedProjectId.value = null
   templateGroupAliases.value = {}
-  showTemplateAliasDetails.value = false
   if (!nextProjectId) return
   await projectGroupTemplate.load()
   hydrateTemplateGroupAliases()
@@ -594,6 +591,7 @@ const {
   saveRouteMergeWorkspace: saveRouteMergeWorkspaceBase,
 } = useRouteMergeWorkspace({
   projectId,
+  workflowRevision,
   routes,
   routeMergeGroups,
   routeMergeSuggestions,
@@ -652,6 +650,7 @@ const {
   startExtraction,
 } = useRouteRulesFlow({
   projectId,
+  workflowRevision,
   routeWorkspaceLoading,
   routes,
   routeMergeGroups,
@@ -718,6 +717,7 @@ const {
   selectMergeGroupByOperation,
 } = useRouteMergeInteractionActions({
   projectId,
+  workflowRevision,
   routeMergeGroups,
   routeMergeSuggestions,
   routeMergeCandidateGroups,
@@ -1010,10 +1010,12 @@ async function initializeExtractView() {
     const current = projects.find((item) => item.id === projectId.value)
     if (!current) {
       projectId.value = null
+      workflowRevision.value = 0
       errorMsg.value = '当前任务已不存在，请重新创建任务。'
       status.value = 'error'
       return
     }
+    workflowRevision.value = Number(current.workflow_revision || 0)
     if (resumeRouteMerge) {
       await loadRouteRulesResults()
       lastInitializedDataRevision.value = getWorkflowDataRevision()

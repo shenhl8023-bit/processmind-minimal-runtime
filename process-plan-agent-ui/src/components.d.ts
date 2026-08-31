@@ -24,8 +24,6 @@ declare module 'vue' {
     FinalizeRuleCard: typeof import('./components/finalize/FinalizeRuleCard.vue')['default']
     GenerateInputPanel: typeof import('./components/generate/GenerateInputPanel.vue')['default']
     GenerateRouteOutputPanel: typeof import('./components/generate/GenerateRouteOutputPanel.vue')['default']
-    KmaiMappingManagerDialog: typeof import('./components/kmai/KmaiMappingManagerDialog.vue')['default']
-    KmaiMappingResolutionDialog: typeof import('./components/kmai/KmaiMappingResolutionDialog.vue')['default']
     MergeQueuePanel: typeof import('./components/extract/MergeQueuePanel.vue')['default']
     ModelSettingsDrawer: typeof import('./components/settings/ModelSettingsDrawer.vue')['default']
     NormalizedRoutePanel: typeof import('./components/extract/NormalizedRoutePanel.vue')['default']

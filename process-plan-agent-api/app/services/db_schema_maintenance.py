@@ -4,8 +4,6 @@ import logging
 
 from sqlalchemy import text
 
-from app.services.profile_registry import ROUTE_RULES_PROFILE
-
 logger = logging.getLogger(__name__)
 
 
@@ -48,9 +46,6 @@ async def ensure_project_schema(conn):
     await ensure_column("normalized_route_segment_rule_reviews", "condition_parse_duration_ms", "condition_parse_duration_ms INTEGER")
     await ensure_column("normalized_route_segment_rule_reviews", "condition_confirmed_by", "condition_confirmed_by VARCHAR(100)")
     await ensure_column("normalized_route_segment_rule_reviews", "condition_confirmed_at", "condition_confirmed_at DATETIME")
-    await ensure_column("projects", "mode", "mode VARCHAR(50) DEFAULT 'route_rules'")
-    await ensure_column("projects", "profile", f"profile VARCHAR(100) DEFAULT '{ROUTE_RULES_PROFILE}'")
-    await ensure_column("projects", "rule_engine", "rule_engine VARCHAR(20) DEFAULT 'auto'")
     await ensure_column("projects", "workflow_revision", "workflow_revision INTEGER NOT NULL DEFAULT 0")
     await conn.execute(text("""
         CREATE TABLE IF NOT EXISTS project_group_templates (
@@ -66,6 +61,7 @@ async def ensure_project_schema(conn):
             validation_json TEXT NOT NULL DEFAULT '[]',
             mappings_json TEXT NOT NULL DEFAULT '[]',
             step_mappings_json TEXT NOT NULL DEFAULT '[]',
+            mapping_output_json TEXT NOT NULL DEFAULT '[]',
             template_revision INTEGER NOT NULL DEFAULT 1,
             group_count INTEGER NOT NULL DEFAULT 0,
             feature_selection_count INTEGER NOT NULL DEFAULT 0,
@@ -82,6 +78,11 @@ async def ensure_project_schema(conn):
         "project_group_templates",
         "step_mappings_json",
         "step_mappings_json TEXT NOT NULL DEFAULT '[]'",
+    )
+    await ensure_column(
+        "project_group_templates",
+        "mapping_output_json",
+        "mapping_output_json TEXT NOT NULL DEFAULT '[]'",
     )
     await conn.execute(text("""
         CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -116,33 +117,34 @@ async def ensure_project_schema(conn):
         )
     """))
     await ensure_column("extraction_task_states", "force_reextract", "force_reextract BOOLEAN NOT NULL DEFAULT 0")
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS rule_preprocess_task_states (
+            project_id INTEGER NOT NULL,
+            route_version_id INTEGER NOT NULL,
+            workflow_revision INTEGER NOT NULL DEFAULT 0,
+            task_status VARCHAR(30) NOT NULL DEFAULT 'idle',
+            total_count INTEGER NOT NULL DEFAULT 0,
+            completed_count INTEGER NOT NULL DEFAULT 0,
+            failed_count INTEGER NOT NULL DEFAULT 0,
+            current_segment_id VARCHAR(100),
+            message TEXT,
+            error TEXT,
+            input_hash VARCHAR(64),
+            items_json TEXT NOT NULL DEFAULT '[]',
+            processes_json TEXT NOT NULL DEFAULT '[]',
+            started_at VARCHAR(64),
+            updated_at VARCHAR(64),
+            finished_at VARCHAR(64),
+            PRIMARY KEY(project_id, route_version_id),
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+        )
+    """))
 
-    await conn.execute(text(f"""
+    await conn.execute(text("""
         UPDATE projects
         SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP),
-            updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP),
-            mode = 'route_rules',
-            profile = '{ROUTE_RULES_PROFILE}'
+            updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)
         WHERE created_at IS NULL OR updated_at IS NULL
-    """))
-    await conn.execute(text("""
-        UPDATE projects
-        SET mode = 'route_rules'
-        WHERE mode IS NULL OR TRIM(mode) = ''
-    """))
-    await conn.execute(text(f"""
-        UPDATE projects
-        SET profile = '{ROUTE_RULES_PROFILE}'
-        WHERE profile IS NULL
-           OR TRIM(profile) = ''
-           OR profile NOT LIKE 'route_rules.%'
-    """))
-    await conn.execute(text("""
-        UPDATE projects
-        SET rule_engine = 'auto'
-        WHERE rule_engine IS NULL
-           OR TRIM(rule_engine) = ''
-           OR rule_engine NOT IN ('auto', 'v1', 'v2')
     """))
     await conn.execute(text("""
         UPDATE projects
@@ -255,9 +257,10 @@ async def ensure_project_schema(conn):
     await ensure_column(
         "finalized_rule_packages",
         "schema_version",
-        "schema_version VARCHAR(20) NOT NULL DEFAULT '1.0'",
+        "schema_version VARCHAR(20) NOT NULL DEFAULT 'retired'",
     )
     await ensure_column("finalized_rule_packages", "manifest_json", "manifest_json TEXT")
+    await ensure_column("finalized_rule_packages", "factor_dictionary_json", "factor_dictionary_json TEXT")
     await ensure_column("finalized_rule_packages", "test_cases_json", "test_cases_json TEXT")
     await ensure_column("finalized_rule_packages", "content_hash", "content_hash VARCHAR(64)")
     await ensure_column("finalized_rule_packages", "published_by", "published_by VARCHAR(100)")
@@ -268,7 +271,7 @@ async def ensure_project_schema(conn):
         await conn.execute(text("""
             UPDATE finalized_rule_packages
             SET status = 'superseded',
-                schema_version = COALESCE(NULLIF(TRIM(schema_version), ''), '1.0'),
+                schema_version = COALESCE(NULLIF(TRIM(schema_version), ''), 'retired'),
                 published_at = COALESCE(published_at, created_at)
         """))
         await conn.execute(text("""
@@ -298,123 +301,6 @@ async def ensure_project_schema(conn):
         ON finalized_rule_packages (project_id)
         WHERE status = 'published'
     """))
-    # Mapping tables are maintained explicitly because deployed SQLite files
-    # predate these ORM models. Each statement is safe on repeated startup.
-    await conn.execute(text("""
-        CREATE TABLE IF NOT EXISTS kmai_factor_mappings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            scope VARCHAR(16) NOT NULL CHECK (scope IN ('global', 'project')),
-            project_id INTEGER,
-            source_field VARCHAR(120) NOT NULL,
-            source_value VARCHAR(255) NOT NULL,
-            mapping_mode VARCHAR(24) NOT NULL CHECK (mapping_mode IN ('existing_factor', 'manual_factor')),
-            target_factor_key VARCHAR(120) NOT NULL,
-            target_factor_name VARCHAR(255) NOT NULL,
-            target_factor_category VARCHAR(120) NOT NULL,
-            status VARCHAR(16) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
-            revision INTEGER NOT NULL DEFAULT 1,
-            promoted_from_id INTEGER,
-            created_by VARCHAR(100) NOT NULL DEFAULT '默认用户',
-            updated_by VARCHAR(100) NOT NULL DEFAULT '默认用户',
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
-            FOREIGN KEY(promoted_from_id) REFERENCES kmai_factor_mappings(id) ON DELETE SET NULL,
-            CHECK ((scope = 'global' AND project_id IS NULL) OR (scope = 'project' AND project_id IS NOT NULL))
-        )
-    """))
-    await conn.execute(text("""
-        CREATE TABLE IF NOT EXISTS kmai_factor_mapping_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            mapping_id INTEGER,
-            project_id INTEGER,
-            action VARCHAR(40) NOT NULL,
-            actor VARCHAR(100) NOT NULL DEFAULT '默认用户',
-            before_json TEXT,
-            after_json TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(mapping_id) REFERENCES kmai_factor_mappings(id) ON DELETE SET NULL,
-            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
-        )
-    """))
-    await conn.execute(text("""
-        CREATE TABLE IF NOT EXISTS kmai_factor_mapping_usages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            mapping_id INTEGER,
-            package_id INTEGER NOT NULL,
-            revision INTEGER NOT NULL DEFAULT 1,
-            mapping_snapshot_json TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(mapping_id) REFERENCES kmai_factor_mappings(id) ON DELETE RESTRICT,
-            FOREIGN KEY(package_id) REFERENCES finalized_rule_packages(id) ON DELETE CASCADE
-        )
-    """))
-    await _migrate_kmai_mapping_usage_mapping_id_nullable(conn)
-    await conn.execute(text("""
-        CREATE UNIQUE INDEX IF NOT EXISTS uq_kmai_factor_mappings_global_source
-        ON kmai_factor_mappings (source_field, source_value)
-        WHERE scope = 'global' AND project_id IS NULL
-    """))
-    await conn.execute(text("""
-        CREATE UNIQUE INDEX IF NOT EXISTS uq_kmai_factor_mappings_project_source
-        ON kmai_factor_mappings (project_id, source_field, source_value)
-        WHERE scope = 'project' AND project_id IS NOT NULL
-    """))
-    await conn.execute(text("""
-        CREATE INDEX IF NOT EXISTS idx_kmai_factor_mappings_project_status
-        ON kmai_factor_mappings (project_id, status)
-    """))
-    await conn.execute(text("""
-        CREATE INDEX IF NOT EXISTS idx_kmai_factor_mapping_events_mapping
-        ON kmai_factor_mapping_events (mapping_id)
-    """))
-    await conn.execute(text("""
-        CREATE INDEX IF NOT EXISTS idx_kmai_factor_mapping_events_project
-        ON kmai_factor_mapping_events (project_id)
-    """))
-    await conn.execute(text("""
-        CREATE INDEX IF NOT EXISTS idx_kmai_factor_mapping_usages_package
-        ON kmai_factor_mapping_usages (package_id)
-    """))
-    await conn.execute(text("""
-        CREATE INDEX IF NOT EXISTS idx_kmai_factor_mapping_usages_mapping
-        ON kmai_factor_mapping_usages (mapping_id)
-    """))
-
-
-async def _migrate_kmai_mapping_usage_mapping_id_nullable(conn):
-    columns = (
-        await conn.execute(text("PRAGMA table_info(kmai_factor_mapping_usages)"))
-    ).all()
-    mapping_id = next((column for column in columns if column[1] == "mapping_id"), None)
-    if mapping_id is None or mapping_id[3] == 0:
-        return
-
-    await conn.execute(text("""
-        CREATE TABLE kmai_factor_mapping_usages_rebuilt (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            mapping_id INTEGER,
-            package_id INTEGER NOT NULL,
-            revision INTEGER NOT NULL DEFAULT 1,
-            mapping_snapshot_json TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(mapping_id) REFERENCES kmai_factor_mappings(id) ON DELETE RESTRICT,
-            FOREIGN KEY(package_id) REFERENCES finalized_rule_packages(id) ON DELETE CASCADE
-        )
-    """))
-    await conn.execute(text("""
-        INSERT INTO kmai_factor_mapping_usages_rebuilt
-        (id, mapping_id, package_id, revision, mapping_snapshot_json, created_at)
-        SELECT id, mapping_id, package_id, revision, mapping_snapshot_json, created_at
-        FROM kmai_factor_mapping_usages
-    """))
-    await conn.execute(text("DROP TABLE kmai_factor_mapping_usages"))
-    await conn.execute(text("""
-        ALTER TABLE kmai_factor_mapping_usages_rebuilt
-        RENAME TO kmai_factor_mapping_usages
-    """))
-
-
 async def _backfill_rule_package_hashes(conn):
     rows = (
         await conn.execute(text("""
@@ -426,7 +312,7 @@ async def _backfill_rule_package_hashes(conn):
     ).mappings().all()
     for row in rows:
         payload = {
-            "schema_version": row["schema_version"] or "1.0",
+            "schema_version": row["schema_version"] or "retired",
             "package_name": row["package_name"] or "",
             "manifest": row["manifest_json"] or "",
             "input_schema": row["input_schema_json"] or "",

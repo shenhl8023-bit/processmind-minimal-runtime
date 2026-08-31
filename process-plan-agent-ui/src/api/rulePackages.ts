@@ -4,7 +4,6 @@ import type {
   FinalizedRulePackageSimulationResult,
   TemplateGroupAliasBinding,
 } from './extract'
-import type { KmaiCompatibilityExport } from './kmaiFactorMappings'
 
 export type InputFieldType = 'string' | 'number' | 'boolean' | 'single_select' | 'multi_select'
 
@@ -29,6 +28,11 @@ export type RulePackageInputField = {
     min_length?: number | null
     max_length?: number | null
   } | null
+}
+
+export type FactorDictionaryV2 = {
+  schema_version: '2.0'
+  fields: RulePackageInputField[]
 }
 
 export type RulePackageProcessStep = {
@@ -143,6 +147,30 @@ export type RuleConditionReviewResponse = {
   review: RuleConditionReview
 }
 
+export type RulePreprocessItem = {
+  segment_id: string
+  process_id: string
+  process_name: string
+  source_text: string
+}
+
+export type RulePreprocessStatus = {
+  project_id: number
+  route_id: number
+  workflow_revision: number
+  task_status: 'idle' | 'queued' | 'running' | 'completed' | 'failed'
+  total_count: number
+  completed_count: number
+  failed_count: number
+  current_segment_id: string
+  message: string
+  error: string
+  input_hash: string
+  started_at: string
+  updated_at: string
+  finished_at: string
+}
+
 export type RulePackageTestCase = {
   case_id: string
   input: Record<string, unknown>
@@ -160,6 +188,7 @@ export type CompileRulePackageRequest = {
     part_families?: string[]
     manufacturing_modes?: string[]
   }
+  factor_dictionary: FactorDictionaryV2
   fields: RulePackageInputField[]
   processes: RulePackageProcess[]
   rules?: RulePackageRule[]
@@ -169,6 +198,7 @@ export type CompileRulePackageRequest = {
 
 export type RulePackageV2 = {
   manifest: Record<string, unknown>
+  factor_dictionary: FactorDictionaryV2
   input_schema: {
     schema_version: '2.0'
     fields: RulePackageInputField[]
@@ -196,35 +226,9 @@ export type CompileRulePackageResponse = {
   package: RulePackageV2
   content_hash: string
   validation: RulePackageValidationReport
-  kmai_compatibility: KmaiCompatibilityExport
 }
 
 export type SimulateRulePackageDraftResponse = FinalizedRulePackageSimulationResult
-
-export type KmaiCompatibilityTestResult = {
-  project_id: number
-  package_id: number
-  package_version: number
-  compatible: boolean
-  v2_process_ids: string[]
-  v2_matched_rule_ids: string[]
-  kmai_process_ids: string[]
-  kmai_matched_rule_ids: string[]
-  only_v2_process_ids: string[]
-  only_kmai_process_ids: string[]
-  warnings: Array<{ code: string; path?: string; message: string }>
-  errors: Array<{ code: string; path?: string; message: string }>
-  manual_factors: Record<string, unknown>
-  semantic_gaps: string[]
-}
-
-export async function testKmaiCompatibility(projectId: number, inputs: Record<string, unknown>) {
-  const { data } = await api.post('/api/extract/finalized-rule-packages/compatibility-test', {
-    project_id: projectId,
-    inputs,
-  })
-  return data as KmaiCompatibilityTestResult
-}
 
 export async function compileRulePackage(body: CompileRulePackageRequest) {
   const { data } = await api.post('/api/extract/finalized-rule-packages/compile', body)
@@ -289,6 +293,24 @@ export async function setManualRuleCondition(body: {
 }) {
   const { data } = await api.post('/api/extract/finalized-rule-packages/rule-conditions/manual', body)
   return data as RuleConditionReviewResponse
+}
+
+export async function startRulePreprocessing(body: {
+  project_id: number
+  route_id: number
+  expected_workflow_revision: number
+  items: RulePreprocessItem[]
+  processes: RuleConditionProcessOption[]
+}) {
+  const { data } = await api.post('/api/extract/finalized-rule-packages/preprocess/start', body)
+  return data as RulePreprocessStatus
+}
+
+export async function getRulePreprocessingStatus(projectId: number, routeId: number) {
+  const { data } = await api.get('/api/extract/finalized-rule-packages/preprocess/status', {
+    params: { project_id: projectId, route_id: routeId },
+  })
+  return data as RulePreprocessStatus
 }
 
 export async function validateRulePackageV2(body: RulePackageV2) {

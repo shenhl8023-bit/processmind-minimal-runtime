@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest'
 
 import {
   buildCompileRequestFromCards,
+  blockedExportPrimaryActionLabel,
   buildManualBooleanRuleCandidate,
+  exportBlockedReason,
+  exportBlockedReasonLabel,
+  groupExportBlockedCards,
   finalizeRuleMode,
   hasCurrentConfirmedUserRule,
   isActionableConditionText,
@@ -197,7 +201,7 @@ describe('V2 compile DTO from finalize cards', () => {
     expect(isSafeForBatchRuleConfirmation(item)).toBe(false)
   })
 
-  it('refreshes pending candidates through the server before batch confirmation', () => {
+  it('only refreshes missing or stale candidates before batch confirmation', () => {
     const pendingItem: any = {
       ...finalizeItem({ id: 'process_mark', normalized_step_name: '标记', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
       conditionText: '当需要追溯标印时，安排标记工序',
@@ -217,10 +221,70 @@ describe('V2 compile DTO from finalize cards', () => {
       },
     }
 
+    expect(requiresServerRuleConditionRefresh(pendingItem)).toBe(false)
+    pendingItem.conditionReview.source_text = '旧条件'
     expect(requiresServerRuleConditionRefresh(pendingItem)).toBe(true)
+    pendingItem.conditionReview.source_text = pendingItem.conditionText
+    pendingItem.conditionReview.candidate = null
+    expect(requiresServerRuleConditionRefresh(pendingItem)).toBe(true)
+    pendingItem.conditionReview.candidate = {
+      kind: 'process_relation',
+      relation: { relation_type: 'trigger_after', source_process_ids: ['a'], target_process_ids: ['process_mark'] },
+    }
+    expect(requiresServerRuleConditionRefresh(pendingItem)).toBe(true)
+    pendingItem.conditionReview.candidate = {
+      kind: 'condition',
+      when: { field: 'special.requirements', op: 'contains', value: '追溯标印' },
+      then: { include_process_ids: ['process_mark'], exclude_process_ids: [] },
+    }
     pendingItem.conditionReview.status = 'confirmed'
     pendingItem.conditionReview.confirmed = pendingItem.conditionReview.candidate
     expect(requiresServerRuleConditionRefresh(pendingItem)).toBe(false)
+  })
+
+  it('classifies export blockers by the kind of remaining work', () => {
+    const pendingCandidate: any = {
+      ...finalizeItem({ id: 'process_mark', normalized_step_name: '标记', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: '当需要追溯标印时，安排标记工序',
+      factorNames: [],
+      conditionReview: {
+        source_text: '当需要追溯标印时，安排标记工序',
+        status: 'pending_confirmation',
+        candidate: { kind: 'condition' },
+      },
+    }
+    const missingCondition: any = {
+      ...finalizeItem({ id: 'process_check', normalized_step_name: '检验', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: '当终检、入库或交付前综合检验点满足终检、入库或交付前综合检验点时，设置“检验”作为质量确认节点。',
+      factorNames: [],
+    }
+    const rebuildRequired: any = {
+      ...finalizeItem({ id: 'process_mark', normalized_step_name: '标记', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: '当需要追溯标印时，安排标记工序',
+      factorNames: [],
+      conditionReview: {
+        source_text: '旧条件',
+        status: 'pending_confirmation',
+        candidate: { kind: 'condition' },
+      },
+    }
+
+    expect(exportBlockedReason(pendingCandidate)).toBe('pending_candidate')
+    expect(exportBlockedReasonLabel(pendingCandidate)).toBe('待审核候选')
+    expect(exportBlockedReason(missingCondition)).toBe('missing_condition')
+    expect(exportBlockedReasonLabel(missingCondition)).toBe('待补充条件')
+    expect(exportBlockedReason(rebuildRequired)).toBe('rebuild_required')
+    expect(exportBlockedReasonLabel(rebuildRequired)).toBe('需要重新识别')
+
+    expect(groupExportBlockedCards([pendingCandidate, missingCondition, rebuildRequired])).toEqual({
+      pendingCandidateCards: [pendingCandidate],
+      missingConditionCards: [missingCondition],
+      rebuildRequiredCards: [rebuildRequired],
+      total: 3,
+    })
+    expect(blockedExportPrimaryActionLabel([pendingCandidate])).toBe('确认候选并发布')
+    expect(blockedExportPrimaryActionLabel([missingCondition])).toBe('去处理待补充项')
+    expect(blockedExportPrimaryActionLabel([rebuildRequired])).toBe('去处理首项')
   })
 
   it('builds a stable user-controlled boolean switch for the target process', () => {
@@ -371,13 +435,42 @@ describe('V2 compile DTO from finalize cards', () => {
     })
 
     expect(request.fields.map(field => field.key)).toEqual([])
-    expect(request.processes.some(item => item.process_id === 'process_quench')).toBe(true)
+    expect(request.processes.some(item => item.process_id === 'quench-a')).toBe(true)
     expect(request.processes.some(item => item.main)).toBe(true)
     expect(request.rules).toEqual([])
     expect(request.test_cases).toHaveLength(1)
     expect(request.test_cases![0]!.case_id).toBe('default-smoke')
     expect(request.test_cases![0]!.expect.included_process_ids!.length).toBeGreaterThan(0)
     expect(request.test_cases![0]!.input).toEqual({})
+  })
+
+  it('exports all factor definitions separately from active rule inputs', () => {
+    const geometryLength = {
+      key: 'geometry.length_mm',
+      label: '特征长度',
+      category: '几何尺寸',
+      type: 'number',
+      operators: ['eq', 'gt', 'gte', 'lt', 'lte', 'between'],
+      aliases: ['长度'],
+      source: 'CAD',
+      options: [],
+      allow_custom: false,
+      unit: 'mm',
+    }
+    const request = buildCompileRequestFromCards({
+      projectId: 12,
+      packageName: 'factor_dictionary',
+      routeVersionId: 3,
+      cards: [finalizeItem()],
+      displayName: segment => segment.normalized_step_name,
+      phaseLabel: () => 'machining',
+      primarySteps: () => ['主工步'],
+      attachedSteps: () => [],
+      conditionFields: [...baseConditionFields(), geometryLength],
+    })
+
+    expect(request.fields.map(field => field.key)).toEqual([])
+    expect(request.factor_dictionary.fields.map(field => field.key)).toContain('geometry.length_mm')
   })
 
   it('includes nondestructive testing as a special requirement and maps it to the normalized process', () => {
@@ -422,6 +515,74 @@ describe('V2 compile DTO from finalize cards', () => {
       when: { field: 'special.requirements', op: 'contains', value: '无损检测要求' },
       then: expect.objectContaining({ include_process_ids: ['process_ndt'] }),
     }))
+    expect(request.test_cases).toContainEqual(expect.objectContaining({
+      input: { special: { requirements: ['无损检测要求'] } },
+      expect: { included_process_ids: ['process_ndt'], excluded_process_ids: [] },
+    }))
+  })
+
+  it('keeps generated test case IDs unique when rule IDs collapse to the same safe slug', () => {
+    const ndtText = '当零件有无损检测要求时，安排无损检查工序'
+    const markText = '当零件需要追溯、编号或批次标识时，安排标记工序'
+    const request = buildCompileRequestFromCards({
+      projectId: 12,
+      packageName: 'case_id_collision',
+      routeVersionId: 3,
+      cards: [
+        finalizeItem(),
+        {
+          ...finalizeItem({ id: 'special#1', sequence: 30, normalized_step_name: '无损检查', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+          conditionText: ndtText,
+          edited: true,
+          conditionReview: {
+            source_text: ndtText,
+            status: 'confirmed',
+            confirmed: {
+              kind: 'condition',
+              when: { field: 'special.requirements', op: 'contains', value: '无损检测要求' },
+              then: { include_process_ids: ['process_ndt'], exclude_process_ids: [], reason: '用户审核' },
+              preview: '特殊要求 包含 无损检测要求',
+            },
+            confidence: 0.9,
+            issues: [],
+            field_registry_version: '2026.08',
+            confirmed_by: '测试用户',
+            confirmed_at: '2026-07-21T02:00:00Z',
+          },
+        },
+        {
+          ...finalizeItem({ id: 'special@1', sequence: 40, normalized_step_name: '标记', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+          conditionText: markText,
+          edited: true,
+          conditionReview: {
+            source_text: markText,
+            status: 'confirmed',
+            confirmed: {
+              kind: 'condition',
+              when: { field: 'special.requirements', op: 'contains', value: '追溯标印' },
+              then: { include_process_ids: ['process_mark'], exclude_process_ids: [], reason: '用户审核' },
+              preview: '特殊要求 包含 追溯标印',
+            },
+            confidence: 0.9,
+            issues: [],
+            field_registry_version: '2026.08',
+            confirmed_by: '测试用户',
+            confirmed_at: '2026-07-21T02:00:00Z',
+          },
+        },
+      ],
+      displayName: segment => segment.normalized_step_name,
+      phaseLabel: () => 'machining',
+      primarySteps: () => ['主工步'],
+      attachedSteps: () => [],
+      conditionFields: baseConditionFields(),
+    })
+
+    const caseIds = request.test_cases!.map(testCase => testCase.case_id)
+    expect(caseIds).toContain('default-smoke')
+    expect(caseIds).toContain('rule-user.special_1')
+    expect(caseIds).toContain('rule-user.special_1-2')
+    expect(new Set(caseIds).size).toBe(caseIds.length)
   })
 
   it('exports an explicit main-process instruction as main=true', () => {
@@ -543,6 +704,7 @@ describe('V2 compile DTO from finalize cards', () => {
     expect(userRule.when).toEqual({ field: 'precision.outer_diameter_it', op: 'lte', value: 8 })
     expect(userRule.source_segment_id).toBe('process_grind_outer')
     expect(request.fields.some(field => field.key === 'precision.outer_diameter_it')).toBe(true)
+    expect(request.fields.find(field => field.key === 'precision.outer_diameter_it')?.validation).toEqual({ min: 5, max: 10 })
     expect(request.processes.find(process => process.process_id === 'process_grind_outer')?.main).toBe(false)
   })
 
@@ -786,6 +948,8 @@ describe('V2 compile DTO from finalize cards', () => {
 
     expect(request.fields.find(field => field.key === 'precision.dimension_it')?.label).toBe('其他尺寸精度 IT')
     expect(request.fields.find(field => field.key === 'precision.inner_diameter_it')?.label).toBe('内孔尺寸精度 IT')
+    expect(request.fields.find(field => field.key === 'precision.dimension_it')?.validation).toEqual({ min: 5, max: 10 })
+    expect(request.fields.find(field => field.key === 'precision.inner_diameter_it')?.validation).toEqual({ min: 5, max: 10 })
     expect(request.rules?.find(rule => rule.source === 'user_confirmed' && 'field' in rule.when)?.when).toEqual({
       field: 'precision.dimension_it', op: 'lte', value: 7,
     })

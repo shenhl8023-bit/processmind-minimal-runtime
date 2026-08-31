@@ -3,7 +3,7 @@
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 
 from app.core.paths import UPLOAD_DIR
 from app.database import get_db
@@ -13,8 +13,6 @@ from app.models.models import (
     Factor,
     FinalizedRulePackage,
     GeneratedRoute,
-    KmaiFactorMapping,
-    KmaiFactorMappingEvent,
     NormalizedRouteVersion,
     NormalizedRouteSegmentFactorReview,
     NormalizedRouteSegmentRuleReview,
@@ -25,9 +23,9 @@ from app.models.models import (
     Reference,
     RouteMergeSnapshot,
 )
-from app.schemas.schemas import ProjectCreate, ProjectOut, ProjectProfileOut, ProjectRuleEngineUpdate
+from app.schemas.schemas import ProjectCreate, ProjectOut
 from app.services.extraction_tasks import cancel_extraction_task, delete_extraction_task_state
-from app.services.profile_registry import list_profiles, normalize_profile
+from app.services.document_detail_cache_prewarm import cancel_document_detail_cache_prewarm
 
 router = APIRouter(prefix="/api/projects", tags=["项目管理"])
 
@@ -107,24 +105,8 @@ async def list_projects(db: AsyncSession = Depends(get_db)):
     return result.scalars().all()
 
 
-@router.get("/profiles", response_model=list[ProjectProfileOut])
-async def list_project_profiles(mode: str | None = None):
-    return [
-        ProjectProfileOut(
-            key=profile.key,
-            mode=profile.mode,
-            label=profile.label,
-            short_label=profile.short_label,
-            description=profile.description,
-        )
-        for profile in list_profiles(mode)
-    ]
-
-
 @router.post("/", response_model=ProjectOut)
 async def create_project(body: ProjectCreate, db: AsyncSession = Depends(get_db)):
-    mode = "route_rules"
-    profile = normalize_profile(mode, body.profile)
     sequence_result = await db.execute(
         text("INSERT INTO project_id_sequence DEFAULT VALUES RETURNING id")
     )
@@ -132,34 +114,12 @@ async def create_project(body: ProjectCreate, db: AsyncSession = Depends(get_db)
     project = Project(
         id=project_id,
         name=body.name,
-        mode=mode,
-        profile=profile,
-        rule_engine="auto",
         status="CREATED",
     )
     db.add(project)
     await db.commit()
     await db.refresh(project)
     return project
-
-
-@router.patch("/{project_id}/rule-engine", response_model=ProjectOut)
-async def update_project_rule_engine(
-    project_id: int,
-    body: ProjectRuleEngineUpdate,
-    db: AsyncSession = Depends(get_db),
-):
-    project = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
-    if not project:
-        raise HTTPException(404, "任务不存在")
-    normalized = str(body.rule_engine or "auto").strip().lower()
-    if normalized not in {"auto", "v1", "v2"}:
-        raise HTTPException(400, "规则引擎只支持 auto / v1 / v2")
-    project.rule_engine = normalized
-    await db.commit()
-    await db.refresh(project)
-    return project
-
 
 @router.delete("/{project_id}")
 async def delete_project(project_id: int, db: AsyncSession = Depends(get_db)):
@@ -168,6 +128,7 @@ async def delete_project(project_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, "任务不存在")
 
     cancel_extraction_task(project_id)
+    cancel_document_detail_cache_prewarm(project_id)
 
     docs = (await db.execute(select(Document).where(Document.project_id == project_id))).scalars().all()
     refs = (await db.execute(select(Reference).where(Reference.project_id == project_id))).scalars().all()
@@ -181,15 +142,6 @@ async def delete_project(project_id: int, db: AsyncSession = Depends(get_db)):
     segment_factor_reviews = (await db.execute(select(NormalizedRouteSegmentFactorReview).where(NormalizedRouteSegmentFactorReview.project_id == project_id))).scalars().all()
     segment_rule_reviews = (await db.execute(select(NormalizedRouteSegmentRuleReview).where(NormalizedRouteSegmentRuleReview.project_id == project_id))).scalars().all()
     finalized_rule_packages = (await db.execute(select(FinalizedRulePackage).where(FinalizedRulePackage.project_id == project_id))).scalars().all()
-    kmai_factor_mappings = (await db.execute(select(KmaiFactorMapping).where(KmaiFactorMapping.project_id == project_id))).scalars().all()
-    mapping_ids = [mapping.id for mapping in kmai_factor_mappings]
-    mapping_events = []
-    if mapping_ids:
-        mapping_events = (
-            await db.execute(
-                select(KmaiFactorMappingEvent).where(KmaiFactorMappingEvent.mapping_id.in_(mapping_ids))
-            )
-        ).scalars().all()
     file_paths = [
         UPLOAD_DIR / doc.filename
         for doc in docs
@@ -218,20 +170,17 @@ async def delete_project(project_id: int, db: AsyncSession = Depends(get_db)):
     for route in routes:
         await db.delete(route)
 
+    if finalized_rule_packages:
+        package_ids = [package.id for package in finalized_rule_packages]
+        await db.execute(
+            update(FinalizedRulePackage)
+            .where(FinalizedRulePackage.supersedes_id.in_(package_ids))
+            .values(supersedes_id=None)
+        )
+        await db.flush()
+
     for package in finalized_rule_packages:
         await db.delete(package)
-
-    # Flush package deletes first so SQLite applies the usage cascade before
-    # project mapping rows are deleted with their RESTRICT usage reference.
-    await db.flush()
-
-    for event in mapping_events:
-        await db.delete(event)
-
-    # Explicitly remove project-owned mappings after package usages. This also
-    # works for legacy SQLite databases where ORM-level deletes are used.
-    for mapping in kmai_factor_mappings:
-        await db.delete(mapping)
 
     await _delete_legacy_rule_asset_rows(project_id, db)
 

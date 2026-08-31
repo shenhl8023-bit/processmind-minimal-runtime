@@ -28,6 +28,7 @@ from app.schemas.schemas import (
     ExtractionTaskStatusOut,
     FinalizedRulePackageListItemOut,
     FinalizedRulePackageOut,
+    RulePackagePrecheckOut,
     FinalizedRulePackageSaveRequest,
     GroupTemplateCommitOut,
     GroupTemplateMappingsUpdateRequest,
@@ -38,6 +39,7 @@ from app.schemas.schemas import (
     NormalizedSupersetRouteOut,
     OperationOut,
     ProjectGroupTemplateOut,
+    RouteMergeWorkspaceOut,
     SegmentRuleReviewSaveOut,
     SavedNormalizedRouteVersionOut,
     SaveSegmentRuleReviewRequest,
@@ -63,19 +65,12 @@ from app.services.finalized_rule_package_helpers import (
     serialize_finalized_rule_package,
 )
 from app.services.rule_packages.contracts import RulePackageV2
-from app.services.rule_packages.hashing import (
-    legacy_rule_package_content_hash,
-    rule_package_content_hash,
-)
+from app.services.rule_packages.hashing import rule_package_content_hash
 from app.services.rule_packages.lifecycle import publish_rule_package
 from app.services.rule_packages.confirmation_validation import require_confirmed_user_rule_sources
 from app.services.rule_packages.loader import load_published_rule_package
+from app.services.rule_packages.template_mapping_requirements import validate_rule_package_template_mapping
 from app.services.rule_packages.validator import validate_rule_package
-from app.services.rule_packages.kmai_export import build_kmai_compatibility_export
-from app.services.rule_packages.kmai_mapping_store import (
-    record_mapping_usage,
-)
-from app.services.rule_packages.kmai_mapping_registry import load_effective_mapping_registry
 from app.services.process_tree_builder import build_superset_process_tree
 from app.services.route_merge.config import ROUTE_MERGE_ALGO_VERSION
 from app.services.extraction_tasks import set_extraction_task_state
@@ -154,6 +149,13 @@ async def _ensure_project_exists(project_id: int, db: AsyncSession) -> Project:
     project = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
     if not project:
         raise HTTPException(404, "任务不存在")
+    return project
+
+
+async def _ensure_route_merge_ready(project_id: int, db: AsyncSession) -> Project:
+    project = await _ensure_project_exists(project_id, db)
+    if project.status not in {"ROUTE_SET_READY", "GENERATED"}:
+        raise HTTPException(409, "工艺路线全集尚未生成，请先完成第二步提炼。")
     return project
 
 
@@ -262,6 +264,7 @@ async def save_group_template_step_mappings(
             body.project_id,
             body.mappings,
             body.expected_template_revision,
+            body.operations,
         )
         await db.commit()
         return asdict(result)
@@ -499,6 +502,26 @@ async def get_normalized_superset_route(project_id: int, db: AsyncSession = Depe
     }
 
 
+@router.get("/route-merge-workspace", response_model=RouteMergeWorkspaceOut)
+async def get_route_merge_workspace(project_id: int, db: AsyncSession = Depends(get_db)):
+    try:
+        await _ensure_route_merge_ready(project_id, db)
+        snapshot = await _ensure_project_route_merge_snapshot(project_id, db)
+        response = {
+            "project_id": project_id,
+            "superset_route": snapshot.get("superset_route") or [],
+            "merge_suggestions": snapshot.get("merge_suggestions") or [],
+            "normalized_superset_route": snapshot.get("normalized_superset_route") or [],
+            "source_signature": str(snapshot.get("source_signature") or ""),
+            "algo_version": ROUTE_MERGE_ALGO_VERSION,
+        }
+        await db.commit()
+        return response
+    except Exception:
+        await db.rollback()
+        raise
+
+
 @router.get("/saved-normalized-route", response_model=SavedNormalizedRouteVersionOut)
 async def get_saved_normalized_route(project_id: int, db: AsyncSession = Depends(get_db)):
     # Check the parent first.  Otherwise a stale browser project_id reaches the
@@ -520,35 +543,45 @@ async def save_normalized_superset_route(
     body: SaveNormalizedSupersetRouteRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    snapshot = await _ensure_project_route_merge_snapshot(body.project_id, db)
-    detail_rows = await _ensure_document_operation_details(db, body.project_id)
-    total_docs = await _count_project_documents(body.project_id, db)
-    normalized_route = await persist_normalized_superset_route(
-        project_id=body.project_id,
-        db=db,
-        snapshot=snapshot,
-        items=list(body.normalized_superset_route or []),
-        detail_rows=detail_rows,
-        total_docs=total_docs,
-    )
-    latest_version = await get_latest_normalized_route_version(body.project_id, db)
-    force_new_version = bool(
-        latest_version
-        and str(latest_version.source_signature or "") != str(snapshot.get("source_signature") or "")
-    )
-    version_row = await save_normalized_route_version(
-        project_id=body.project_id,
-        db=db,
-        source_signature=str(snapshot.get("source_signature") or ""),
-        total_docs=total_docs,
-        normalized_route=normalized_route,
-        force_new_version=force_new_version,
-    )
-    return {
-        "project_id": body.project_id,
-        "normalized_superset_route": normalized_route,
-        "saved_route_version": version_row.version,
-    }
+    try:
+        await acquire_workflow_revision(
+            db,
+            body.project_id,
+            body.expected_workflow_revision,
+        )
+        snapshot = await _ensure_project_route_merge_snapshot(body.project_id, db)
+        detail_rows = await _ensure_document_operation_details(db, body.project_id)
+        total_docs = await _count_project_documents(body.project_id, db)
+        normalized_route = await persist_normalized_superset_route(
+            project_id=body.project_id,
+            db=db,
+            snapshot=snapshot,
+            items=list(body.normalized_superset_route or []),
+            detail_rows=detail_rows,
+            total_docs=total_docs,
+        )
+        latest_version = await get_latest_normalized_route_version(body.project_id, db)
+        force_new_version = bool(
+            latest_version
+            and str(latest_version.source_signature or "") != str(snapshot.get("source_signature") or "")
+        )
+        version_row = await save_normalized_route_version(
+            project_id=body.project_id,
+            db=db,
+            source_signature=str(snapshot.get("source_signature") or ""),
+            total_docs=total_docs,
+            normalized_route=normalized_route,
+            force_new_version=force_new_version,
+        )
+        await db.commit()
+        return {
+            "project_id": body.project_id,
+            "normalized_superset_route": normalized_route,
+            "saved_route_version": version_row.version,
+        }
+    except Exception:
+        await db.rollback()
+        raise
 
 
 @router.post("/segment-rule-reviews", response_model=SegmentRuleReviewSaveOut)
@@ -567,6 +600,157 @@ async def save_segment_rule_review(
         question_trail=list(body.question_trail or []),
         db=db,
     )
+
+
+@router.post("/finalized-rule-packages/precheck", response_model=RulePackagePrecheckOut)
+async def precheck_finalized_rule_package(
+    body: FinalizedRulePackageSaveRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    project = await _ensure_project_exists(body.project_id, db)
+    if project.status not in {"ROUTE_SET_READY", "GENERATED"}:
+        raise HTTPException(409, "当前资料尚未完成路线提炼，请先完成第二步提炼。")
+
+    checklist = []
+    blockers: list[dict] = []
+    try:
+        package_v2 = RulePackageV2.model_validate({
+            "manifest": body.manifest or {},
+            "factor_dictionary": body.factor_dictionary or None,
+            "input_schema": body.input_schema,
+            "route_catalog": body.route_catalog,
+            "route_rules": body.route_rules,
+            "test_cases": list(body.test_cases or []),
+        })
+        validation = validate_rule_package(package_v2)
+    except ValidationError as exc:
+        checklist.append({
+            "code": "schema_valid",
+            "label": "规则包结构校验",
+            "status": "blocking",
+            "message": "规则包结构校验未通过，请先修正规则内容。",
+        })
+        blockers.append({
+            "code": "schema_invalid",
+            "message": "规则包结构校验未通过，请先修正规则内容。",
+            "severity": "blocking",
+            "details": exc.errors(include_url=False),
+        })
+        return {
+            "project_id": body.project_id,
+            "ok": False,
+            "checklist": checklist,
+            "blockers": blockers,
+        }
+
+    if package_v2.manifest.project_id != body.project_id:
+        raise HTTPException(422, "manifest.project_id 与请求 project_id 不一致")
+    package_name = (body.package_name or "process_route_rules").strip() or "process_route_rules"
+    if package_v2.manifest.package_name != package_name:
+        raise HTTPException(422, "manifest.package_name 与请求 package_name 不一致")
+
+    if validation.valid:
+        checklist.append({
+            "code": "schema_valid",
+            "label": "规则包结构校验",
+            "status": "passed",
+            "message": "规则包结构校验通过。",
+        })
+    else:
+        checklist.append({
+            "code": "schema_valid",
+            "label": "规则包结构校验",
+            "status": "blocking",
+            "message": "规则包结构校验未通过，请先修正规则内容。",
+        })
+        blockers.extend({
+            "code": item.code,
+            "message": item.message,
+            "severity": "blocking",
+        } for item in validation.errors)
+
+    if body.route_version_id is not None:
+        route_exists = (
+            await db.execute(
+                select(NormalizedRouteVersion.id).where(
+                    NormalizedRouteVersion.id == body.route_version_id,
+                    NormalizedRouteVersion.project_id == body.project_id,
+                )
+            )
+        ).scalar_one_or_none()
+    else:
+        route_exists = None
+    if route_exists:
+        checklist.append({
+            "code": "route_version",
+            "label": "路线版本关联",
+            "status": "passed",
+            "message": "规则包已关联当前路线版本。",
+        })
+    else:
+        checklist.append({
+            "code": "route_version",
+            "label": "路线版本关联",
+            "status": "blocking",
+            "message": "规则包必须关联当前路线版本。",
+        })
+        blockers.append({
+            "code": "route_version_missing",
+            "message": "规则包必须关联当前路线版本。",
+            "severity": "blocking",
+        })
+
+    try:
+        await require_confirmed_user_rule_sources(
+            package_v2,
+            project_id=body.project_id,
+            route_version_id=body.route_version_id or 0,
+            db=db,
+        )
+        checklist.append({
+            "code": "user_rule_sources",
+            "label": "人工规则确认",
+            "status": "passed",
+            "message": "人工规则来源已确认。",
+        })
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail)}
+        checklist.append({
+            "code": "user_rule_sources",
+            "label": "人工规则确认",
+            "status": "blocking",
+            "message": detail.get("message", "人工规则来源尚未确认。"),
+        })
+        blockers.append({
+            "code": "user_rule_sources_unconfirmed",
+            "message": detail.get("message", "人工规则来源尚未确认。"),
+            "severity": "blocking",
+            "rule_ids": detail.get("rule_ids", []),
+        })
+
+    template_blockers = await validate_rule_package_template_mapping(db, package_v2)
+    if template_blockers:
+        checklist.append({
+            "code": "template_mapping",
+            "label": "分组模板映射",
+            "status": "blocking",
+            "message": f"还有 {len(template_blockers)} 道必要工序未完成分组模板映射。",
+        })
+        blockers.extend(asdict(blocker) for blocker in template_blockers)
+    else:
+        checklist.append({
+            "code": "template_mapping",
+            "label": "分组模板映射",
+            "status": "passed",
+            "message": "规则包实际使用的工序均已完成分组模板映射。",
+        })
+
+    return {
+        "project_id": body.project_id,
+        "ok": not blockers,
+        "checklist": checklist,
+        "blockers": blockers,
+    }
 
 
 @router.post("/finalized-rule-packages", response_model=FinalizedRulePackageOut)
@@ -593,76 +777,55 @@ async def save_finalized_rule_package(
     if not (body.rule_report_md or "").strip():
         raise HTTPException(400, "rule_report.md 内容不能为空")
 
-    schema_version = str(body.schema_version or "1.0").strip()
-    if schema_version not in {"1.0", "2.0"}:
-        raise HTTPException(400, f"不支持的规则包 schema_version：{schema_version}")
+    schema_version = "2.0"
     package_name = (body.package_name or "process_route_rules").strip() or "process_route_rules"
 
     server_validation = dict(body.validation_report or {})
     manifest = dict(body.manifest or {})
     test_cases = list(body.test_cases or [])
-    if schema_version == "2.0":
-        try:
-            package_v2 = RulePackageV2.model_validate({
-                "manifest": manifest,
-                "input_schema": body.input_schema,
-                "route_catalog": body.route_catalog,
-                "route_rules": body.route_rules,
-                "test_cases": test_cases,
-            })
-        except ValidationError as exc:
-            raise HTTPException(422, detail=exc.errors(include_url=False)) from exc
-        if package_v2.manifest.project_id != body.project_id:
-            raise HTTPException(422, "manifest.project_id 与请求 project_id 不一致")
-        if package_v2.manifest.package_name != package_name:
-            raise HTTPException(422, "manifest.package_name 与请求 package_name 不一致")
-        validation = validate_rule_package(package_v2)
-        server_validation = validation.model_dump(mode="json")
-        if not validation.valid:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "message": "规则包校验未通过，无法导出。",
-                    "validation": server_validation,
-                },
-            )
-        if body.route_version_id is None:
-            raise HTTPException(422, "V2 规则包必须关联当前路线版本")
-        await require_confirmed_user_rule_sources(
-            package_v2,
-            project_id=body.project_id,
-            route_version_id=body.route_version_id,
-            db=db,
+    try:
+        package_v2 = RulePackageV2.model_validate({
+            "manifest": manifest,
+            "factor_dictionary": body.factor_dictionary or None,
+            "input_schema": body.input_schema,
+            "route_catalog": body.route_catalog,
+            "route_rules": body.route_rules,
+            "test_cases": test_cases,
+        })
+    except ValidationError as exc:
+        raise HTTPException(422, detail=exc.errors(include_url=False)) from exc
+    if package_v2.manifest.project_id != body.project_id:
+        raise HTTPException(422, "manifest.project_id 与请求 project_id 不一致")
+    if package_v2.manifest.package_name != package_name:
+        raise HTTPException(422, "manifest.package_name 与请求 package_name 不一致")
+    validation = validate_rule_package(package_v2)
+    server_validation = validation.model_dump(mode="json")
+    if not validation.valid:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "规则包校验未通过，无法导出。",
+                "validation": server_validation,
+            },
         )
-        content_hash = rule_package_content_hash(package_v2)
-        mapping_registry = await load_effective_mapping_registry(db, body.project_id)
-        kmai_compatibility = build_kmai_compatibility_export(
-            package_v2,
-            mapping_registry=mapping_registry,
+    if body.route_version_id is None:
+        raise HTTPException(422, "规则包必须关联当前路线版本")
+    await require_confirmed_user_rule_sources(
+        package_v2,
+        project_id=body.project_id,
+        route_version_id=body.route_version_id,
+        db=db,
+    )
+    template_blockers = await validate_rule_package_template_mapping(db, package_v2)
+    if template_blockers:
+        raise HTTPException(
+            422,
+            detail={
+                "message": "规则包发布前需完成分组模板映射。",
+                "blockers": [asdict(blocker) for blocker in template_blockers],
+            },
         )
-        if not kmai_compatibility.valid:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "message": "KmAI compatibility validation failed; mapping resolution is required before publishing.",
-                    "kmai_compatibility": kmai_compatibility.model_dump(mode="json"),
-                },
-            )
-        server_validation["kmai_compatibility"] = {
-            "mapping_signature": kmai_compatibility.mapping_signature,
-            "mapping_snapshot": [
-                snapshot.model_dump(mode="json")
-                for snapshot in kmai_compatibility.mapping_usages
-            ],
-        }
-    else:
-        content_hash = legacy_rule_package_content_hash(
-            package_name=package_name,
-            input_schema=body.input_schema,
-            route_catalog=body.route_catalog,
-            route_rules=body.route_rules,
-            rule_report_md=body.rule_report_md,
-        )
+    content_hash = rule_package_content_hash(package_v2)
 
     if body.route_version_id is not None:
         route_exists = (
@@ -694,6 +857,7 @@ async def save_finalized_rule_package(
             schema_version=schema_version,
             status="draft",
             manifest_json=json_dumps(manifest),
+            factor_dictionary_json=json_dumps(package_v2.factor_dictionary.model_dump(mode="json")),
             input_schema_json=json_dumps(body.input_schema),
             route_catalog_json=json_dumps(body.route_catalog),
             route_rules_json=json_dumps(body.route_rules),
@@ -706,19 +870,10 @@ async def save_finalized_rule_package(
         db.add(row)
         try:
             await db.flush()
-            if schema_version == "2.0":
-                await record_mapping_usage(db, row.id, kmai_compatibility.mapping_usages)
             await publish_rule_package(row, db, actor=row.created_by)
             await db.commit()
             await db.refresh(row)
-            return serialize_finalized_rule_package(
-                row,
-                kmai_compatibility=(
-                    kmai_compatibility.model_dump(mode="json")
-                    if schema_version == "2.0"
-                    else None
-                ),
-            )
+            return serialize_finalized_rule_package(row)
         except IntegrityError:
             await db.rollback()
 
@@ -740,7 +895,10 @@ async def list_finalized_rule_packages(project_id: int, db: AsyncSession = Depen
     rows = (
         await db.execute(
             select(FinalizedRulePackage)
-            .where(FinalizedRulePackage.project_id == project_id)
+            .where(
+                FinalizedRulePackage.project_id == project_id,
+                FinalizedRulePackage.schema_version == "2.0",
+            )
             .order_by(FinalizedRulePackage.version.desc(), FinalizedRulePackage.id.desc())
         )
     ).scalars().all()
@@ -751,7 +909,7 @@ async def list_finalized_rule_packages(project_id: int, db: AsyncSession = Depen
             route_version_id=row.route_version_id,
             version=row.version,
             package_name=row.package_name,
-            schema_version=row.schema_version or "1.0",
+            schema_version="2.0",
             status=row.status or "published",
             content_hash=row.content_hash or "",
             created_by=row.created_by or "默认用户",
@@ -771,51 +929,60 @@ async def review_merge_suggestion(
     body: MergeSuggestionReviewRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    snapshot = await _ensure_project_route_merge_snapshot(body.project_id, db)
-    tree_operations = await _list_superset_route_tree(project_id=body.project_id, db=db)
-    operations_by_id = _route_tree_operations_by_id(tree_operations)
-    detail_rows = (
-        await db.execute(
-            select(DocumentOperationDetail)
-            .where(DocumentOperationDetail.project_id == body.project_id)
-            .order_by(
-                DocumentOperationDetail.operation_seq.asc(),
-                DocumentOperationDetail.page_no.asc(),
-                DocumentOperationDetail.id.asc(),
-            )
-        )
-    ).scalars().all()
-    action = (body.action or "").strip().lower()
     try:
-        snapshot = apply_merge_suggestion_review(
-            snapshot=snapshot,
-            suggestion_id=body.suggestion_id,
-            action=action,
-            manual_label=(body.manual_label or ""),
-            operations_by_id=operations_by_id,
-            detail_rows=detail_rows,
+        await acquire_workflow_revision(
+            db,
+            body.project_id,
+            body.expected_workflow_revision,
         )
-    except ValueError:
-        raise HTTPException(400, "不支持的审核动作")
-    except KeyError as exc:
-        if str(exc) == "'missing_suggestion'":
-            raise HTTPException(404, "归并建议不存在")
-        if str(exc) == "'missing_group'":
-            raise HTTPException(404, "归并段不存在")
+        snapshot = await _ensure_project_route_merge_snapshot(body.project_id, db)
+        tree_operations = await _list_superset_route_tree(project_id=body.project_id, db=db)
+        operations_by_id = _route_tree_operations_by_id(tree_operations)
+        detail_rows = (
+            await db.execute(
+                select(DocumentOperationDetail)
+                .where(DocumentOperationDetail.project_id == body.project_id)
+                .order_by(
+                    DocumentOperationDetail.operation_seq.asc(),
+                    DocumentOperationDetail.page_no.asc(),
+                    DocumentOperationDetail.id.asc(),
+                )
+            )
+        ).scalars().all()
+        action = (body.action or "").strip().lower()
+        try:
+            snapshot = apply_merge_suggestion_review(
+                snapshot=snapshot,
+                suggestion_id=body.suggestion_id,
+                action=action,
+                manual_label=(body.manual_label or ""),
+                operations_by_id=operations_by_id,
+                detail_rows=detail_rows,
+            )
+        except ValueError:
+            raise HTTPException(400, "不支持的审核动作")
+        except KeyError as exc:
+            if str(exc) == "'missing_suggestion'":
+                raise HTTPException(404, "归并建议不存在")
+            if str(exc) == "'missing_group'":
+                raise HTTPException(404, "归并段不存在")
+            raise
+        await save_route_merge_snapshot(
+            body.project_id,
+            db,
+            snapshot,
+            review_state=dict(snapshot.get("review_state") or {}),
+        )
+        await db.commit()
+        return {
+            "ok": True,
+            "project_id": body.project_id,
+            "suggestion_id": body.suggestion_id,
+            "action": action,
+        }
+    except Exception:
+        await db.rollback()
         raise
-    await save_route_merge_snapshot(
-        body.project_id,
-        db,
-        snapshot,
-        review_state=dict(snapshot.get("review_state") or {}),
-    )
-    await db.commit()
-    return {
-        "ok": True,
-        "project_id": body.project_id,
-        "suggestion_id": body.suggestion_id,
-        "action": action,
-    }
 
 
 @router.get("/task-status", response_model=ExtractionTaskStatusOut)

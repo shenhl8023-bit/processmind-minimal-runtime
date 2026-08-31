@@ -46,7 +46,3 @@ export function sortProjects(items: any[]) {
     return Number(b?.id || 0) - Number(a?.id || 0)
   })
 }
-
-export function profileShortLabel(profileCatalog: Array<{ key?: string; short_label?: string }>, profileKey?: string) {
-  return profileCatalog.find(profile => profile.key === profileKey)?.short_label || ''
-}

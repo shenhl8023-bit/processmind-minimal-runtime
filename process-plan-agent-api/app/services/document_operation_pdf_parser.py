@@ -4,12 +4,17 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import re
 from collections.abc import Iterable
 
 import fitz
 
 from app.services.document_operation_detail_types import ExtractedOperationDetail, OperationRow
+from app.services.extraction_parallel import extraction_cpu_workers
+
+_PAGE_PARALLEL_MIN_PAGES = 4
+_PAGE_PARALLEL_MAX_WORKERS = 4
 
 
 SIGN_KEYWORDS = ("编制", "校对", "标审", "审核", "审定", "批准", "工艺版次", "会签", "初样")
@@ -484,41 +489,100 @@ def extract_rows_from_page(page: fitz.Page) -> tuple[int | None, str, list[tuple
     return process_no, process_name, extract_external_rows(text), equipment_types, equipment_models
 
 
-def extract_pdf_operation_rows(pdf_path: str) -> list[OperationRow]:
-    rows_by_operation: dict[tuple[int, str], list[OperationRow]] = {}
-    with fitz.open(pdf_path) as doc:
-        for index, page in enumerate(doc, start=1):
-            process_no, process_name, items, equipment_types, equipment_models = extract_rows_from_page(page)
-            if process_no is None or not items:
-                continue
-            key = (process_no, process_name or f"工序{process_no}")
-            rows_by_operation.setdefault(key, [])
-            for item_no, content in items:
-                cleaned = normalize_spaces(content)
-                if not cleaned:
-                    continue
-                rows_by_operation[key].append(
-                    OperationRow(
-                        process_no=process_no,
-                        process_name=key[1],
-                        item_no=item_no,
-                        content=cleaned,
-                        page_no=index,
-                        equipment_types=equipment_types,
-                        equipment_models=equipment_models,
-                    )
-                )
+def _resolve_pdf_page_workers(page_count: int, max_workers: int | None) -> int:
+    if page_count <= 1:
+        return 1
+    if max_workers is not None:
+        return max(1, min(int(max_workers), page_count, _PAGE_PARALLEL_MAX_WORKERS))
+    # Real machining-card PDFs can be sensitive to opening page ranges in
+    # multiple PyMuPDF documents: ordering remains stable, but table detection
+    # may diverge on some pages. Keep production defaults correctness-first;
+    # tests and controlled callers may still opt in with an explicit worker
+    # count.
+    return 1
 
+
+def _extract_pdf_operation_rows_from_document(
+    doc: fitz.Document,
+    start_index: int,
+    end_index: int,
+) -> dict[tuple[int, str], list[OperationRow]]:
+    rows_by_operation: dict[tuple[int, str], list[OperationRow]] = {}
+    for index in range(start_index, end_index):
+        page = doc[index]
+        process_no, process_name, items, equipment_types, equipment_models = extract_rows_from_page(page)
+        if process_no is None or not items:
+            continue
+        key = (process_no, process_name or f"工序{process_no}")
+        rows_by_operation.setdefault(key, [])
+        for item_no, content in items:
+            cleaned = normalize_spaces(content)
+            if not cleaned:
+                continue
+            rows_by_operation[key].append(
+                OperationRow(
+                    process_no=process_no,
+                    process_name=key[1],
+                    item_no=item_no,
+                    content=cleaned,
+                    page_no=index + 1,
+                    equipment_types=equipment_types,
+                    equipment_models=equipment_models,
+                )
+            )
+    return rows_by_operation
+
+
+def _extract_pdf_operation_rows_range(
+    pdf_path: str,
+    start_index: int,
+    end_index: int,
+) -> dict[tuple[int, str], list[OperationRow]]:
+    with fitz.open(pdf_path) as doc:
+        return _extract_pdf_operation_rows_from_document(doc, start_index, end_index)
+
+
+def _finalize_pdf_operation_rows(
+    rows_by_operation: dict[tuple[int, str], list[OperationRow]],
+) -> list[OperationRow]:
     final_rows: list[OperationRow] = []
     for key in sorted(rows_by_operation, key=lambda item: item[0]):
         seen: set[tuple[str, str]] = set()
-        for row in rows_by_operation[key]:
+        for row in sorted(rows_by_operation[key], key=lambda item: int(item.page_no)):
             signature = (row.item_no, row.content)
             if signature in seen:
                 continue
             seen.add(signature)
             final_rows.append(row)
     return final_rows
+
+
+def extract_pdf_operation_rows(pdf_path: str, *, max_workers: int | None = None) -> list[OperationRow]:
+    with fitz.open(pdf_path) as doc:
+        page_count = doc.page_count
+        workers = _resolve_pdf_page_workers(page_count, max_workers)
+        if workers <= 1:
+            return _finalize_pdf_operation_rows(
+                _extract_pdf_operation_rows_from_document(doc, 0, page_count)
+            )
+
+    chunk_size = max(1, (page_count + workers - 1) // workers)
+    ranges = [
+        (start, min(start + chunk_size, page_count))
+        for start in range(0, page_count, chunk_size)
+    ]
+    merged: dict[tuple[int, str], list[OperationRow]] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(ranges)) as pool:
+        parts = list(
+            pool.map(
+                lambda item: _extract_pdf_operation_rows_range(pdf_path, item[0], item[1]),
+                ranges,
+            )
+        )
+    for part in parts:
+        for key, rows in part.items():
+            merged.setdefault(key, []).extend(rows)
+    return _finalize_pdf_operation_rows(merged)
 
 
 def merge_pdf_operation_rows(rows: Iterable[OperationRow]) -> list[ExtractedOperationDetail]:
@@ -560,8 +624,8 @@ def merge_pdf_operation_rows(rows: Iterable[OperationRow]) -> list[ExtractedOper
     return results
 
 
-def extract_pdf_operation_details(pdf_path: str) -> list[ExtractedOperationDetail]:
-    return merge_pdf_operation_rows(extract_pdf_operation_rows(pdf_path))
+def extract_pdf_operation_details(pdf_path: str, *, max_workers: int | None = None) -> list[ExtractedOperationDetail]:
+    return merge_pdf_operation_rows(extract_pdf_operation_rows(pdf_path, max_workers=max_workers))
 
 
 __all__ = [

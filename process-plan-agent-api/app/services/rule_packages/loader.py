@@ -13,6 +13,7 @@ async def load_published_rule_package(project_id: int, db: AsyncSession) -> Fina
             .where(
                 FinalizedRulePackage.project_id == project_id,
                 FinalizedRulePackage.status == "published",
+                FinalizedRulePackage.schema_version == "2.0",
             )
             .order_by(FinalizedRulePackage.version.desc(), FinalizedRulePackage.id.desc())
         )

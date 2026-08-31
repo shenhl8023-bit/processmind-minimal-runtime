@@ -4,7 +4,7 @@ export const FINALIZE_VIEW_COPY = {
   pageTitle: '规则定稿',
   pageSubtitle: `预览并微调整条工艺路线中每道工序的${SHARED_RULE_TERMS.settingBasis}与${SHARED_RULE_TERMS.triggerCondition}。`,
   backToAnalysis: '返回规则分析',
-  exportDocument: '导出规则包',
+  exportDocument: '发布规则包',
   showAll: '查看全部',
   showEditedOnly: '只看已改',
   refresh: '刷新结果',
@@ -42,7 +42,7 @@ export const FINALIZE_VIEW_COPY = {
 export const FINALIZE_EXPORT_COPY = {
   documentTitle: '第四步工序规则定稿说明',
   documentNameSuffix: '第四步规则定稿包',
-  explanationHeading: '导出说明',
+  explanationHeading: '发布说明',
   explanationLines: [
     '本文档基于第四步“规则定稿”当前页面结果生成。',
     '导出内容默认包含全部工序段，不受“只看已改”筛选影响。',

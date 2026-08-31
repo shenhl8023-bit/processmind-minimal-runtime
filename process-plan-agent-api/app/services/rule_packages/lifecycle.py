@@ -2,19 +2,12 @@
 
 from __future__ import annotations
 
-import json
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import FinalizedRulePackage, KmaiFactorMappingUsage, utcnow
+from app.models.models import FinalizedRulePackage, utcnow
 from app.services.finalized_rule_package_helpers import json_loads, json_loads_list
 from app.services.rule_packages.contracts import RulePackageV2, RulePackageValidationReport
-from app.services.rule_packages.kmai_mapping_contracts import KmaiMappingSnapshot
-from app.services.rule_packages.kmai_mapping_registry import (
-    KmaiMappingRegistry,
-    builtin_mapping_registry,
-)
 from app.services.rule_packages.validator import validate_rule_package
 
 
@@ -44,41 +37,16 @@ async def supersede_published_rule_packages(
 
 
 def v2_package_from_row(row: FinalizedRulePackage) -> RulePackageV2:
-    if str(row.schema_version or "1.0") != "2.0":
-        raise RulePackageLifecycleError("只有 V2 规则包支持该操作")
+    if str(row.schema_version or "") != "2.0":
+        raise RulePackageLifecycleError("当前规则包不是可执行的 V2 规则包")
     return RulePackageV2.model_validate({
         "manifest": json_loads(row.manifest_json),
+        "factor_dictionary": json_loads(row.factor_dictionary_json) or None,
         "input_schema": json_loads(row.input_schema_json),
         "route_catalog": json_loads(row.route_catalog_json),
         "route_rules": json_loads(row.route_rules_json),
         "test_cases": json_loads_list(row.test_cases_json),
     })
-
-
-async def load_registry_for_package(
-    db: AsyncSession,
-    package_id: int,
-) -> KmaiMappingRegistry:
-    """Rebuild the mapping context captured when a published package was made."""
-    rows = (
-        await db.execute(
-            select(KmaiFactorMappingUsage)
-            .where(KmaiFactorMappingUsage.package_id == package_id)
-            .order_by(KmaiFactorMappingUsage.id)
-        )
-    ).scalars().all()
-    if not rows:
-        return builtin_mapping_registry()
-
-    snapshots = []
-    for row in rows:
-        try:
-            snapshots.append(
-                KmaiMappingSnapshot.model_validate(json.loads(row.mapping_snapshot_json))
-            )
-        except (TypeError, ValueError, json.JSONDecodeError):
-            continue
-    return KmaiMappingRegistry(snapshots) if snapshots else builtin_mapping_registry()
 
 
 async def publish_rule_package(
@@ -90,10 +58,9 @@ async def publish_rule_package(
     if row.status == "archived":
         raise RulePackageLifecycleError("已归档规则包不能直接发布")
 
-    if str(row.schema_version or "1.0") == "2.0":
-        validation = validate_rule_package(v2_package_from_row(row))
-        if not validation.valid:
-            raise RulePackageLifecycleError("规则包校验或包内测试未通过，不能发布", validation)
+    validation = validate_rule_package(v2_package_from_row(row))
+    if not validation.valid:
+        raise RulePackageLifecycleError("规则包校验或包内测试未通过，不能发布", validation)
 
     current = (
         await db.execute(

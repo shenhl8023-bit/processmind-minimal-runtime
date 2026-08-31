@@ -49,6 +49,13 @@ class InputSchemaV2(StrictModel):
     fields: list[InputField]
 
 
+class FactorDictionaryV2(StrictModel):
+    """Complete factor-definition snapshot published with a V2 package."""
+
+    schema_version: Literal["2.0"] = "2.0"
+    fields: list[InputField]
+
+
 class ProcessStepV2(StrictModel):
     step_id: str = Field(min_length=1)
     name: str = Field(min_length=1)
@@ -245,10 +252,35 @@ class RulePackageTestCase(StrictModel):
 
 class RulePackageV2(StrictModel):
     manifest: RulePackageManifestV2
+    factor_dictionary: FactorDictionaryV2 | None = None
     input_schema: InputSchemaV2
     route_catalog: RouteCatalogV2
     route_rules: RouteRulesV2
     test_cases: list[RulePackageTestCase] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def apply_and_validate_factor_dictionary(self):
+        if self.factor_dictionary is None:
+            self.factor_dictionary = FactorDictionaryV2(
+                fields=[field.model_copy(deep=True) for field in self.input_schema.fields],
+            )
+        dictionary_fields = {field.key: field for field in self.factor_dictionary.fields}
+        for field in self.input_schema.fields:
+            dictionary_field = dictionary_fields.get(field.key)
+            if dictionary_field is None:
+                raise ValueError(f"input schema field missing from factor dictionary: {field.key}")
+            if (
+                dictionary_field.label != field.label
+                or dictionary_field.type != field.type
+                or dictionary_field.unit != field.unit
+                or dictionary_field.allow_custom != field.allow_custom
+                or dictionary_field.validation != field.validation
+            ):
+                raise ValueError(f"input schema field differs from factor dictionary: {field.key}")
+            dictionary_options = {option.value for option in dictionary_field.options}
+            if any(option.value not in dictionary_options for option in field.options):
+                raise ValueError(f"input schema option missing from factor dictionary: {field.key}")
+        return self
 
 
 class CompileRulePackageRequest(StrictModel):
@@ -256,6 +288,7 @@ class CompileRulePackageRequest(StrictModel):
     package_name: str = Field(min_length=1)
     route_version_id: int | None = None
     applicability: Applicability = Field(default_factory=Applicability)
+    factor_dictionary: FactorDictionaryV2 | None = None
     fields: list[InputField]
     processes: list[ProcessV2]
     rules: list[RuleV2] = Field(default_factory=list)
@@ -267,29 +300,6 @@ class ValidationIssue(StrictModel):
     code: str
     path: str = ""
     message: str
-
-
-class KmaiCompatibilityIssue(ValidationIssue):
-    field: str | None = None
-    value: str | None = None
-    occurrences: int | None = None
-    rule_refs: list[str] = Field(default_factory=list)
-    suggested_existing_factors: list[str] = Field(default_factory=list)
-    can_create_manual_factor: bool | None = None
-
-
-class KmaiMappingUsageSnapshot(StrictModel):
-    mapping_id: int | None = None
-    mapping_identity: str
-    revision: int = 1
-    scope: Literal["builtin", "global", "project"]
-    project_id: int | None = None
-    source_field: str
-    source_value: str
-    mapping_mode: Literal["existing_factor", "manual_factor"]
-    target_factor_key: str
-    target_factor_name: str
-    target_factor_category: str
 
 
 class TestCaseResult(StrictModel):
@@ -305,22 +315,10 @@ class RulePackageValidationReport(StrictModel):
     test_results: list[TestCaseResult] = Field(default_factory=list)
 
 
-class KmaiCompatibilityExport(StrictModel):
-    format: Literal["kmai-v1"] = "kmai-v1"
-    valid: bool
-    target_directory: str
-    errors: list[KmaiCompatibilityIssue] = Field(default_factory=list)
-    warnings: list[KmaiCompatibilityIssue] = Field(default_factory=list)
-    files: dict[str, dict[str, Any]] = Field(default_factory=dict)
-    mapping_signature: str = ""
-    mapping_usages: list[KmaiMappingUsageSnapshot] = Field(default_factory=list)
-
-
 class CompileRulePackageResponse(StrictModel):
     package: RulePackageV2
     content_hash: str
     validation: RulePackageValidationReport
-    kmai_compatibility: KmaiCompatibilityExport
 
 
 class ConditionTrace(StrictModel):
@@ -345,6 +343,7 @@ class PlannedRouteStep(StrictModel):
     process_id: str
     sequence: int
     name: str
+    phase: str = ""
     op_type: Literal["MAIN", "BRANCH"]
     reason: str
     process_steps: list[str] = Field(default_factory=list)
@@ -366,28 +365,6 @@ class SimulateRulePackageResponse(StrictModel):
     content_hash: str
     validation: RulePackageValidationReport
     plan: RoutePlan | None = None
-
-
-class KmaiCompatibilityTestRequest(StrictModel):
-    project_id: int = Field(gt=0)
-    inputs: dict[str, Any] = Field(default_factory=dict)
-
-
-class KmaiCompatibilityTestResponse(StrictModel):
-    project_id: int
-    package_id: int
-    package_version: int
-    compatible: bool
-    v2_process_ids: list[str] = Field(default_factory=list)
-    v2_matched_rule_ids: list[str] = Field(default_factory=list)
-    kmai_process_ids: list[str] = Field(default_factory=list)
-    kmai_matched_rule_ids: list[str] = Field(default_factory=list)
-    only_v2_process_ids: list[str] = Field(default_factory=list)
-    only_kmai_process_ids: list[str] = Field(default_factory=list)
-    warnings: list[ValidationIssue] = Field(default_factory=list)
-    errors: list[ValidationIssue] = Field(default_factory=list)
-    manual_factors: dict[str, Any] = Field(default_factory=dict)
-    semantic_gaps: list[str] = Field(default_factory=list)
 
 
 ConditionNode.model_rebuild()

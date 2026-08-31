@@ -5,9 +5,6 @@ export const apiBaseUrl = (() => {
   if (explicitBase) {
     return explicitBase
   }
-  if (import.meta.env.DEV && typeof window !== 'undefined') {
-    return `http://${window.location.hostname}:8000`
-  }
   return ''
 })()
 

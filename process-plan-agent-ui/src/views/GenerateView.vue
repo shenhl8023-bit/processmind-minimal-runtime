@@ -2,7 +2,7 @@
   <div class="generate-view">
     <div class="analysis-style-header">
       <div class="ash-left-content">
-        <span class="ash-page-title">路线生成</span>
+        <span class="ash-page-title">规则包验证与路线生成</span>
         <template v-if="projectId">
           <span class="ash-dark-chip">{{ projectName || `任务 #${projectId}` }}</span>
           
@@ -24,7 +24,7 @@
     <section v-if="!projectId" class="empty-panel">
       <span class="empty-step">05</span>
       <h2>先选择一个工艺规程任务</h2>
-      <p>路线生成依赖已经定稿的规则包。请从任务列表选择项目，完成规则定稿后再进入此处。</p>
+      <p>规则包验证与路线生成依赖已经定稿的规则包。请从任务列表选择项目，完成规则定稿后再进入此处。</p>
       <button class="btn btn-primary empty-action" type="button" @click="goUpload">进入任务列表</button>
     </section>
 
@@ -40,7 +40,10 @@
         :schema-status-text="schemaStatusText"
         :generate-hint-text="generateHintText"
         :field-values="fieldValues"
+        :field-value-origin="fieldValueOrigin"
         :custom-input-values="customInputValues"
+        :is-confirmed-field-value="isConfirmedFieldValue"
+        :is-invalid-confirmed-field-value="isInvalidConfirmedFieldValue"
         :field-type-label="fieldTypeLabel"
         :is-text-field="isTextField"
         :is-single-select-field="isSingleSelectField"
@@ -49,15 +52,14 @@
         :is-number-field="isNumberField"
         :field-text-value="fieldTextValue"
         :field-placeholder="fieldPlaceholder"
-        :field-preview-value="fieldPreviewValue"
         :input-value="inputValue"
-        :checked-value="checkedValue"
         :array-field-values="arrayFieldValues"
         :set-field-text="setFieldText"
         :set-field-boolean="setFieldBoolean"
         :toggle-field-array-value="toggleFieldArrayValue"
         :set-custom-input="setCustomInput"
         :add-custom-array-value="addCustomArrayValue"
+        :add-custom-single-value="addCustomSingleValue"
         :clear-all-fields="clearAllFields"
         :fill-example-values="fillExampleValues"
         @generate="runGenerate"
@@ -145,21 +147,24 @@ const error = ref('')
 const result = ref<GenerateRouteResult | null>(null)
 const {
   addCustomArrayValue,
+  addCustomSingleValue,
   arrayFieldValues,
   canGenerate,
-  checkedValue,
   clearAllFields,
   customInputValues,
   factorValues,
+  factorMetadata,
   fieldPlaceholder,
-  fieldPreviewValue,
   fieldTextValue,
   fieldValues,
+  fieldValueOrigin,
   filledFieldCount,
   fillExampleValues,
   initializeFieldValues,
   inputFields,
   inputValue,
+  isConfirmedFieldValue,
+  isInvalidConfirmedFieldValue,
   resetFieldValues,
   setCustomInput,
   setFieldBoolean,
@@ -188,19 +193,19 @@ const packageMetaLabel = computed(() => {
 
 const schemaStatusText = computed(() => {
   if (contextLoading.value) return '正在加载当前任务的输入参数…'
-  if (!hasRulePackage.value) return '当前任务还没有可用规则包。请先在第4步导出规则包。'
-  return '当前规则包没有定义输入参数，请返回第4步重新导出规则包。'
+  if (!hasRulePackage.value) return '当前任务还没有可用规则包。请先在第4步完成规则定稿并发布规则包。'
+  return '当前规则包没有定义输入参数，请返回第4步重新发布规则包。'
 })
 
 const generateHintText = computed(() => {
   if (contextLoading.value) return '正在加载当前任务的输入参数，请稍候。'
-  if (!hasRulePackage.value) return '请先在第4步导出规则包。'
+  if (!hasRulePackage.value) return '请先在第4步完成规则定稿并发布规则包。'
   if (!inputFields.value.length) return '当前规则包没有定义输入参数。'
   return '请先补全必填输入参数。'
 })
 const generateNavSummary = computed(() => {
-  if (!projectId.value) return '请先选择一个任务，完成规则定稿后再进入路线生成。'
-  if (!hasRulePackage.value) return '当前任务还没有可用规则包，请返回第四步导出规则包。'
+  if (!projectId.value) return '请先选择一个任务，完成规则定稿后再进入规则包验证与路线生成。'
+  if (!hasRulePackage.value) return '当前任务还没有可用规则包，请返回第四步完成规则定稿并发布规则包。'
   if (generating.value) return '正在生成工艺路线。'
   if (result.value) return '路线已生成，可在右侧查看结果或导出 JSON。'
   return `规则包 ${packageMetaLabel.value} 已就绪，输入字段已填写 ${filledFieldCount.value}/${inputFields.value.length}。`
@@ -267,6 +272,7 @@ async function runGenerate() {
       project_id: generatedProjectId,
       expected_workflow_revision: workflowRevision.value,
       factor_values: factorValues.value,
+      input_metadata: factorMetadata.value,
     })
     if (
       !request.isLatest()

@@ -15,6 +15,7 @@ import {
   type GroupTemplateStepMappingInput,
   type GroupTemplateValidationIssue,
   type ProjectGroupTemplate,
+  type TemplateGroupMappingOperationInput,
 } from '@/api/extract'
 
 export type GroupTemplateDialogState = 'empty' | 'preview' | 'workspace'
@@ -304,7 +305,7 @@ export function useProjectGroupTemplate(
     }
   }
 
-  async function saveStepMappings() {
+  async function saveStepMappings(operations: TemplateGroupMappingOperationInput[] = []) {
     if (!template.value) return
     saving.value = true
     error.value = ''
@@ -313,6 +314,7 @@ export function useProjectGroupTemplate(
         unref(projectId),
         templateRevision.value,
         draftStepMappings.value,
+        operations,
       ))
     } catch (cause) {
       if (errorStatus(cause) === 409) {

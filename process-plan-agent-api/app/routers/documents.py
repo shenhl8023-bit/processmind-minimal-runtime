@@ -21,6 +21,10 @@ from app.database import get_db
 from app.models.models import Document, DocumentOperationDetail, Reference, Project
 from app.schemas.schemas import DocumentOut, DocumentPreviewOut, ReferenceCreate, ReferenceOut
 from app.services.file_parser import extract_text
+from app.services.document_detail_cache_prewarm import (
+    cancel_document_detail_cache_prewarm,
+    start_document_detail_cache_prewarm,
+)
 from app.services.route_merge.workspace import (
     get_route_merge_project_lock,
     invalidate_project_document_derived_state,
@@ -243,9 +247,11 @@ async def upload_documents(
             results.append(doc)
 
         async with get_route_merge_project_lock(project_id):
+            cancel_document_detail_cache_prewarm(project_id)
             await invalidate_project_document_derived_state(db, project_id)
             project.status = "UPLOADED"
             await db.commit()
+        start_document_detail_cache_prewarm(project_id)
         return results
     except Exception:
         await db.rollback()
@@ -274,6 +280,7 @@ async def delete_document(doc_id: int, db: AsyncSession = Depends(get_db)):
     try:
         if project_id > 0:
             async with get_route_merge_project_lock(project_id):
+                cancel_document_detail_cache_prewarm(project_id)
                 await invalidate_project_document_derived_state(db, project_id)
                 await db.execute(
                     update(Reference)

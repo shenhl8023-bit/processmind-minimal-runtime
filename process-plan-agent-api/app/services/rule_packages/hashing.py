@@ -32,23 +32,3 @@ def canonical_rule_package_json(package: RulePackageV2) -> str:
 def rule_package_content_hash(package: RulePackageV2) -> str:
     canonical = canonical_rule_package_json(package)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
-def legacy_rule_package_content_hash(
-    *,
-    package_name: str,
-    input_schema: dict,
-    route_catalog: dict,
-    route_rules: dict,
-    rule_report_md: str,
-) -> str:
-    payload = {
-        "schema_version": "1.0",
-        "package_name": package_name,
-        "input_schema": input_schema,
-        "route_catalog": route_catalog,
-        "route_rules": route_rules,
-        "rule_report": rule_report_md,
-    }
-    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

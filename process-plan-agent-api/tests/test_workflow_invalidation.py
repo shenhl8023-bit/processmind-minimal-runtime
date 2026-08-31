@@ -116,13 +116,37 @@ async def _seed_project(db: AsyncSession, project_id: int) -> Project:
             {"source_step_key": f"op_{project_id * 100}_s01"},
             {"source_step_key": f"op_{project_id * 100}_s02"},
         ]),
+        mapping_output_json=json.dumps([{"process_name": "标记", "steps": []}], ensure_ascii=False),
         template_revision=4,
     )
     db.add_all([project, route, operation, group_template])
     await db.commit()
     db.add_all([
         Factor(operation_id=operation.id, name="是否标印"),
-        RouteMergeSnapshot(project_id=project_id, source_signature="sig", normalized_superset_route_json="[]"),
+        RouteMergeSnapshot(
+            project_id=project_id,
+            source_signature="sig",
+            merge_groups_json=json.dumps([
+                {
+                    "id": "group-stale",
+                    "normalized_step_name": "标记",
+                    "source_operation_ids": [operation.id],
+                    "source_nodes": ["标记"],
+                    "review_status": "pending",
+                    "suggestion_type": "direct_merge",
+                }
+            ], ensure_ascii=False),
+            merge_suggestions_json=json.dumps([
+                {
+                    "suggestion_id": "suggestion-stale",
+                    "target_group_id": "group-stale",
+                    "recommendation_label": "建议合并",
+                    "status": "pending",
+                }
+            ], ensure_ascii=False),
+            normalized_superset_route_json="[]",
+            review_state_json="{}",
+        ),
         NormalizedRouteSegmentFactorReview(
             project_id=project_id,
             route_version_id=route.id,
@@ -180,6 +204,7 @@ def test_step_two_invalidation_unlinks_packages_before_deleting_route_versions(w
             template = (await db.execute(select(ProjectGroupTemplate))).scalar_one()
             assert result.deleted_template_step_mappings == 2
             assert json.loads(template.step_mappings_json) == []
+            assert json.loads(template.mapping_output_json) == []
             assert template.source_xml == "<Kmsoft />"
             assert template.template_revision == 5
 
@@ -285,6 +310,22 @@ def test_saved_route_response_includes_current_workflow_revision(workflow_client
     assert response.json()["workflow_revision"] == 7
 
 
+def test_route_merge_workspace_endpoint_returns_combined_step_two_payload(workflow_client):
+    response = workflow_client.get(
+        "/api/extract/route-merge-workspace",
+        params={"project_id": 9},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["project_id"] == 9
+    assert body["superset_route"]
+    assert isinstance(body["merge_suggestions"], list)
+    assert isinstance(body["normalized_superset_route"], list)
+    assert body["source_signature"]
+    assert body["algo_version"]
+
+
 def test_workflow_reset_rejects_stale_revision(workflow_client):
     response = workflow_client.post("/api/extract/workflow/reset", json={
         "project_id": 9,
@@ -346,6 +387,36 @@ def test_segment_review_save_rejects_stale_revision(workflow_client):
         "summary_lines": ["旧页面答案"],
         "question_trail": [],
         "expected_workflow_revision": 6,
+    })
+
+    assert response.status_code == 409
+    assert "页面已过期" in str(response.json()["detail"])
+
+
+def test_normalized_route_save_rejects_stale_revision(workflow_client):
+    response = workflow_client.post("/api/extract/normalized-superset-route/save", json={
+        "project_id": 9,
+        "expected_workflow_revision": 6,
+        "normalized_superset_route": [
+            {
+                "id": "seg-stale",
+                "normalized_step_name": "旧页面保存",
+                "source_operation_ids": [900],
+                "source_nodes": ["标记"],
+            }
+        ],
+    })
+
+    assert response.status_code == 409
+    assert "页面已过期" in str(response.json()["detail"])
+
+
+def test_merge_suggestion_review_rejects_stale_revision(workflow_client):
+    response = workflow_client.post("/api/extract/merge-suggestions/review", json={
+        "project_id": 9,
+        "expected_workflow_revision": 6,
+        "suggestion_id": "suggestion-stale",
+        "action": "accept",
     })
 
     assert response.status_code == 409

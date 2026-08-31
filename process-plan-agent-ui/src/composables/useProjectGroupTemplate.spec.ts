@@ -66,6 +66,7 @@ function template(revision = 1, mappings: GroupTemplateMapping[] = []) {
     validation_issues: [],
     mappings,
     step_mappings: [],
+    mapping_output: [],
     template_revision: revision,
     group_count: 1,
     feature_selection_count: 1,
@@ -316,9 +317,21 @@ describe('useProjectGroupTemplate', () => {
       source: 'user_confirmed',
     }]
 
-    await model.saveStepMappings()
+    await model.saveStepMappings([{
+      operation_id: 11,
+      operation_name: '车削A侧',
+      step_items: ['钻孔'],
+      rule_evidence: ['孔'],
+      rule_reasons: ['形成孔特征'],
+    }])
 
-    expect(saveGroupTemplateStepMappingsMock).toHaveBeenCalledWith(28, 5, model.draftStepMappings.value)
+    expect(saveGroupTemplateStepMappingsMock).toHaveBeenCalledWith(28, 5, model.draftStepMappings.value, [{
+      operation_id: 11,
+      operation_name: '车削A侧',
+      step_items: ['钻孔'],
+      rule_evidence: ['孔'],
+      rule_reasons: ['形成孔特征'],
+    }])
     expect(model.template.value?.step_mappings).toEqual([stepMapping()])
     expect(model.template.value?.mappings).toEqual([mapping()])
   })

@@ -6,12 +6,14 @@ import json
 from collections import Counter, defaultdict
 
 from app.services.rule_packages.contracts import (
+    ConditionNode,
     RulePackageV2,
     RulePackageValidationReport,
+    RuleV2,
     TestCaseResult,
     ValidationIssue,
 )
-from app.services.rule_packages.expression_engine import iter_condition_fields
+from app.services.rule_packages.expression_engine import evaluate_condition, iter_condition_fields
 from app.services.rule_packages.input_validation import validate_inputs
 from app.services.rule_packages.planner import RoutePlanningError, plan_route
 
@@ -74,6 +76,45 @@ def _is_manual_process_exclusion(rule, process_id: str, manual_field_keys: set[s
         and rule.when.op == "eq"
         and rule.when.value is False
         and process_id in rule.then.exclude_process_ids
+    )
+
+
+def _sole_boolean_leaf(condition: ConditionNode) -> tuple[str, bool] | None:
+    if (
+        condition.all_conditions is not None
+        or condition.any_conditions is not None
+        or condition.not_condition is not None
+        or not condition.field
+        or condition.op != "eq"
+        or not isinstance(condition.value, bool)
+    ):
+        return None
+    return condition.field, condition.value
+
+
+def _is_mutually_exclusive_manual_pair(
+    include_rule: RuleV2,
+    exclude_rule: RuleV2,
+    process_id: str,
+    manual_field_keys: set[str],
+) -> bool:
+    """Allow the exact true/false pair emitted for a manual process choice."""
+    include_leaf = _sole_boolean_leaf(include_rule.when)
+    exclude_leaf = _sole_boolean_leaf(exclude_rule.when)
+    if not include_leaf or include_leaf[0] not in manual_field_keys:
+        return False
+    manual_field = include_leaf[0]
+    return bool(
+        include_rule.source == exclude_rule.source == "user_confirmed"
+        and include_rule.source_segment_id
+        and include_rule.source_segment_id == exclude_rule.source_segment_id
+        and include_rule.priority == exclude_rule.priority
+        and include_leaf == (manual_field, True)
+        and exclude_leaf == (manual_field, False)
+        and include_rule.then.include_process_ids == [process_id]
+        and include_rule.then.exclude_process_ids == []
+        and exclude_rule.then.include_process_ids == []
+        and exclude_rule.then.exclude_process_ids == [process_id]
     )
 
 
@@ -155,6 +196,17 @@ def validate_rule_package(package: RulePackageV2) -> RulePackageValidationReport
                 error("missing_user_rule_audit", f"用户规则 {rule.rule_id} 缺少来源工序或原始条件", path)
             if not rule.confirmed_by or not rule.confirmed_at:
                 error("missing_user_rule_confirmation", f"用户规则 {rule.rule_id} 缺少确认人或确认时间", path)
+            if rule.source_segment_id in process_set:
+                action_process_ids = {
+                    *rule.then.include_process_ids,
+                    *rule.then.exclude_process_ids,
+                }
+                if action_process_ids != {rule.source_segment_id}:
+                    error(
+                        "user_rule_target_mismatch",
+                        f"用户规则 {rule.rule_id} 只能控制来源工序 {rule.source_segment_id}；跨工序依赖请使用关联工序规则",
+                        f"{path}.then",
+                    )
         for field_name in iter_condition_fields(rule.when):
             if field_name not in field_set:
                 error("unknown_input_field", f"规则 {rule.rule_id} 引用了未定义字段 {field_name}", f"{path}.when")
@@ -219,6 +271,18 @@ def validate_rule_package(package: RulePackageV2) -> RulePackageValidationReport
 
     for (priority, process_id), actions in opposing_actions.items():
         if actions["include"] and actions["exclude"]:
+            exact_manual_pair = (
+                len(actions["include"]) == 1
+                and len(actions["exclude"]) == 1
+                and _is_mutually_exclusive_manual_pair(
+                    next(rule for rule in package.route_rules.rules if rule.rule_id == actions["include"][0]),
+                    next(rule for rule in package.route_rules.rules if rule.rule_id == actions["exclude"][0]),
+                    process_id,
+                    manual_field_keys,
+                )
+            )
+            if exact_manual_pair:
+                continue
             error(
                 "same_priority_action_conflict",
                 f"优先级 {priority} 对工序 {process_id} 同时存在 include 和 exclude 规则",
@@ -245,8 +309,40 @@ def validate_rule_package(package: RulePackageV2) -> RulePackageValidationReport
                     "route_rules.rules",
                 )
 
+    grouped_user_conditions: dict[str, set[str]] = defaultdict(set)
+    for rule in user_rules:
+        if not rule.then.include_process_ids:
+            continue
+        condition_key = json.dumps(rule.when.model_dump(mode="json", by_alias=True), sort_keys=True, ensure_ascii=False)
+        grouped_user_conditions[condition_key].update(rule.then.include_process_ids)
+    for process_ids in grouped_user_conditions.values():
+        if len(process_ids) > 1:
+            warning(
+                "same_condition_multiple_targets",
+                f"同一条件会同时纳入多个工序：{', '.join(sorted(process_ids))}；请核对这些工序是否都应进入路线",
+                "route_rules.rules",
+            )
+
     if not package.test_cases:
         warning("missing_test_cases", "规则包尚未定义可执行测试用例，后续不应允许发布", "test_cases")
+
+    for rule in package.route_rules.rules:
+        if not rule.enabled:
+            continue
+        expected_includes = set(rule.then.include_process_ids)
+        expected_excludes = set(rule.then.exclude_process_ids)
+        covered = any(
+            evaluate_condition(rule.when, case.input).matched
+            and expected_includes.issubset(case.expect.included_process_ids)
+            and expected_excludes.issubset(case.expect.excluded_process_ids)
+            for case in package.test_cases
+        )
+        if not covered:
+            error(
+                "uncovered_conditional_rule",
+                f"启用规则 {rule.rule_id} 没有命中条件且覆盖其动作的测试用例",
+                "test_cases",
+            )
 
     if not errors:
         for case in package.test_cases:

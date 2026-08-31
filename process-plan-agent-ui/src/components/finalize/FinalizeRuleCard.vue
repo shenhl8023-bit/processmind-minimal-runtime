@@ -175,98 +175,31 @@
               @update:model-value="updateWhen"
             />
 
-            <!-- Tag-based process selector for condition rules -->
+            <!-- A condition card only controls its own process. -->
             <div v-if="candidateKind === 'condition'" class="action-editor-tag">
-              <!-- Include processes -->
               <div class="action-tag-column" @click.stop>
-                <span class="action-title action-title-include">纳入工序</span>
+                <span class="action-title action-title-include">作用工序</span>
                 <div class="tag-list">
-                  <span
-                    v-for="pid in (editableCandidate.then?.include_process_ids || [])"
-                    :key="`inc-tag-${pid}`"
-                    class="process-tag process-tag-include"
-                  >
-                    {{ processDisplayName(pid) }}
-                    <button class="tag-remove" @click.stop="removeAction('include', pid)">×</button>
-                  </span>
-                  <button class="tag-add-btn" @click.stop="openPicker('include')">
-                    <svg width="9" height="9" viewBox="0 0 12 12" fill="none">
-                      <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                    </svg>
-                    添加
-                  </button>
+                  <span class="process-tag process-tag-include">{{ processDisplayName(currentProcessId) }}</span>
                 </div>
-                <Transition name="picker-pop">
-                  <div v-if="processPickerOpen === 'include'" class="process-picker-dropdown" @click.stop>
-                    <input
-                      :ref="setSearchRef"
-                      v-model="processPickerSearch"
-                      class="picker-search"
-                      placeholder="搜索工序名..."
-                    />
-                    <div class="picker-options">
-                      <button
-                        v-for="p in filteredPickerOptions"
-                        :key="`pi-inc-${p.process_id}`"
-                        class="picker-option"
-                        :class="{ 'picker-option-selected': isActionSelected('include', p.process_id) }"
-                        @click.stop="selectPickerOption('include', p.process_id)"
-                      >
-                        <span>{{ p.display_name }}</span>
-                        <svg v-if="isActionSelected('include', p.process_id)" class="picker-check" width="12" height="12" viewBox="0 0 16 16" fill="none">
-                          <path d="M3 8l4 4 6-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                      </button>
-                      <div v-if="!filteredPickerOptions.length" class="picker-empty">无匹配工序</div>
-                    </div>
-                  </div>
-                </Transition>
               </div>
 
-              <!-- Exclude processes -->
               <div class="action-tag-column" @click.stop>
-                <span class="action-title action-title-exclude">排除工序</span>
+                <span class="action-title action-title-exclude">规则动作</span>
                 <div class="tag-list">
-                  <span
-                    v-for="pid in (editableCandidate.then?.exclude_process_ids || [])"
-                    :key="`exc-tag-${pid}`"
-                    class="process-tag process-tag-exclude"
-                  >
-                    {{ processDisplayName(pid) }}
-                    <button class="tag-remove" @click.stop="removeAction('exclude', pid)">×</button>
-                  </span>
-                  <button class="tag-add-btn" @click.stop="openPicker('exclude')">
-                    <svg width="9" height="9" viewBox="0 0 12 12" fill="none">
-                      <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                    </svg>
-                    添加
-                  </button>
+                  <button
+                    type="button"
+                    class="tag-add-btn"
+                    :class="{ 'tag-add-btn-active': conditionActionKind === 'include' }"
+                    @click.stop="setCurrentProcessAction('include')"
+                  >纳入</button>
+                  <button
+                    type="button"
+                    class="tag-add-btn"
+                    :class="{ 'tag-add-btn-active': conditionActionKind === 'exclude' }"
+                    @click.stop="setCurrentProcessAction('exclude')"
+                  >排除</button>
                 </div>
-                <Transition name="picker-pop">
-                  <div v-if="processPickerOpen === 'exclude'" class="process-picker-dropdown" @click.stop>
-                    <input
-                      :ref="setSearchRef"
-                      v-model="processPickerSearch"
-                      class="picker-search"
-                      placeholder="搜索工序名..."
-                    />
-                    <div class="picker-options">
-                      <button
-                        v-for="p in filteredPickerOptions"
-                        :key="`pi-exc-${p.process_id}`"
-                        class="picker-option"
-                        :class="{ 'picker-option-selected': isActionSelected('exclude', p.process_id) }"
-                        @click.stop="selectPickerOption('exclude', p.process_id)"
-                      >
-                        <span>{{ p.display_name }}</span>
-                        <svg v-if="isActionSelected('exclude', p.process_id)" class="picker-check" width="12" height="12" viewBox="0 0 16 16" fill="none">
-                          <path d="M3 8l4 4 6-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                      </button>
-                      <div v-if="!filteredPickerOptions.length" class="picker-empty">无匹配工序</div>
-                    </div>
-                  </div>
-                </Transition>
               </div>
             </div>
 
@@ -444,10 +377,17 @@ const manualBooleanEditing = ref(false)
 const manualBooleanLabel = ref('')
 
 // Process picker
-type PickerKind = 'include' | 'exclude' | 'source' | 'target'
+type PickerKind = 'source' | 'target'
 const processPickerOpen = ref<PickerKind | null>(null)
 const processPickerSearch = ref('')
 const searchInputEl = ref<HTMLInputElement | null>(null)
+
+const currentProcessId = computed(() => String(props.item.segment.id || ''))
+const conditionActionKind = computed(() => (
+  editableCandidate.value?.then?.exclude_process_ids?.includes(currentProcessId.value)
+    ? 'exclude'
+    : 'include'
+))
 
 function setSearchRef(el: any) {
   searchInputEl.value = el instanceof HTMLInputElement ? el : null
@@ -494,12 +434,27 @@ const candidateMatchesCardMode = computed(() => {
     ? candidateKind.value === 'process_relation'
     : candidateKind.value === 'condition'
 })
+const hasCrossProcessConditionTarget = computed(() => {
+  const candidate = editableCandidate.value
+  if (candidateKind.value !== 'condition' || !candidate?.then) return false
+  const targets = new Set([
+    ...(candidate.then.include_process_ids || []),
+    ...(candidate.then.exclude_process_ids || []),
+  ])
+  return targets.size !== 1 || !targets.has(currentProcessId.value)
+})
 const requiresManualReview = computed(() => (
-  effectiveStatus.value === 'pending_confirmation'
-  && !isSafeForBatchRuleConfirmation(props.item)
+  hasCrossProcessConditionTarget.value
+  || (
+    effectiveStatus.value === 'pending_confirmation'
+    && !isSafeForBatchRuleConfirmation(props.item)
+  )
 ))
 const manualModeState = computed(() => manualRuleModeActionState(props.item, props.inlineEditing))
 const manualReviewReason = computed(() => {
+  if (hasCrossProcessConditionTarget.value) {
+    return '此条件规则曾指向其他工序。请在“修改规则”中将动作保存为当前工序，跨工序关系请单独配置。'
+  }
   const issue = props.item.conditionReview?.issues?.[0]
   if (issue) return issue
   const confidence = Number(props.item.conditionReview?.confidence || 0)
@@ -591,7 +546,6 @@ const candidateRecognition = computed(() => {
 const filteredPickerOptions = computed(() => {
   const search = processPickerSearch.value.trim().toLowerCase()
   return props.processOptions.filter((p) => {
-    if (processPickerOpen.value === 'exclude' && p.main) return false
     return !search || p.display_name.toLowerCase().includes(search)
   })
 })
@@ -636,41 +590,13 @@ function updateWhen(value: RulePackageCondition) {
   editableCandidate.value = { ...editableCandidate.value, when: value, preview: '' }
 }
 
-function isActionSelected(kind: 'include' | 'exclude', processId: string) {
-  const action = editableCandidate.value?.then
-  return kind === 'include'
-    ? Boolean(action?.include_process_ids?.includes(processId))
-    : Boolean(action?.exclude_process_ids?.includes(processId))
-}
-
-function selectPickerOption(kind: 'include' | 'exclude', processId: string) {
-  if (!editableCandidate.value?.then) return
-  const action = editableCandidate.value.then
-  const includeIds = new Set(action.include_process_ids || [])
-  const excludeIds = new Set(action.exclude_process_ids || [])
-  if (kind === 'include') {
-    if (includeIds.has(processId)) { includeIds.delete(processId) }
-    else { includeIds.add(processId); excludeIds.delete(processId) }
-  } else {
-    if (excludeIds.has(processId)) { excludeIds.delete(processId) }
-    else { excludeIds.add(processId); includeIds.delete(processId) }
-  }
+function setCurrentProcessAction(kind: 'include' | 'exclude') {
+  if (!editableCandidate.value?.then || !currentProcessId.value) return
   editableCandidate.value = {
     ...editableCandidate.value,
-    then: { ...action, include_process_ids: Array.from(includeIds), exclude_process_ids: Array.from(excludeIds) },
-  }
-}
-
-function removeAction(kind: 'include' | 'exclude', processId: string) {
-  if (!editableCandidate.value?.then) return
-  const action = editableCandidate.value.then
-  const includeIds = new Set(action.include_process_ids || [])
-  const excludeIds = new Set(action.exclude_process_ids || [])
-  if (kind === 'include') includeIds.delete(processId)
-  else excludeIds.delete(processId)
-  editableCandidate.value = {
-    ...editableCandidate.value,
-    then: { ...action, include_process_ids: Array.from(includeIds), exclude_process_ids: Array.from(excludeIds) },
+    then: kind === 'include'
+      ? { ...editableCandidate.value.then, include_process_ids: [currentProcessId.value], exclude_process_ids: [] }
+      : { ...editableCandidate.value.then, include_process_ids: [], exclude_process_ids: [currentProcessId.value] },
   }
 }
 
@@ -1168,6 +1094,7 @@ function formatConfirmedAt(value: string) {
   cursor: pointer; transition: all 0.15s ease;
 }
 .tag-add-btn:hover { border-color: #6366f1; color: #6366f1; background: #f0f0ff; }
+.tag-add-btn-active { border-style: solid; border-color: #4f46e5; color: #4338ca; background: #eef2ff; }
 
 /* ===== Process picker dropdown ===== */
 .process-picker-dropdown {

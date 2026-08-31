@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   acceptTemplateGroupFile,
   aliasesFromRouteSegments,
+  buildTemplateRouteStructureOperations,
   clearTemplateGroupMappingDraft,
   createTemplateAliasBinding,
   findTemplateGroupByKey,
@@ -112,6 +113,53 @@ describe('templateGroupMapping', () => {
 
     expect(result).toEqual({ file: null, error: '请选择 .xml 格式的分组模板。' })
     expect(parsedFiles).toEqual([])
+  })
+
+  it('keeps auxiliary and unmappable operations in the full route structure', () => {
+    expect(buildTemplateRouteStructureOperations([
+      {
+        id: 30,
+        name: '车削加工（A侧）',
+        sequence: 30,
+        step_items: ['粗车外圆', '精车外圆'],
+        rule_evidence: ['外圆'],
+        rule_reasons: ['形成外圆特征'],
+      },
+      {
+        id: 10,
+        name: '调质',
+        sequence: 10,
+        step_items: [],
+        rule_evidence: ['35HRC'],
+      },
+      {
+        id: 20,
+        name: '终检',
+        sequence: 40,
+      },
+    ])).toEqual([
+      {
+        operation_id: 10,
+        operation_name: '调质',
+        step_items: [],
+        rule_evidence: ['35HRC'],
+        rule_reasons: [],
+      },
+      {
+        operation_id: 30,
+        operation_name: '车削加工（A侧）',
+        step_items: ['粗车外圆', '精车外圆'],
+        rule_evidence: ['外圆'],
+        rule_reasons: ['形成外圆特征'],
+      },
+      {
+        operation_id: 20,
+        operation_name: '终检',
+        step_items: [],
+        rule_evidence: [],
+        rule_reasons: [],
+      },
+    ])
   })
 
   it('finds arbitrary nested groups by stable key and normalized full path', () => {

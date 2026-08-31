@@ -9,4 +9,8 @@ if [ ! -d node_modules ]; then
   exit 1
 fi
 
-npm run dev -- --host 127.0.0.1 --port 5173
+API_PORT="${PROCESSMIND_API_PORT:-8000}"
+UI_PORT="${PROCESSMIND_UI_PORT:-5173}"
+export VITE_API_PROXY_TARGET="${VITE_API_PROXY_TARGET:-http://127.0.0.1:${API_PORT}}"
+
+npm run dev -- --host 127.0.0.1 --port "$UI_PORT"

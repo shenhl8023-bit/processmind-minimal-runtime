@@ -73,6 +73,45 @@ def _loads_issues(raw: str | None) -> list[str]:
     return [str(item) for item in payload] if isinstance(payload, list) else []
 
 
+def _route_items(route: NormalizedRouteVersion) -> list[dict]:
+    try:
+        payload = json.loads(route.route_json or "[]")
+    except Exception:
+        return []
+    return [item for item in payload if isinstance(item, dict)]
+
+
+def _route_process_ids(route: NormalizedRouteVersion) -> set[str]:
+    process_ids: set[str] = set()
+    for item in _route_items(route):
+        for key in ("id", "export_process_id"):
+            process_id = str(item.get(key) or "").strip()
+            if process_id:
+                process_ids.add(process_id)
+    return process_ids
+
+
+def _current_process_id_for_segment(
+    route: NormalizedRouteVersion,
+    segment_id: str,
+    processes: list[RuleConditionProcessOption],
+) -> str:
+    available_process_ids = {item.process_id for item in processes}
+    if segment_id in available_process_ids:
+        return segment_id
+    for item in _route_items(route):
+        if str(item.get("id") or "").strip() != segment_id:
+            continue
+        export_process_id = str(item.get("export_process_id") or "").strip()
+        if export_process_id in available_process_ids:
+            return export_process_id
+        route_process_id = str(item.get("id") or "").strip()
+        if route_process_id in available_process_ids:
+            return route_process_id
+        break
+    return segment_id
+
+
 def _special_requirement_for_legacy_boolean(field) -> str:
     text = " ".join([field.label, *field.aliases])
     if re.search(r"追溯|编号|批次.{0,6}标识", text):
@@ -120,6 +159,105 @@ def _migrate_legacy_boolean_candidate(candidate: RuleConditionCandidate) -> Rule
     migrated = candidate.model_copy(update={"when": when, "field_definitions": remaining_definitions})
     migrated.preview = condition_preview(migrated.when)
     return migrated
+
+
+def _unique_quench_segment_id(route: NormalizedRouteVersion) -> str | None:
+    route_items = _route_items(route)
+    if any(
+        str(item.get("export_process_id") or "").strip() == "process_quench"
+        for item in route_items
+    ):
+        return None
+    matches = {
+        str(item.get("id") or "").strip()
+        for item in route_items
+        if isinstance(item, dict)
+        and str(item.get("id") or "").strip()
+        and re.search(r"真空淬火|淬火", str(item.get("normalized_step_name") or "").strip())
+    }
+    return next(iter(matches)) if len(matches) == 1 else None
+
+
+def _migrate_legacy_quench_candidate(
+    candidate: RuleConditionCandidate,
+    replacement_process_id: str,
+) -> RuleConditionCandidate:
+    def replace_ids(process_ids: list[str]) -> list[str]:
+        return [replacement_process_id if process_id == "process_quench" else process_id for process_id in process_ids]
+
+    if candidate.kind == "condition" and candidate.then is not None:
+        include_process_ids = replace_ids(candidate.then.include_process_ids)
+        exclude_process_ids = replace_ids(candidate.then.exclude_process_ids)
+        if (
+            include_process_ids == candidate.then.include_process_ids
+            and exclude_process_ids == candidate.then.exclude_process_ids
+        ):
+            return candidate
+        return candidate.model_copy(update={
+            "then": candidate.then.model_copy(update={
+                "include_process_ids": include_process_ids,
+                "exclude_process_ids": exclude_process_ids,
+            }),
+        })
+
+    if candidate.kind == "process_relation" and candidate.relation is not None:
+        source_process_ids = replace_ids(candidate.relation.source_process_ids)
+        target_process_ids = replace_ids(candidate.relation.target_process_ids)
+        if (
+            source_process_ids == candidate.relation.source_process_ids
+            and target_process_ids == candidate.relation.target_process_ids
+        ):
+            return candidate
+        return candidate.model_copy(update={
+            "relation": candidate.relation.model_copy(update={
+                "source_process_ids": source_process_ids,
+                "target_process_ids": target_process_ids,
+            }),
+        })
+
+    return candidate
+
+
+async def migrate_legacy_quench_process_id_reviews(
+    route: NormalizedRouteVersion,
+    db: AsyncSession,
+) -> bool:
+    """Replace the old fixed quench alias when the saved route has one clear target."""
+    replacement_process_id = _unique_quench_segment_id(route)
+    if not replacement_process_id:
+        return False
+    reviews = (
+        await db.execute(
+            select(NormalizedRouteSegmentRuleReview).where(
+                NormalizedRouteSegmentRuleReview.route_version_id == route.id,
+            )
+        )
+    ).scalars().all()
+    changed = False
+    for review in reviews:
+        candidate = _loads_candidate(review.condition_candidate_json)
+        confirmed = _loads_candidate(review.condition_confirmed_json)
+        migrated_candidate = _migrate_legacy_quench_candidate(candidate, replacement_process_id) if candidate else None
+        migrated_confirmed = _migrate_legacy_quench_candidate(confirmed, replacement_process_id) if confirmed else None
+        if migrated_candidate == candidate and migrated_confirmed == confirmed:
+            continue
+        review.condition_candidate_json = (
+            json.dumps(migrated_candidate.model_dump(mode="json", by_alias=True), ensure_ascii=False)
+            if migrated_candidate else None
+        )
+        review.condition_confirmed_json = (
+            json.dumps(migrated_confirmed.model_dump(mode="json", by_alias=True), ensure_ascii=False)
+            if migrated_confirmed else None
+        )
+        issues = _loads_issues(review.condition_issues_json)
+        review.condition_issues_json = json.dumps([
+            issue for issue in issues
+            if not re.search(r"当前路线中不存在的工序：\s*process_quench", issue)
+        ], ensure_ascii=False)
+        changed = True
+    if changed:
+        await db.commit()
+    return changed
 
 
 def serialize_condition_review(row: NormalizedRouteSegmentRuleReview) -> RuleConditionReview:
@@ -239,10 +377,7 @@ async def _load_route_and_review(
     ).scalars().first()
     if not route:
         raise HTTPException(404, "当前保存路线版本不存在。")
-    try:
-        route_items = json.loads(route.route_json or "[]")
-    except Exception:
-        route_items = []
+    route_items = _route_items(route)
     if not any(isinstance(item, dict) and str(item.get("id") or "") == segment_id for item in route_items):
         raise HTTPException(404, "当前工序不属于该保存路线版本。")
 
@@ -277,13 +412,8 @@ def _validate_process_catalog(
     process_ids = [item.process_id for item in processes]
     if len(process_ids) != len(set(process_ids)):
         raise HTTPException(422, "标准工序列表包含重复 process_id。")
-    try:
-        route_items = json.loads(route.route_json or "[]")
-    except Exception:
-        route_items = []
-    allowed_route_ids = {str(item.get("id") or "") for item in route_items if isinstance(item, dict)}
-    allowed_route_ids.add("process_quench")
-    unknown = [process_id for process_id in process_ids if process_id not in allowed_route_ids]
+    allowed_process_ids = _route_process_ids(route)
+    unknown = [process_id for process_id in process_ids if process_id not in allowed_process_ids]
     if unknown:
         raise HTTPException(422, f"标准工序列表包含不属于当前路线的工序：{', '.join(unknown)}")
 
@@ -419,14 +549,21 @@ async def confirm_condition_review(
 ) -> RuleConditionReviewResponse:
     route, review = await _load_route_and_review(body.project_id, body.route_id, body.segment_id, db)
     _validate_process_catalog(route, body.processes)
+    current_process_id = _current_process_id_for_segment(route, body.segment_id, body.processes)
     source_text = body.source_text.strip()
     expected_hash = condition_source_hash(source_text)
     if body.source_hash != expected_hash or review.condition_source_hash != expected_hash:
         raise HTTPException(409, "条件文字已经发生变化，请重新解析后再确认。")
     if review.condition_status not in {"pending_confirmation", "confirmed"}:
         raise HTTPException(409, "当前条件尚未生成可确认的候选规则。")
+    if current_process_id not in {item.process_id for item in body.processes}:
+        raise HTTPException(422, "当前条件规则的目标工序不在可用标准工序列表中。")
     candidate = _migrate_legacy_boolean_candidate(body.candidate.model_copy(deep=True))
-    issues = validate_candidate(candidate, body.processes)
+    issues = validate_candidate(
+        candidate,
+        body.processes,
+        current_process_id=current_process_id,
+    )
     if issues:
         raise HTTPException(422, {"message": "候选规则校验未通过", "issues": issues})
 
@@ -459,9 +596,6 @@ async def set_manual_condition_review(
     if body.process_id not in {item.process_id for item in body.processes}:
         raise HTTPException(422, "人工 Bool 条件的目标工序不在当前标准工序列表中。")
     candidate = _migrate_legacy_boolean_candidate(body.candidate.model_copy(deep=True))
-    issues = validate_candidate(candidate, body.processes)
-    if issues:
-        raise HTTPException(422, {"message": "人工设定的规则校验未通过", "issues": issues})
     expected_field_key = _manual_process_field_key(body.process_id)
     definitions = candidate.field_definitions
     valid_manual_shape = (
@@ -481,6 +615,13 @@ async def set_manual_condition_review(
     )
     if not valid_manual_shape:
         raise HTTPException(422, "人工 Bool 条件必须只控制当前工序，并使用固定的用户开关字段。")
+    issues = validate_candidate(
+        candidate,
+        body.processes,
+        current_process_id=body.process_id,
+    )
+    if issues:
+        raise HTTPException(422, {"message": "人工设定的规则校验未通过", "issues": issues})
 
     candidate.preview = condition_preview(candidate.when, {field.key: field for field in candidate.field_definitions})
     candidate_json = json.dumps(candidate.model_dump(mode="json", by_alias=True), ensure_ascii=False)

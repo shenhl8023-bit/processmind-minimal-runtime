@@ -34,6 +34,9 @@ from app.services.project_group_templates import (
 
 logger = logging.getLogger(__name__)
 MIN_ACCEPTED_CONFIDENCE = 0.90
+CONFIDENCE_EPSILON = 1e-9
+TEMPLATE_GROUP_MAPPING_LLM_TIMEOUT_SECONDS = 30.0
+TEMPLATE_STEP_MAPPING_LLM_TIMEOUT_SECONDS = 30.0
 
 _FEATURE_ALIASES: dict[str, tuple[str, ...]] = {
     "轴端面": ("端面", "平端面", "车端面"),
@@ -76,6 +79,10 @@ def _clean_confidence(value: Any) -> float:
         return max(0.0, min(float(value), 1.0))
     except (TypeError, ValueError):
         return 0.0
+
+
+def _has_min_confidence(value: float) -> bool:
+    return value + CONFIDENCE_EPSILON >= MIN_ACCEPTED_CONFIDENCE
 
 
 def _clean_text_list(value: Any) -> list[str]:
@@ -153,6 +160,7 @@ def build_template_candidates(
             TemplateGroupMappingCandidateIn(
                 group_id=str(node.get("key", "")),
                 path=path,
+                feature_selections=features,
                 score=score,
                 reason=f"原文命中：{'、'.join(dict.fromkeys(evidence))}",
             ),
@@ -219,6 +227,7 @@ def build_step_candidates(
             TemplateGroupMappingCandidateIn(
                 group_id=str(node.get("key", "")),
                 path=path,
+                feature_selections=features,
                 score=score,
                 reason=f"工步命中：{'、'.join(dict.fromkeys(evidence))}",
             ),
@@ -228,6 +237,42 @@ def build_step_candidates(
     if any(context_match for _, context_match in scored):
         scored = [item for item in scored if item[1]]
     return [candidate for candidate, _ in scored]
+
+
+def build_all_feature_leaf_candidates(
+    tree: list[dict[str, object]],
+) -> list[TemplateGroupMappingCandidateIn]:
+    """Return every legal feature target so semantic matching is not keyword-gated."""
+    candidates: list[TemplateGroupMappingCandidateIn] = []
+    for node in _flatten_template_nodes(tree):
+        if not is_feature_mapping_target(node):
+            continue
+        raw_path = node.get("path", [])
+        raw_features = node.get("feature_selections", [])
+        path = [str(item) for item in raw_path] if isinstance(raw_path, list) else []
+        features = [str(item) for item in raw_features] if isinstance(raw_features, list) else []
+        candidates.append(TemplateGroupMappingCandidateIn(
+            group_id=str(node.get("key", "")),
+            path=path,
+            feature_selections=features,
+            reason="受控模板特征",
+        ))
+    return candidates
+
+
+def _matched_features_for_step(
+    step: TemplateStepRef,
+    candidate: TemplateGroupMappingCandidateIn,
+) -> list[str]:
+    source = _normalized_text(step.step_name)
+    return [
+        feature
+        for feature in candidate.feature_selections
+        if any(
+            (normalized := _normalized_text(term)) and normalized in source
+            for term in _feature_terms(feature)
+        )
+    ]
 
 
 def prepare_step_candidates(
@@ -278,9 +323,12 @@ def _deterministic_step_suggestion(
     step: TemplateStepRef,
     candidates: list[TemplateGroupMappingCandidateIn],
 ) -> TemplateStepMappingSuggestionOut:
-    if len(candidates) != 1 or candidates[0].score < MIN_ACCEPTED_CONFIDENCE:
+    if len(candidates) != 1 or not _has_min_confidence(candidates[0].score):
         return _step_unresolved(step, candidates)
     candidate = candidates[0]
+    matched_features = _matched_features_for_step(step, candidate)
+    if not matched_features:
+        return _step_unresolved(step, candidates)
     return TemplateStepMappingSuggestionOut(
         operation_id=step.operation_id,
         operation_name=step.operation_name,
@@ -289,6 +337,7 @@ def _deterministic_step_suggestion(
         step_name=step.step_name,
         step_text_hash=step.step_text_hash,
         recommended_group_ids=[candidate.group_id],
+        recommended_features_by_group={candidate.group_id: matched_features},
         candidates=candidates,
         confidence=candidate.score,
         source="auto_confirmed",
@@ -305,6 +354,7 @@ def _validated_step_model_result(
     if not payload:
         return _step_unresolved(step, candidates, warnings=["模型没有返回该工步的映射建议。"])
     group_ids = _clean_text_list(payload.get("group_ids"))
+    raw_features_by_group = payload.get("features_by_group")
     confidence = _clean_confidence(payload.get("confidence"))
     reason = _clean_text(payload.get("reason"))
     allowed_ids = {candidate.group_id for candidate in candidates}
@@ -316,7 +366,31 @@ def _validated_step_model_result(
             reason=reason,
             warnings=["模型返回的分组不在该工步候选范围内，已忽略。"],
         )
-    if confidence < MIN_ACCEPTED_CONFIDENCE:
+    if not isinstance(raw_features_by_group, dict):
+        return _step_unresolved(
+            step,
+            candidates,
+            confidence=confidence,
+            reason=reason,
+            warnings=["模型没有返回每个分组对应的具体特征，已忽略。"],
+        )
+    allowed_features = {
+        candidate.group_id: set(candidate.feature_selections)
+        for candidate in candidates
+    }
+    recommended_features_by_group: dict[str, list[str]] = {}
+    for group_id in group_ids:
+        features = _clean_text_list(raw_features_by_group.get(group_id))
+        if not features or any(feature not in allowed_features[group_id] for feature in features):
+            return _step_unresolved(
+                step,
+                candidates,
+                confidence=confidence,
+                reason=reason,
+                warnings=["模型返回的特征不属于对应模板分组，已忽略。"],
+            )
+        recommended_features_by_group[group_id] = features
+    if not _has_min_confidence(confidence):
         return _step_unresolved(
             step,
             candidates,
@@ -342,6 +416,7 @@ def _validated_step_model_result(
         step_name=step.step_name,
         step_text_hash=step.step_text_hash,
         recommended_group_ids=group_ids,
+        recommended_features_by_group=recommended_features_by_group,
         candidates=candidates,
         confidence=confidence,
         source="llm",
@@ -397,7 +472,7 @@ def _validated_model_result(
             reason=reason,
             warnings=["当前工序存在多个候选分组，必须由用户确认。"],
         )
-    if confidence < MIN_ACCEPTED_CONFIDENCE:
+    if not _has_min_confidence(confidence):
         return _base_unresolved(
             operation,
             candidates,
@@ -468,8 +543,8 @@ evidence 必须逐字摘自 operation_name 或 step_items。confidence 范围为
             system_prompt,
             json.dumps(user_payload, ensure_ascii=False),
             temperature=0.0,
-            timeout_seconds=12.0,
-            max_retries=0,
+            timeout_seconds=TEMPLATE_GROUP_MAPPING_LLM_TIMEOUT_SECONDS,
+            max_retries=1,
         )
     except Exception as exc:
         logger.warning("template_group_mapping_llm_failed project_id=%s error=%s", body.project_id, exc)
@@ -541,35 +616,49 @@ async def resolve_template_step_mappings(
     if template_revision != body.expected_template_revision:
         raise HTTPException(409, REVISION_CONFLICT_DETAIL)
     tree = serialize_project_group_template(template_row).tree
-    target_group_id = _clean_text(body.target_group_id)
+    target_group_ids = _clean_text_list([
+        *_clean_text_list(body.target_group_ids),
+        _clean_text(body.target_group_id),
+    ])
     allowed_group_ids: set[str] | None = None
-    if target_group_id:
-        target = next(
-            (node for node in _flatten_template_nodes(tree) if node.get("key") == target_group_id),
-            None,
-        )
-        if target is None or not is_feature_mapping_target(target):
-            raise HTTPException(422, "智能推荐目标必须是具有合法特征的叶子分组。")
-        allowed_group_ids = {target_group_id}
+    if target_group_ids:
+        nodes_by_key = {str(node.get("key", "")): node for node in _flatten_template_nodes(tree)}
+        for target_group_id in target_group_ids:
+            target = nodes_by_key.get(target_group_id)
+            if target is None or not is_feature_mapping_target(target):
+                raise HTTPException(422, "智能推荐目标必须是具有合法特征的叶子分组。")
+        allowed_group_ids = set(target_group_ids)
+    all_feature_candidates = [
+        candidate
+        for candidate in build_all_feature_leaf_candidates(tree)
+        if allowed_group_ids is None or candidate.group_id in allowed_group_ids
+    ]
     prepared = [
         (
             step,
             [
-                candidate for candidate in candidates
+                candidate for candidate in keyword_candidates
                 if allowed_group_ids is None or candidate.group_id in allowed_group_ids
             ],
+            all_feature_candidates,
         )
         for operation in body.operations
-        for step, candidates in prepare_step_candidates(operation, tree)
+        for step, keyword_candidates in prepare_step_candidates(operation, tree)
     ]
     suggestions = [
-        _deterministic_step_suggestion(step, candidates)
-        for step, candidates in prepared
+        _deterministic_step_suggestion(step, keyword_candidates)
+        for step, keyword_candidates, _ in prepared
     ]
+    if not body.include_llm:
+        return TemplateStepMappingSuggestResponse(
+            project_id=body.project_id,
+            template_revision=template_revision,
+            suggestions=suggestions,
+        )
     ambiguous = [
-        (step, candidates)
-        for (step, candidates), suggestion in zip(prepared, suggestions)
-        if suggestion.source == "unresolved" and candidates
+        (step, model_candidates)
+        for (step, _, model_candidates), suggestion in zip(prepared, suggestions)
+        if suggestion.source == "unresolved" and model_candidates
     ]
     if not ambiguous:
         return TemplateStepMappingSuggestResponse(
@@ -578,12 +667,14 @@ async def resolve_template_step_mappings(
             suggestions=suggestions,
         )
 
-    system_prompt = """你是机械加工工步与模板特征审核器。只输出 JSON，不要输出 Markdown。
-每个 suggestion 只处理一个 step_key。你只能从该工步 candidates 中选择 group_ids，禁止创造或改写 ID。
-证据必须逐字摘自 step_name 或 operation_name；无法可靠判断时返回空 group_ids。
-输出格式：{"suggestions":[{"step_key":"op_1_s01","group_ids":["grp_x"],"confidence":0.9,"evidence":["钻孔"],"reason":"简短理由"}]}。"""
+    system_prompt = """你是机械加工工步与模板具体特征审核器。只输出 JSON，不要输出 Markdown。
+每个 suggestion 只处理一个 step_key。你只能从 feature_catalog 中选择 group_ids 和 feature_selections，禁止创造或改写 ID、分组或特征。
+features_by_group 的每个键必须出现在 group_ids 中，每个值必须是 feature_catalog 对应分组 feature_selections 中的一个或多个具体特征。
+证据必须逐字摘自 step_name 或 operation_name；无法可靠判断时返回空 group_ids 和空 features_by_group。
+输出格式：{"suggestions":[{"step_key":"op_1_s01","group_ids":["grp_x"],"features_by_group":{"grp_x":["特征名称"]},"confidence":0.9,"evidence":["钻孔"],"reason":"简短理由"}]}。"""
     user_payload = {
         "project_id": body.project_id,
+        "feature_catalog": [candidate.model_dump() for candidate in all_feature_candidates],
         "steps": [
             {
                 "operation_id": step.operation_id,
@@ -591,7 +682,6 @@ async def resolve_template_step_mappings(
                 "step_key": step.step_key,
                 "step_order": step.step_order,
                 "step_name": step.step_name,
-                "candidates": [candidate.model_dump() for candidate in candidates],
             }
             for step, candidates in ambiguous
         ],
@@ -601,7 +691,7 @@ async def resolve_template_step_mappings(
             system_prompt,
             json.dumps(user_payload, ensure_ascii=False),
             temperature=0.0,
-            timeout_seconds=12.0,
+            timeout_seconds=TEMPLATE_STEP_MAPPING_LLM_TIMEOUT_SECONDS,
             max_retries=0,
         )
     except Exception as exc:
@@ -616,7 +706,7 @@ async def resolve_template_step_mappings(
                     candidates,
                     warnings=["模型调用失败，已保留程序候选供人工选择。"],
                 )
-                for (step, candidates), suggestion in zip(prepared, suggestions)
+                for (step, _, candidates), suggestion in zip(prepared, suggestions)
             ],
             warnings=["模型调用失败，已保留程序候选供人工选择。"],
         )
@@ -634,7 +724,7 @@ async def resolve_template_step_mappings(
 
     model_used = bool(raw and parsed is not None)
     resolved_suggestions: list[TemplateStepMappingSuggestionOut] = []
-    for (step, candidates), suggestion in zip(prepared, suggestions):
+    for (step, _, candidates), suggestion in zip(prepared, suggestions):
         if suggestion.source != "unresolved" or not candidates:
             resolved_suggestions.append(suggestion)
             continue

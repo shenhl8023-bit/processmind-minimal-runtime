@@ -18,12 +18,37 @@ export type GenerateInputField = {
   }
 }
 
+export type InputValueOrigin = 'unset' | 'extracted' | 'manual' | 'example'
+
+export type GenerateInputMetadata = {
+  origin: Exclude<InputValueOrigin, 'unset'>
+  unit?: string
+  evidence: string[]
+}
+
 type FactorDictionaryEntry = {
   values: string[]
   input_type?: string
   source?: string
   label?: string
   required?: boolean
+}
+
+function isPrecisionItField(field: Pick<GenerateInputField, 'key' | 'name'>) {
+  return /^precision\.(?:dimension|outer_diameter|inner_diameter)_it$/.test(field.key)
+    || /尺寸精度\s*IT/i.test(field.name || '')
+}
+
+function normalizeFieldValidation(field: GenerateInputField): GenerateInputField['validation'] {
+  if (isPrecisionItField(field)) return { ...(field.validation || {}), min: 5, max: 10 }
+  return field.validation
+}
+
+function normalizeGenerateInputField(field: GenerateInputField): GenerateInputField {
+  return {
+    ...field,
+    validation: normalizeFieldValidation(field),
+  }
 }
 
 function normalizeSchemaFields(fields: any, required: boolean): GenerateInputField[] {
@@ -39,6 +64,7 @@ function normalizeSchemaFields(fields: any, required: boolean): GenerateInputFie
       required,
     }))
     .filter(field => field.key)
+    .map(normalizeGenerateInputField)
 }
 
 function normalizeV2Fields(fields: any): GenerateInputField[] {
@@ -62,6 +88,7 @@ function normalizeV2Fields(fields: any): GenerateInputField[] {
       }
     })
     .filter(field => field.key)
+    .map(normalizeGenerateInputField)
 }
 
 /** Expand dotted keys like material.grade into nested objects for V2 expression engine. */
@@ -162,6 +189,7 @@ function exampleValueForField(field: GenerateInputField) {
   if (field.examples?.length) return isArrayField(field) ? [field.examples[0]] : field.examples[0]
   if (field.allowed_values?.length) return isArrayField(field) ? [field.allowed_values[0]] : field.allowed_values[0]
   if (isBooleanField(field)) return true
+  if (isPrecisionItField(field)) return 5
   if (isNumberField(field)) return field.validation?.min ?? 0
   if (/material(?:\\.grade)?|材料|牌号/i.test(field.key) || /材料|牌号/.test(field.name || '')) return '9Cr18'
   if (isArrayField(field)) return ['示例特征']
@@ -216,6 +244,7 @@ export function useGenerateInputFields(args: {
   schemaLoading?: Ref<boolean>
 }) {
   const fieldValues = ref<Record<string, any>>({})
+  const fieldOrigins = ref<Record<string, InputValueOrigin>>({})
   const customInputValues = ref<Record<string, string>>({})
 
   const schemaVersion = computed(() => String(args.inputSchema.value?.schema_version || '1.0'))
@@ -229,17 +258,19 @@ export function useGenerateInputFields(args: {
     const factorDictionary = normalizeFactorDictionary(schema.factor_dictionary)
     const required = normalizeSchemaFields(schema.required_inputs, true)
     const optional = normalizeSchemaFields(schema.optional_inputs, false)
-    return [...required, ...optional].map(field => applyFactorDictionary(field, factorDictionary))
+    return [...required, ...optional]
+      .map(field => applyFactorDictionary(field, factorDictionary))
+      .map(normalizeGenerateInputField)
   })
 
   const requiredFields = computed(() => inputFields.value.filter(field => field.required))
-  const filledFieldCount = computed(() => inputFields.value.filter(field => hasValidFieldValue(field)).length)
+  const filledFieldCount = computed(() => inputFields.value.filter(field => hasConfirmedFieldValue(field)).length)
 
   const factorValues = computed(() => {
     const values: Record<string, any> = {}
     inputFields.value.forEach((field) => {
       const value = fieldValues.value[field.key]
-      if (!isReusableFieldValue(field, value)) return
+      if (!hasConfirmedFieldValue(field)) return
       if (Array.isArray(value)) {
         values[field.key] = value.filter(Boolean)
       } else if (isNumberField(field)) {
@@ -256,35 +287,53 @@ export function useGenerateInputFields(args: {
     return values
   })
 
+  const factorMetadata = computed<Record<string, GenerateInputMetadata>>(() => {
+    const metadata: Record<string, GenerateInputMetadata> = {}
+    inputFields.value.forEach((field) => {
+      if (!hasConfirmedFieldValue(field)) return
+      const origin = fieldValueOrigin(field.key)
+      if (origin !== 'manual' && origin !== 'extracted') return
+      metadata[field.key] = {
+        origin,
+        ...(isNumberField(field) && field.unit ? { unit: field.unit } : {}),
+        evidence: [],
+      }
+    })
+    return metadata
+  })
+
   const canGenerate = computed(() =>
     Boolean(
       args.projectId.value
       && args.hasRulePackage.value
       && !args.schemaLoading?.value
       && inputFields.value.length
-      && requiredFields.value.every(field => hasValidFieldValue(field)),
+      && requiredFields.value.every(field => hasConfirmedFieldValue(field)),
     ),
   )
 
   function initializeFieldValues() {
     const nextValues: Record<string, any> = {}
+    const nextOrigins: Record<string, InputValueOrigin> = {}
     inputFields.value.forEach((field) => {
       const currentValue = fieldValues.value[field.key]
-      if (isReusableFieldValue(field, currentValue)) {
+      const currentOrigin = fieldValueOrigin(field.key)
+      if (currentOrigin !== 'unset' && isReusableFieldValue(field, currentValue)) {
         nextValues[field.key] = currentValue
+        nextOrigins[field.key] = currentOrigin
         return
       }
       if (isArrayField(field)) {
         nextValues[field.key] = []
       } else if (isBooleanField(field)) {
-        nextValues[field.key] = field.source === '用户直接设定' ? false : undefined
-      } else if (isSingleSelectField(field)) {
-        nextValues[field.key] = field.allowed_values?.[0] || field.examples?.[0] || ''
+        nextValues[field.key] = undefined
       } else {
-        nextValues[field.key] = field.examples?.[0] || ''
+        nextValues[field.key] = ''
       }
+      nextOrigins[field.key] = 'unset'
     })
     fieldValues.value = nextValues
+    fieldOrigins.value = nextOrigins
     const fieldKeys = new Set(inputFields.value.map(field => field.key))
     customInputValues.value = Object.fromEntries(
       Object.entries(customInputValues.value).filter(([key]) => fieldKeys.has(key)),
@@ -303,6 +352,24 @@ export function useGenerateInputFields(args: {
     if (isBooleanField(field)) return typeof value === 'boolean'
     if (isNumberField(field)) return isReusableFieldValue(field, value)
     return isReusableFieldValue(field, value) && hasFieldValue(field.key)
+  }
+
+  function fieldValueOrigin(key: string): InputValueOrigin {
+    return fieldOrigins.value[key] || 'unset'
+  }
+
+  function hasConfirmedFieldValue(field: GenerateInputField) {
+    const origin = fieldValueOrigin(field.key)
+    return (origin === 'manual' || origin === 'extracted' || origin === 'example') && hasValidFieldValue(field)
+  }
+
+  function isConfirmedFieldValue(field: GenerateInputField) {
+    return hasConfirmedFieldValue(field)
+  }
+
+  function isInvalidConfirmedFieldValue(field: GenerateInputField) {
+    const origin = fieldValueOrigin(field.key)
+    return (origin === 'manual' || origin === 'extracted' || origin === 'example') && !hasValidFieldValue(field)
   }
 
   function fieldTextValue(key: string) {
@@ -329,7 +396,7 @@ export function useGenerateInputFields(args: {
       return normalized.length <= 3 ? normalized.join('、') : `${normalized.slice(0, 3).join('、')} 等 ${normalized.length} 项`
     }
     if (typeof value === 'string') return value.trim()
-    if (typeof value === 'boolean') return value ? '已启用' : ''
+    if (typeof value === 'boolean') return value ? '是' : '否'
     if (value === undefined || value === null) return ''
     return String(value)
   }
@@ -338,16 +405,14 @@ export function useGenerateInputFields(args: {
     return String((event.target as HTMLInputElement | HTMLTextAreaElement)?.value || '')
   }
 
-  function checkedValue(event: Event) {
-    return Boolean((event.target as HTMLInputElement)?.checked)
-  }
-
   function setFieldText(key: string, value: string) {
     fieldValues.value[key] = value
+    fieldOrigins.value[key] = 'manual'
   }
 
   function setFieldBoolean(key: string, value: boolean) {
     fieldValues.value[key] = value
+    fieldOrigins.value[key] = 'manual'
   }
 
   function setCustomInput(key: string, value: string) {
@@ -360,6 +425,7 @@ export function useGenerateInputFields(args: {
     fieldValues.value[key] = index >= 0
       ? list.filter(item => item !== value)
       : [...list, value]
+    fieldOrigins.value[key] = 'manual'
   }
 
   function addCustomArrayValue(key: string) {
@@ -369,6 +435,15 @@ export function useGenerateInputFields(args: {
     if (!list.includes(value)) {
       fieldValues.value[key] = [...list, value]
     }
+    fieldOrigins.value[key] = 'manual'
+    customInputValues.value[key] = ''
+  }
+
+  function addCustomSingleValue(key: string) {
+    const value = String(customInputValues.value[key] || '').trim()
+    if (!value) return
+    fieldValues.value[key] = value
+    fieldOrigins.value[key] = 'manual'
     customInputValues.value[key] = ''
   }
 
@@ -376,10 +451,11 @@ export function useGenerateInputFields(args: {
     const nextValues: Record<string, any> = {}
     inputFields.value.forEach((field) => {
       if (isArrayField(field)) nextValues[field.key] = []
-      else if (isBooleanField(field)) nextValues[field.key] = false
+      else if (isBooleanField(field)) nextValues[field.key] = undefined
       else nextValues[field.key] = ''
     })
     fieldValues.value = nextValues
+    fieldOrigins.value = Object.fromEntries(inputFields.value.map(field => [field.key, 'unset' as const]))
     customInputValues.value = {}
   }
 
@@ -394,10 +470,12 @@ export function useGenerateInputFields(args: {
       nextValues[field.key] = exampleValueForField(field)
     })
     fieldValues.value = nextValues
+    fieldOrigins.value = Object.fromEntries(inputFields.value.map(field => [field.key, 'manual' as const]))
   }
 
   function resetFieldValues() {
     fieldValues.value = {}
+    fieldOrigins.value = {}
     customInputValues.value = {}
   }
 
@@ -407,22 +485,26 @@ export function useGenerateInputFields(args: {
 
   return {
     addCustomArrayValue,
+    addCustomSingleValue,
     arrayFieldValues,
     canGenerate,
-    checkedValue,
     clearAllFields,
     customInputValues,
     factorValues,
+    factorMetadata,
     fieldPlaceholder,
     fieldPreviewValue,
     fieldTextValue,
     fieldValues,
+    fieldValueOrigin,
     filledFieldCount,
     fillExampleValues,
     hasFieldValue,
     initializeFieldValues,
     inputFields,
     inputValue,
+    isConfirmedFieldValue,
+    isInvalidConfirmedFieldValue,
     nestFactorValues,
     resetFieldValues,
     schemaVersion,

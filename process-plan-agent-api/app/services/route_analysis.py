@@ -29,6 +29,7 @@ from app.services.route_analysis_helpers import (
 from app.services.rule_packages.condition_reviews import (
     invalidate_legacy_nondestructive_relation_reviews,
     migrate_legacy_boolean_requirement_reviews,
+    migrate_legacy_quench_process_id_reviews,
 )
 from app.services.route_merge.workspace import (
     build_route_item_source_lookup,
@@ -290,6 +291,7 @@ async def build_saved_normalized_route_response(
     db: AsyncSession,
 ) -> SavedNormalizedRouteVersionOut:
     await migrate_legacy_boolean_requirement_reviews(version_row, db)
+    await migrate_legacy_quench_process_id_reviews(version_row, db)
     await invalidate_legacy_nondestructive_relation_reviews(version_row, db)
     response = serialize_saved_normalized_route_version(version_row)
     project = (

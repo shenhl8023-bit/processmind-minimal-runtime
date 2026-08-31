@@ -219,8 +219,78 @@ async def test_step_suggestions_scope_candidates_to_target_leaf(mapping_store, m
         )
 
     assert [candidate.group_id for candidate in result.suggestions[0].candidates] == [hole_key]
-    assert result.suggestions[1].candidates == []
+    assert [candidate.group_id for candidate in result.suggestions[1].candidates] == [hole_key]
     assert result.model_used is False
+
+
+@pytest.mark.asyncio
+async def test_selected_leaf_recommendation_accepts_exact_threshold_match(mapping_store, monkeypatch):
+    sessions, tree = mapping_store
+    hole_key = _node_key(tree, ["A侧", "孔"])
+    model_called = False
+
+    async def model_must_not_run(*args, **kwargs):
+        nonlocal model_called
+        model_called = True
+        raise AssertionError("selected leaf recommendation must not call the model")
+
+    monkeypatch.setattr(template_group_mapping, "call_llm", model_must_not_run)
+    async with sessions() as db:
+        result = await template_group_mapping.resolve_template_step_mappings(
+            db,
+            TemplateStepMappingSuggestRequest(
+                project_id=7,
+                expected_template_revision=1,
+                target_group_ids=[hole_key],
+                include_llm=False,
+                operations=[TemplateGroupMappingOperationIn(
+                    operation_id=1,
+                    operation_name="车削加工（A侧）",
+                    step_items=["钻孔"],
+                )],
+            ),
+        )
+
+    suggestion = result.suggestions[0]
+    assert suggestion.source == "auto_confirmed"
+    assert suggestion.recommended_group_ids == [hole_key]
+    assert suggestion.recommended_features_by_group == {hole_key: ["孔(盲孔)"]}
+    assert model_called is False
+
+
+@pytest.mark.asyncio
+async def test_selected_feature_recommendation_skips_the_model_when_local_matching_is_inconclusive(mapping_store, monkeypatch):
+    sessions, tree = mapping_store
+    outer_key = _node_key(tree, ["A侧", "外圆"])
+    model_called = False
+
+    async def model_must_not_run(*args, **kwargs):
+        nonlocal model_called
+        model_called = True
+        raise AssertionError("selected feature recommendation must not call the model")
+
+    monkeypatch.setattr(template_group_mapping, "call_llm", model_must_not_run)
+    async with sessions() as db:
+        result = await template_group_mapping.resolve_template_step_mappings(
+            db,
+            TemplateStepMappingSuggestRequest(
+                project_id=7,
+                expected_template_revision=1,
+                target_group_ids=[outer_key],
+                include_llm=False,
+                operations=[TemplateGroupMappingOperationIn(
+                    operation_id=1,
+                    operation_name="车削加工（A侧）",
+                    step_items=["精整圆柱表面"],
+                )],
+            ),
+        )
+
+    suggestion = result.suggestions[0]
+    assert suggestion.source == "unresolved"
+    assert suggestion.recommended_group_ids == []
+    assert result.model_used is False
+    assert model_called is False
 
 
 @pytest.mark.asyncio
@@ -274,6 +344,45 @@ async def test_accepts_only_high_confidence_model_choice_from_server_candidates(
     assert result.suggestions[0].group_id == a_hole_key
     assert result.suggestions[0].source == "llm"
     assert result.suggestions[0].evidence == ["在A侧钻安装孔"]
+
+
+@pytest.mark.asyncio
+async def test_step_suggestions_allow_model_to_select_a_semantic_feature_outside_keyword_matches(mapping_store, monkeypatch):
+    sessions, tree = mapping_store
+    outer_key = _node_key(tree, ["A侧", "外圆"])
+
+    async def semantic_match(*args, **kwargs):
+        payload = json.loads(args[1])
+        candidates = payload["feature_catalog"]
+        assert any(candidate["group_id"] == outer_key for candidate in candidates)
+        return json.dumps({"suggestions": [{
+            "step_key": "op_360_s01",
+            "group_ids": [outer_key],
+            "features_by_group": {outer_key: ["外圆柱面"]},
+            "confidence": 0.96,
+            "evidence": ["精加工圆柱外表面"],
+            "reason": "圆柱外表面对应外圆柱面特征。",
+        }]}, ensure_ascii=False)
+
+    monkeypatch.setattr(template_group_mapping, "call_llm", semantic_match)
+    async with sessions() as db:
+        result = await template_group_mapping.resolve_template_step_mappings(
+            db,
+            TemplateStepMappingSuggestRequest(
+                project_id=7,
+                expected_template_revision=1,
+                operations=[TemplateGroupMappingOperationIn(
+                    operation_id=360,
+                    operation_name="精加工",
+                    step_items=["精加工圆柱外表面"],
+                )],
+            ),
+        )
+
+    suggestion = result.suggestions[0]
+    assert suggestion.source == "llm"
+    assert suggestion.recommended_group_ids == [outer_key]
+    assert suggestion.recommended_features_by_group == {outer_key: ["外圆柱面"]}
 
 
 @pytest.mark.asyncio
@@ -350,7 +459,7 @@ async def test_model_failure_preserves_server_candidates(mapping_store, monkeypa
 
 
 @pytest.mark.asyncio
-async def test_model_mapping_uses_a_short_single_attempt_timeout(mapping_store, monkeypatch):
+async def test_model_mapping_allows_slow_provider_response_timeout(mapping_store, monkeypatch):
     sessions, _ = mapping_store
     request_options = {}
 
@@ -362,7 +471,35 @@ async def test_model_mapping_uses_a_short_single_attempt_timeout(mapping_store, 
     async with sessions() as db:
         await template_group_mapping.resolve_template_group_mappings(db, _request())
 
-    assert request_options["timeout_seconds"] == 12.0
+    assert request_options["timeout_seconds"] == 30.0
+    assert request_options["max_retries"] == 1
+
+
+@pytest.mark.asyncio
+async def test_step_mapping_allows_slow_provider_response_timeout(mapping_store, monkeypatch):
+    sessions, _ = mapping_store
+    request_options = {}
+
+    async def capture_options(*args, **kwargs):
+        request_options.update(kwargs)
+        return ""
+
+    monkeypatch.setattr(template_group_mapping, "call_llm", capture_options)
+    async with sessions() as db:
+        await template_group_mapping.resolve_template_step_mappings(
+            db,
+            TemplateStepMappingSuggestRequest(
+                project_id=7,
+                expected_template_revision=1,
+                operations=[TemplateGroupMappingOperationIn(
+                    operation_id=360,
+                    operation_name="精加工",
+                    step_items=["精加工圆柱外表面"],
+                )],
+            ),
+        )
+
+    assert request_options["timeout_seconds"] == 30.0
     assert request_options["max_retries"] == 0
 
 

@@ -4,12 +4,13 @@ from copy import deepcopy
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, select, text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base, get_db
 from app.main import app
-from app.models.models import FinalizedRulePackage, KmaiFactorMappingUsage, NormalizedRouteVersion, Project
+from app.models.models import FinalizedRulePackage, NormalizedRouteVersion, Project
+from app.models.models import ProjectGroupTemplate
 from app.services.db_schema_maintenance import ensure_project_schema
 from app.services.rule_packages.lifecycle import publish_rule_package
 
@@ -32,6 +33,34 @@ def lifecycle_client(tmp_path):
                 version=1,
                 route_json="[]",
             ))
+            session.add(ProjectGroupTemplate(
+                project_id=12,
+                original_filename="group-template.xml",
+                source_encoding="utf-8",
+                part_filename="group-template.prt",
+                content_hash="a" * 64,
+                feature_dictionary_version="b" * 64,
+                source_xml="<Kmsoft />",
+                tree_json="[]",
+                validation_json="[]",
+                mappings_json=json.dumps([
+                    {
+                        "source_operation_id": operation_id,
+                        "alias": f"op-{operation_id}",
+                        "template_group_key": f"group-{operation_id}",
+                        "template_group_id": f"group-{operation_id}",
+                        "template_group_name": f"group-{operation_id}",
+                        "template_group_path": [f"group-{operation_id}"],
+                        "feature_selections": [],
+                    }
+                    for operation_id in range(11, 16)
+                ], ensure_ascii=False),
+                step_mappings_json="[]",
+                mapping_output_json="[]",
+                template_revision=1,
+                group_count=5,
+                feature_selection_count=0,
+            ))
             await session.commit()
 
     asyncio.run(setup())
@@ -51,14 +80,25 @@ def lifecycle_client(tmp_path):
 
 
 def _v2_save_payload(package):
+    route_catalog = deepcopy(package["route_catalog"])
+    for index, process in enumerate(route_catalog.get("processes", []), start=0):
+        process["template_group_aliases"] = [{
+            "source_operation_id": 11 + index,
+            "alias": process["display_name"],
+            "template_group_id": f"group-{11 + index}",
+            "template_group_key": f"group-{11 + index}",
+            "template_group_name": process["display_name"],
+            "template_group_path": [f"group-{11 + index}"],
+        }]
     return {
         "project_id": package["manifest"]["project_id"],
         "route_version_id": package["manifest"]["route_version_id"],
         "package_name": package["manifest"]["package_name"],
         "schema_version": "2.0",
         "manifest": package["manifest"],
+        "factor_dictionary": package.get("factor_dictionary"),
         "input_schema": package["input_schema"],
-        "route_catalog": package["route_catalog"],
+        "route_catalog": route_catalog,
         "route_rules": package["route_rules"],
         "test_cases": package["test_cases"],
         "rule_report_md": "# V2 规则包测试报告",
@@ -69,6 +109,7 @@ def _v1_save_payload():
     return {
         "project_id": 12,
         "package_name": "legacy_rules",
+        "schema_version": "1.0",
         "input_schema": {"required_inputs": [{"key": "material_grade"}]},
         "route_catalog": {"segments": [{"process_id": "prepare", "process_name": "准备", "main": True}]},
         "route_rules": {"process_trigger_rules": [{"rule_id": "main", "process_id": "prepare", "main": True}]},
@@ -91,10 +132,24 @@ def _append_unknown_feature_rule(package, source_value="\u5b54\u7c7b\u7ed3\u6784
             },
         }
     )
+    payload["test_cases"].append(
+        {
+            "case_id": "feature-unknown-custom",
+            "input": {
+                "material": {"grade": "其他材料"},
+                "cad": {"features": [source_value]},
+                "target_hardness_hrc": 0,
+            },
+            "expect": {
+                "included_process_ids": ["process_mill_slot"],
+                "excluded_process_ids": [],
+            },
+        }
+    )
     return payload
 
 
-def test_v2_save_publishes_and_v1_replaces_current_package(lifecycle_client, rule_package_v2_payload):
+def test_v2_save_publishes_and_rejects_retired_schema(lifecycle_client, rule_package_v2_payload):
     saved_v2 = lifecycle_client.post(
         "/api/extract/finalized-rule-packages",
         json=_v2_save_payload(rule_package_v2_payload),
@@ -113,9 +168,7 @@ def test_v2_save_publishes_and_v1_replaces_current_package(lifecycle_client, rul
     assert latest_v2.json()["id"] == v2["id"]
 
     saved_v1 = lifecycle_client.post("/api/extract/finalized-rule-packages", json=_v1_save_payload())
-    assert saved_v1.status_code == 200
-    assert saved_v1.json()["status"] == "published"
-    assert saved_v1.json()["schema_version"] == "1.0"
+    assert saved_v1.status_code == 422
 
     versions = lifecycle_client.get(
         "/api/extract/finalized-rule-packages",
@@ -123,15 +176,79 @@ def test_v2_save_publishes_and_v1_replaces_current_package(lifecycle_client, rul
     )
     assert versions.status_code == 200
     statuses = {item["id"]: item["status"] for item in versions.json()}
-    assert statuses[v2["id"]] == "superseded"
-    assert statuses[saved_v1.json()["id"]] == "published"
+    assert statuses[v2["id"]] == "published"
 
     latest = lifecycle_client.get(
         "/api/extract/finalized-rule-packages/latest",
         params={"project_id": 12},
     )
     assert latest.status_code == 200
-    assert latest.json()["id"] == saved_v1.json()["id"]
+    assert latest.json()["id"] == v2["id"]
+
+
+def test_v2_save_round_trips_full_factor_dictionary(lifecycle_client, rule_package_v2_payload):
+    payload = _v2_save_payload(rule_package_v2_payload)
+    payload["factor_dictionary"] = {
+        "schema_version": "2.0",
+        "fields": [
+            *rule_package_v2_payload["input_schema"]["fields"],
+            {
+                "key": "geometry.length_mm",
+                "label": "特征长度",
+                "type": "number",
+                "unit": "mm",
+            },
+        ],
+    }
+
+    saved = lifecycle_client.post("/api/extract/finalized-rule-packages", json=payload)
+
+    assert saved.status_code == 200
+    saved_dictionary = saved.json()["factor_dictionary"]
+    assert saved_dictionary["schema_version"] == "2.0"
+    assert [field["key"] for field in saved_dictionary["fields"]] == [
+        field["key"] for field in payload["factor_dictionary"]["fields"]
+    ]
+    assert saved_dictionary["fields"][-1]["unit"] == "mm"
+
+    latest = lifecycle_client.get(
+        "/api/extract/finalized-rule-packages/latest",
+        params={"project_id": 12},
+    )
+    assert latest.status_code == 200
+    assert latest.json()["factor_dictionary"] == saved_dictionary
+
+
+def test_retired_rule_package_is_not_exposed_as_an_executable_package(lifecycle_client):
+    async def seed_retired_package():
+        async with lifecycle_client.lifecycle_session_factory() as db:
+            db.add(FinalizedRulePackage(
+                project_id=12,
+                version=1,
+                package_name="retired-rules",
+                schema_version="retired",
+                status="published",
+                input_schema_json="{}",
+                route_catalog_json="{}",
+                route_rules_json="{}",
+                rule_report_md="# retired",
+            ))
+            await db.commit()
+
+    asyncio.run(seed_retired_package())
+
+    packages = lifecycle_client.get(
+        "/api/extract/finalized-rule-packages",
+        params={"project_id": 12},
+    )
+    latest = lifecycle_client.get(
+        "/api/extract/finalized-rule-packages/latest",
+        params={"project_id": 12},
+    )
+
+    assert packages.status_code == 200
+    assert packages.json() == []
+    assert latest.status_code == 404
 
 
 def test_invalid_v2_cannot_be_saved(lifecycle_client, rule_package_v2_payload):
@@ -174,8 +291,8 @@ def test_migration_backfills_legacy_version_status_and_hash(tmp_path):
                     (project_id, version, package_name, input_schema_json, route_catalog_json,
                      route_rules_json, rule_report_md, created_by, created_at)
                 VALUES
-                    (1, 1, 'rules-v1', '{}', '{}', '{}', '# v1', 'user', CURRENT_TIMESTAMP),
-                    (1, 2, 'rules-v2', '{}', '{}', '{}', '# v2', 'user', CURRENT_TIMESTAMP)
+                    (1, 1, 'rules-old', '{}', '{}', '{}', '# old', 'user', CURRENT_TIMESTAMP),
+                    (1, 2, 'rules-new', '{}', '{}', '{}', '# new', 'user', CURRENT_TIMESTAMP)
             """))
             await ensure_project_schema(conn)
             rows = (
@@ -191,7 +308,7 @@ def test_migration_backfills_legacy_version_status_and_hash(tmp_path):
     rows = asyncio.run(run_migration())
 
     assert [row["status"] for row in rows] == ["superseded", "published"]
-    assert [row["schema_version"] for row in rows] == ["1.0", "1.0"]
+    assert [row["schema_version"] for row in rows] == ["retired", "retired"]
     assert all(len(row["content_hash"]) == 64 for row in rows)
 
 
@@ -207,8 +324,8 @@ def test_migration_normalizes_existing_duplicate_published_rows(tmp_path):
                     (project_id, version, package_name, schema_version, status,
                      input_schema_json, route_catalog_json, route_rules_json, rule_report_md)
                 VALUES
-                    (7, 1, 'old', '1.0', 'published', '{}', '{}', '{}', '# old'),
-                    (7, 2, 'new', '1.0', 'published', '{}', '{}', '{}', '# new')
+                    (7, 1, 'old', 'retired', 'published', '{}', '{}', '{}', '# old'),
+                    (7, 2, 'new', 'retired', 'published', '{}', '{}', '{}', '# new')
             """))
             await ensure_project_schema(conn)
             rows = (
@@ -227,32 +344,8 @@ def test_migration_normalizes_existing_duplicate_published_rows(tmp_path):
     assert [row["status"] for row in rows] == ["superseded", "published"]
 
 
-def test_save_requires_mapping_and_persists_authoritative_snapshot(lifecycle_client, rule_package_v2_payload):
+def test_save_accepts_rules_with_unknown_features(lifecycle_client, rule_package_v2_payload):
     package = _append_unknown_feature_rule(rule_package_v2_payload)
-    rejected = lifecycle_client.post(
-        "/api/extract/finalized-rule-packages",
-        json=_v2_save_payload(package),
-    )
-    assert rejected.status_code == 422
-    rejected_detail = rejected.json()["detail"]
-    assert rejected_detail["kmai_compatibility"]["valid"] is False
-    assert any(
-        issue["field"] == "cad.features" and issue["value"] == "\u5b54\u7c7b\u7ed3\u6784"
-        for issue in rejected_detail["kmai_compatibility"]["errors"]
-    )
-
-    mapping = lifecycle_client.post(
-        "/api/kmai-factor-mappings",
-        json={
-            "scope": "project",
-            "project_id": 12,
-            "source_field": "cad.features",
-            "source_value": "\u5b54\u7c7b\u7ed3\u6784",
-            "mapping_mode": "manual_factor",
-            "target_factor_name": "孔类结构",
-        },
-    )
-    assert mapping.status_code == 200
 
     saved = lifecycle_client.post(
         "/api/extract/finalized-rule-packages",
@@ -260,49 +353,18 @@ def test_save_requires_mapping_and_persists_authoritative_snapshot(lifecycle_cli
     )
     assert saved.status_code == 200
     saved_body = saved.json()
-    assert saved_body["kmai_compatibility"]["files"]["route_rules.json"]["rules"]
-    assert any(
-        condition["factor_key"] == mapping.json()["target_factor_key"]
-        for rule in saved_body["kmai_compatibility"]["files"]["route_rules.json"]["rules"]
-        for condition in rule["when"]["all"]
-    )
 
-    async def persisted_snapshot():
+    async def persisted_packages():
         async with lifecycle_client.lifecycle_session_factory() as db:
-            packages = (await db.execute(select(FinalizedRulePackage))).scalars().all()
-            usages = (
-                await db.execute(
-                    select(KmaiFactorMappingUsage)
-                    .where(KmaiFactorMappingUsage.package_id == saved_body["id"])
-                    .order_by(KmaiFactorMappingUsage.id)
-                )
-            ).scalars().all()
-            return packages, usages
+            return (await db.execute(select(FinalizedRulePackage))).scalars().all()
 
-    packages, usages = asyncio.run(persisted_snapshot())
+    packages = asyncio.run(persisted_packages())
     assert len(packages) == 1
     assert packages[0].status == "published"
-    snapshots = [json.loads(row.mapping_snapshot_json) for row in usages]
-    assert snapshots
-    assert len(snapshots) == len(saved_body["kmai_compatibility"]["mapping_usages"])
-    assert saved_body["validation_report"]["kmai_compatibility"]["mapping_snapshot"] == snapshots
+    assert saved_body["validation_report"]["valid"] is True
 
 
-def test_compile_and_save_use_authoritative_mapping_snapshot(lifecycle_client, rule_package_v2_payload):
-    mapping = lifecycle_client.post(
-        "/api/kmai-factor-mappings",
-        json={
-            "scope": "project",
-            "project_id": 12,
-            "source_field": "cad.features",
-            "source_value": "\u69fd\u7c7b\u7279\u5f81",
-            "mapping_mode": "existing_factor",
-            "target_factor_key": "has_flat_or_plane",
-        },
-    )
-    assert mapping.status_code == 200
-    mapping_id = mapping.json()["mapping_id"]
-
+def test_compile_and_save_preserve_rule_package(lifecycle_client, rule_package_v2_payload):
     compile_response = lifecycle_client.post(
         "/api/extract/finalized-rule-packages/compile",
         json={
@@ -318,22 +380,7 @@ def test_compile_and_save_use_authoritative_mapping_snapshot(lifecycle_client, r
     )
     assert compile_response.status_code == 200
     compiled = compile_response.json()
-    slot_rule = next(
-        item
-        for item in compiled["kmai_compatibility"]["files"]["route_rules.json"]["rules"]
-        if item["rule_id"] == "feature.slot.mill"
-    )
-    assert slot_rule["when"]["all"][0]["factor_key"] == "has_flat_or_plane"
-
-    changed = lifecycle_client.put(
-        f"/api/kmai-factor-mappings/{mapping_id}",
-        json={
-            "expected_revision": 1,
-            "mapping_mode": "existing_factor",
-            "target_factor_key": "requires_honing",
-        },
-    )
-    assert changed.status_code == 200
+    assert compiled["validation"]["valid"] is True
 
     saved = lifecycle_client.post(
         "/api/extract/finalized-rule-packages",
@@ -341,72 +388,102 @@ def test_compile_and_save_use_authoritative_mapping_snapshot(lifecycle_client, r
     )
     assert saved.status_code == 200
     saved_body = saved.json()
-    assert saved_body["kmai_compatibility"]["mapping_signature"] != compiled["kmai_compatibility"]["mapping_signature"]
-    assert saved_body["kmai_compatibility"]["files"] != compiled["kmai_compatibility"]["files"]
-    changed_slot_rule = next(
-        item
-        for item in saved_body["kmai_compatibility"]["files"]["route_rules.json"]["rules"]
-        if item["rule_id"] == "feature.slot.mill"
-    )
-    assert changed_slot_rule["when"]["all"][0]["factor_key"] == "requires_honing"
+    assert saved_body["route_rules"] == compiled["package"]["route_rules"]
 
-    async def usages():
+
+def test_save_requires_template_mapping_before_publish(lifecycle_client, rule_package_v2_payload):
+    async def clear_mappings():
         async with lifecycle_client.lifecycle_session_factory() as db:
-            return [
-                row.mapping_id
-                for row in (
-                    await db.execute(
-                        select(KmaiFactorMappingUsage).where(
-                            KmaiFactorMappingUsage.package_id == saved_body["id"]
-                        )
-                    )
-                ).scalars().all()
-            ]
+            template = await db.get(ProjectGroupTemplate, 1)
+            template.mappings_json = "[]"
+            await db.commit()
 
-    assert asyncio.run(usages()) == [mapping_id]
+    asyncio.run(clear_mappings())
 
-    async def stored_snapshot():
+    payload = _v2_save_payload(rule_package_v2_payload)
+    payload["route_catalog"]["processes"][0]["template_group_aliases"] = [
+        {
+            "source_operation_id": 11,
+            "alias": "准备",
+            "template_group_id": "group_prepare",
+            "template_group_key": "group_prepare",
+            "template_group_name": "准备",
+            "template_group_path": ["准备"],
+        }
+    ]
+
+    saved = lifecycle_client.post("/api/extract/finalized-rule-packages", json=payload)
+
+    assert saved.status_code == 422
+    detail = saved.json()["detail"]
+    assert detail["message"] == "规则包发布前需完成分组模板映射。"
+    assert any(item["code"] == "group_template_mapping_missing" for item in detail["blockers"])
+
+
+def test_precheck_lists_required_template_mapping_blockers_with_reasons(lifecycle_client, rule_package_v2_payload):
+    async def keep_only_prepare_mapping():
         async with lifecycle_client.lifecycle_session_factory() as db:
-            usage = (
-                await db.execute(
-                    select(KmaiFactorMappingUsage).where(
-                        KmaiFactorMappingUsage.package_id == saved_body["id"]
-                    )
-                )
-            ).scalar_one()
-            return json.loads(usage.mapping_snapshot_json)
+            template = await db.get(ProjectGroupTemplate, 1)
+            template.mappings_json = json.dumps([
+                {
+                    "source_operation_id": operation_id,
+                    "alias": f"op-{operation_id}",
+                    "template_group_key": f"group-{operation_id}",
+                    "template_group_id": f"group-{operation_id}",
+                    "template_group_name": f"group-{operation_id}",
+                    "template_group_path": [f"group-{operation_id}"],
+                    "feature_selections": [],
+                }
+                for operation_id in (11, 13)
+            ], ensure_ascii=False)
+            await db.commit()
 
-    snapshot = asyncio.run(stored_snapshot())
-    assert snapshot["target_factor_key"] == "requires_honing"
-    assert snapshot["revision"] == 2
-    assert saved_body["validation_report"]["kmai_compatibility"]["mapping_snapshot"] == [snapshot]
+    asyncio.run(keep_only_prepare_mapping())
 
-    edited_again = lifecycle_client.put(
-        f"/api/kmai-factor-mappings/{mapping_id}",
-        json={
-            "expected_revision": 2,
-            "mapping_mode": "existing_factor",
-            "target_factor_key": "has_flat_or_plane",
-        },
-    )
-    assert edited_again.status_code == 200
+    payload = _v2_save_payload(rule_package_v2_payload)
+    response = lifecycle_client.post("/api/extract/finalized-rule-packages/precheck", json=payload)
 
-    compatibility = lifecycle_client.post(
-        "/api/extract/finalized-rule-packages/compatibility-test",
-        json={
-            "project_id": 12,
-            "inputs": {
-                "material": {"grade": "9Cr18"},
-                "cad": {"features": ["\u69fd\u7c7b\u7279\u5f81"]},
-                "target_hardness_hrc": 58,
-            },
-        },
-    )
-    assert compatibility.status_code == 200
-    assert "feature.slot.mill" in compatibility.json()["kmai_matched_rule_ids"]
-    assert compatibility.json()["manual_factors"]["requires_honing"] is True
-    assert compatibility.json()["manual_factors"]["has_flat_or_plane"] is False
-    assert asyncio.run(stored_snapshot()) == snapshot
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is False
+    assert body["checklist"] == [
+        {"code": "schema_valid", "label": "规则包结构校验", "status": "passed", "message": "规则包结构校验通过。"},
+        {"code": "route_version", "label": "路线版本关联", "status": "passed", "message": "规则包已关联当前路线版本。"},
+        {"code": "user_rule_sources", "label": "人工规则确认", "status": "passed", "message": "人工规则来源已确认。"},
+        {"code": "template_mapping", "label": "分组模板映射", "status": "blocking", "message": "还有 1 道必要工序未完成分组模板映射。"},
+    ]
+    assert body["blockers"] == [
+        {
+            "code": "group_template_mapping_missing",
+            "message": "请先完成分组模板映射。",
+            "process_id": "process_mill_slot",
+            "process_name": "铣槽",
+            "severity": "blocking",
+            "required_by": ["rule_include"],
+            "required_by_labels": ["规则包含引用"],
+        }
+    ]
+
+
+def test_save_allows_publish_without_step_mappings_when_process_mappings_exist(lifecycle_client, rule_package_v2_payload):
+    payload = _v2_save_payload(rule_package_v2_payload)
+    for index, process in enumerate(payload["route_catalog"]["processes"], start=0):
+        process["template_group_aliases"] = [
+            {
+                "source_operation_id": 11 + index,
+                "alias": process["display_name"],
+                "template_group_id": f"group-{11 + index}",
+                "template_group_key": f"group-{11 + index}",
+                "template_group_name": process["display_name"],
+                "template_group_path": [f"group-{11 + index}"],
+            }
+        ]
+
+    saved = lifecycle_client.post("/api/extract/finalized-rule-packages", json=payload)
+
+    assert saved.status_code == 200
+    body = saved.json()
+    assert body["status"] == "published"
 
 
 def test_publish_helper_does_not_commit_before_caller(lifecycle_client, rule_package_v2_payload):
@@ -438,51 +515,3 @@ def test_publish_helper_does_not_commit_before_caller(lifecycle_client, rule_pac
             return (await db.execute(select(FinalizedRulePackage))).scalars().all()
 
     assert asyncio.run(exercise()) == []
-
-
-def test_compatibility_test_uses_builtin_fallback_for_legacy_package(
-    lifecycle_client,
-    rule_package_v2_payload,
-):
-    mapping = lifecycle_client.post(
-        "/api/kmai-factor-mappings",
-        json={
-            "scope": "project",
-            "project_id": 12,
-            "source_field": "cad.features",
-            "source_value": "\u69fd\u7c7b\u7279\u5f81",
-            "mapping_mode": "existing_factor",
-            "target_factor_key": "requires_honing",
-        },
-    )
-    assert mapping.status_code == 200
-    saved = lifecycle_client.post(
-        "/api/extract/finalized-rule-packages",
-        json=_v2_save_payload(rule_package_v2_payload),
-    )
-    assert saved.status_code == 200
-
-    async def remove_usage_rows():
-        async with lifecycle_client.lifecycle_session_factory() as db:
-            await db.execute(
-                delete(KmaiFactorMappingUsage).where(
-                    KmaiFactorMappingUsage.package_id == saved.json()["id"]
-                )
-            )
-            await db.commit()
-
-    asyncio.run(remove_usage_rows())
-    compatibility = lifecycle_client.post(
-        "/api/extract/finalized-rule-packages/compatibility-test",
-        json={
-            "project_id": 12,
-            "inputs": {
-                "material": {"grade": "9Cr18"},
-                "cad": {"features": ["\u69fd\u7c7b\u7279\u5f81"]},
-                "target_hardness_hrc": 58,
-            },
-        },
-    )
-    assert compatibility.status_code == 200
-    assert compatibility.json()["manual_factors"]["has_slot_feature"] is True
-    assert compatibility.json()["manual_factors"]["requires_honing"] is False

@@ -91,6 +91,21 @@ async def test_parses_it_grade_into_controlled_numeric_field():
     assert issues == []
 
 
+def test_resolves_only_the_explicit_action_target_not_process_names_in_the_condition():
+    processes = [
+        RuleConditionProcessOption(process_id="process_chromic", display_name="铬酸阳极化"),
+        RuleConditionProcessOption(process_id="process_hard", display_name="硬质阳极化"),
+    ]
+
+    process_ids = condition_parser._resolve_process_ids(
+        "当出现铬酸阳极化时，安排硬质阳极化工序。",
+        "process_hard",
+        processes,
+    )
+
+    assert process_ids == ["process_hard"]
+
+
 @pytest.mark.asyncio
 async def test_deterministic_standard_condition_does_not_wait_for_llm(monkeypatch):
     async def llm_must_not_run(*args, **kwargs):
@@ -188,6 +203,24 @@ async def test_parses_compound_and_condition():
 
 
 @pytest.mark.asyncio
+async def test_preserves_material_when_condition_also_has_nondestructive_requirement():
+    candidate, _, _ = await condition_parser.parse_rule_condition(
+        "当材料为9Cr18且有无损检测要求时，纳入无损检查工序",
+        "process_ndt",
+        "无损检查",
+        [RuleConditionProcessOption(process_id="process_ndt", display_name="无损检查")],
+    )
+
+    assert candidate is not None
+    assert candidate.when is not None
+    assert candidate.when.all_conditions is not None
+    assert [child.field for child in candidate.when.all_conditions] == [
+        "material.grade",
+        "special.requirements",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_partial_compound_condition_uses_llm_instead_of_dropping_unknown_clause(monkeypatch):
     calls = 0
 
@@ -244,7 +277,7 @@ async def test_creates_project_factor_for_unregistered_categorical_field():
     assert candidate.when is not None
     assert candidate.when.op == "eq"
     assert candidate.when.value == "不锈钢"
-    assert candidate.when.field.startswith("project_factor.")
+    assert candidate.when.field == "project_factor.material_category"
     assert candidate.then is not None
     assert candidate.then.include_process_ids == ["process_nitriding"]
     assert len(candidate.field_definitions) == 1
@@ -519,7 +552,7 @@ async def test_creates_project_factor_for_unknown_part_category_instead_of_speci
 
     assert candidate is not None
     assert candidate.when is not None
-    assert candidate.when.field.startswith("project_factor.")
+    assert candidate.when.field == "project_factor.part_type"
     assert candidate.when.op == "eq"
     assert candidate.when.value == "A类"
     assert candidate.when.field != "special.requirements"
@@ -703,11 +736,19 @@ def test_registry_rejects_out_of_range_and_reversed_numeric_conditions():
     from app.services.rule_packages.contracts import ConditionNode
 
     assert validate_condition_tree(
-        ConditionNode(field="precision.outer_diameter_it", op="lte", value=99)
-    ) == ["字段“外圆尺寸精度 IT”不能大于 18"]
+        ConditionNode(field="precision.outer_diameter_it", op="lte", value=11)
+    ) == ["字段“外圆尺寸精度 IT”不能大于 10"]
     assert validate_condition_tree(
         ConditionNode(field="mechanical.hardness_hrc", op="between", value=[70, 20])
     ) == ["字段“目标硬度 HRC”的区间下限不能大于上限"]
+
+
+def test_registry_limits_it_grade_fields_to_the_expected_range():
+    fields = {field.key: field for field in condition_fields()}
+
+    assert fields["precision.outer_diameter_it"].validation == {"min": 5, "max": 10}
+    assert fields["precision.inner_diameter_it"].validation == {"min": 5, "max": 10}
+    assert fields["precision.dimension_it"].validation == {"min": 5, "max": 10}
 
 
 @pytest.mark.asyncio
@@ -873,6 +914,65 @@ async def test_confirmed_rule_is_invalidated_when_source_text_changes():
         )
         assert changed.review.status == "draft"
         assert changed.review.confirmed is None
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_confirm_rule_accepts_export_process_id_for_saved_route_segment():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    source_text = "当外圆尺寸精度达到 IT8 时，纳入淬火工序"
+    processes = [
+        RuleConditionProcessOption(process_id="process_quench", display_name="淬火"),
+    ]
+
+    async with session_factory() as session:
+        session.add_all([
+            Project(id=7, name="导出工序 ID 条件确认测试"),
+            NormalizedRouteVersion(
+                id=1,
+                project_id=7,
+                version=1,
+                route_json='[{"id":"segment-quench_core_merge","export_process_id":"process_quench","normalized_step_name":"淬火"}]',
+            ),
+        ])
+        await session.commit()
+
+        parsed = await parse_condition_review(
+            ParseRuleConditionRequest(
+                project_id=7,
+                route_id=1,
+                segment_id="segment-quench_core_merge",
+                source_text=source_text,
+                process_id="process_quench",
+                process_name="淬火",
+                processes=processes,
+            ),
+            session,
+        )
+        assert parsed.review.status == "pending_confirmation"
+        assert parsed.review.candidate is not None
+
+        confirmed = await confirm_condition_review(
+            ConfirmRuleConditionRequest(
+                project_id=7,
+                route_id=1,
+                segment_id="segment-quench_core_merge",
+                source_text=source_text,
+                source_hash=parsed.review.source_hash,
+                candidate=parsed.review.candidate,
+                processes=processes,
+                confirmed_by="测试用户",
+            ),
+            session,
+        )
+
+        assert confirmed.review.status == "confirmed"
+        assert confirmed.review.confirmed is not None
+        assert confirmed.review.confirmed.then.include_process_ids == ["process_quench"]
 
     await engine.dispose()
 
@@ -1235,6 +1335,101 @@ async def test_migrates_legacy_boolean_requirement_to_special_requirement():
         migrated = json.loads(review.condition_confirmed_json)
         assert migrated["when"] == {"all": None, "any": None, "not": None, "field": "special.requirements", "op": "contains", "value": "追溯标印"}
         assert migrated["field_definitions"] == []
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_migrates_legacy_quench_alias_to_the_unique_route_segment_id():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with session_factory() as session:
+        route = NormalizedRouteVersion(
+            id=1,
+            project_id=7,
+            version=1,
+            route_json='[{"id":"segment-quench_core_merge","normalized_step_name":"淬火"}]',
+        )
+        legacy_candidate = {
+            "kind": "condition",
+            "when": {"field": "material.grade", "op": "eq", "value": "9Cr18"},
+            "then": {"include_process_ids": ["process_quench"], "exclude_process_ids": []},
+            "preview": "材料牌号 等于 9Cr18",
+        }
+        session.add(route)
+        session.add(NormalizedRouteSegmentRuleReview(
+            project_id=7,
+            route_version_id=1,
+            segment_id="segment-quench_core_merge",
+            decision="accepted",
+            note="",
+            summary_json="[]",
+            question_trail_json="[]",
+            condition_status="pending_confirmation",
+            condition_candidate_json=json.dumps(legacy_candidate, ensure_ascii=False),
+            condition_issues_json=json.dumps(["规则引用了当前路线中不存在的工序：process_quench"], ensure_ascii=False),
+        ))
+        await session.commit()
+
+        assert await condition_reviews.migrate_legacy_quench_process_id_reviews(route, session) is True
+        review = (await session.execute(
+            select(NormalizedRouteSegmentRuleReview).where(
+                NormalizedRouteSegmentRuleReview.segment_id == "segment-quench_core_merge",
+            )
+        )).scalars().one()
+        migrated = json.loads(review.condition_candidate_json)
+        assert migrated["then"]["include_process_ids"] == ["segment-quench_core_merge"]
+        assert json.loads(review.condition_issues_json) == []
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_keeps_quench_export_process_id_when_route_declares_it():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with session_factory() as session:
+        route = NormalizedRouteVersion(
+            id=1,
+            project_id=7,
+            version=1,
+            route_json='[{"id":"segment-quench_core_merge","export_process_id":"process_quench","normalized_step_name":"淬火"}]',
+        )
+        candidate = {
+            "kind": "condition",
+            "when": {"field": "material.grade", "op": "eq", "value": "9Cr18"},
+            "then": {"include_process_ids": ["process_quench"], "exclude_process_ids": []},
+            "preview": "材料牌号 等于 9Cr18",
+        }
+        session.add(route)
+        session.add(NormalizedRouteSegmentRuleReview(
+            project_id=7,
+            route_version_id=1,
+            segment_id="segment-quench_core_merge",
+            decision="accepted",
+            note="",
+            summary_json="[]",
+            question_trail_json="[]",
+            condition_status="pending_confirmation",
+            condition_candidate_json=json.dumps(candidate, ensure_ascii=False),
+            condition_issues_json="[]",
+        ))
+        await session.commit()
+
+        assert await condition_reviews.migrate_legacy_quench_process_id_reviews(route, session) is False
+        review = (await session.execute(
+            select(NormalizedRouteSegmentRuleReview).where(
+                NormalizedRouteSegmentRuleReview.segment_id == "segment-quench_core_merge",
+            )
+        )).scalars().one()
+        kept = json.loads(review.condition_candidate_json)
+        assert kept["then"]["include_process_ids"] == ["process_quench"]
 
     await engine.dispose()
 

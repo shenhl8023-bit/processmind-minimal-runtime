@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from pydantic import Field
@@ -32,8 +33,109 @@ def _allowed_values(field: InputField) -> list[Any]:
     return [option.value for option in field.options]
 
 
+def _input_leaf_paths(
+    value: Any,
+    *,
+    known_fields: set[str],
+    prefix: str = "",
+):
+    if prefix in known_fields:
+        yield prefix
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            key_text = str(key).strip()
+            if not key_text:
+                continue
+            next_prefix = f"{prefix}.{key_text}" if prefix else key_text
+            yield from _input_leaf_paths(item, known_fields=known_fields, prefix=next_prefix)
+        return
+    if prefix:
+        yield prefix
+
+
+def _set_field(inputs: dict[str, Any], field_key: str, value: Any) -> None:
+    if field_key in inputs:
+        inputs[field_key] = value
+        return
+    current: dict[str, Any] = inputs
+    parts = field_key.split(".")
+    for part in parts[:-1]:
+        child = current.get(part)
+        if not isinstance(child, dict):
+            child = {}
+            current[part] = child
+        current = child
+    current[parts[-1]] = value
+
+
+def _canonical_option_value(field: InputField, value: Any) -> Any:
+    if not isinstance(value, str) or not field.options:
+        return value
+    canonical_values = {
+        option.value.strip().casefold(): option.value
+        for option in field.options
+    }
+    aliases = {
+        alias.strip().casefold(): option.value
+        for option in field.options
+        for alias in option.aliases
+    }
+    normalized = value.strip().casefold()
+    return canonical_values.get(normalized, aliases.get(normalized, value))
+
+
+def _unknown_input_issue(field_key: str) -> InputValidationIssue:
+    message = f"输入包含规则包未定义字段：{field_key}"
+    return InputValidationIssue(
+        code="unknown_input_field",
+        path=f"inputs.{field_key}",
+        message=message,
+        field=field_key,
+        reason=message,
+    )
+
+
+def _metadata_issue(code: str, field: InputField, message: str) -> InputValidationIssue:
+    return InputValidationIssue(
+        code=code,
+        path=f"inputs.{field.key}",
+        message=message,
+        field=field.key,
+        reason=message,
+        allowed_values=_allowed_values(field),
+    )
+
+
+def canonicalize_inputs(
+    schema: InputSchemaV2,
+    inputs: dict[str, Any],
+) -> tuple[dict[str, Any], list[InputValidationIssue]]:
+    """Return planner-ready values and errors for unsupported input paths."""
+    normalized = deepcopy(inputs or {})
+    fields_by_key = {field.key: field for field in schema.fields}
+    errors = [
+        _unknown_input_issue(path)
+        for path in _input_leaf_paths(normalized, known_fields=set(fields_by_key))
+        if path not in fields_by_key
+    ]
+    for field in schema.fields:
+        value = resolve_field(normalized, field.key)
+        if value is MISSING:
+            continue
+        if field.type == "multi_select" and isinstance(value, list):
+            _set_field(
+                normalized,
+                field.key,
+                [_canonical_option_value(field, item) for item in value],
+            )
+        else:
+            _set_field(normalized, field.key, _canonical_option_value(field, value))
+    return normalized, errors
+
+
 def validate_inputs(schema: InputSchemaV2, inputs: dict[str, Any]) -> list[InputValidationIssue]:
-    errors: list[InputValidationIssue] = []
+    normalized_inputs, errors = canonicalize_inputs(schema, inputs)
 
     def add(code: str, field: InputField, message: str) -> None:
         errors.append(
@@ -48,7 +150,7 @@ def validate_inputs(schema: InputSchemaV2, inputs: dict[str, Any]) -> list[Input
         )
 
     for field in schema.fields:
-        value = resolve_field(inputs, field.key)
+        value = resolve_field(normalized_inputs, field.key)
         if not _present(value):
             if field.required:
                 add("required_input_missing", field, f"必填输入 {field.label} 未填写")
@@ -91,6 +193,62 @@ def validate_inputs(schema: InputSchemaV2, inputs: dict[str, Any]) -> list[Input
             if field.validation.max_length is not None and len(value) > field.validation.max_length:
                 add("input_too_long", field, f"输入 {field.label} 长度不能大于 {field.validation.max_length}")
 
+    return errors
+
+
+def validate_input_metadata(
+    schema: InputSchemaV2,
+    inputs: dict[str, Any],
+    input_metadata: dict[str, Any] | None,
+) -> list[InputValidationIssue]:
+    metadata = input_metadata or {}
+    fields_by_key = {field.key: field for field in schema.fields}
+    errors = [
+        _unknown_input_issue(field_key)
+        for field_key in metadata
+        if field_key not in fields_by_key
+    ]
+    for field in schema.fields:
+        value = resolve_field(inputs, field.key)
+        if not _present(value):
+            continue
+        entry = metadata.get(field.key)
+        if entry is None:
+            errors.append(_metadata_issue(
+                "input_origin_missing",
+                field,
+                f"输入 {field.label} 缺少值来源，请人工确认或提供提取依据后再生成",
+            ))
+            continue
+        origin = getattr(entry, "origin", None)
+        if origin is None and isinstance(entry, dict):
+            origin = entry.get("origin")
+        if origin not in {"manual", "extracted"}:
+            code = "example_input_not_confirmed" if origin == "example" else "input_origin_unconfirmed"
+            message = (
+                f"输入 {field.label} 仍是示例值，请人工确认后再生成"
+                if origin == "example"
+                else f"输入 {field.label} 尚未确认来源，请人工确认或提供提取依据后再生成"
+            )
+            errors.append(_metadata_issue(code, field, message))
+        evidence = getattr(entry, "evidence", None)
+        if evidence is None and isinstance(entry, dict):
+            evidence = entry.get("evidence")
+        if origin == "extracted" and not any(str(item).strip() for item in (evidence or [])):
+            errors.append(_metadata_issue(
+                "extracted_input_missing_evidence",
+                field,
+                f"提取输入 {field.label} 缺少来源证据，不能用于生成路线",
+            ))
+        unit = getattr(entry, "unit", None)
+        if unit is None and isinstance(entry, dict):
+            unit = entry.get("unit")
+        if field.type == "number" and field.unit and unit not in {None, "", field.unit}:
+            errors.append(_metadata_issue(
+                "input_unit_mismatch",
+                field,
+                f"输入 {field.label} 的单位必须是 {field.unit}",
+            ))
     return errors
 
 

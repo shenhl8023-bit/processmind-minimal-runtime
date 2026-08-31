@@ -6,7 +6,6 @@ import {
   getWorkflowDataRevision,
   setWorkflowDataCache,
 } from '@/composables/workflowDataCache'
-import type { KmaiCompatibilityExport } from './kmaiFactorMappings'
 
 export interface OperationFactor {
   id: number
@@ -174,6 +173,20 @@ export interface GroupTemplateStepMapping extends GroupTemplateStepMappingInput 
   template_group_name: string
 }
 
+export interface GroupTemplateMappingOutputStep {
+  step_name: string
+  candidates: Record<string, string[]>
+  is_last: boolean
+}
+
+export interface GroupTemplateMappingOutputProcess {
+  process_name: string
+  process_type: '加工工序' | '辅助工序'
+  precision: string
+  technical_requirements: string[]
+  steps: GroupTemplateMappingOutputStep[]
+}
+
 export interface GroupTemplatePreview {
   original_filename: string
   source_encoding: string
@@ -198,6 +211,7 @@ export interface ProjectGroupTemplate {
   validation_issues: GroupTemplateValidationIssue[]
   mappings: GroupTemplateMapping[]
   step_mappings: GroupTemplateStepMapping[]
+  mapping_output: GroupTemplateMappingOutputProcess[]
   template_revision: number
   group_count: number
   feature_selection_count: number
@@ -249,12 +263,15 @@ export interface TemplateStepMappingSuggestRequest {
   project_id: number
   expected_template_revision: number
   target_group_id?: string
+  target_group_ids?: string[]
+  include_llm?: boolean
   operations: TemplateGroupMappingOperationInput[]
 }
 
 export interface TemplateGroupMappingCandidate {
   group_id: string
   path: string[]
+  feature_selections: string[]
   score: number
   reason: string
 }
@@ -267,6 +284,7 @@ export interface TemplateStepMappingSuggestionResult {
   step_name: string
   step_text_hash: string
   recommended_group_ids: string[]
+  recommended_features_by_group: Record<string, string[]>
   candidates: TemplateGroupMappingCandidate[]
   confidence: number
   source: 'auto_confirmed' | 'llm' | 'unresolved' | string
@@ -285,6 +303,7 @@ export interface TemplateStepMappingSuggestResponse {
 
 export interface NormalizedRouteSegment {
   id: string
+  export_process_id?: string
   sequence: number
   normalized_step_name: string
   step_family: string
@@ -319,6 +338,15 @@ export interface NormalizedSupersetRouteResult {
   project_id: number
   normalized_superset_route: NormalizedRouteSegment[]
   saved_route_version?: number | null
+  source_signature: string
+  algo_version: string
+}
+
+export interface RouteMergeWorkspaceResult {
+  project_id: number
+  superset_route: OperationItem[]
+  merge_suggestions: MergeSuggestion[]
+  normalized_superset_route: NormalizedRouteSegment[]
   source_signature: string
   algo_version: string
 }
@@ -370,6 +398,7 @@ export interface SegmentRuleReview {
 
 export interface SavedNormalizedRouteSegment {
   id: string
+  export_process_id?: string
   sequence: number
   normalized_step_name: string
   step_family: string
@@ -422,6 +451,7 @@ export interface FinalizedRulePackageResult {
   schema_version: string
   status: 'draft' | 'published' | 'superseded' | 'archived' | string
   manifest: Record<string, any>
+  factor_dictionary: Record<string, any>
   input_schema: Record<string, any>
   route_catalog: Record<string, any>
   route_rules: Record<string, any>
@@ -434,11 +464,22 @@ export interface FinalizedRulePackageResult {
   published_by?: string | null
   published_at?: string | null
   supersedes_id?: number | null
-  kmai_compatibility?: KmaiCompatibilityExport
 }
 
-export type SaveFinalizedRulePackageResponse = Omit<FinalizedRulePackageResult, 'kmai_compatibility'> & {
-  kmai_compatibility: KmaiCompatibilityExport
+export type SaveFinalizedRulePackageResponse = FinalizedRulePackageResult
+
+export interface RulePackagePrecheckItem {
+  code: string
+  label: string
+  status: 'passed' | 'blocking'
+  message: string
+}
+
+export interface RulePackagePrecheckResult {
+  project_id: number
+  ok: boolean
+  checklist: RulePackagePrecheckItem[]
+  blockers: Array<Record<string, any>>
 }
 
 export interface FinalizedRulePackageListItem {
@@ -599,6 +640,19 @@ export async function getNormalizedSupersetRoute(projectId: number, forceRefresh
   return result
 }
 
+export async function getRouteMergeWorkspace(projectId: number, forceRefresh = false) {
+  const cacheKey = `api:extract:route-merge-workspace:${projectId}`
+  if (!forceRefresh) {
+    const cached = getWorkflowDataCache<RouteMergeWorkspaceResult>(cacheKey)
+    if (cached) return cached
+  }
+  const requestRevision = getWorkflowDataRevision()
+  const { data } = await api.get('/api/extract/route-merge-workspace', { params: { project_id: projectId } })
+  const result = data as RouteMergeWorkspaceResult
+  setWorkflowDataCache(cacheKey, result, requestRevision)
+  return result
+}
+
 export async function getSavedNormalizedRoute(projectId: number, forceRefresh = false) {
   const cacheKey = `api:extract:saved-normalized-route:${projectId}`
   if (!forceRefresh) {
@@ -672,11 +726,13 @@ export async function saveGroupTemplateStepMappings(
   projectId: number,
   revision: number,
   mappings: GroupTemplateStepMappingInput[],
+  operations: TemplateGroupMappingOperationInput[] = [],
 ): Promise<ProjectGroupTemplate> {
   const { data } = await api.put('/api/extract/group-templates/step-mappings', {
     project_id: projectId,
     expected_template_revision: revision,
     mappings,
+    operations,
   })
   return data as ProjectGroupTemplate
 }
@@ -688,6 +744,7 @@ export async function suggestTemplateStepMappings(body: TemplateStepMappingSugge
 
 export async function saveNormalizedSupersetRoute(body: {
   project_id: number
+  expected_workflow_revision: number
   normalized_superset_route: Array<{
     id: string
     normalized_step_name: string
@@ -745,6 +802,7 @@ export async function saveFinalizedRulePackage(body: {
   package_name?: string
   schema_version?: string
   manifest?: Record<string, any>
+  factor_dictionary?: Record<string, any>
   input_schema: Record<string, any>
   route_catalog: Record<string, any>
   route_rules: Record<string, any>
@@ -756,6 +814,26 @@ export async function saveFinalizedRulePackage(body: {
   const { data } = await api.post('/api/extract/finalized-rule-packages', body)
   clearAllWorkflowDataCache()
   return data as SaveFinalizedRulePackageResponse
+}
+
+export async function precheckFinalizedRulePackage(body: {
+  project_id: number
+  expected_workflow_revision: number
+  route_version_id?: number | null
+  package_name?: string
+  schema_version?: string
+  manifest?: Record<string, any>
+  factor_dictionary?: Record<string, any>
+  input_schema: Record<string, any>
+  route_catalog: Record<string, any>
+  route_rules: Record<string, any>
+  test_cases?: Array<Record<string, any>>
+  rule_report_md?: string
+  validation_report?: Record<string, any>
+  created_by?: string
+}) {
+  const { data } = await api.post('/api/extract/finalized-rule-packages/precheck', body)
+  return data as RulePackagePrecheckResult
 }
 
 export async function resetWorkflow(body: {
@@ -811,6 +889,7 @@ export interface FinalizedRulePackageSimulationResult {
 
 export async function reviewMergeSuggestion(body: {
   project_id: number
+  expected_workflow_revision: number
   suggestion_id: string
   action: 'accept' | 'reject' | 'rename' | 'unsure'
   manual_label?: string

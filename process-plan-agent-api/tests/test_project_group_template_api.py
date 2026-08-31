@@ -397,6 +397,64 @@ async def test_step_mappings_allow_many_targets_and_explicit_not_applicable(temp
 
 
 @pytest.mark.asyncio
+async def test_step_mapping_save_builds_process_mapping_output(template_store):
+    _, sessions = template_store
+    project_id = await _create_project(sessions)
+    async with sessions() as db:
+        await commit_project_group_template(db, project_id, _parsed("a.xml"), expected_revision=0)
+        saved = await replace_project_group_step_mappings(
+            db,
+            project_id,
+            [_step_mapping()],
+            expected_revision=1,
+            operations=[
+                {
+                    "operation_id": 11,
+                    "operation_name": "车削加工（A侧）",
+                    "step_items": ["钻孔", "清洗"],
+                    "rule_evidence": ["φ20孔"],
+                    "rule_reasons": ["需要形成孔特征"],
+                },
+                {
+                    "operation_id": 12,
+                    "operation_name": "调质",
+                    "step_items": [],
+                    "rule_evidence": ["调质 35HRC"],
+                    "rule_reasons": [],
+                },
+            ],
+        )
+
+    assert saved.mapping_output == [
+        {
+            "process_name": "车削加工（A侧）",
+            "process_type": "加工工序",
+            "precision": "",
+            "technical_requirements": ["φ20孔", "需要形成孔特征"],
+            "steps": [
+                {
+                    "step_name": "钻孔",
+                    "candidates": {"A侧/孔": ["孔(盲孔)"]},
+                    "is_last": True,
+                },
+                {
+                    "step_name": "清洗",
+                    "candidates": {},
+                    "is_last": False,
+                },
+            ],
+        },
+        {
+            "process_name": "调质",
+            "process_type": "辅助工序",
+            "precision": "",
+            "technical_requirements": ["调质 35HRC"],
+            "steps": [],
+        },
+    ]
+
+
+@pytest.mark.asyncio
 async def test_mapping_path_is_trimmed_and_unicode_normalized_before_lookup(template_store):
     _, sessions = template_store
     project_id = await _create_project(sessions)
@@ -524,11 +582,11 @@ async def test_schema_maintenance_is_idempotent_and_preserves_existing_template(
         row = (
             await conn.execute(
                 text(
-                    "SELECT original_filename, template_revision, mappings_json, step_mappings_json "
+                    "SELECT original_filename, template_revision, mappings_json, step_mappings_json, mapping_output_json "
                     "FROM project_group_templates WHERE project_id = :project_id"
                 ),
                 {"project_id": project_id},
             )
         ).one()
 
-    assert row == ("preserved.xml", 1, "[]", "[]")
+    assert row == ("preserved.xml", 1, "[]", "[]", "[]")

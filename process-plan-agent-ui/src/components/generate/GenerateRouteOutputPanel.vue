@@ -3,7 +3,7 @@
     <section v-if="error" class="error-panel" role="alert">
       <span class="error-mark">!</span>
       <div>
-        <strong>路线生成未完成</strong>
+        <strong>规则包验证或路线生成未完成</strong>
         <p>{{ error }}</p>
       </div>
     </section>
@@ -33,11 +33,11 @@
           </span>
           <div>
             <strong>规则包</strong>
-            <span>{{ hasRulePackage ? '已加载最终定稿规则' : '等待第4步导出规则包' }}</span>
+            <span>{{ hasRulePackage ? '已加载已发布规则包' : '等待第4步完成规则定稿并发布' }}</span>
           </div>
           <div class="readiness-action-cell">
             <span class="readiness-state">{{ hasRulePackage ? '就绪' : '待处理' }}</span>
-            <button v-if="!hasRulePackage" class="readiness-link-btn" type="button" @click="emit('go-finalize')">去导出 →</button>
+            <button v-if="!hasRulePackage" class="readiness-link-btn" type="button" @click="emit('go-finalize')">去定稿 →</button>
           </div>
         </div>
 
@@ -94,7 +94,7 @@
       </div>
 
       <div class="route-tree">
-        <div v-for="(step, index) in result.steps" :key="`${step.name}-${index}`" class="route-node">
+        <div v-for="(step, index) in result.steps" :key="step.process_id || `${step.name}-${index}`" class="route-node">
           <div class="route-track">
             <div class="route-dot" :class="{ 'route-dot--active': step.op_type === 'MAIN' }"></div>
             <span v-if="index < result.steps.length - 1" class="route-line"></span>

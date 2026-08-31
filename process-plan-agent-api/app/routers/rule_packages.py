@@ -14,25 +14,20 @@ from app.services.rule_packages import (
 from app.services.rule_packages.contracts import (
     CompileRulePackageRequest,
     CompileRulePackageResponse,
-    KmaiCompatibilityTestRequest,
-    KmaiCompatibilityTestResponse,
     RulePackageV2,
     RulePackageValidationReport,
     SimulateRulePackageRequest,
     SimulateRulePackageResponse,
 )
 from app.services.rule_packages.planner import RoutePlanningError
-from app.services.rule_packages.input_validation import input_validation_error_detail, validate_inputs
-from app.services.rule_packages.loader import load_published_rule_package
-from app.services.rule_packages.lifecycle import load_registry_for_package, v2_package_from_row
-from app.services.rule_packages.kmai_compatibility_runner import compare_kmai_v1
-from app.services.rule_packages.kmai_export import build_kmai_compatibility_export
-from app.services.rule_packages.kmai_mapping_registry import load_effective_mapping_registry
+from app.services.rule_packages.input_validation import canonicalize_inputs, input_validation_error_detail, validate_inputs
 from app.services.rule_packages.condition_contracts import (
     ConditionFieldRegistryResponse,
     ConfirmRuleConditionRequest,
     ManualRuleConditionRequest,
     ParseRuleConditionRequest,
+    RulePreprocessStartRequest,
+    RulePreprocessStatusResponse,
     RuleConditionReviewResponse,
     SaveRuleConditionDraftRequest,
 )
@@ -44,6 +39,7 @@ from app.services.rule_packages.condition_reviews import (
     save_condition_draft,
 )
 from app.services.project_workflow_lifecycle import acquire_workflow_revision
+from app.services.rule_preprocessing import get_rule_preprocessing_status, start_rule_preprocessing
 
 
 router = APIRouter(prefix="/api/extract/finalized-rule-packages", tags=["规则包 V2"])
@@ -90,18 +86,36 @@ async def set_manual_user_rule_condition(
     return await set_manual_condition_review(body, db)
 
 
+@router.post("/preprocess/start", response_model=RulePreprocessStatusResponse)
+async def start_rule_preprocess_task(
+    body: RulePreprocessStartRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await start_rule_preprocessing(body, db)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/preprocess/status", response_model=RulePreprocessStatusResponse)
+async def get_rule_preprocess_task_status(
+    project_id: int,
+    route_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    return await get_rule_preprocessing_status(project_id, route_id, db)
+
+
 @router.post("/compile", response_model=CompileRulePackageResponse)
 async def compile_v2_rule_package(
     body: CompileRulePackageRequest,
     db: AsyncSession = Depends(get_db),
 ):
     package = compile_rule_package(body)
-    mapping_registry = await load_effective_mapping_registry(db, package.manifest.project_id)
     return CompileRulePackageResponse(
         package=package,
         content_hash=rule_package_content_hash(package),
         validation=validate_rule_package(package),
-        kmai_compatibility=build_kmai_compatibility_export(package, mapping_registry=mapping_registry),
     )
 
 
@@ -116,41 +130,15 @@ async def simulate_v2_rule_package(body: SimulateRulePackageRequest):
     content_hash = rule_package_content_hash(body.package)
     if not validation.valid:
         return SimulateRulePackageResponse(content_hash=content_hash, validation=validation)
-    input_errors = validate_inputs(body.package.input_schema, body.inputs)
+    canonical_inputs, canonicalization_errors = canonicalize_inputs(body.package.input_schema, body.inputs)
+    input_errors = [*canonicalization_errors, *validate_inputs(body.package.input_schema, canonical_inputs)]
     if input_errors:
         raise HTTPException(
             status_code=422,
             detail=input_validation_error_detail(input_errors),
         )
     try:
-        plan = plan_route(body.package, body.inputs)
+        plan = plan_route(body.package, canonical_inputs)
     except RoutePlanningError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return SimulateRulePackageResponse(content_hash=content_hash, validation=validation, plan=plan)
-
-
-@router.post("/compatibility-test", response_model=KmaiCompatibilityTestResponse)
-async def test_kmai_compatibility(
-    body: KmaiCompatibilityTestRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    package_row = await load_published_rule_package(body.project_id, db)
-    if not package_row:
-        raise HTTPException(404, "当前任务没有已发布的规则包。")
-    if str(package_row.schema_version or "") != "2.0":
-        raise HTTPException(422, "KmAI 可视化兼容测试仅支持 V2 规则包。")
-    package = v2_package_from_row(package_row)
-    validation = validate_rule_package(package)
-    if not validation.valid:
-        raise HTTPException(422, detail=validation.model_dump(mode="json"))
-    input_errors = validate_inputs(package.input_schema, body.inputs)
-    if input_errors:
-        raise HTTPException(422, detail=input_validation_error_detail(input_errors))
-    mapping_registry = await load_registry_for_package(db, package_row.id)
-    comparison = compare_kmai_v1(package, body.inputs, mapping_registry=mapping_registry)
-    return KmaiCompatibilityTestResponse(
-        project_id=body.project_id,
-        package_id=package_row.id,
-        package_version=package_row.version,
-        **comparison,
-    )

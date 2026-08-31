@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 import hashlib
 import json
+import re
 from typing import Any
 
 from fastapi import HTTPException
@@ -64,6 +65,7 @@ class ProjectTemplateSnapshot:
     validation_issues: list[dict[str, object]]
     mappings: list[ProjectGroupMapping]
     step_mappings: list[ProjectGroupStepMapping]
+    mapping_output: list[dict[str, object]]
     template_revision: int
     group_count: int
     feature_selection_count: int
@@ -109,6 +111,158 @@ def _mapping_value(mapping: object, key: str, default: object = None) -> object:
     if isinstance(mapping, dict):
         return mapping.get(key, default)
     return getattr(mapping, key, default)
+
+
+MACHINING_PROCESS_PATTERN = re.compile(
+    r"车削|车外|车端|粗车|精车|车槽|铣|钻|镗|铰|攻丝|攻螺纹|磨|研|珩|"
+    r"切槽|挖槽|倒角|倒圆|成形|割型|打型|电火花|线切割|平端面|端面加工"
+)
+AUXILIARY_PROCESS_PATTERN = re.compile(
+    r"下料|备料|锻造|铸造|热处理|调质|正火|正常化|淬火|回火|退火|去应力|"
+    r"时效|渗氮|渗碳|镀|钝化|喷涂|清洗|除油|检验|检查|探伤|测量|标印|"
+    r"标记|打标|包装|装配"
+)
+
+
+def _text_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        text_value = normalize_name(item)
+        if not text_value or text_value in seen:
+            continue
+        seen.add(text_value)
+        result.append(text_value)
+    return result
+
+
+def _operation_id(operation: object) -> int:
+    value = _mapping_value(operation, "operation_id", _mapping_value(operation, "source_operation_id", 0))
+    return int(value or 0)
+
+
+def _operation_name(operation: object) -> str:
+    return normalize_name(_mapping_value(operation, "operation_name", _mapping_value(operation, "name", "")))
+
+
+def _operation_steps(operation: object) -> list[str]:
+    return _text_list(_mapping_value(operation, "step_items", []))
+
+
+def _operation_requirements(operation: object) -> list[str]:
+    return _text_list([
+        *_text_list(_mapping_value(operation, "rule_evidence", [])),
+        *_text_list(_mapping_value(operation, "rule_reasons", [])),
+    ])
+
+
+def _process_type(operation_name: str, steps: list[str]) -> str:
+    step_text = " ".join(steps)
+    if MACHINING_PROCESS_PATTERN.search(operation_name) or MACHINING_PROCESS_PATTERN.search(step_text):
+        if AUXILIARY_PROCESS_PATTERN.search(operation_name) and not MACHINING_PROCESS_PATTERN.search(step_text):
+            return "辅助工序"
+        return "加工工序"
+    return "辅助工序"
+
+
+def _precision_label(operation_name: str, steps: list[str]) -> str:
+    text_value = " ".join([operation_name, *steps])
+    if re.search(r"半精", text_value):
+        return "半精加工"
+    if re.search(r"精", text_value):
+        return "精加工"
+    if re.search(r"粗", text_value):
+        return "粗加工"
+    return ""
+
+
+def _mapping_candidates(mappings: list[ProjectGroupStepMapping]) -> dict[str, list[str]]:
+    candidates: dict[str, list[str]] = {}
+    for mapping in mappings:
+        if mapping.status != "confirmed" or not mapping.template_group_path:
+            continue
+        key = "/".join(mapping.template_group_path)
+        if not key:
+            continue
+        values = candidates.setdefault(key, [])
+        for feature in mapping.candidate_features:
+            if feature and feature not in values:
+                values.append(feature)
+    return candidates
+
+
+def _mapping_feature_keys(mapping: ProjectGroupStepMapping) -> set[str]:
+    if mapping.status != "confirmed" or not mapping.template_group_path:
+        return set()
+    path_key = "/".join(mapping.template_group_path)
+    return {f"{path_key}\u0000{feature}" for feature in mapping.candidate_features if feature}
+
+
+def _build_mapping_output(operations: list[object] | None, mappings: list[ProjectGroupStepMapping]) -> list[dict[str, object]]:
+    mappings_by_step: dict[tuple[int, int], list[ProjectGroupStepMapping]] = {}
+    for mapping in mappings:
+        mappings_by_step.setdefault((mapping.source_operation_id, mapping.source_step_order), []).append(mapping)
+
+    normalized_operations: list[dict[str, object]] = []
+    seen_operations: set[int] = set()
+    for operation in operations or []:
+        operation_id = _operation_id(operation)
+        operation_name = _operation_name(operation)
+        if operation_id <= 0 or not operation_name or operation_id in seen_operations:
+            continue
+        seen_operations.add(operation_id)
+        normalized_operations.append({
+            "operation_id": operation_id,
+            "operation_name": operation_name,
+            "step_items": _operation_steps(operation),
+            "technical_requirements": _operation_requirements(operation),
+        })
+
+    for operation_id in sorted({mapping.source_operation_id for mapping in mappings} - seen_operations):
+        operation_mappings = [mapping for mapping in mappings if mapping.source_operation_id == operation_id]
+        operation_name = operation_mappings[0].source_operation_name if operation_mappings else ""
+        normalized_operations.append({
+            "operation_id": operation_id,
+            "operation_name": operation_name,
+            "step_items": [mapping.source_step_name for mapping in sorted(operation_mappings, key=lambda item: item.source_step_order)],
+            "technical_requirements": [],
+        })
+
+    output: list[dict[str, object]] = []
+    for operation in normalized_operations:
+        operation_id = int(operation["operation_id"])
+        operation_name = str(operation["operation_name"])
+        steps = [str(step) for step in operation.get("step_items", []) if str(step).strip()]
+        last_feature_step: dict[str, int] = {}
+        for (mapped_operation_id, step_order), step_mappings in mappings_by_step.items():
+            if mapped_operation_id != operation_id:
+                continue
+            for mapping in step_mappings:
+                for feature_key in _mapping_feature_keys(mapping):
+                    last_feature_step[feature_key] = max(last_feature_step.get(feature_key, 0), step_order)
+
+        step_output: list[dict[str, object]] = []
+        for step_order, step_name in enumerate(steps, start=1):
+            step_mappings = mappings_by_step.get((operation_id, step_order), [])
+            feature_keys = set().union(*[_mapping_feature_keys(mapping) for mapping in step_mappings]) if step_mappings else set()
+            candidates = _mapping_candidates(step_mappings)
+            step_output.append({
+                "step_name": step_name,
+                "candidates": candidates,
+                "is_last": bool(feature_keys) and all(last_feature_step.get(key) == step_order for key in feature_keys),
+            })
+
+        output.append({
+            "process_name": operation_name,
+            "process_type": _process_type(operation_name, steps),
+            "precision": _precision_label(operation_name, steps),
+            "technical_requirements": list(operation.get("technical_requirements", [])),
+            "steps": step_output,
+        })
+
+    return output
 
 
 def _mapping_snapshot(mapping: object) -> ProjectGroupMapping:
@@ -299,6 +453,7 @@ def serialize_project_group_template(row: ProjectGroupTemplate) -> ProjectTempla
             _step_mapping_snapshot(mapping)
             for mapping in _json_list(getattr(row, "step_mappings_json", "[]"))
         ],
+        mapping_output=_json_list(getattr(row, "mapping_output_json", "[]")),
         template_revision=int(row.template_revision),
         group_count=int(row.group_count),
         feature_selection_count=int(row.feature_selection_count),
@@ -366,12 +521,12 @@ async def commit_project_group_template(
                     INSERT OR IGNORE INTO project_group_templates (
                         project_id, original_filename, source_encoding, part_filename,
                         content_hash, feature_dictionary_version, source_xml, tree_json,
-                        validation_json, mappings_json, step_mappings_json, template_revision, group_count,
-                        feature_selection_count
+                        validation_json, mappings_json, step_mappings_json, mapping_output_json,
+                        template_revision, group_count, feature_selection_count
                     )
                     SELECT :project_id, :original_filename, :source_encoding, :part_filename,
                            :content_hash, :feature_dictionary_version, :source_xml, :tree_json,
-                           :validation_json, '[]', '[]', 1, :group_count, :feature_selection_count
+                           :validation_json, '[]', '[]', '[]', 1, :group_count, :feature_selection_count
                     FROM projects WHERE id = :project_id
                     RETURNING id
                 """),
@@ -421,6 +576,7 @@ async def commit_project_group_template(
                     validation_json = :validation_json,
                     mappings_json = :mappings_json,
                     step_mappings_json = :step_mappings_json,
+                    mapping_output_json = '[]',
                     group_count = :group_count,
                     feature_selection_count = :feature_selection_count,
                     template_revision = template_revision + 1,
@@ -471,6 +627,7 @@ async def replace_project_group_mappings(
             text("""
                 UPDATE project_group_templates
                 SET mappings_json = :mappings_json,
+                    mapping_output_json = '[]',
                     template_revision = template_revision + 1,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE project_id = :project_id AND template_revision = :expected_revision
@@ -493,6 +650,7 @@ async def replace_project_group_step_mappings(
     project_id: int,
     mappings: list[object],
     expected_revision: int,
+    operations: list[object] | None = None,
 ) -> ProjectTemplateSnapshot:
     current = await get_project_group_template(db, project_id)
     if current is None or int(current.template_revision) != expected_revision:
@@ -514,11 +672,13 @@ async def replace_project_group_step_mappings(
     if any(len(step_statuses) > 1 for step_statuses in statuses.values()):
         raise HTTPException(422, "同一工步不能同时确认映射和标记为不依赖模板特征。")
 
+    mapping_output = _build_mapping_output(operations, resolved)
     revision = (
         await db.execute(
             text("""
                 UPDATE project_group_templates
                 SET step_mappings_json = :step_mappings_json,
+                    mapping_output_json = :mapping_output_json,
                     template_revision = template_revision + 1,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE project_id = :project_id AND template_revision = :expected_revision
@@ -528,6 +688,7 @@ async def replace_project_group_step_mappings(
                 "project_id": project_id,
                 "expected_revision": expected_revision,
                 "step_mappings_json": _json_dump(_step_mapping_dicts(resolved)),
+                "mapping_output_json": _json_dump(mapping_output),
             },
         )
     ).scalar_one_or_none()

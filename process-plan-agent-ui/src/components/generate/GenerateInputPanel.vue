@@ -36,12 +36,12 @@
         v-for="field in inputFields"
         :key="field.key"
         class="field-block"
-        :class="{ complete: Boolean(fieldPreviewValue(field.key)), optional: !field.required }"
+        :class="{ complete: isConfirmedField(field), invalid: isInvalidConfirmedFieldValue(field), optional: !field.required }"
       >
         <div class="field-label-row">
           <div class="field-name-line">
             <span class="field-label">{{ field.name || field.key }}</span>
-            <svg v-if="Boolean(fieldPreviewValue(field.key))" class="field-complete-icon" width="13" height="13" viewBox="0 0 16 16" fill="none">
+            <svg v-if="isConfirmedField(field)" class="field-complete-icon" width="13" height="13" viewBox="0 0 16 16" fill="none">
               <circle cx="8" cy="8" r="7" fill="#22c55e" opacity="0.15"/>
               <path d="M5 8l2.5 2.5L11 5.5" stroke="#16a34a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
@@ -51,7 +51,14 @@
               {{ fieldSourceLabel(field.source) }}
             </span>
             <span class="field-type">{{ fieldTypeLabel(field) }}</span>
+            <span v-if="field.unit" class="field-unit">{{ field.unit }}</span>
             <span v-if="field.required" class="field-required">必填</span>
+            <span
+              class="field-value-status"
+              :class="[`field-value-status--${fieldValueOrigin(field.key)}`, { 'field-value-status--invalid': isInvalidConfirmedFieldValue(field) }]"
+            >
+              {{ fieldValueStatusLabel(field.key) }}
+            </span>
           </div>
         </div>
 
@@ -85,6 +92,17 @@
             :placeholder="fieldPlaceholder(field)"
             @input="setFieldText(field.key, inputValue($event))"
           />
+          <div v-if="field.allow_custom" class="custom-row">
+            <input
+              class="text-input custom-input"
+              type="text"
+              placeholder="自定义输入"
+              :value="customInputValues[field.key] || ''"
+              @input="setCustomInput(field.key, inputValue($event))"
+              @keydown.enter.prevent="addCustomSingleValue(field.key)"
+            />
+            <button class="custom-add-btn" type="button" @click="addCustomSingleValue(field.key)">+ 添加</button>
+          </div>
         </div>
 
         <div v-else-if="isArrayField(field)">
@@ -122,6 +140,8 @@
           v-else
           class="text-input"
           :type="isNumberField(field) ? 'number' : 'text'"
+          :min="isNumberField(field) ? field.validation?.min ?? undefined : undefined"
+          :max="isNumberField(field) ? field.validation?.max ?? undefined : undefined"
           :value="fieldTextValue(field.key)"
           :placeholder="fieldPlaceholder(field)"
           @input="setFieldText(field.key, inputValue($event))"
@@ -157,7 +177,7 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{
+const props = defineProps<{
   projectId: number | null
   projectName: string
   inputFields: any[]
@@ -168,7 +188,10 @@ defineProps<{
   schemaStatusText: string
   generateHintText: string
   fieldValues: Record<string, any>
+  fieldValueOrigin: (key: string) => 'unset' | 'extracted' | 'manual' | 'example'
   customInputValues: Record<string, string>
+  isConfirmedFieldValue: (field: any) => boolean
+  isInvalidConfirmedFieldValue: (field: any) => boolean
   fieldTypeLabel: (field: any) => string
   isTextField: (field: any) => boolean
   isSingleSelectField: (field: any) => boolean
@@ -177,15 +200,14 @@ defineProps<{
   isNumberField: (field: any) => boolean
   fieldTextValue: (key: string) => string
   fieldPlaceholder: (field: any) => string
-  fieldPreviewValue: (key: string) => string
   inputValue: (event: Event) => string
-  checkedValue: (event: Event) => boolean
   arrayFieldValues: (key: string) => string[]
   setFieldText: (key: string, value: string) => void
   setFieldBoolean: (key: string, value: boolean) => void
   toggleFieldArrayValue: (key: string, value: string) => void
   setCustomInput: (key: string, value: string) => void
   addCustomArrayValue: (key: string) => void
+  addCustomSingleValue: (key: string) => void
   clearAllFields: () => void
   fillExampleValues: () => void
 }>()
@@ -206,9 +228,23 @@ function fieldSourceKind(source: string | undefined) {
 function fieldSourceLabel(source: string | undefined) {
   const kind = fieldSourceKind(source)
   if (kind === 'manual') return '人工补充 / 图样技术要求'
-  if (kind === 'cad') return 'CAD / PLM 自动带入'
+  if (kind === 'cad') return 'CAD / PLM 建议来源'
   if (kind === 'drawing') return '图样技术要求'
   return '规则包输入'
+}
+
+function fieldValueStatusLabel(key: string) {
+  const field = props.inputFields.find(item => item.key === key)
+  if (field && props.isInvalidConfirmedFieldValue(field)) return '需修正'
+  const origin = props.fieldValueOrigin(key)
+  if (origin === 'extracted') return '已提取'
+  if (origin === 'manual') return '已确认'
+  if (origin === 'example') return '示例值'
+  return '待填写'
+}
+
+function isConfirmedField(field: any) {
+  return props.isConfirmedFieldValue(field)
 }
 </script>
 
@@ -348,6 +384,10 @@ function fieldSourceLabel(source: string | undefined) {
   border-color: #cbd5e1;
   background: #ffffff;
 }
+.field-block.invalid {
+  border-color: #fecaca;
+  background: #fffafa;
+}
 
 .field-label-row {
   display: flex;
@@ -389,6 +429,7 @@ function fieldSourceLabel(source: string | undefined) {
   flex-shrink: 0;
 }
 .field-type,
+.field-unit,
 .field-required {
   display: inline-flex;
   align-items: center;
@@ -399,7 +440,24 @@ function fieldSourceLabel(source: string | undefined) {
   font-weight: 700;
 }
 .field-type     { border: 1px solid #e2e8f0; color: var(--muted); }
+.field-unit     { border: 1px solid #d8e3ec; color: #4b6478; background: #f5f9fc; }
 .field-required { background: #fdf0e7; color: #b54708; }
+
+.field-value-status {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.field-value-status--unset { background: #f1f5f9; color: #64748b; }
+.field-value-status--manual { background: #ecfdf3; color: #15803d; }
+.field-value-status--extracted { background: #eff6ff; color: #1d4ed8; }
+.field-value-status--example { background: #fff7ed; color: #c2410c; }
+.field-value-status--invalid { background: #fef2f2; color: #b91c1c; }
 
 /* ===== Inputs ===== */
 .text-input {

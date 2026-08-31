@@ -29,6 +29,7 @@ import { buildResultSummary } from '@/composables/analysisQuestionTreeNodes'
 import { answersFromTrail, savedQuestionTrail } from '@/composables/analysisQuestionTreeState'
 import { useAnalysisReviewPersistence } from '@/composables/useAnalysisReviewPersistence'
 import { useAnalysisWorkspaceData } from '@/composables/useAnalysisWorkspaceData'
+import { startRulePreprocessingForSavedRoute } from '@/composables/rulePreprocessingTrigger'
 import { getWorkflowDataRevision } from '@/composables/workflowDataCache'
 import { publishWorkflowReset, workflowResetSignal } from '@/composables/workflowResetState'
 
@@ -362,6 +363,15 @@ export function useAnalysisWorkspace() {
     }
   }
 
+  function triggerRulePreprocessing() {
+    void startRulePreprocessingForSavedRoute({
+      projectId: projectId.value,
+      savedRoute: savedRoute.value,
+      supersetOperations: supersetOperations.value,
+      segmentDisplayName,
+    })
+  }
+
   const {
     savingRuleReview,
     autoPersistingRuleSegmentId,
@@ -378,6 +388,7 @@ export function useAnalysisWorkspace() {
     clearQuestionTreeRejudging,
     goToNextPendingSegment,
     onWorkflowConflict: () => applyAnalysisWorkflowReset(),
+    onRuleReviewSaved: triggerRulePreprocessing,
   })
 
   function goBackToExtract() {

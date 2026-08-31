@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.services.rule_packages.contracts import (
     CompileRulePackageRequest,
+    FactorDictionaryV2,
     RulePackageManifestV2,
     RulePackageV2,
     InputSchemaV2,
@@ -21,6 +22,9 @@ def compile_rule_package(request: CompileRulePackageRequest) -> RulePackageV2:
             route_version_id=request.route_version_id,
             scope=PackageScope(key=str(request.project_id)),
             applicability=request.applicability,
+        ),
+        factor_dictionary=request.factor_dictionary or FactorDictionaryV2(
+            fields=[field.model_copy(deep=True) for field in request.fields],
         ),
         input_schema=InputSchemaV2(fields=request.fields),
         route_catalog=RouteCatalogV2(processes=request.processes),

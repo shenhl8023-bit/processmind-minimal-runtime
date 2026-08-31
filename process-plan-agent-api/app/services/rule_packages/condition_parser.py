@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import hashlib
 import logging
 import os
 import re
@@ -28,7 +27,7 @@ from app.services.rule_packages.condition_registry import (
 from app.services.rule_packages.contracts import ConditionNode, RuleAction
 from app.services.rule_packages.expression_engine import iter_condition_fields
 
-CONDITION_PARSER_VERSION = "2026.07.27.2"
+CONDITION_PARSER_VERSION = "2026.08.07.1"
 logger = logging.getLogger(__name__)
 
 
@@ -71,18 +70,16 @@ def _with_source_evidence(
 
 
 def _resolve_process_ids(text: str, current_process_id: str, processes: list[RuleConditionProcessOption]) -> list[str]:
-    normalized_text = _normalized_process_name(text)
-    matched = [
-        item.process_id
-        for item in processes
-        if _normalized_process_name(item.display_name) and _normalized_process_name(item.display_name) in normalized_text
-    ]
-    return list(dict.fromkeys(matched or [current_process_id]))
+    # A condition card controls its own process. Other process names in the
+    # condition clause are inputs or should be expressed as a process relation.
+    return [current_process_id]
 
 
 def validate_candidate(
     candidate: RuleConditionCandidate,
     processes: list[RuleConditionProcessOption],
+    *,
+    current_process_id: str | None = None,
 ) -> list[str]:
     allowed_ids = {item.process_id for item in processes}
     if candidate.kind == "process_relation":
@@ -119,6 +116,8 @@ def validate_candidate(
             dynamic_fields[definition.key] = definition
         issues.extend(validate_condition_tree(candidate.when, dynamic_fields))
         referenced_ids = [*candidate.then.include_process_ids, *candidate.then.exclude_process_ids]
+        if current_process_id and set(referenced_ids) != {current_process_id}:
+            issues.append("条件规则只能控制当前工序；跨工序依赖请改为关联工序规则。")
     for process_id in referenced_ids:
         if process_id not in allowed_ids:
             issues.append(f"规则引用了当前路线中不存在的工序：{process_id}")
@@ -305,10 +304,35 @@ def _leaf_from_clause(clause: str) -> ConditionNode | None:
     return None
 
 
+_DYNAMIC_FACTOR_KEY_ALIASES = {
+    "材料类别": "material_category",
+    "材质类别": "material_category",
+    "材料类型": "material_type",
+    "零件类型": "part_type",
+    "产品类型": "product_type",
+    "工件类型": "workpiece_type",
+    "结构类型": "structure_type",
+    "热处理状态": "heat_treatment_state",
+    "表面处理类型": "surface_treatment_type",
+    "生产批次": "production_batch",
+    "试制状态": "prototype_status",
+    "客户见证": "customer_witness",
+}
+
+
 def _project_factor_key(label: str) -> str:
     normalized = re.sub(r"\s+", "", str(label or "").strip()).casefold()
-    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:12]
-    return f"project_factor.{digest}"
+    alias = _DYNAMIC_FACTOR_KEY_ALIASES.get(normalized)
+    if alias:
+        return f"project_factor.{alias}"
+
+    ascii_slug = re.sub(r"[^a-z0-9]+", "_", normalized).strip("_")
+    if ascii_slug:
+        return f"project_factor.{ascii_slug}"
+
+    # Keep unfamiliar Chinese labels deterministic and reversible instead of opaque hashes.
+    codepoint_slug = "_".join(f"u{ord(character):x}" for character in normalized)
+    return f"project_factor.{codepoint_slug or 'user_factor'}"
 
 
 def _dynamic_categorical_condition(
@@ -498,10 +522,12 @@ def _parse_locally(
 ) -> RuleConditionCandidate | None:
     special_requirement = _known_special_requirement(source_text, current_process_name)
     dynamic_condition = None if special_requirement else _dynamic_categorical_condition(source_text)
-    when = ConditionNode(field="special.requirements", op="contains", value=special_requirement) if special_requirement else (
-        _parse_condition_tree(source_text)
-        or (dynamic_condition[0] if dynamic_condition else None)
-        or _generic_tag_condition(source_text)
+    parsed_condition = _parse_condition_tree(source_text)
+    when = parsed_condition or (
+        ConditionNode(field="special.requirements", op="contains", value=special_requirement) if special_requirement else (
+            (dynamic_condition[0] if dynamic_condition else None)
+            or _generic_tag_condition(source_text)
+        )
     )
     if not when:
         return None
@@ -681,7 +707,11 @@ async def parse_rule_condition(
         local_condition_candidate.field_definitions
         or deterministic_condition is not None
     ):
-        local_issues = validate_candidate(local_condition_candidate, processes)
+        local_issues = validate_candidate(
+            local_condition_candidate,
+            processes,
+            current_process_id=current_process_id,
+        )
         if not local_issues:
             logger.info("rule_condition_parse_source source=local_condition")
             return local_condition_candidate, 0.9, []
@@ -697,7 +727,11 @@ async def parse_rule_condition(
         candidate = _with_source_evidence(candidate, source_text)
         assert candidate is not None
         candidate = _convert_boolean_fields_to_special_requirements(candidate)
-        validation_issues = validate_candidate(candidate, processes)
+        validation_issues = validate_candidate(
+            candidate,
+            processes,
+            current_process_id=current_process_id,
+        )
         expected_special_requirement = (
             None if local_relation_candidate else _known_special_requirement(source_text, current_process_name)
         )
@@ -731,7 +765,11 @@ async def parse_rule_condition(
 
     local_candidate = local_condition_candidate
     if local_candidate:
-        local_issues = validate_candidate(local_candidate, processes)
+        local_issues = validate_candidate(
+            local_candidate,
+            processes,
+            current_process_id=current_process_id,
+        )
         if not local_issues:
             fallback_note = "已使用内置规则解析器生成候选结果，请重点核对。" if issues else ""
             logger.info("rule_condition_parse_source source=local_condition_fallback")

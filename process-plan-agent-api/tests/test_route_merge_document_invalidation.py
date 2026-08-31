@@ -85,7 +85,7 @@ def _rule_package(
         project_id=project_id,
         version=version,
         package_name=f"project-{project_id}-rules-v{version}",
-        schema_version="1.0",
+        schema_version="2.0",
         status=status,
         input_schema_json="{}",
         route_catalog_json="{}",

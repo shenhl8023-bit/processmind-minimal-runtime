@@ -169,6 +169,7 @@ async def invalidate_project_workflow(
                 else 0
             )
             template.step_mappings_json = "[]"
+            template.mapping_output_json = "[]"
             template.template_revision = int(template.template_revision or 0) + 1
     packages = await _rows(db, FinalizedRulePackage, project_id)
     archived_versions: list[int] = []

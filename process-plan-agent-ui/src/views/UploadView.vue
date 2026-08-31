@@ -5,7 +5,6 @@
       :projects="visibleProjects"
       :selected-project-id="selectedProjectId"
       :creating-project="creatingProject"
-      :profile-short-label="profileShortLabel"
       :format-time="formatTime"
       :project-status-text="projectStatusText"
       @create="createNewProject"
@@ -130,20 +129,6 @@
             <p class="v5-hint">用于标识提炼与规则分析结果</p>
           </div>
 
-          <!-- Profiles (Only if multiple) -->
-          <div v-if="availableNewProjectProfiles.length > 1" class="v5-profiles">
-            <label class="v5-label">逻辑包方案</label>
-            <div class="v5-chip-container">
-              <button
-                v-for="profile in availableNewProjectProfiles"
-                :key="profile.key"
-                :class="['v5-chip', { active: resolvedNewProjectProfile === profile.key }]"
-                @click="newProjectProfile = profile.key"
-              >
-                {{ profile.label }}
-              </button>
-            </div>
-          </div>
         </div>
 
         <div class="v5-footer">
@@ -164,7 +149,7 @@ import UploadMainFileCard from '@/components/upload/UploadMainFileCard.vue'
 import UploadProjectBoard from '@/components/upload/UploadProjectBoard.vue'
 import UploadReferenceCard from '@/components/upload/UploadReferenceCard.vue'
 import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
-import { uploadDocuments, listDocuments, deleteDocument, createReference, listReferences, uploadReferences, deleteReference, listProjects, createProject, deleteProject, listProjectProfiles, type ProjectProfile } from '@/api'
+import { uploadDocuments, listDocuments, deleteDocument, createReference, listReferences, uploadReferences, deleteReference, listProjects, createProject, deleteProject } from '@/api'
 import {
   buildProjectRouteQuery,
   clearStoredCurrentProjectId,
@@ -177,7 +162,6 @@ import {
   formatTime,
   getFileType,
   isSystemSeedProject,
-  profileShortLabel as resolveProfileShortLabel,
   projectStatusText,
   sortProjects,
 } from '@/utils/uploadViewHelpers'
@@ -191,7 +175,6 @@ const deleteDialogVisible = ref(false)
 const projectToDelete = ref<any>(null)
 const createDialogVisible = ref(false)
 const newProjectName = ref('')
-const newProjectProfile = ref('')
 const creatingProject = ref(false)
 const createProjectInFlight = ref(false)
 const lastCreateProjectKey = ref('')
@@ -201,20 +184,16 @@ const uploadingRef = ref(false)
 const deletingProject = ref(false)
 
 const projects = ref<any[]>([])
-const profileCatalog = ref<ProjectProfile[]>([])
 const selectedProjectId = ref('')
 const mainFiles = ref<any[]>([])
 const refFiles = ref<any[]>([])
 const visibleProjects = computed(() =>
   sortProjects(projects.value)
-    .filter((project) => !isSystemSeedProject(project) && project.mode === 'route_rules')
+    .filter((project) => !isSystemSeedProject(project))
 )
 
 onMounted(async () => {
-  await Promise.all([
-    loadProfileCatalog(),
-    ensureProjectReady(),
-  ])
+  await ensureProjectReady()
   await loadData()
 })
 
@@ -261,8 +240,7 @@ async function ensureProjectReady() {
   const savedId = getStoredCurrentProjectId()
   const current = projects.value.find((project) =>
     String(project.id) === savedId
-    && !isSystemSeedProject(project)
-    && project.mode === 'route_rules',
+    && !isSystemSeedProject(project),
   )
   if (current) {
     selectedProjectId.value = String(current.id)
@@ -273,18 +251,8 @@ async function ensureProjectReady() {
   clearStoredCurrentProjectId()
 }
 
-async function loadProfileCatalog() {
-  try {
-    profileCatalog.value = await listProjectProfiles('route_rules')
-  } catch (e) {
-    console.error('加载方案逻辑包失败', e)
-    profileCatalog.value = []
-  }
-}
-
 function createNewProject() {
   newProjectName.value = ''
-  newProjectProfile.value = ''
   createDialogVisible.value = true
 }
 
@@ -292,8 +260,7 @@ async function executeCreateProject() {
   if (createProjectInFlight.value || creatingProject.value) return
   const name = newProjectName.value.trim()
   if (!name) return
-  const profile = resolvedNewProjectProfile.value || undefined
-  const createKey = `${name}::${profile || ''}`
+  const createKey = name
   const now = Date.now()
   if (lastCreateProjectKey.value === createKey && now - lastCreateProjectAt.value < 3000) {
     return
@@ -304,7 +271,7 @@ async function executeCreateProject() {
   creatingProject.value = true
   try {
     createDialogVisible.value = false
-    const project = await createProject(name, 'route_rules', profile)
+    const project = await createProject(name)
     projects.value = sortProjects([
       project,
       ...projects.value.filter(item => item.id !== project.id),
@@ -376,11 +343,6 @@ const currentMainTitle = computed(() => '典型工艺规程文件')
 const currentMainDesc = computed(() => '支持 PDF / Word / Excel / JSON，可一次上传多份')
 const currentRefTitle = computed(() => '参考资料')
 const currentRefDesc = computed(() => '老工艺师经验、背景说明、工艺编制原则等补充知识')
-const availableNewProjectProfiles = computed(() => profileCatalog.value.filter(profile => profile.mode === 'route_rules'))
-const resolvedNewProjectProfile = computed(() => {
-  if (newProjectProfile.value) return newProjectProfile.value
-  return availableNewProjectProfiles.value.length === 1 ? (availableNewProjectProfiles.value[0]?.key ?? '') : ''
-})
 const canCreateProject = computed(() => Boolean(newProjectName.value.trim()))
 const canEnterExtract = computed(() =>
   Boolean(selectedProjectId.value) && mainFiles.value.length > 0 && !uploading.value
@@ -391,10 +353,6 @@ const uploadNavSummary = computed(() => {
   const refText = refFiles.value.length > 0 ? `，${refFiles.value.length} 份参考资料` : ''
   return `当前任务已上传 ${mainFiles.value.length} 份工艺规程${refText}。`
 })
-
-function profileShortLabel(profileKey?: string) {
-  return resolveProfileShortLabel(profileCatalog.value, profileKey)
-}
 
 async function doUpload(files: File[]) {
   uploading.value = true

@@ -17,7 +17,7 @@ const workflowSteps = [
   { path: '/extract', number: 2, label: '路线归并' },
   { path: '/analysis', number: 3, label: '规则分析' },
   { path: '/finalize', number: 4, label: '规则定稿' },
-  { path: '/generate', number: 5, label: '路线生成' },
+  { path: '/generate', number: 5, label: '验证生成' },
 ] as const
 
 const currentStepIndex = computed(() => {
