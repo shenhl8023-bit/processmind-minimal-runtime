@@ -21,6 +21,7 @@ from app.services.rule_packages.condition_contracts import (
     RulePreprocessStartRequest,
     RulePreprocessStatusResponse,
 )
+from app.services.rule_packages.condition_parser import CONDITION_PARSER_VERSION
 from app.services.rule_packages.condition_registry import FIELD_REGISTRY_VERSION
 from app.services.rule_packages.condition_reviews import (
     _active_condition_parser_context,
@@ -149,6 +150,7 @@ def _input_hash(items: list[RulePreprocessItem], processes: list[RuleConditionPr
         "items": [item.model_dump(mode="json") for item in items],
         "processes": [process.model_dump(mode="json") for process in processes],
         "field_registry_version": FIELD_REGISTRY_VERSION,
+        "condition_parser_version": CONDITION_PARSER_VERSION,
     }
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()

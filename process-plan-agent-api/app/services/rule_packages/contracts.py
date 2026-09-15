@@ -91,6 +91,7 @@ class ProcessV2(StrictModel):
     process_id: str = Field(min_length=1)
     process_code: str = ""
     display_name: str = Field(min_length=1)
+    source_operation_ids: list[int] = Field(default_factory=list)
     phase: str = ""
     default_sequence: int = Field(default=0, ge=0)
     main: bool = False

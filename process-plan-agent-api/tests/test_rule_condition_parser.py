@@ -166,26 +166,43 @@ async def test_llm_timeout_falls_back_to_local_candidate(monkeypatch):
     assert any("AI 解析服务暂时不可用" in issue for issue in issues)
 
 
+@pytest.mark.parametrize(
+    ("source_text", "target_id", "target_name"),
+    [
+        ("当只有部分结构或工艺要求下才会出现，以及零件存在内孔、通孔或中心孔时，纳入钻孔工序", "process_drill", "钻孔"),
+        ("当零件存在内孔、通孔或中心孔，以及不同结构类型下工艺安排存在差异时，纳入钻铰孔工序", "process_drill_ream", "钻铰孔"),
+        ("当只有部分结构或工艺要求下才会出现，以及零件存在内孔、通孔或中心孔时，纳入磨孔工序", "process_grind_hole", "磨孔"),
+        ("当零件存在内孔、通孔或中心孔，以及不同结构类型下工艺安排存在差异时，纳入珩孔工序", "process_hone", "珩孔"),
+        ("当存在通孔、盲孔或一般孔结构需求，只有部分结构或工艺要求下才会出现，以及零件存在内孔、通孔或中心孔时，纳入打孔工序", "process_punch", "打孔"),
+        ("当零件存在内孔、通孔或中心孔，以及不同结构类型下工艺安排存在差异时，纳入割型孔工序", "process_cut_profile_hole", "割型孔"),
+        ("当存在通孔、盲孔或一般孔结构需求，只有部分结构或工艺要求下才会出现，以及零件存在内孔、通孔或中心孔时，纳入打型孔工序", "process_punch_profile_hole", "打型孔"),
+        ("当只有部分结构或工艺要求下才会出现，以及零件存在内孔、通孔或中心孔时，纳入研顶尖孔工序", "process_lap_center_hole", "研顶尖孔"),
+        ("当零件存在内孔、通孔或中心孔，以及不同结构类型下工艺安排存在差异时，纳入研孔工序", "process_lap_hole", "研孔"),
+        ("当尺寸公差要求较高，只有部分结构或工艺要求下才会出现，以及零件存在槽、键或花键结构时，纳入磨槽工序", "process_grind_slot", "磨槽"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_partially_recognized_vague_condition_still_uses_llm(monkeypatch):
-    calls = 0
+async def test_ignores_vague_template_qualifier_when_hole_condition_is_explicit(
+    source_text, target_id, target_name, monkeypatch,
+):
+    async def llm_must_not_run(*args, **kwargs):
+        raise AssertionError("明确的孔结构条件应由本地解析器直接处理")
 
-    async def capture_llm(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        return ""
-
-    monkeypatch.setattr(condition_parser, "call_llm", capture_llm)
-    candidate, confidence, _ = await condition_parser.parse_rule_condition(
-        "当零件存在内孔、通孔或中心孔，以及不同结构类型下工艺安排存在差异时，纳入珩孔工序",
-        "process_hone",
-        "珩孔",
-        [RuleConditionProcessOption(process_id="process_hone", display_name="珩孔")],
+    monkeypatch.setattr(condition_parser, "call_llm", llm_must_not_run)
+    candidate, confidence, issues = await condition_parser.parse_rule_condition(
+        source_text,
+        target_id,
+        target_name,
+        [RuleConditionProcessOption(process_id=target_id, display_name=target_name)],
     )
 
-    assert calls == 1
-    assert candidate is None
-    assert confidence is None
+    assert candidate is not None
+    assert candidate.when is not None
+    assert candidate.then is not None
+    assert candidate.then.include_process_ids == [target_id]
+    assert confidence == 0.75
+    assert candidate.evidence in source_text
+    assert issues == ["已忽略原文中的泛化模板描述，请重点核对具体结构条件。"]
 
 
 @pytest.mark.asyncio

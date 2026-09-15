@@ -5,6 +5,7 @@ import {
   blockedExportPrimaryActionLabel,
   buildManualBooleanRuleCandidate,
   exportBlockedReason,
+  exportBlockingCards,
   exportBlockedReasonLabel,
   groupExportBlockedCards,
   finalizeRuleMode,
@@ -12,6 +13,7 @@ import {
   isActionableConditionText,
   isSafeForBatchRuleConfirmation,
   manualRuleModeActionState,
+  requiresManualRuleAttention,
   requiresServerRuleConditionRefresh,
 } from './finalizeRulePackage'
 import { nestFactorValues } from '@/composables/useGenerateInputFields'
@@ -201,6 +203,30 @@ describe('V2 compile DTO from finalize cards', () => {
     expect(isSafeForBatchRuleConfirmation(item)).toBe(false)
   })
 
+  it('keeps unsafe pending candidates visible in the pending filter', () => {
+    const item: any = {
+      ...finalizeItem({ id: 'process_drill', normalized_step_name: '钻孔', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: '当零件存在内孔时，纳入钻孔工序',
+      factorNames: [],
+      conditionReview: {
+        source_text: '当零件存在内孔时，纳入钻孔工序',
+        status: 'pending_confirmation',
+        confidence: 0.75,
+        issues: ['已忽略原文中的泛化模板描述，请重点核对具体结构条件。'],
+        candidate: {
+          kind: 'condition',
+          when: { field: 'cad.features', op: 'contains', value: '普通孔/辅助孔' },
+          then: { include_process_ids: ['process_drill'], exclude_process_ids: [] },
+        },
+      },
+    }
+
+    expect(requiresManualRuleAttention(item)).toBe(true)
+    item.conditionReview.confidence = 0.9
+    item.conditionReview.issues = []
+    expect(requiresManualRuleAttention(item)).toBe(false)
+  })
+
   it('only refreshes missing or stale candidates before batch confirmation', () => {
     const pendingItem: any = {
       ...finalizeItem({ id: 'process_mark', normalized_step_name: '标记', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
@@ -285,6 +311,101 @@ describe('V2 compile DTO from finalize cards', () => {
     expect(blockedExportPrimaryActionLabel([pendingCandidate])).toBe('确认候选并发布')
     expect(blockedExportPrimaryActionLabel([missingCondition])).toBe('去处理待补充项')
     expect(blockedExportPrimaryActionLabel([rebuildRequired])).toBe('去处理首项')
+  })
+
+  it('does not block publishing for current pending candidates but keeps unresolved and stale rules blocking', () => {
+    const candidate = {
+      ...finalizeItem({ id: 'process_slot', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: '当零件存在槽时，纳入铣槽工序',
+      factorNames: [],
+      conditionReview: {
+        status: 'pending_confirmation',
+        source_text: '当零件存在槽时，纳入铣槽工序',
+        candidate: { kind: 'condition', when: { field: 'cad.features', op: 'contains', value: '槽' } },
+      },
+    }
+    const unresolved = {
+      ...finalizeItem({ id: 'process_ambiguous', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: '根据不同结构类型决定是否安排该工序',
+      factorNames: [],
+    }
+    const stale = {
+      ...candidate,
+      conditionReview: { ...candidate.conditionReview, source_text: '旧条件' },
+    }
+    const wrongKind = {
+      ...candidate,
+      conditionText: '淬火之后安排铣槽工序',
+      conditionReview: {
+        ...candidate.conditionReview,
+        source_text: '淬火之后安排铣槽工序',
+      },
+    }
+
+    expect(exportBlockingCards([candidate])).toEqual([])
+    expect(exportBlockingCards([candidate, unresolved, stale])).toEqual([unresolved, stale])
+    expect(exportBlockingCards([wrongKind])).toEqual([wrongKind])
+  })
+
+  it('does not publish static rules for an unconfirmed candidate process', () => {
+    const text = '当零件存在槽时，纳入铣槽工序'
+    const request = buildCompileRequestFromCards({
+      projectId: 12,
+      packageName: 'pending_slot',
+      routeVersionId: 3,
+      cards: [
+        finalizeItem(),
+        {
+          ...finalizeItem({ id: 'process_slot', normalized_step_name: '铣槽', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+          conditionText: text,
+          factorNames: [],
+          conditionReview: {
+            status: 'pending_confirmation',
+            source_text: text,
+            candidate: { kind: 'condition', when: { field: 'cad.features', op: 'contains', value: '槽类特征' } },
+          },
+        },
+      ],
+      displayName: segment => segment.normalized_step_name,
+      phaseLabel: () => 'machining',
+      primarySteps: () => [],
+      attachedSteps: () => [],
+      conditionFields: baseConditionFields(),
+    })
+
+    expect(request.processes.map(process => process.process_id)).toContain('process_slot')
+    expect(request.rules?.flatMap(rule => rule.then.include_process_ids || [])).not.toContain('process_slot')
+  })
+
+  it('keeps a candidate blocking when a confirmed rule explicitly includes its process', () => {
+    const text = '当零件存在槽时，纳入铣槽工序'
+    const pending = {
+      ...finalizeItem({ id: 'process_slot', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: text,
+      factorNames: [],
+      conditionReview: {
+        source_text: text,
+        status: 'pending_confirmation',
+        candidate: { kind: 'condition' },
+      },
+    }
+    const confirmedText = '当材料为9Cr18时，纳入热处理和铣槽'
+    const confirmed = {
+      ...finalizeItem({ id: 'process_heat', normalized_step_name: '热处理', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: confirmedText,
+      factorNames: [],
+      conditionReview: {
+        source_text: confirmedText,
+        status: 'confirmed',
+        confirmed: {
+          kind: 'condition',
+          when: { field: 'material.grade', op: 'eq', value: '9Cr18' },
+          then: { include_process_ids: ['process_heat', 'process_slot'], exclude_process_ids: [] },
+        },
+      },
+    }
+
+    expect(exportBlockingCards([pending, confirmed])).toEqual([pending])
   })
 
   it('builds a stable user-controlled boolean switch for the target process', () => {
@@ -521,6 +642,50 @@ describe('V2 compile DTO from finalize cards', () => {
     }))
   })
 
+  it('merges repeated collection-field leaves when generating a positive rule test case', () => {
+    const sourceText = '当存在通孔、盲孔或一般孔结构需求，以及零件存在内孔、通孔或中心孔时，纳入打孔工序'
+    const request = buildCompileRequestFromCards({
+      projectId: 12,
+      packageName: 'merged_feature_test_case',
+      routeVersionId: 3,
+      cards: [{
+        ...finalizeItem({ id: 'process_drill', sequence: 30, normalized_step_name: '打孔', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+        conditionText: sourceText,
+        factorNames: [],
+        edited: true,
+        conditionReview: {
+          source_text: sourceText,
+          status: 'confirmed',
+          confirmed: {
+            kind: 'condition',
+            when: {
+              all: [
+                { field: 'cad.features', op: 'contains', value: '普通孔/辅助孔' },
+                { field: 'cad.features', op: 'contains_any', value: ['顶尖孔', '普通孔/辅助孔'] },
+              ],
+            },
+            then: { include_process_ids: ['process_drill'], exclude_process_ids: [] },
+          },
+          confidence: 0.9,
+          issues: [],
+          field_registry_version: '2026.09',
+          confirmed_by: '测试用户',
+          confirmed_at: '2026-07-21T02:00:00Z',
+        },
+      }],
+      displayName: segment => segment.normalized_step_name,
+      phaseLabel: () => 'machining',
+      primarySteps: () => [],
+      attachedSteps: () => [],
+      conditionFields: baseConditionFields(),
+    })
+
+    expect(request.test_cases).toContainEqual(expect.objectContaining({
+      input: { cad: { features: ['普通孔/辅助孔', '顶尖孔'] } },
+      expect: { included_process_ids: ['process_drill'], excluded_process_ids: [] },
+    }))
+  })
+
   it('keeps generated test case IDs unique when rule IDs collapse to the same safe slug', () => {
     const ndtText = '当零件有无损检测要求时，安排无损检查工序'
     const markText = '当零件需要追溯、编号或批次标识时，安排标记工序'
@@ -617,6 +782,7 @@ describe('V2 compile DTO from finalize cards', () => {
           id: 'process_drill',
           sequence: 70,
           normalized_step_name: '钻孔',
+          source_operation_ids: [80],
           template_group_aliases: [{
             source_operation_id: 80,
             alias: '钻孔（A侧/孔）',
@@ -637,6 +803,7 @@ describe('V2 compile DTO from finalize cards', () => {
 
     const process = request.processes[0]!
     expect(process.display_name).toBe('钻孔')
+    expect(process.source_operation_ids).toEqual([80])
     expect(process.template_group_aliases).toEqual([{
       source_operation_id: 80,
       alias: '钻孔（A侧/孔）',

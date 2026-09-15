@@ -13,8 +13,7 @@ import { createZipBlob, downloadBlob, textFile } from '@/utils/exportArchive'
 import {
   buildCompileRequestFromCards,
   buildRuleReportFromV2Package,
-  hasCurrentConfirmedUserRule,
-  requiresConfirmedUserRule,
+  exportBlockingCards,
 } from '@/utils/finalizeRulePackage'
 import { isWorkflowRevisionConflict } from '@/composables/workflowResetState'
 
@@ -76,11 +75,9 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
 
     const safeProjectName = safeFilenamePart(options.projectName.value || `任务_${options.projectId.value || 'unknown'}`)
     const packageName = `${safeProjectName}_${FINALIZE_EXPORT_COPY.documentNameSuffix}`
-    const unconfirmedCards = options.segmentCards.value.filter(
-      item => requiresConfirmedUserRule(item) && !hasCurrentConfirmedUserRule(item),
-    )
-    if (unconfirmedCards.length) {
-      await options.onBlockedCards?.(unconfirmedCards)
+    const blockingCards = exportBlockingCards(options.segmentCards.value)
+    if (blockingCards.length) {
+      await options.onBlockedCards?.(blockingCards)
       return
     }
     if (!options.conditionFields.value.length) {

@@ -132,19 +132,59 @@ export function requiresServerRuleConditionRefresh(item: any) {
   )
 }
 
+export function requiresManualRuleAttention(item: any) {
+  const mode = finalizeRuleMode(item)
+  if (mode === 'unresolved') return true
+  if (mode !== 'relation' && mode !== 'conditional') return false
+  if (hasCurrentConfirmedUserRule(item)) return false
+
+  const review = item.conditionReview
+  const expectedKind = mode === 'relation' ? 'process_relation' : 'condition'
+  const hasCurrentCandidate = Boolean(
+    review?.status === 'pending_confirmation'
+    && review?.candidate
+    && String(review.source_text || '').trim() === String(item.conditionText || '').trim()
+    && (review.candidate.kind || 'condition') === expectedKind,
+  )
+  return !hasCurrentCandidate || !isSafeForBatchRuleConfirmation(item)
+}
+
 export type ExportBlockedReason = 'pending_candidate' | 'missing_condition' | 'rebuild_required'
 
 export function exportBlockedReason(item: any): ExportBlockedReason {
-  if (finalizeRuleMode(item) === 'unresolved') return 'missing_condition'
+  const mode = finalizeRuleMode(item)
+  if (mode === 'unresolved') return 'missing_condition'
   const review = item.conditionReview
   if (
     review?.status === 'pending_confirmation'
     && review.candidate
     && String(review.source_text || '').trim() === String(item.conditionText || '').trim()
+    && (review.candidate.kind || 'condition') === (mode === 'relation' ? 'process_relation' : 'condition')
   ) {
     return 'pending_candidate'
   }
   return 'rebuild_required'
+}
+
+export function exportBlockingCards(cards: any[]) {
+  const referencedByConfirmedRules = new Set<string>()
+  cards.filter(hasCurrentConfirmedUserRule).forEach(item => {
+    const confirmed = item.conditionReview.confirmed
+    ;[
+      ...(confirmed.then?.include_process_ids || []),
+      ...(confirmed.then?.exclude_process_ids || []),
+      ...(confirmed.relation?.source_process_ids || []),
+      ...(confirmed.relation?.target_process_ids || []),
+    ].forEach(processId => referencedByConfirmedRules.add(processId))
+  })
+  return cards.filter(item =>
+    requiresConfirmedUserRule(item)
+    && !hasCurrentConfirmedUserRule(item)
+    && (
+      exportBlockedReason(item) !== 'pending_candidate'
+      || referencedByConfirmedRules.has(exportProcessIdForItem(item))
+    ),
+  )
 }
 
 export function exportBlockedReasonLabel(item: any) {
@@ -454,6 +494,17 @@ function setNestedInputValue(target: Record<string, any>, key: string, value: un
   current[parts[parts.length - 1]!] = value
 }
 
+function getNestedInputValue(target: Record<string, any>, key: string): unknown {
+  const parts = String(key || '').split('.').filter(Boolean)
+  if (!parts.length) return undefined
+  let current: any = target
+  for (const part of parts) {
+    if (!current || typeof current !== 'object' || !(part in current)) return undefined
+    current = current[part]
+  }
+  return current
+}
+
 function defaultInputValueForField(field: CompileRulePackageRequest['fields'][number]) {
   if (field.source === '用户直接设定' && field.type === 'boolean') return false
   const firstOption = field.options?.[0]?.value || '样例值'
@@ -566,9 +617,20 @@ function applyPositiveLeaf(
   if (op === 'eq') return set(value)
   if (op === 'neq') return set(optionOutside(field, value))
   if (op === 'in') return set(Array.isArray(value) ? value[0] : value)
-  if (op === 'contains') return set(listValueForField(field, [value]))
-  if (op === 'contains_any') return set(listValueForField(field, Array.isArray(value) ? [value[0]] : [value]))
-  if (op === 'contains_all') return set(listValueForField(field, Array.isArray(value) ? value : [value]))
+  if (op === 'contains' || op === 'contains_any' || op === 'contains_all') {
+    // A conjunction can contain multiple leaves for the same collection field
+    // (for example, "普通孔" and "内孔/通孔").  Merge them into one test
+    // input instead of letting the later leaf overwrite the earlier value.
+    const requestedValues = op === 'contains'
+      ? [value]
+      : (Array.isArray(value) ? value : [value])
+    const previousValue = getNestedInputValue(input, key)
+    const previousValues = Array.isArray(previousValue)
+      ? previousValue
+      : (previousValue === undefined || previousValue === null || previousValue === '' ? [] : [previousValue])
+    const mergedValues = Array.from(new Set([...previousValues, ...requestedValues].map(item => String(item))))
+    return set(listValueForField(field, mergedValues))
+  }
   if (op === 'between') {
     const bounds = Array.isArray(value) ? value : []
     const low = numberValue(bounds[0], 0)
@@ -800,6 +862,11 @@ export function buildCompileRequestFromCards(args: {
     const displayName = normalizeExportProcessName(args.displayName(item.segment))
     const processId = stableProcessId(exportProcessIdForItem(item), displayName)
     const templateGroupAliases = normalizeTemplateGroupAliases(item.segment?.template_group_aliases)
+    const sourceOperationIds = Array.from(new Set(
+      (Array.isArray(item.segment?.source_operation_ids) ? item.segment.source_operation_ids : [])
+        .map((value: unknown) => Number(value || 0))
+        .filter((value: number) => value > 0),
+    ))
     const primary = args.primarySteps(item.segment).map((name, index) => ({
       step_id: slugStepId(processId, name, index, 'primary'),
       name,
@@ -816,6 +883,7 @@ export function buildCompileRequestFromCards(args: {
         process_id: processId,
         process_code: processId.replace(/^process_/, '').toUpperCase(),
         display_name: displayName,
+        source_operation_ids: sourceOperationIds,
         phase: args.phaseLabel(item.segment) || item.segment?.phase || '',
         default_sequence: Number(item.segment?.sequence || 0) * 10,
         main: isMainlineRule(item),
@@ -831,6 +899,10 @@ export function buildCompileRequestFromCards(args: {
       return
     }
     existing.main = existing.main || isMainlineRule(item)
+    existing.source_operation_ids = Array.from(new Set([
+      ...(existing.source_operation_ids || []),
+      ...sourceOperationIds,
+    ]))
     existing.default_sequence = Math.min(existing.default_sequence, Number(item.segment?.sequence || 0) * 10)
     mergeTemplateGroupAliases(existing.template_group_aliases, templateGroupAliases)
     const known = new Set(existing.steps.map((step: any) => step.name))
@@ -940,9 +1012,14 @@ export function buildCompileRequestFromCards(args: {
       ...(rule.then.exclude_process_ids || []),
     ]),
   ])
+  const pendingCandidateProcessIds = new Set(
+    args.cards
+      .filter(item => !hasCurrentConfirmedUserRule(item) && exportBlockedReason(item) === 'pending_candidate')
+      .map(item => stableProcessId(exportProcessIdForItem(item), normalizeExportProcessName(args.displayName(item.segment)))),
+  )
   const filteredStaticRules = staticRules.flatMap((rule) => {
     const includeProcessIds = (rule.then.include_process_ids || [])
-      .filter(processId => !protectedProcessIds.has(processId))
+      .filter(processId => !protectedProcessIds.has(processId) && !pendingCandidateProcessIds.has(processId))
     return includeProcessIds.length
       ? [{ ...rule, then: { ...rule.then, include_process_ids: includeProcessIds } }]
       : []

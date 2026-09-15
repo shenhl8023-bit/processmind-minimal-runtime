@@ -28,6 +28,18 @@ def _alias_operation_ids(aliases) -> set[int]:
     return result
 
 
+def _source_operation_ids(process) -> set[int]:
+    result: set[int] = set()
+    for operation_id in getattr(process, "source_operation_ids", []) or []:
+        try:
+            parsed = int(operation_id)
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0:
+            result.add(parsed)
+    return result
+
+
 def _referenced_process_ids(package: RulePackageV2) -> set[str]:
     selected: set[str] = set()
     for process in package.route_catalog.processes:
@@ -88,13 +100,19 @@ async def validate_rule_package_template_mapping(
         )]
 
     template = serialize_project_group_template(template_row)
-    if not template.mappings:
+    if not template.mappings and not template.step_mappings:
         return [TemplateMappingBlocker(
             code="group_template_mapping_missing",
             message="请先完成分组模板映射。",
         )]
 
     mapped_operation_ids = {mapping.source_operation_id for mapping in template.mappings}
+    confirmed_step_operation_ids = {
+        mapping.source_operation_id
+        for mapping in template.step_mappings
+        if mapping.status == "confirmed" and mapping.template_group_path
+    }
+    step_mapping_mode = bool(template.step_mappings and not template.mappings)
     blockers: list[TemplateMappingBlocker] = []
     referenced_process_ids = _referenced_process_ids(package)
     required_by = _required_by(package)
@@ -102,7 +120,16 @@ async def validate_rule_package_template_mapping(
         aliases = _alias_operation_ids(process.template_group_aliases)
         if process.process_id not in referenced_process_ids:
             continue
-        if aliases and aliases & mapped_operation_ids:
+        source_operation_ids = _source_operation_ids(process)
+        if step_mapping_mode and not (source_operation_ids & confirmed_step_operation_ids):
+            # Step mappings are only created for operations that have eligible
+            # template features. Ordinary operations do not need a legacy
+            # operation-level alias just to pass publication checks.
+            continue
+        if (
+            (aliases and aliases & mapped_operation_ids)
+            or (source_operation_ids and source_operation_ids & confirmed_step_operation_ids)
+        ):
             continue
         reason_codes, reason_labels = required_by.get(process.process_id, ([], []))
         blockers.append(TemplateMappingBlocker(

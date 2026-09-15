@@ -67,7 +67,7 @@
           <span class="toggle-filter-track" :class="{ 'toggle-filter-track--on': onlyPending }">
             <span class="toggle-filter-thumb"></span>
           </span>
-          <span class="toggle-filter-text">仅看需处理</span>
+          <span class="toggle-filter-text">仅看发布阻塞</span>
         </label>
 
         <!-- Icon: refresh -->
@@ -165,8 +165,8 @@
 
     <div v-else-if="!visibleSegments.length" class="empty-state card">
       <div class="empty-mark">*</div>
-      <div class="empty-title">当前没有需要处理的规则</div>
-      <div class="empty-text">系统已识别全部条件；可直接完成定稿并发布规则包，或切换到全部规则浏览。</div>
+      <div class="empty-title">当前没有规则审核阻塞项</div>
+      <div class="empty-text">可进行发布前预检。</div>
       <button class="btn btn-outline" @click="onlyPending = false">显示全部规则</button>
     </div>
 
@@ -226,7 +226,7 @@
       previous-label="← 返回规则分析"
       next-label="进入规则包验证 →"
       :previous-disabled="!projectId"
-      :next-disabled="!projectId || !lastExportedRulePackageVersion || !allCurrentRulesConfirmed"
+      :next-disabled="!projectId || !lastExportedRulePackageVersion"
       @previous="goBackToAnalysis"
       @next="goToGenerate"
     />
@@ -348,6 +348,7 @@ import { createBackgroundTaskGuard, runBackgroundTask } from '@/composables/runB
 import {
   buildManualBooleanRuleCandidate,
   exportProcessIdForItem,
+  exportBlockingCards,
   buildCompileRequestFromCards,
   blockedExportPrimaryActionLabel,
   exportBlockedReasonLabel,
@@ -457,7 +458,7 @@ const conditionalRuleCount = computed(() => conditionalCards.value.length)
 const relationRuleCount = computed(() => relationCards.value.length)
 const reviewableRuleCount = computed(() => reviewableCards.value.length)
 const unresolvedRuleCount = computed(() => segmentCards.value.filter(item => finalizeRuleMode(item) === 'unresolved').length)
-const reviewFocusCards = computed(() => segmentCards.value.filter(itemNeedsPending))
+const reviewFocusCards = computed(() => exportBlockingCards(segmentCards.value))
 const visibleSegments = computed(() => onlyPending.value ? reviewFocusCards.value : segmentCards.value)
 const batchEligibleCards = computed(() => reviewableCards.value.filter((item) => {
   return requiresServerRuleConditionRefresh(item)
@@ -478,9 +479,6 @@ const readyRuleCount = computed(() => reviewableCards.value.filter((item) => {
     && review.source_text.trim() === item.conditionText.trim()
     && (review.candidate?.kind || 'condition') === expectedKind
 }).length)
-const allCurrentRulesConfirmed = computed(() =>
-  reviewableCards.value.every(item => hasCurrentConfirmedUserRule(item)),
-)
 const conditionProcessOptions = computed<RuleConditionProcessOption[]>(() => {
   const options = new Map<string, RuleConditionProcessOption>()
   segmentCards.value.forEach((item) => {
@@ -506,7 +504,7 @@ const finalizeNavSummary = computed(() => {
     }
     return `还有 ${reviewableRuleCount.value - readyRuleCount.value} 条规则待识别，点击完成定稿并发布即可批量处理。`
   }
-  if (!allCurrentRulesConfirmed.value) return '规则已识别，请完成审核并发布最新规则包。'
+  if (exportBlockingCards(segmentCards.value).length) return '规则已识别，请处理发布阻塞项。'
   if (outdatedRulePackageVersion.value) return `规则内容已有变化，原规则包 V${outdatedRulePackageVersion.value} 已过期，请重新完成定稿并发布。`
   if (!lastExportedRulePackageVersion.value) return '规则已识别，可直接完成定稿并发布规则包。'
   return `规则包 V${lastExportedRulePackageVersion.value} 已就绪，可进入规则包验证与路线生成。`
@@ -518,18 +516,7 @@ const reviewProgressPercent = computed(() =>
 )
 /** Whether a given nav item needs attention */
 function itemNeedsPending(item: FinalizeCard): boolean {
-  const mode = finalizeRuleMode(item)
-  if (mode === 'unresolved') return true
-  if (mode === 'relation' || mode === 'conditional') {
-    if (hasCurrentConfirmedUserRule(item)) return false
-    const review = item.conditionReview
-    const sourceMatches = review?.source_text?.trim() === item.conditionText.trim()
-    const expectedKind = mode === 'relation' ? 'process_relation' : 'condition'
-    return !(sourceMatches
-      && review?.status === 'pending_confirmation'
-      && (review.candidate?.kind || 'condition') === expectedKind)
-  }
-  return false
+  return reviewFocusCards.value.some(card => card.segment.id === item.segment.id)
 }
 
 function syncActiveSegment() {
@@ -995,9 +982,7 @@ async function handleReviewAndExport() {
       await handleCompleteReview()
       await nextTick()
     }
-    const remaining = segmentCards.value.filter(item =>
-      finalizeRuleMode(item) !== 'mainline' && !hasCurrentConfirmedUserRule(item),
-    )
+    const remaining = exportBlockingCards(segmentCards.value)
     if (remaining.length) {
       blockedExportCards.value = remaining
       onlyPending.value = true
@@ -1141,7 +1126,7 @@ async function loadWorkspace(forceRefresh = false) {
     if (latestPackage) {
       const routeMatches = latestPackage.schema_version === '2.0'
         && latestPackage.route_version_id === routeResult.route_id
-      if (!routeMatches || !allCurrentRulesConfirmed.value || !latestPackage.content_hash) {
+      if (!routeMatches || !latestPackage.content_hash) {
         outdatedRulePackageVersion.value = latestPackage.version
       } else {
         try {

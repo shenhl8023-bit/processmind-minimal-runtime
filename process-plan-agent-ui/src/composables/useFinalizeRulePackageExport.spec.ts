@@ -23,11 +23,10 @@ vi.mock('@/utils/exportArchive', () => ({
   textFile: (value: unknown) => JSON.stringify(value),
 }))
 
-vi.mock('@/utils/finalizeRulePackage', () => ({
+vi.mock('@/utils/finalizeRulePackage', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/utils/finalizeRulePackage')>(),
   buildCompileRequestFromCards: () => ({ processes: [{ process_id: 'process_1' }] }),
   buildRuleReportFromV2Package: () => '# report',
-  hasCurrentConfirmedUserRule: () => true,
-  requiresConfirmedUserRule: () => false,
 }))
 
 import { useFinalizeRulePackageExport } from './useFinalizeRulePackageExport'
@@ -162,6 +161,49 @@ describe('useFinalizeRulePackageExport', () => {
       { name: 'rule_table.json', content: JSON.stringify(firstPackage.route_rules) },
     ])
     expect(mocks.downloadBlob).toHaveBeenCalledTimes(1)
+  })
+
+  it('publishes without confirming a current pending route candidate', async () => {
+    mocks.compileRulePackage.mockResolvedValueOnce(compiled(firstPackage))
+    mocks.getCurrentGroupTemplate.mockResolvedValue({ mapping_output: [] })
+    mocks.saveFinalizedRulePackage.mockResolvedValue({
+      version: 4,
+      schema_version: '2.0',
+      status: 'published',
+      ...firstPackage,
+    })
+    const onBlockedCards = vi.fn()
+    const onExportedVersion = vi.fn()
+    const text = '当零件存在槽时，纳入铣槽工序'
+    const pendingCandidate = {
+      segment: { id: 'process_slot', normalized_step_name: '铣槽', doc_coverage: { total_docs: 3, hit_docs: 1 } },
+      conditionText: text,
+      factorNames: [],
+      conditionReview: {
+        source_text: text,
+        status: 'pending_confirmation',
+        candidate: { kind: 'condition', when: { field: 'cad.features', op: 'contains', value: '槽' } },
+      },
+    }
+    const { downloadRuleDocument } = useFinalizeRulePackageExport({
+      projectId: ref(12),
+      projectName: ref('project'),
+      savedRoute: ref({ route_id: 99 }),
+      segmentCards: computed(() => [pendingCandidate]),
+      displayName: () => '铣槽',
+      metaLabel: () => '',
+      phaseLabel: () => 'machining',
+      primarySteps: () => [],
+      attachedSteps: () => [],
+      conditionFields: ref([{ key: 'cad.features' }]),
+      onBlockedCards,
+      onExportedVersion,
+    } as any)
+
+    await downloadRuleDocument()
+
+    expect(onBlockedCards).not.toHaveBeenCalled()
+    expect(onExportedVersion).toHaveBeenCalledWith(4, { schemaVersion: '2.0', status: 'published' })
   })
 
   it('treats a missing full route structure as empty by default', async () => {

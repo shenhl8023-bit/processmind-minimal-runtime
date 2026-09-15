@@ -465,6 +465,55 @@ def test_precheck_lists_required_template_mapping_blockers_with_reasons(lifecycl
     ]
 
 
+def test_precheck_accepts_confirmed_step_mapping_for_source_operation(
+    lifecycle_client,
+    rule_package_v2_payload,
+):
+    async def save_step_mapping():
+        async with lifecycle_client.lifecycle_session_factory() as db:
+            template = await db.get(ProjectGroupTemplate, 1)
+            template.mappings_json = "[]"
+            template.step_mappings_json = json.dumps([
+                {
+                    "source_operation_id": 14,
+                    "source_operation_name": "铣槽",
+                    "source_step_key": "op_14_s01",
+                    "source_step_order": 1,
+                    "source_step_name": "铣槽",
+                    "source_step_text_hash": "sha256:test",
+                    "template_group_path": ["槽"],
+                    "candidate_features": ["槽类特征"],
+                    "status": "confirmed",
+                }
+            ], ensure_ascii=False)
+            await db.commit()
+
+    asyncio.run(save_step_mapping())
+    payload = _v2_save_payload(rule_package_v2_payload)
+    for process in payload["route_catalog"]["processes"]:
+        process["template_group_aliases"] = []
+        process["source_operation_ids"] = [14]
+    mill_slot = next(
+        process for process in payload["route_catalog"]["processes"]
+        if process["process_id"] == "process_mill_slot"
+    )
+
+    response = lifecycle_client.post(
+        "/api/extract/finalized-rule-packages/precheck",
+        json=payload,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["checklist"][-1] == {
+        "code": "template_mapping",
+        "label": "分组模板映射",
+        "status": "passed",
+        "message": "规则包实际使用的工序均已完成分组模板映射。",
+    }
+
+
 def test_save_allows_publish_without_step_mappings_when_process_mappings_exist(lifecycle_client, rule_package_v2_payload):
     payload = _v2_save_payload(rule_package_v2_payload)
     for index, process in enumerate(payload["route_catalog"]["processes"], start=0):

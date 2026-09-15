@@ -27,8 +27,37 @@ from app.services.rule_packages.condition_registry import (
 from app.services.rule_packages.contracts import ConditionNode, RuleAction
 from app.services.rule_packages.expression_engine import iter_condition_fields
 
-CONDITION_PARSER_VERSION = "2026.08.07.1"
+# Bump this whenever deterministic parsing changes.  Persisted reviews include
+# the parser version, so a new rule vocabulary must invalidate stale/invalid
+# candidates instead of reusing the old result after a page reload.
+CONDITION_PARSER_VERSION = "2026.09.12.2"
 logger = logging.getLogger(__name__)
+
+
+# These are the recurring, low-information phrases produced by the third-step
+# factor summary.  They describe that a branch is optional, but do not identify
+# a field or value by themselves.  We may ignore one of these clauses only when
+# another clause contains an explicit, controlled condition; a sentence made
+# entirely of vague wording must remain unresolved.
+_VAGUE_TEMPLATE_CLAUSE_PATTERNS = (
+    re.compile(r"只有部分结构或工艺要求(?:下)?才会出现"),
+    re.compile(r"不同结构类型(?:下)?工艺安排存在差异"),
+    re.compile(r"工艺安排存在差异"),
+    # Factor summaries sometimes describe a high-level quality trigger without
+    # providing a measurable threshold.  Keep the explicit feature clauses in
+    # the sentence, but do not turn this non-actionable wording into a field.
+    re.compile(r"(?:尺寸)?公差要求较高|精度要求较高"),
+)
+
+
+def _is_vague_template_clause(text: str) -> bool:
+    normalized = re.sub(r"^(?:当|如果|若)\s*|[时则情况下，,。；;\s]+$", "", str(text or "").strip())
+    return bool(normalized) and any(pattern.fullmatch(normalized) for pattern in _VAGUE_TEMPLATE_CLAUSE_PATTERNS)
+
+
+def _has_vague_template_qualifier(text: str) -> bool:
+    source = str(text or "")
+    return any(pattern.search(source) for pattern in _VAGUE_TEMPLATE_CLAUSE_PATTERNS)
 
 
 def _condition_llm_timeout_seconds() -> float:
@@ -282,17 +311,41 @@ def _leaf_from_clause(clause: str) -> ConditionNode | None:
     if material_match:
         return ConditionNode(field="material.grade", op="eq", value=material_match.group(1))
 
-    feature_aliases = {
-        "扁位": "扁位/平面", "平面": "扁位/平面", "槽": "槽类特征",
-        "铰孔": "铰孔/精孔", "精孔": "铰孔/精孔", "型孔": "型孔/割扁",
-        "顶尖孔": "顶尖孔", "辅助孔": "普通孔/辅助孔", "普通孔": "普通孔/辅助孔",
-    }
-    for alias, value in feature_aliases.items():
-        if alias in text:
-            leaf = ConditionNode(field="cad.features", op="contains", value=value)
-            if re.search(rf"无{re.escape(alias)}|不含{re.escape(alias)}|没有{re.escape(alias)}", text):
-                return ConditionNode(not_condition=leaf)
-            return leaf
+    feature_aliases = (
+        ("中心孔", "顶尖孔"),
+        ("定位孔", "顶尖孔"),
+        ("顶尖孔", "顶尖孔"),
+        ("钻铰孔", "铰孔/精孔"),
+        ("铰孔", "铰孔/精孔"),
+        ("精孔", "铰孔/精孔"),
+        ("型孔", "型孔/割扁"),
+        ("异形孔", "型孔/割扁"),
+        ("异型孔", "型孔/割扁"),
+        ("辅助孔", "普通孔/辅助孔"),
+        ("普通孔", "普通孔/辅助孔"),
+        ("一般孔", "普通孔/辅助孔"),
+        ("通孔", "普通孔/辅助孔"),
+        ("盲孔", "普通孔/辅助孔"),
+        ("内孔", "普通孔/辅助孔"),
+        ("扁位", "扁位/平面"),
+        ("平面", "扁位/平面"),
+        ("花键", "槽类特征"),
+        ("键槽", "槽类特征"),
+        ("槽", "槽类特征"),
+    )
+    matched_values: list[str] = []
+    for alias, value in feature_aliases:
+        if alias not in text:
+            continue
+        leaf = ConditionNode(field="cad.features", op="contains", value=value)
+        if re.search(rf"无{re.escape(alias)}|不含{re.escape(alias)}|没有{re.escape(alias)}", text):
+            return ConditionNode(not_condition=leaf)
+        matched_values.append(value)
+    matched_values = list(dict.fromkeys(matched_values))
+    if len(matched_values) == 1:
+        return ConditionNode(field="cad.features", op="contains", value=matched_values[0])
+    if matched_values:
+        return ConditionNode(field="cad.features", op="contains_any", value=matched_values)
 
     if re.search(r"无损|磁粉|裂纹|荧光|探伤", text):
         return ConditionNode(field="special.requirements", op="contains", value="无损检测要求")
@@ -505,11 +558,25 @@ def _parse_condition_tree(source_text: str) -> ConditionNode | None:
         if all(children):
             return ConditionNode(any_conditions=children)
         return None
-    and_parts = [item.strip() for item in re.split(r"并且|同时|而且|且", condition_text) if item.strip()]
+    and_parts = [
+        item.strip()
+        for item in re.split(
+            r"并且|同时|而且|且|，?以及|，(?=只有部分结构或工艺要求|不同结构类型)",
+            condition_text,
+        )
+        if item.strip()
+    ]
     if len(and_parts) > 1:
-        children = [_leaf_from_clause(item) for item in and_parts]
-        if all(children):
-            return ConditionNode(all_conditions=children)
+        parsed_parts = [(item, _leaf_from_clause(item)) for item in and_parts]
+        unresolved_parts = [item for item, child in parsed_parts if child is None]
+        children_by_shape = {
+            child.model_dump_json(by_alias=True): child
+            for _, child in parsed_parts
+            if child is not None
+        }
+        children = list(children_by_shape.values())
+        if children and all(_is_vague_template_clause(item) for item in unresolved_parts):
+            return children[0] if len(children) == 1 else ConditionNode(all_conditions=children)
         return None
     return _leaf_from_clause(condition_text)
 
@@ -714,7 +781,13 @@ async def parse_rule_condition(
         )
         if not local_issues:
             logger.info("rule_condition_parse_source source=local_condition")
-            return local_condition_candidate, 0.9, []
+            issues = (
+                ["已忽略原文中的泛化模板描述，请重点核对具体结构条件。"]
+                if _has_vague_template_qualifier(source_text)
+                else []
+            )
+            confidence = 0.75 if issues else 0.9
+            return local_condition_candidate, confidence, issues
 
     candidate, confidence, issues = await _parse_with_llm(
         source_text,

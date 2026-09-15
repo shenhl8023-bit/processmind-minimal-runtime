@@ -45,6 +45,7 @@ export type RulePackageProcess = {
   process_id: string
   process_code?: string
   display_name: string
+  source_operation_ids?: number[]
   template_group_aliases?: TemplateGroupAliasBinding[]
   phase?: string
   default_sequence?: number

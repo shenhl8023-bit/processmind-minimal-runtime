@@ -1,0 +1,52 @@
+{"kind":"deck","id":"pr/nxib59","name":"Deck"}
+{"kind":"layout","layoutId":"7c0ea7bd-ac02-4782-94f3-09d22ea28b0c","name":"Master","type":"master"}
+{"kind":"layout","layoutId":"de56531b-e17d-4164-88f9-3c836ba7d6f7","name":"Title Slide","type":"title"}
+{"kind":"slide","id":"sl/ut0bq1","slide":1,"title":"AI工艺生成智能体","textShapes":30}
+{"kind":"shape","id":"sh/hw7q9w7y","slide":1,"bbox":[0,34,66,62]}
+{"kind":"shape","id":"sh/utg7ehon","slide":1,"bbox":[66,34,11,62]}
+{"kind":"textbox","id":"sh/fup87mp8","slide":1,"text":"AI工艺生成智能体","textPreview":"AI工艺生成智能体","textChars":9,"textLines":1,"bbox":[95,28,720,70]}
+{"kind":"textbox","id":"sh/4zi9kb6p","slide":1,"text":"从 MPS 导入三维零件到可校核工艺方案","textPreview":"从 MPS 导入三维零件到可校核工艺方案","textChars":20,"textLines":1,"bbox":[98,103,760,34]}
+{"kind":"textbox","id":"sh/p0rqdgna","slide":1,"text":"MPS","textPreview":"MPS","textChars":3,"textLines":1,"bbox":[1460,43,105,45]}
+{"kind":"textbox","id":"sh/2xgri1oj","slide":1,"name":"mps-import","text":"MPS 导入\n三维零件","textPreview":"MPS 导入 | 三维零件","textChars":11,"textLines":2,"bbox":[42,176,168,88]}
+{"kind":"textbox","id":"sh/3yp8b654","slide":1,"name":"orchestrator","text":"AI 工艺生成\n主控智能体","textPreview":"AI 工艺生成 | 主控智能体","textChars":13,"textLines":2,"bbox":[262,176,208,88]}
+{"kind":"textbox","id":"sh/cni9ob6l","slide":1,"name":"orchestration-note","text":"统一编排：零件分类、模板匹配、\n工艺路线生成与工序内容生成","textPreview":"统一编排：零件分类、模板匹配、 | 工艺路线生成与工序内容生成","textChars":29,"textLines":2,"bbox":[510,166,384,106]}
+{"kind":"textbox","id":"sh/dorqhgn6","slide":1,"name":"part-classification-agent","text":"零件分类智能体","textPreview":"零件分类智能体","textChars":7,"textLines":1,"bbox":[210,347,338,172]}
+{"kind":"textbox","id":"sh/pobelcni","slide":1,"name":"brep-parse","text":"BREP\n解析","textPreview":"BREP | 解析","textChars":7,"textLines":2,"bbox":[225,424,75,69]}
+{"kind":"textbox","id":"sh/on2xc7mx","slide":1,"name":"heterogeneous-graph","text":"异构图\n构建","textPreview":"异构图 | 构建","textChars":6,"textLines":2,"bbox":[305,424,75,69]}
+{"kind":"textbox","id":"sh/nmtwj25s","slide":1,"name":"gnn-vector","text":"GNN\n向量化","textPreview":"GNN | 向量化","textChars":7,"textLines":2,"bbox":[385,424,75,69]}
+{"kind":"textbox","id":"sh/21kfax47","slide":1,"name":"milvus-top-1","text":"Milvus\n检索","textPreview":"Milvus | 检索","textChars":9,"textLines":2,"bbox":[465,424,78,69]}
+{"kind":"textbox","id":"sh/xsvepcnu","slide":1,"name":"route-generation-agent","text":"工艺生成智能体","textPreview":"工艺生成智能体","textChars":7,"textLines":1,"bbox":[606,347,372,172]}
+{"kind":"textbox","id":"sh/crmxgrm9","slide":1,"name":"attribute-extraction","text":"工艺属性提取\n特征 / 精度 / 材料\n热处理 / 表面处理","textPreview":"工艺属性提取 | 特征 / 精度 / 材料 | 热处理 / 表面处理","textChars":30,"textLines":3,"bbox":[626,420,145,74]}
+{"kind":"textbox","id":"sh/bqtwnm5o","slide":1,"name":"route-create","text":"基于模板与属性\n生成工艺路线","textPreview":"基于模板与属性 | 生成工艺路线","textChars":14,"textLines":2,"bbox":[794,426,164,62]}
+{"kind":"textbox","id":"sh/apkfeh43","slide":1,"name":"content-generation-agent","text":"工序内容生成智能体","textPreview":"工序内容生成智能体","textChars":9,"textLines":1,"bbox":[1036,347,262,172]}
+{"kind":"textbox","id":"sh/twredsna","slide":1,"name":"process-content","text":"逐工序生成\n工序内容与技术要求","textPreview":"逐工序生成 | 工序内容与技术要求","textChars":15,"textLines":2,"bbox":[1060,422,214,72]}
+{"kind":"textbox","id":"sh/svid4nm5","slide":1,"name":"engineer-review","text":"工艺工程师\n校核与确认","textPreview":"工艺工程师 | 校核与确认","textChars":11,"textLines":2,"bbox":[1114,574,180,72]}
+{"kind":"textbox","id":"sh/kfmxknul","slide":1,"name":"mps-writeback","text":"工艺方案\n回写 MPS","textPreview":"工艺方案 | 回写 MPS","textChars":11,"textLines":2,"bbox":[1360,574,170,72]}
+{"kind":"shape","id":"sh/5gvetsv6","slide":1,"name":"data-layer","bbox":[198,684,1354,166]}
+{"kind":"textbox","id":"sh/id4fidcv","slide":1,"text":"数据层","textPreview":"数据层","textChars":3,"textLines":1,"bbox":[226,747,115,38]}
+{"kind":"textbox","id":"sh/jedwridg","slide":1,"name":"historical-processes","text":"典型零件\n历史工艺方案","textPreview":"典型零件 | 历史工艺方案","textChars":11,"textLines":2,"bbox":[390,726,180,76]}
+{"kind":"textbox","id":"sh/s3mxo7ux","slide":1,"name":"processmind-template-agent","text":"ProcessMind\n工艺模板智能体","textPreview":"ProcessMind | 工艺模板智能体","textChars":19,"textLines":2,"bbox":[620,718,220,92]}
+{"kind":"textbox","id":"sh/t4vexcvi","slide":1,"name":"template-library","text":"工艺模板库\n规则包","textPreview":"工艺模板库 | 规则包","textChars":9,"textLines":2,"bbox":[940,726,190,76]}
+{"kind":"textbox","id":"sh/614fmxcr","slide":1,"name":"vector-library","text":"零件分类\n向量库","textPreview":"零件分类 | 向量库","textChars":8,"textLines":2,"bbox":[1260,726,190,76]}
+{"kind":"shape","id":"sh/72dwv2dc","slide":1,"bbox":[210,220,52,0]}
+{"kind":"shape","id":"sh/g76xs7ut","slide":1,"bbox":[366,264,13,83]}
+{"kind":"shape","id":"sh/h8fe1cve","slide":1,"bbox":[300,458.5,5,0]}
+{"kind":"shape","id":"sh/b2h0r6xw","slide":1,"bbox":[380,458.5,5,0]}
+{"kind":"shape","id":"sh/q18zi1wb","slide":1,"bbox":[460,458.5,5,0]}
+{"kind":"shape","id":"sh/d4jitgfm","slide":1,"bbox":[548,433,58,0]}
+{"kind":"shape","id":"sh/c3qhkbe1","slide":1,"bbox":[771,457,23,0]}
+{"kind":"shape","id":"sh/3yhgn6xk","slide":1,"bbox":[978,433,58,0]}
+{"kind":"shape","id":"sh/2x8ze1wz","slide":1,"bbox":[1167,519,37,55]}
+{"kind":"shape","id":"sh/p0zipgfq","slide":1,"bbox":[1294,610,66,0]}
+{"kind":"shape","id":"sh/ozqhgbe5","slide":1,"bbox":[570,764,50,0]}
+{"kind":"shape","id":"sh/nu10zqxo","slide":1,"bbox":[840,764,100,0]}
+{"kind":"shape","id":"sh/mtszqlwj","slide":1,"bbox":[792,519,243,207]}
+{"kind":"shape","id":"sh/uh83upsn","slide":1,"bbox":[379,519,976,207]}
+{"kind":"textbox","id":"sh/vi14nut8","slide":1,"text":"Top-1 典型零件类别","textPreview":"Top-1 典型零件类别","textChars":12,"textLines":1,"bbox":[495,536,172,28]}
+{"kind":"textbox","id":"sh/wjalwzat","slide":1,"text":"匹配工艺模板","textPreview":"匹配工艺模板","textChars":6,"textLines":1,"bbox":[814,650,150,25]}
+{"kind":"textbox","id":"sh/h4jmp4by","slide":1,"text":"构建与沉淀","textPreview":"构建与沉淀","textChars":5,"textLines":1,"bbox":[708,817,150,25]}
+{"kind":"textbox","id":"sh/md83q5sb","slide":1,"name":"legend-agent","text":"智能体","textPreview":"智能体","textChars":3,"textLines":1,"bbox":[38,692,110,30]}
+{"kind":"textbox","id":"sh/7ehkjatw","slide":1,"name":"legend-skill","text":"技能","textPreview":"技能","textChars":2,"textLines":1,"bbox":[38,731,110,30]}
+{"kind":"textbox","id":"sh/8fqlsfah","slide":1,"name":"legend-function","text":"功能","textPreview":"功能","textChars":2,"textLines":1,"bbox":[38,770,110,30]}
+{"kind":"textbox","id":"sh/9gz2lkb2","slide":1,"name":"legend-data","text":"数据","textPreview":"数据","textChars":2,"textLines":1,"bbox":[38,809,110,30]}
+{"kind":"notes","id":"nt/ut0bq1","slide":1,"text":""}
