@@ -8,17 +8,23 @@ export function useAnalysisSegmentNavigation(args: {
   savedRoute: Ref<SavedNormalizedRouteVersionResult | null>
   selectedSegment: Ref<Segment | null>
   selectedSegmentId: Ref<string>
+  isSegmentRejudging?: (segment: Segment | null) => boolean
 }) {
+  const isCompleted = (segment: Segment) => {
+    if (args.isSegmentRejudging?.(segment)) return false
+    return isSegmentCompleted(segment)
+  }
+
   const completedSegmentCount = computed(() =>
-    args.savedRoute.value?.segments.filter(segment => isSegmentCompleted(segment)).length || 0,
+    args.savedRoute.value?.segments.filter(segment => isCompleted(segment)).length || 0,
   )
 
   const inProgressSegmentCount = computed(() =>
-    args.savedRoute.value?.segments.filter(segment => !isSegmentCompleted(segment) && isSegmentStarted(segment)).length || 0,
+    args.savedRoute.value?.segments.filter(segment => !isCompleted(segment) && isSegmentStarted(segment)).length || 0,
   )
 
   const pendingSegmentCount = computed(() =>
-    args.savedRoute.value?.segments.filter(segment => !isSegmentCompleted(segment) && !isSegmentStarted(segment)).length || 0,
+    args.savedRoute.value?.segments.filter(segment => !isCompleted(segment) && !isSegmentStarted(segment)).length || 0,
   )
 
   const selectedSegmentIndex = computed(() =>
@@ -26,7 +32,7 @@ export function useAnalysisSegmentNavigation(args: {
   )
 
   const nextPendingSegmentIndex = computed(() =>
-    args.savedRoute.value?.segments.findIndex((segment, index) => index > selectedSegmentIndex.value && !isSegmentCompleted(segment)) ?? -1,
+    args.savedRoute.value?.segments.findIndex((segment, index) => index > selectedSegmentIndex.value && !isCompleted(segment)) ?? -1,
   )
 
   const hasNextPendingSegment = computed(() => nextPendingSegmentIndex.value >= 0)

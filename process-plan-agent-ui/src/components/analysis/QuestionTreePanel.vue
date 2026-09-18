@@ -158,14 +158,6 @@
             <div class="tree-recommend-text">{{ recommendedHintText }}</div>
             <div v-if="recommendedReasonText" class="tree-recommend-reason">{{ recommendedReasonText }}</div>
           </div>
-          <button
-            v-if="showApplyRecommendedButton"
-            type="button"
-            class="tree-recommend-apply-btn"
-            @click="applyRecommendedSelection"
-          >
-            采用推荐
-          </button>
         </div>
 
         <!-- 多选确认操作栏 -->
@@ -383,18 +375,15 @@ function isFallbackOption(option: TreeOption) {
 
 const recommendedOptions = computed<TreeOption[]>(() => {
   const question = props.currentQuestion
-  if (!question || isMaterialTableQuestion.value) return []
+  if (!question) return []
   const preferred = question.options.filter(option => !isFallbackOption(option))
   const ordered = preferred.length ? preferred : question.options
+  if (isMaterialTableQuestion.value) {
+    return preferred.length ? preferred : []
+  }
   if (!question.multiple) return ordered.slice(0, 1)
   return ordered.slice(0, minSelections.value)
 })
-
-const showApplyRecommendedButton = computed(() =>
-  !!props.currentQuestion
-  && !isMaterialTableQuestion.value
-  && recommendedOptions.value.length > 0,
-)
 
 const recommendedHintText = computed(() => {
   if (!props.currentQuestion || !recommendedOptions.value.length) return ''
@@ -517,20 +506,6 @@ function submitMultiSelection() {
   emit('choose-options', multiSelectedOptions.value)
 }
 
-function applyRecommendedSelection() {
-  if (!props.currentQuestion || !recommendedOptions.value.length) return
-  if (!props.currentQuestion.multiple) {
-    resetMergeNameOther()
-    emit('choose-option', recommendedOptions.value[0]!)
-    return
-  }
-  const questionId = props.currentQuestion.id
-  multiSelectionMap.value = {
-    ...multiSelectionMap.value,
-    [questionId]: recommendedOptions.value,
-  }
-}
-
 </script>
 
 <style scoped>
@@ -552,6 +527,7 @@ function applyRecommendedSelection() {
   align-items: center;
   gap: 8px;
 }
+
 
 /* Empty reason text */
 .tree-empty {
@@ -926,25 +902,6 @@ function applyRecommendedSelection() {
   line-height: 1.4;
   color: #94a3b8;
   margin-top: 2px;
-}
-
-.tree-recommend-apply-btn {
-  flex-shrink: 0;
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 500;
-  color: #4f46e5;
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.tree-recommend-apply-btn:hover {
-  background: #f8fafc;
-  color: #4338ca;
-  border-color: #cbd5e1;
 }
 
 /* Material database table styling */

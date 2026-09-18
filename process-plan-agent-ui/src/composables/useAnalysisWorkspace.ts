@@ -1,8 +1,10 @@
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import type { FactorCandidate } from '@/components/analysis/types'
-import { resetWorkflow, type SegmentFactorReview } from '@/api'
+import { resetWorkflow, saveSegmentRuleReview, type SegmentFactorReview } from '@/api'
 import {
+  applyRuleReviewUpdateToRoute,
   buildDocOperationHighlights,
   buildFactorCandidates,
   buildRuleCandidateSummary,
@@ -93,6 +95,7 @@ export function useAnalysisWorkspace() {
     savedRoute,
     selectedSegment,
     selectedSegmentId,
+    isSegmentRejudging: (s) => isSegmentRejudging(s),
   })
 
   const selectedSegmentOperations = computed(() => {
@@ -119,9 +122,16 @@ export function useAnalysisWorkspace() {
     documentPreviewTextMap,
     clearDocumentPreviewTexts,
     ensureMatchedDocumentPreviewTexts,
+    ensureDocumentPreviewTextsForDocIds,
   } = useAnalysisDocumentTextCache({
     selectedDocIds: selectedSegmentMatchedDocIds,
   })
+
+  function getDocumentTextsForDocIds(docIds: Set<number>): string[] {
+    return Array.from(docIds)
+      .map(docId => documentPreviewTextMap.value[docId] || '')
+      .filter(Boolean)
+  }
 
   const selectedSegmentMatchedDocTexts = computed(() =>
     Array.from(selectedSegmentMatchedDocIds.value)
@@ -270,13 +280,21 @@ export function useAnalysisWorkspace() {
     resetQuestionTree,
     resetAllQuestionTrees,
     updateQuestionTreeNote,
+    acceptAllRecommendedQuestionTree,
+    acceptAllRecommendedForAllSegments: acceptAllRecommendedTreeAnswers,
     clearQuestionTreeRejudging,
+    isSegmentRejudging,
+    getTrailForSegment,
+    getResultSummaryForSegment,
+    getNoteDraftForSegment,
   } = useAnalysisQuestionTree({
     projectId: computed(() => projectId.value),
     selectedSegment,
     detailRows: computed(() => detailRows.value),
     selectedSegmentMatchedDocIds,
     matchedDocumentTexts: selectedSegmentMatchedDocTexts,
+    getDocumentTextsForDocIds,
+    documents: computed(() => documents.value),
   })
   const questionTreeInProgress = computed(() =>
     questionTreeVisible.value && !!questionTreeCurrentQuestion.value,
@@ -426,6 +444,12 @@ export function useAnalysisWorkspace() {
     if (!signal || signal.emittedAt === locallyHandledResetAt) return
     if (signal.projectId !== projectId.value || signal.fromStep > 3) return
     locallyHandledResetAt = signal.emittedAt
+    if (!analysisViewActive) {
+      resetAllQuestionTrees()
+      ruleReviewNote.value = ''
+      loadedDataRevision = -1
+      return
+    }
     void applyAnalysisWorkflowReset()
   })
 
@@ -450,11 +474,99 @@ export function useAnalysisWorkspace() {
     return null
   })
 
+  const batchAcceptingAll = ref(false)
+  const batchAcceptProgress = ref('')
+
+  async function handleAcceptAllRecommendedForAllSegments() {
+    if (!savedRoute.value || !projectId.value || batchAcceptingAll.value) return
+    const segments = savedRoute.value.segments || []
+    if (!segments.length) return
+
+    const targets = segments.filter(s => !segmentHasRuleDecision(s) || isSegmentRejudging(s))
+    if (!targets.length) return
+
+    batchAcceptingAll.value = true
+    batchAcceptProgress.value = '正在加载样本依据...'
+
+    try {
+      const allTargetDocIds = new Set<number>()
+      targets.forEach((seg) => {
+        ;(seg.matched_detail_rows || []).forEach((row: any) => {
+          const docId = Number(row.document_id || 0)
+          if (docId > 0) allTargetDocIds.add(docId)
+        })
+      })
+      if (!allTargetDocIds.size) {
+        documents.value.forEach((doc) => {
+          if (doc.id > 0) allTargetDocIds.add(doc.id)
+        })
+      }
+      await ensureDocumentPreviewTextsForDocIds(Array.from(allTargetDocIds))
+
+      acceptAllRecommendedTreeAnswers(segments)
+
+      batchAcceptProgress.value = `0/${targets.length}`
+      for (let i = 0; i < targets.length; i++) {
+        const seg = targets[i]
+        if (!seg || !savedRoute.value) continue
+
+        const hitCount = seg.doc_coverage?.hit_docs || 0
+        const missCount = Math.max(0, (documents.value.length || 0) - hitCount)
+        const baseSummaryLines = buildRuleCandidateSummary({
+          segment: seg,
+          documents: documents.value,
+          hitCount,
+          missCount,
+          confirmedFactorLabels: [],
+          excludedFactorLabels: [],
+          hitHighlights: [],
+          missingHighlights: [],
+          variantNames: [],
+          operationNotes: [],
+        })
+
+        const trail = getTrailForSegment(seg)
+        const note = getNoteDraftForSegment(seg)
+        const conclusion = getResultSummaryForSegment(seg)
+        const summaryLines = [
+          ...(conclusion ? [conclusion] : []),
+          ...baseSummaryLines,
+        ]
+
+        const result = await saveSegmentRuleReview({
+          project_id: projectId.value,
+          route_id: savedRoute.value.route_id,
+          expected_workflow_revision: savedRoute.value.workflow_revision,
+          segment_id: seg.id,
+          decision: 'accepted',
+          note,
+          summary_lines: summaryLines,
+          question_trail: trail,
+        })
+
+        savedRoute.value = applyRuleReviewUpdateToRoute(savedRoute.value, result)
+        clearQuestionTreeRejudging(seg.id)
+      }
+
+      resetAnalysisPanelState()
+
+      Promise.resolve(triggerRulePreprocessing()).catch((err) => {
+        console.warn('一键采纳后触发预处理失败', err)
+      })
+    } catch (err) {
+      console.error('批量采纳推荐失败', err)
+      ElMessage.error('批量采纳部分工步时失败，已保留成功项，请重试。')
+    } finally {
+      batchAcceptingAll.value = false
+      batchAcceptProgress.value = ''
+    }
+  }
+
   watch(
     [selectedSegmentId, autoRuleDecision, currentRuleReview],
     async ([segmentId, nextDecision, review]) => {
       if (!segmentId || !nextDecision) return
-      if (savingRuleReview.value) return
+      if (savingRuleReview.value || batchAcceptingAll.value) return
       if (review?.decision === nextDecision) return
       if (autoPersistingRuleSegmentId.value === segmentId) return
       autoPersistingRuleSegmentId.value = segmentId
@@ -567,5 +679,9 @@ export function useAnalysisWorkspace() {
     reanswerLastQuestionTree,
     resetQuestionTree,
     updateQuestionTreeNote,
+    acceptAllRecommendedQuestionTree,
+    batchAcceptingAll,
+    batchAcceptProgress,
+    acceptAllRecommendedForAllSegments: handleAcceptAllRecommendedForAllSegments,
   }
 }

@@ -32,6 +32,8 @@ export function useAnalysisQuestionTree(args: {
   detailRows: ComputedRef<DocumentOperationDetailItem[]>
   selectedSegmentMatchedDocIds: ComputedRef<Set<number>>
   matchedDocumentTexts: ComputedRef<string[]>
+  getDocumentTextsForDocIds?: (docIds: Set<number>) => string[]
+  documents?: ComputedRef<Array<{ id: number; original_name?: string; filename?: string }>>
 }) {
   const treeStateMap = ref<Record<string, SegmentTreeState>>({})
   const hydratedSegmentIds = ref<Set<string>>(new Set())
@@ -292,6 +294,124 @@ export function useAnalysisQuestionTree(args: {
     })
   }
 
+  function isFallbackOption(option: TreeOption) {
+    const value = String(option.value || '').trim().toLowerCase()
+    const label = String(option.label || '').trim()
+    return (
+      value === 'other'
+      || value.includes('other')
+      || value.includes('uncertain')
+      || value.includes('manual')
+      || label.includes('其他')
+      || label.includes('暂时无法判断')
+      || label.includes('需要人工补充')
+      || label.includes('未自动识别')
+    )
+  }
+
+  function pickRecommendedOptions(question: { id?: string; options: TreeOption[]; multiple?: boolean; minSelections?: number }) {
+    const preferred = question.options.filter(option => !isFallbackOption(option))
+    const ordered = preferred.length ? preferred : question.options
+    if (question.id?.includes('material_scope') && preferred.length > 0) {
+      return preferred
+    }
+    if (!question.multiple) return ordered.slice(0, 1)
+    return ordered.slice(0, question.minSelections || 1)
+  }
+
+  function acceptAllRecommendedForSegment(targetSegment: Segment) {
+    const isRejudging = isSegmentRejudging(targetSegment)
+    if (segmentReviewLocked(targetSegment) && !isRejudging) return
+    const mode = currentMode(targetSegment, isRejudging)
+    if (mode === 'none' && !shouldBypassDefaultComplete(targetSegment)) {
+      if (segmentCanDefaultComplete(targetSegment) && !isRejudging) return
+    }
+
+    const isCurrentSegment = targetSegment.id === args.selectedSegment.value?.id
+    const matchedDocIds = (() => {
+      if (isCurrentSegment && args.selectedSegmentMatchedDocIds.value.size) {
+        return args.selectedSegmentMatchedDocIds.value
+      }
+      const ids = new Set<number>()
+      ;(targetSegment.matched_detail_rows || []).forEach((row: any) => {
+        const docId = Number(row.document_id || 0)
+        if (docId > 0) ids.add(docId)
+      })
+      if (!ids.size && targetSegment.matched_detail_rows?.length && args.documents?.value) {
+        const pdfNames = new Set(
+          targetSegment.matched_detail_rows
+            .map((row: any) => String(row.pdf_name || '').trim())
+            .filter(Boolean),
+        )
+        if (pdfNames.size) {
+          args.documents.value.forEach((doc) => {
+            if (pdfNames.has(doc.original_name || '') || pdfNames.has(doc.filename || '')) {
+              ids.add(doc.id)
+            }
+          })
+        }
+      }
+      return ids
+    })()
+    const matchedDocumentTexts = args.getDocumentTextsForDocIds
+      ? args.getDocumentTextsForDocIds(matchedDocIds)
+      : (isCurrentSegment ? args.matchedDocumentTexts.value : [])
+
+    const maxIterations = 20
+    let iterations = 0
+
+    while (iterations < maxIterations) {
+      iterations++
+      const state = normalizeStateForSegment(targetSegment, ensureState(targetSegment.id))
+      const question = buildCurrentQuestion({
+        segment: (() => {
+          if (segmentCanDefaultComplete(targetSegment) && !isRejudging && !shouldBypassDefaultComplete(targetSegment)) return null
+          return targetSegment
+        })(),
+        isRejudging,
+        detailRows: args.detailRows.value,
+        matchedDocIds,
+        matchedDocumentTexts,
+        state,
+      })
+      if (!question) break
+      const recommended = pickRecommendedOptions(question)
+      if (!recommended.length) break
+      markSegmentDirty(targetSegment.id)
+      const nextAnswers = { ...state.answers }
+      if (question.impliedRootValue && !nextAnswers.rule_reason_root) {
+        nextAnswers.rule_reason_root = buildImpliedRootAnswer(question.impliedRootValue)
+      }
+      if (question.multiple && recommended.length > 0) {
+        nextAnswers[question.id] = {
+          nodeId: question.id,
+          value: recommended.map(o => o.value).join('|'),
+          label: recommended.map(o => o.label).join('、'),
+        }
+      } else {
+        nextAnswers[question.id] = {
+          nodeId: question.id,
+          value: recommended[0]!.value,
+          label: recommended[0]!.label,
+        }
+      }
+      setSegmentState(targetSegment.id, { ...state, answers: nextAnswers })
+    }
+  }
+
+  function acceptAllRecommended() {
+    const segment = args.selectedSegment.value
+    if (!segment) return
+    acceptAllRecommendedForSegment(segment)
+  }
+
+  function acceptAllRecommendedForAllSegments(segments: Segment[]) {
+    for (const segment of segments) {
+      if (segmentHasRuleDecision(segment) && !isSegmentRejudging(segment)) continue
+      acceptAllRecommendedForSegment(segment)
+    }
+  }
+
   watch(storageKey, () => {
     const loaded = loadPersistedTreeState()
     treeStateMap.value = loaded
@@ -316,6 +436,21 @@ export function useAnalysisQuestionTree(args: {
     persistTreeState(value)
   }, { deep: true })
 
+  function getTrailForSegment(segment: Segment) {
+    const state = normalizeStateForSegment(segment, ensureState(segment.id))
+    return Object.values(state.answers)
+  }
+
+  function getResultSummaryForSegment(segment: Segment) {
+    const state = normalizeStateForSegment(segment, ensureState(segment.id))
+    if (!Object.keys(state.answers).length) return ''
+    return buildResultSummary(segment.normalized_step_name, state.answers, state.note)
+  }
+
+  function getNoteDraftForSegment(segment: Segment) {
+    return normalizeStateForSegment(segment, ensureState(segment.id)).note || ''
+  }
+
   return {
     questionTreeVisible: visible,
     questionTreeEmptyReason: emptyReason,
@@ -331,6 +466,12 @@ export function useAnalysisQuestionTree(args: {
     resetQuestionTree: reset,
     resetAllQuestionTrees,
     updateQuestionTreeNote: updateNote,
+    acceptAllRecommendedQuestionTree: acceptAllRecommended,
+    acceptAllRecommendedForAllSegments,
     clearQuestionTreeRejudging: clearRejudging,
+    isSegmentRejudging,
+    getTrailForSegment,
+    getResultSummaryForSegment,
+    getNoteDraftForSegment,
   }
 }

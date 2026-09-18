@@ -7,7 +7,10 @@
           <span class="ash-dark-chip">{{ projectName || `任务 #${projectId}` }}</span>
           
           <div class="ash-meta-section">
-            <span class="ash-meta-item" v-if="displayedPackageVersion">
+            <span class="ash-meta-item ash-meta-stale" v-if="isResultStale">
+              规则包已更新 <strong>V{{ packageVersion }}</strong>（当前生成结果为 V{{ result?.rule_package_version }}）
+            </span>
+            <span class="ash-meta-item" v-else-if="displayedPackageVersion">
               规则包 <strong>V{{ displayedPackageVersion }}</strong>
             </span>
             <span class="ash-meta-item ash-meta-stale" v-else>
@@ -75,6 +78,8 @@
         :has-rule-package="hasRulePackage"
         :can-generate="canGenerate"
         :generating="generating"
+        :is-stale="isResultStale"
+        :current-package-version="packageVersion"
         @download="downloadOutputJson"
         @go-finalize="goFinalize"
         @fill-example="fillExampleValues"
@@ -197,6 +202,11 @@ const schemaStatusText = computed(() => {
   return '当前规则包没有定义输入参数，请返回第4步重新发布规则包。'
 })
 
+const isResultStale = computed(() => {
+  if (!result.value?.rule_package_version || !packageVersion.value) return false
+  return result.value.rule_package_version !== packageVersion.value
+})
+
 const generateHintText = computed(() => {
   if (contextLoading.value) return '正在加载当前任务的输入参数，请稍候。'
   if (!hasRulePackage.value) return '请先在第4步完成规则定稿并发布规则包。'
@@ -207,6 +217,7 @@ const generateNavSummary = computed(() => {
   if (!projectId.value) return '请先选择一个任务，完成规则定稿后再进入规则包验证与路线生成。'
   if (!hasRulePackage.value) return '当前任务还没有可用规则包，请返回第四步完成规则定稿并发布规则包。'
   if (generating.value) return '正在生成工艺路线。'
+  if (isResultStale.value) return `检测到规则包已更新至 V${packageVersion.value}，当前展示为旧版 V${result.value?.rule_package_version} 结果，建议重新点击生成。`
   if (result.value) return '路线已生成，可在右侧查看结果或导出 JSON。'
   return `规则包 ${packageMetaLabel.value} 已就绪，输入字段已填写 ${filledFieldCount.value}/${inputFields.value.length}。`
 })

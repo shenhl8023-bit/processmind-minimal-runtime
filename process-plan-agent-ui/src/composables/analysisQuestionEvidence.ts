@@ -403,6 +403,28 @@ function extractCurrentSegmentTextUnits(
     units.push({ text, docKey })
   })
 
+  ;(segment.matched_detail_rows || []).forEach((row, index) => {
+    const docId = Number(row.document_id || 0)
+    if (matchedDocIds.size && docId > 0 && !matchedDocIds.has(docId)) return
+    const text = `${row.operation_name || ''}\n${row.operation_content || ''}`.trim()
+    if (!text) return
+    const docKey = docId > 0 ? `doc:${docId}` : `pdf:${row.pdf_name || index}`
+    const key = `${docKey}::${text}`
+    if (seen.has(key)) return
+    seen.add(key)
+    units.push({ text, docKey })
+  })
+
+  ;(segment.evidence_excerpt || []).forEach((excerpt, index) => {
+    const text = String(excerpt || '').trim()
+    if (!text) return
+    const docKey = `excerpt:${index + 1}`
+    const key = `${docKey}::${text}`
+    if (seen.has(key)) return
+    seen.add(key)
+    units.push({ text, docKey })
+  })
+
   if (!units.length) {
     matchedDocumentTexts.forEach((text, index) => {
       const normalizedText = String(text || '').trim()
@@ -532,10 +554,9 @@ export function materialOptionsForSegment(
   const previewUnits = extractMatchedDocumentTextUnits(matchedDocumentTexts)
   const totalCount = Number(segment.doc_coverage?.total_docs || 0)
     || new Set([...units, ...previewUnits].map(unit => unit.docKey)).size
-  let valueDocs = materialValueDocStatsFromUnits(units)
-  if (!valueDocs.size && previewUnits.length) {
-    valueDocs = materialValueDocStatsFromUnits(previewUnits)
-  }
+  const unitStats = materialValueDocStatsFromUnits(units)
+  const previewStats = materialValueDocStatsFromUnits(previewUnits)
+  const valueDocs = mergeOptionStats(unitStats, previewStats)
   return buildCountedOptions('material', valueDocs, totalCount)
 }
 export function pickMaterialOptionsByBasis(

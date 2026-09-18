@@ -16,9 +16,9 @@ export function useAnalysisDocumentTextCache(options: UseAnalysisDocumentTextCac
     pendingDocumentPreviewTexts.clear()
   }
 
-  async function ensureMatchedDocumentPreviewTexts() {
-    const docIds = Array.from(options.selectedDocIds.value).filter(id => id > 0)
-    const missingIds = docIds.filter(docId => !(docId in documentPreviewTextMap.value))
+  async function ensureDocumentPreviewTextsForDocIds(docIds: number[]) {
+    const validIds = Array.from(new Set(docIds.filter(id => id > 0)))
+    const missingIds = validIds.filter(docId => !(docId in documentPreviewTextMap.value))
     if (!missingIds.length) return
     const generation = cacheGeneration
     const requests = missingIds.map((docId) => {
@@ -54,9 +54,14 @@ export function useAnalysisDocumentTextCache(options: UseAnalysisDocumentTextCac
     await Promise.all(requests)
   }
 
+  async function ensureMatchedDocumentPreviewTexts() {
+    await ensureDocumentPreviewTextsForDocIds(Array.from(options.selectedDocIds.value))
+  }
+
   return {
     documentPreviewTextMap,
     clearDocumentPreviewTexts,
     ensureMatchedDocumentPreviewTexts,
+    ensureDocumentPreviewTextsForDocIds,
   }
 }

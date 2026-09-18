@@ -37,6 +37,20 @@
             </template>
           </span>
         </div>
+
+        <div
+          class="ash-publish-state"
+          :class="{
+            'ash-publish-state--blocked': publishStatusBlocked,
+            'ash-publish-state--clickable': Boolean(precheckResult)
+          }"
+          role="status"
+          :title="precheckResult ? '点击查看发布预检明细' : ''"
+          @click="precheckResult && (showPrecheckDialog = true)"
+        >
+          <span class="ash-publish-state-dot" aria-hidden="true"></span>
+          <strong>{{ publishStatusLabel }}</strong>
+        </div>
       </div>
 
       <div class="ash-actions">
@@ -55,8 +69,12 @@
           {{ reviewAndExportButtonLabel }}
         </button>
 
-        <!-- Toggle switch: only pending -->
-        <label class="toggle-filter-wrap" :class="{ 'toggle-filter-disabled': !segmentCards.length }">
+        <!-- Toggle switch: only pending / attention items -->
+        <label
+          class="toggle-filter-wrap"
+          :class="{ 'toggle-filter-disabled': !segmentCards.length }"
+          title="仅显示待处理或需确认的工序"
+        >
           <input
             type="checkbox"
             class="toggle-filter-input"
@@ -67,7 +85,7 @@
           <span class="toggle-filter-track" :class="{ 'toggle-filter-track--on': onlyPending }">
             <span class="toggle-filter-thumb"></span>
           </span>
-          <span class="toggle-filter-text">仅看发布阻塞</span>
+          <span class="toggle-filter-text">仅看待处理</span>
         </label>
 
         <!-- Icon: refresh -->
@@ -88,7 +106,12 @@
       </div>
     </div>
 
-    <div v-if="batchNotice" class="batch-notice">{{ batchNotice }}</div>
+    <!-- 轻量级浮动提示，不挤占页面主体结构 -->
+    <transition name="toast-fade">
+      <div v-if="batchNotice" class="batch-toast" role="status">
+        <span>{{ batchNotice }}</span>
+      </div>
+    </transition>
 
     <section v-if="preprocessFailureSummary" class="preprocess-failure-panel" role="alert">
       <div class="preprocess-failure-head">
@@ -106,37 +129,7 @@
       </p>
     </section>
 
-    <section v-if="precheckResult" class="precheck-panel" :class="{ 'precheck-panel--blocked': !precheckResult.ok }">
-      <div class="precheck-panel-head">
-        <div>
-          <span class="precheck-kicker">发布前预检</span>
-          <h2>{{ precheckResult.ok ? '规则包可以发布' : '还有项目需要处理' }}</h2>
-        </div>
-        <span class="precheck-state" :class="{ 'precheck-state--blocked': !precheckResult.ok }">
-          {{ precheckResult.ok ? '全部通过' : `${precheckResult.blockers.length} 项阻塞` }}
-        </span>
-      </div>
-      <div class="precheck-list">
-        <div v-for="item in precheckResult.checklist" :key="item.code" class="precheck-item">
-          <span class="precheck-item-icon" :class="{ 'precheck-item-icon--blocked': item.status === 'blocking' }">
-            {{ item.status === 'passed' ? '✓' : '!' }}
-          </span>
-          <div>
-            <strong>{{ item.label }}</strong>
-            <p>{{ item.message }}</p>
-          </div>
-        </div>
-      </div>
-      <div v-if="precheckResult.blockers.length" class="precheck-blockers">
-        <strong>必处理清单</strong>
-        <ul>
-          <li v-for="(blocker, index) in precheckResult.blockers" :key="`${blocker.code}-${blocker.process_id || index}`">
-            <span>{{ blocker.process_name || blocker.message }}</span>
-            <em v-if="blocker.process_name">{{ blocker.message }}<template v-if="blocker.required_by_labels?.length">（{{ blocker.required_by_labels.join('、') }}）</template></em>
-          </li>
-        </ul>
-      </div>
-    </section>
+
 
     <div v-if="!projectId" class="empty-state card">
       <div class="empty-mark">04</div>
@@ -164,10 +157,18 @@
     </div>
 
     <div v-else-if="!visibleSegments.length" class="empty-state card">
-      <div class="empty-mark">*</div>
-      <div class="empty-title">当前没有规则审核阻塞项</div>
-      <div class="empty-text">可进行发布前预检。</div>
-      <button class="btn btn-outline" @click="onlyPending = false">显示全部规则</button>
+      <template v-if="precheckResult && !precheckResult.ok">
+        <div class="empty-mark empty-mark--warning" aria-hidden="true">!</div>
+        <div class="empty-title">工序规则已全部审核完成</div>
+        <div class="empty-text">当前工序条件规则已无阻塞，但发布前预检存在未完成项（{{ precheckResult.blockers.map(b => b.message).join('、') }}）。</div>
+        <button class="btn btn-outline" @click="onlyPending = false">查看全部工序规则</button>
+      </template>
+      <template v-else>
+        <div class="empty-mark empty-mark--success" aria-hidden="true">✓</div>
+        <div class="empty-title">当前没有发布阻塞项</div>
+        <div class="empty-text">工序规则审核已就绪，未确认候选可稍后在全部规则中查看。</div>
+        <button class="btn btn-outline" @click="onlyPending = false">查看全部规则</button>
+      </template>
     </div>
 
     <div v-else class="finalize-layout">
@@ -186,7 +187,6 @@
         :all-item-count="segmentCards.length"
         @focus="focusSegment"
         @toggle-steps="toggleFinalizeSegmentSteps"
-        @toggle-only-pending="toggleOnlyPending"
       />
 
       <section class="finalize-results">
@@ -279,6 +279,63 @@
       </section>
     </div>
 
+    <!-- 规则包发布预检明细对话框 -->
+    <div v-if="showPrecheckDialog && precheckResult" class="export-blocker-overlay" @click.self="showPrecheckDialog = false">
+      <section class="export-blocker-dialog precheck-dialog" role="dialog" aria-modal="true" aria-labelledby="precheck-dialog-title">
+        <div class="export-blocker-header">
+          <div>
+            <span class="export-blocker-kicker">发布预检</span>
+            <h2 id="precheck-dialog-title">{{ precheckResult.ok ? '规则包可以发布' : '规则包暂不可发布' }}</h2>
+          </div>
+          <button class="export-blocker-close" aria-label="关闭提示" @click="showPrecheckDialog = false">✕</button>
+        </div>
+
+        <div class="precheck-dialog-body">
+          <p v-if="!precheckResult.ok" class="export-blocker-copy">
+            {{ precheckResult.blockers.map(b => b.process_name ? `${b.process_name}（${b.message}）` : b.message).join('；') }}
+          </p>
+          <p v-else class="export-blocker-copy">
+            全量校验已通过，规则包已满足发布条件。
+            <span v-if="deferredCandidateCount" class="precheck-dialog-sub">
+              （还有 {{ deferredCandidateCount }} 项候选可稍后确认，不影响本次发布）
+            </span>
+          </p>
+
+          <!-- 4 项校验清单 -->
+          <div class="precheck-dialog-grid">
+            <div
+              v-for="item in precheckResult.checklist"
+              :key="item.code"
+              class="precheck-item"
+            >
+              <span class="precheck-item-icon" :class="{ 'precheck-item-icon--blocked': item.status === 'blocking' }">
+                {{ item.status === 'passed' ? '✓' : '!' }}
+              </span>
+              <div>
+                <strong>{{ item.label }}</strong>
+                <p>{{ item.message }}</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 阻塞清单 -->
+          <div v-if="precheckResult.blockers.length" class="precheck-blockers">
+            <strong>发布阻塞清单</strong>
+            <ul>
+              <li v-for="(blocker, index) in precheckResult.blockers" :key="`${blocker.code}-${blocker.process_id || index}`">
+                <span>{{ blocker.process_name || blocker.message }}</span>
+                <em v-if="blocker.process_name">{{ blocker.message }}<template v-if="blocker.required_by_labels?.length">（{{ blocker.required_by_labels.join('、') }}）</template></em>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="export-blocker-actions">
+          <button class="ash-btn-primary" @click="showPrecheckDialog = false">知道了</button>
+        </div>
+      </section>
+    </div>
+
     <WorkflowResetDialog
       v-model="resetDialogVisible"
       title="重新识别第四步全部规则？"
@@ -355,7 +412,6 @@ import {
   groupExportBlockedCards,
   finalizeRuleMode,
   hasCurrentConfirmedUserRule,
-  isSafeForBatchRuleConfirmation,
   normalizeExportProcessName,
   requiresServerRuleConditionRefresh,
 } from '@/utils/finalizeRulePackage'
@@ -376,7 +432,7 @@ const projectName = ref('')
 const savedRoute = ref<SavedNormalizedRouteVersionResult | null>(null)
 const operations = ref<OperationItem[]>([])
 const supersetOperations = ref<OperationItem[]>([])
-const onlyPending = ref(true)
+const onlyPending = ref(false)
 const activeSegmentId = ref('')
 const lastExportedRulePackageVersion = ref<number | null>(null)
 const outdatedRulePackageVersion = ref<number | null>(null)
@@ -392,6 +448,7 @@ const batchReviewTotal = ref(0)
 const preprocessStatus = ref<RulePreprocessStatus | null>(null)
 const preprocessFailureSummary = computed(() => buildRulePreprocessFailureSummary(preprocessStatus.value))
 const precheckResult = ref<RulePackagePrecheckResult | null>(null)
+const showPrecheckDialog = ref(false)
 let preprocessPollTimer: ReturnType<typeof window.setTimeout> | null = null
 let preprocessRefreshInFlight = false
 let lastRulePreprocessTriggerKey = ''
@@ -470,7 +527,25 @@ const pendingReviewCards = computed(() => reviewableCards.value.filter((item) =>
     && review.source_text.trim() === item.conditionText.trim()
     && (review.candidate?.kind || 'condition') === expectedKind
 }))
-const autoConfirmableReviewCards = computed(() => pendingReviewCards.value.filter(isSafeForBatchRuleConfirmation))
+const publishBlockingCount = computed(() => reviewFocusCards.value.length)
+const precheckBlockerCount = computed(() => {
+  if (!precheckResult.value) return 0
+  return precheckResult.value.ok ? 0 : (precheckResult.value.blockers?.length || 1)
+})
+const totalBlockingCount = computed(() => {
+  return Math.max(publishBlockingCount.value, precheckBlockerCount.value)
+})
+const publishStatusBlocked = computed(() => Boolean(
+  projectId.value && !loading.value && (publishBlockingCount.value > 0 || (precheckResult.value && !precheckResult.value.ok))
+))
+const publishStatusLabel = computed(() => {
+  if (loading.value || !projectId.value) return '等待规则结果'
+  return publishStatusBlocked.value ? `发布受阻 ${totalBlockingCount.value} 项` : '规则包可发布'
+})
+const deferredCandidateCount = computed(() => {
+  const blockingIds = new Set(reviewFocusCards.value.map(item => item.segment.id))
+  return pendingReviewCards.value.filter(item => !blockingIds.has(item.segment.id)).length
+})
 const readyRuleCount = computed(() => reviewableCards.value.filter((item) => {
   if (hasCurrentConfirmedUserRule(item)) return true
   const review = item.conditionReview
@@ -764,65 +839,57 @@ async function handleBatchParseConditions(
     await Promise.all(Array.from({ length: Math.min(3, queue.length) }, () => worker()))
     if (!isCurrent()) return
     const failedCount = queue.length - successCount
-    setBatchNotice(failedCount
-      ? `已识别 ${successCount} 条规则；${failedCount} 条还需要补充。`
-      : `已识别 ${successCount} 条规则。`)
-    onlyPending.value = true
+    if (failedCount > 0) {
+      setBatchNotice(`已识别 ${successCount} 条规则；${failedCount} 条还需要补充。`)
+      onlyPending.value = true
+    } else {
+      onlyPending.value = false
+    }
 
   } finally {
     if (executionId === batchParseExecutionId) batchParsing.value = false
   }
 }
 
-async function handleCompleteReview() {
-  if (batchReviewing.value || !autoConfirmableReviewCards.value.length || !projectId.value || !savedRoute.value) return
-  const queue = [...autoConfirmableReviewCards.value]
+
+async function handleConfirmAllPendingCandidates() {
+  if (batchReviewing.value || !pendingReviewCards.value.length || !projectId.value || !savedRoute.value) return
+  const queue = [...pendingReviewCards.value]
   batchReviewing.value = true
   batchReviewCompleted.value = 0
   batchReviewTotal.value = queue.length
-  batchNotice.value = ''
-  let cursor = 0
+  batchNotice.value = '正在批量采纳规则…'
   let successCount = 0
 
-  async function worker() {
-    while (cursor < queue.length) {
-      const item = queue[cursor++]
-      const review = item?.conditionReview
-      if (!item || !review?.candidate || !review.source_hash) continue
-      setConditionBusy(item.segment.id, true)
-      try {
-        const response = await confirmRuleCondition({
-          project_id: projectId.value!,
-          route_id: savedRoute.value!.route_id,
-          expected_workflow_revision: savedRoute.value!.workflow_revision,
-          segment_id: item.segment.id,
-          source_text: item.conditionText,
-          source_hash: review.source_hash,
-          candidate: review.candidate,
-          processes: conditionProcessOptions.value,
-          confirmed_by: '规则包整体审核',
-        })
-        applyConditionReview(item.segment.id, response.review)
-        successCount += 1
-      } catch (err: any) {
-        if (await handleWorkflowRevisionConflict(err)) continue
-        console.error(`规则审核失败：${item.segment.id}`, err)
-      } finally {
-        setConditionBusy(item.segment.id, false)
-        batchReviewCompleted.value += 1
-      }
+  for (const item of queue) {
+    const review = item.conditionReview
+    if (!item || !review?.candidate || !review.source_hash) continue
+    setConditionBusy(item.segment.id, true)
+    try {
+      const response = await confirmRuleCondition({
+        project_id: projectId.value,
+        route_id: savedRoute.value.route_id,
+        expected_workflow_revision: savedRoute.value.workflow_revision,
+        segment_id: item.segment.id,
+        source_text: item.conditionText,
+        source_hash: review.source_hash,
+        candidate: review.candidate,
+        processes: conditionProcessOptions.value,
+        confirmed_by: '批量采纳',
+      })
+      applyConditionReview(item.segment.id, response.review)
+      successCount += 1
+    } catch (err: any) {
+      if (await handleWorkflowRevisionConflict(err)) continue
+      console.error(`规则审核失败：${item.segment.id}`, err)
+    } finally {
+      setConditionBusy(item.segment.id, false)
+      batchReviewCompleted.value += 1
     }
   }
-
-  try {
-    await Promise.all(Array.from({ length: Math.min(3, queue.length) }, () => worker()))
-    const failedCount = queue.length - successCount
-    setBatchNotice(failedCount
-      ? `已自动审核 ${successCount} 条规则；${failedCount} 条需要检查。`
-      : '')
-  } finally {
-    batchReviewing.value = false
-  }
+  batchReviewing.value = false
+  markExportedRulePackageOutdated()
+  batchNotice.value = `已采纳 ${successCount} 道工序的识别规则，规则包已就绪！`
 }
 
 async function handleConfirmCondition(
@@ -949,10 +1016,14 @@ const {
     blockedExportCards.value = cards
   },
   onExportIssue: (issue) => {
+    if (precheckResult.value && !precheckResult.value.ok) return
     exportIssue.value = { ...issue, context: '规则包发布' }
   },
   onPrecheck: (result) => {
     precheckResult.value = result
+    if (!result.ok) {
+      showPrecheckDialog.value = true
+    }
   },
   onExportedVersion: (version, meta) => {
     lastExportedRulePackageVersion.value = version
@@ -978,18 +1049,24 @@ async function handleReviewAndExport() {
       await handleBatchParseConditions([...batchEligibleCards.value])
       await nextTick()
     }
-    if (autoConfirmableReviewCards.value.length) {
-      await handleCompleteReview()
+    // 自动采纳所有已识别的候选规则，避免弹窗打断用户
+    if (pendingReviewCards.value.length) {
+      await handleConfirmAllPendingCandidates()
       await nextTick()
     }
     const remaining = exportBlockingCards(segmentCards.value)
-    if (remaining.length) {
-      blockedExportCards.value = remaining
+    const groups = groupExportBlockedCards(remaining)
+    // 仅当存在真正缺失条件的工序时才弹窗提示人工补充
+    if (groups.missingConditionCards.length) {
+      blockedExportCards.value = groups.missingConditionCards
       onlyPending.value = true
-      batchNotice.value = `系统已自动处理可识别规则；还有 ${remaining.length} 道工序需要补充。`
+      batchNotice.value = `还有 ${groups.missingConditionCards.length} 道工序缺少具体条件，请补充后再发布。`
       return
     }
     await downloadRuleDocument()
+    if (precheckResult.value && !precheckResult.value.ok) {
+      showPrecheckDialog.value = true
+    }
   } finally {
     reviewAndExporting.value = false
   }
@@ -1078,6 +1155,7 @@ async function startRulePreprocessingForWorkspace() {
 
 async function loadWorkspace(forceRefresh = false) {
   const request = workspaceRequestGuard.start()
+  precheckResult.value = null
   loading.value = true
   error.value = ''
   workspaceErrorTitle.value = FINALIZE_VIEW_COPY.errorTitle
@@ -1196,7 +1274,7 @@ async function handleResetAllRecognition() {
     })
     locallyHandledResetAt = workflowResetSignal.value?.emittedAt || 0
     resetDialogVisible.value = false
-    onlyPending.value = true
+    onlyPending.value = false
     setBatchNotice('重置完成，正在后台准备重新识别。')
     const task = recognitionTaskGuard.start()
     const context = {
@@ -1340,6 +1418,7 @@ onDeactivated(() => {
   align-items: center;
   gap: 12px;
   min-width: 0;
+  flex-wrap: wrap;
 }
 
 .ash-page-title {
@@ -1386,6 +1465,39 @@ onDeactivated(() => {
 .ash-meta-item strong {
   color: #0f172a;
   font-weight: 700;
+}
+
+.ash-publish-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 4px 9px;
+  border: 1px solid #bbf7d0;
+  border-radius: 999px;
+  color: #166534;
+  background: #f0fdf4;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.ash-publish-state--blocked {
+  border-color: #fed7aa;
+  color: #9a3412;
+  background: #fff7ed;
+}
+
+.ash-publish-state-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.12);
+}
+
+.ash-publish-state--blocked .ash-publish-state-dot {
+  background: #f97316;
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.12);
 }
 
 .ash-actions {
@@ -1618,16 +1730,33 @@ onDeactivated(() => {
   background: #ffffff;
 }
 
-.warning-text { color: #b4532f !important; }
-.batch-notice {
-  margin: -4px 0 10px;
-  padding: 8px 12px;
-  border: 1px solid #cbd8e8;
+.batch-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  background: #1e293b;
+  color: #f8fafc;
+  font-size: 13px;
+  font-weight: 500;
   border-radius: 8px;
-  background: #f4f7fb;
-  color: #4d607b;
-  font-size: 12px;
-  line-height: 1.5;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+}
+
+.toast-fade-enter-active,
+.toast-fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.toast-fade-enter-from,
+.toast-fade-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
 }
 
 .preprocess-failure-panel {
@@ -2313,7 +2442,7 @@ onDeactivated(() => {
 
 .empty-state {
   text-align: center;
-  padding: 56px 28px;
+  padding: 34px 28px 38px;
   background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
 }
 
@@ -2322,6 +2451,18 @@ onDeactivated(() => {
   font-weight: 700;
   color: #94a3b8;
   margin-bottom: 12px;
+}
+
+.empty-mark--success {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  margin: 0 auto 12px;
+  border-radius: 50%;
+  color: #15803d;
+  background: #dcfce7;
+  font-size: 22px;
 }
 
 .empty-title {
@@ -2346,84 +2487,169 @@ onDeactivated(() => {
   background: linear-gradient(180deg, #ffffff 0%, #fff8f8 100%);
 }
 
-.precheck-panel {
-  margin: 16px 24px 0;
-  padding: 18px 20px;
-  border: 1px solid #bbf7d0;
-  border-radius: 14px;
+.empty-mark--warning {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  margin: 0 auto 12px;
+  border-radius: 50%;
+  color: #c2410c;
+  background: #ffedd5;
+  font-size: 20px;
+  font-weight: bold;
+}
+
+/* 扁平化紧凑 Alert Banner 样式 */
+.precheck-dialog {
+  width: min(580px, 100%);
+}
+
+.precheck-dialog-body {
+  padding: 16px 24px 0;
+}
+
+.precheck-dialog-sub {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.precheck-dialog-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.ash-publish-state--clickable {
+  cursor: pointer;
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.ash-publish-state--clickable:hover {
+  transform: translateY(-1px);
+  filter: brightness(0.96);
+}
+
+.precheck-banner {
+  margin: 8px 24px 0;
+  padding: 8px 16px;
+  border-radius: 8px;
   background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  transition: all 0.2s ease;
 }
 
-.precheck-panel--blocked {
-  border-color: #fed7aa;
+.precheck-banner--blocked {
   background: #fff7ed;
+  border-color: #fed7aa;
 }
 
-.precheck-panel-head,
-.precheck-item,
-.precheck-blockers li {
+.precheck-banner--ready {
+  box-shadow: inset 3px 0 0 #22c55e;
+}
+
+.precheck-banner-main {
   display: flex;
   align-items: center;
-}
-
-.precheck-panel-head {
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
-.precheck-kicker {
+.precheck-banner-icon {
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.precheck-banner-info {
+  flex: 1;
+  min-width: 240px;
+  font-size: 12.5px;
+  color: #166534;
+  line-height: 1.45;
+}
+
+.precheck-banner--blocked .precheck-banner-info {
+  color: #9a3412;
+}
+
+.precheck-banner-sub {
   color: #64748b;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .08em;
+  font-size: 11.5px;
 }
 
-.precheck-panel h2 {
-  margin: 3px 0 0;
-  color: #0f172a;
-  font-size: 17px;
+.precheck-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
-.precheck-state {
-  padding: 5px 10px;
+.precheck-banner-badge {
+  padding: 2px 8px;
   border-radius: 999px;
   color: #166534;
   background: #dcfce7;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
 }
 
-.precheck-state--blocked {
+.precheck-banner-badge--blocked {
   color: #9a3412;
   background: #ffedd5;
+}
+
+.precheck-banner-detail-btn {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font-size: 11.5px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.precheck-banner-detail-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #1e293b;
+}
+
+.precheck-banner-details {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(0, 0, 0, 0.1);
 }
 
 .precheck-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 10px;
-  margin-top: 15px;
+  margin-top: 4px;
 }
 
 .precheck-item {
+  display: flex;
   align-items: flex-start;
   gap: 9px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, .78);
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .85);
 }
 
 .precheck-item-icon {
   display: inline-flex;
-  width: 19px;
-  height: 19px;
+  width: 18px;
+  height: 18px;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
   border-radius: 50%;
   color: #166534;
   background: #dcfce7;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
 }
 
@@ -2438,15 +2664,15 @@ onDeactivated(() => {
 }
 
 .precheck-item p {
-  margin: 3px 0 0;
+  margin: 2px 0 0;
   color: #64748b;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 11.5px;
+  line-height: 1.45;
 }
 
 .precheck-blockers {
-  margin-top: 15px;
-  padding-top: 13px;
+  margin-top: 10px;
+  padding-top: 8px;
   border-top: 1px solid rgba(251, 146, 60, .25);
   color: #7c2d12;
   font-size: 12px;
@@ -2455,11 +2681,13 @@ onDeactivated(() => {
 .precheck-blockers ul {
   display: grid;
   gap: 6px;
-  margin: 9px 0 0;
+  margin: 6px 0 0;
   padding-left: 18px;
 }
 
 .precheck-blockers li {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }

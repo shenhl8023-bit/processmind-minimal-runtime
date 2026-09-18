@@ -37,4 +37,12 @@ describe('workflow viewport layout', () => {
       expect(source).not.toMatch(/^\s*min-height:\s*calc\(100vh\s*-/m)
     }
   })
+
+  it('keeps finalize publication status explicit and clears stale precheck results', () => {
+    expect(finalizeSource).toContain('ash-publish-state')
+    expect(finalizeSource).toContain('发布阻塞')
+    expect(finalizeSource).toContain('规则包暂不可发布')
+    expect(finalizeSource).toContain('empty-mark--success')
+    expect(finalizeSource).toMatch(/precheckResult\.value\s*=\s*null/)
+  })
 })

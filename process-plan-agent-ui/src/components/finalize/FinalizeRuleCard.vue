@@ -23,31 +23,42 @@
         >
           恢复默认
         </button>
+        <!-- 显眼主按钮：确认采纳 (未审核时直接展示) -->
+        <button
+          v-if="!inlineEditing && editableCandidate && candidateMatchesCardMode && ['conditional','relation'].includes(cardRuleMode) && effectiveStatus !== 'confirmed'"
+          type="button"
+          class="confirm-rule-primary-btn"
+          :disabled="conditionBusy || !hasRuleAction"
+          @click="confirmCandidate"
+        >
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" class="confirm-check-svg">
+            <path d="M3 8l4 4 6-7" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          确认采纳
+        </button>
+
+        <!-- 已审核胶囊标签 -->
+        <span
+          v-else-if="!inlineEditing && effectiveStatus === 'confirmed' && ['conditional','relation'].includes(cardRuleMode)"
+          class="confirmed-status-pill"
+        >
+          ✓ 已审核
+        </span>
+
+        <!-- 微调条件 (原修改规则) -->
         <button
           v-if="!inlineEditing && editableCandidate && candidateMatchesCardMode && ['conditional','relation'].includes(cardRuleMode)"
+          type="button"
           class="ghost-btn"
           @click="ruleEditorExpanded = !ruleEditorExpanded"
         >
-          {{ ruleEditorExpanded ? '收起' : '修改规则' }}
+          {{ ruleEditorExpanded ? '收起条件' : '微调条件' }}
         </button>
-        <button
-          v-if="manualModeState.visible && !inlineEditing && !manualBooleanEditing && !(cardRuleMode === 'mainline' && !mainlineExpanded)"
-          class="ghost-btn"
-          :disabled="conditionBusy || manualModeState.mainlineActive"
-          @click="$emit('set-mainline', item)"
-        >
-          {{ manualModeState.mainlineActive ? '已是主工序' : '转主工序' }}
-        </button>
-        <button
-          v-if="manualModeState.visible && !inlineEditing && !manualBooleanEditing && !(cardRuleMode === 'mainline' && !mainlineExpanded)"
-          class="ghost-btn ghost-btn-bool"
-          :disabled="conditionBusy || manualModeState.booleanActive"
-          @click="beginBooleanConversion"
-        >
-          {{ manualModeState.booleanActive ? '已是Bool' : '转Bool' }}
-        </button>
+
+        <!-- 改原描述 (原编辑) -->
         <button
           v-if="!inlineEditing"
+          type="button"
           class="preview-edit-btn"
           @click="$emit('start-edit', item)"
         >
@@ -55,7 +66,27 @@
             <path d="M12 20h9" />
             <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
           </svg>
-          <span>{{ cardRuleMode === 'mainline' ? '改为条件工序' : editLabel }}</span>
+          <span>{{ cardRuleMode === 'mainline' ? '改为条件工序' : '改原描述' }}</span>
+        </button>
+
+        <!-- 次级操作：转主工序 / 转Bool (轻量展示) -->
+        <button
+          v-if="manualModeState.visible && !inlineEditing && !manualBooleanEditing && !(cardRuleMode === 'mainline' && !mainlineExpanded)"
+          type="button"
+          class="ghost-btn ghost-btn-subtle"
+          :disabled="conditionBusy || manualModeState.mainlineActive"
+          @click="$emit('set-mainline', item)"
+        >
+          {{ manualModeState.mainlineActive ? '已是主工序' : '转主工序' }}
+        </button>
+        <button
+          v-if="manualModeState.visible && !inlineEditing && !manualBooleanEditing && !(cardRuleMode === 'mainline' && !mainlineExpanded)"
+          type="button"
+          class="ghost-btn ghost-btn-subtle ghost-btn-bool"
+          :disabled="conditionBusy || manualModeState.booleanActive"
+          @click="beginBooleanConversion"
+        >
+          {{ manualModeState.booleanActive ? '已是Bool' : '转Bool' }}
         </button>
         <!-- Mainline collapse toggle -->
         <button
@@ -553,10 +584,11 @@ const filteredPickerOptions = computed(() => {
 // ---- Helpers ----
 function firstConditionField(condition: RulePackageCondition | null | undefined): string | null {
   if (!condition) return null
-  if ('field' in condition) return condition.field
-  if ('all' in condition) return firstConditionField(condition.all[0])
-  if ('any' in condition) return firstConditionField(condition.any[0])
-  return firstConditionField(condition.not)
+  if ('field' in condition && condition.field) return condition.field
+  if (Array.isArray((condition as any)?.all) && (condition as any).all.length > 0) return firstConditionField((condition as any).all[0])
+  if (Array.isArray((condition as any)?.any) && (condition as any).any.length > 0) return firstConditionField((condition as any).any[0])
+  if ((condition as any)?.not) return firstConditionField((condition as any).not)
+  return null
 }
 
 function processDisplayName(processId: string) {
@@ -793,17 +825,21 @@ function formatConfirmedAt(value: string) {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 4px;
+  gap: 12px;
 }
 .preview-card-title-group {
   display: flex;
   align-items: flex-start;
   gap: 8px;
+  min-width: 0;
+  flex: 1;
 }
 .preview-card-name-stack {
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+  flex: 1;
 }
 .preview-card h2 {
   margin: 0;
@@ -814,6 +850,12 @@ function formatConfirmedAt(value: string) {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+}
+.preview-card h2 > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .preview-card h2::before {
   content: "";
@@ -829,6 +871,8 @@ function formatConfirmedAt(value: string) {
   border-radius: 999px;
   font-size: 10px;
   font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .card-mode-mainline    { background: #e9eef5; color: #536176; }
 .card-mode-conditional { background: #e7edfb; color: #3e5790; }
@@ -839,11 +883,15 @@ function formatConfirmedAt(value: string) {
   font-size: 12px;
   line-height: 1.45;
   color: #7c8aa5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .preview-card-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 .edited-badge {
   font-size: 12px; font-weight: 600;
@@ -858,7 +906,54 @@ function formatConfirmedAt(value: string) {
   color: #64748b; font-size: 13px; font-weight: 500;
   cursor: pointer; padding: 0 4px;
 }
-.ghost-btn:hover { color: #4f46e5; }
+.confirm-rule-primary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 11px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #ffffff;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 3px rgba(16, 185, 129, 0.3);
+  white-space: nowrap;
+}
+.confirm-rule-primary-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #34d399 0%, #059669 100%);
+  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.45);
+  transform: translateY(-0.5px);
+}
+.confirm-rule-primary-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+.confirm-check-svg {
+  flex-shrink: 0;
+}
+.confirmed-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #15803d;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 999px;
+  line-height: 1.2;
+}
+.ghost-btn-subtle {
+  opacity: 0.72;
+  font-size: 11.5px;
+}
+.ghost-btn-subtle:hover {
+  opacity: 1;
+}
 .preview-edit-btn {
   display: inline-flex; align-items: center; justify-content: center;
   background: #ffffff; border: 1px solid #c7d2fe; color: #4f46e5;

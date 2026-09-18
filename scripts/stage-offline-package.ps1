@@ -59,6 +59,9 @@ function Test-ExcludedDirectory {
   $normalized = Normalize-RelativePath $RelativePath
   $name = Split-Path -Leaf $normalized
   if ($excludedDirectoryNames.Contains($name)) { return $true }
+  if ($normalized -match '^\.runtime/[^/]+(?:/|$)' -and $normalized -notmatch '^\.runtime/(?:python|node)(?:/|$)') {
+    return $true
+  }
   if ($name -eq 'node_modules' -and $normalized -notmatch '^process-plan-agent-ui/node_modules(?:/|$)') {
     return $true
   }

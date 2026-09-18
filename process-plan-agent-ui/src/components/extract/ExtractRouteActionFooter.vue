@@ -17,6 +17,10 @@
           <span class="footer-status-pill-icon">!</span>
           请先完成全部候选归并判断，当前还有 <strong class="highlight-count">{{ pendingCount }}</strong> 组待处理。
         </span>
+        <span v-else-if="templateReady === false" class="footer-status-pill footer-status-pill-info">
+          <span class="footer-status-pill-icon">ℹ</span>
+          候选归并已全部完成！下一步请完成工序分组模板映射后进入规则分析。
+        </span>
         <span v-else class="footer-status-pill footer-status-pill-success">
           <span class="footer-status-pill-icon">✓</span>
           候选归并已全部完成！已生成标准化母路线，可进入规则分析阶段。
@@ -33,6 +37,7 @@ defineProps<{
   pendingCount: number
   canEnter: boolean
   entering?: boolean
+  templateReady?: boolean
 }>()
 
 defineEmits<{

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { RouterView, useRoute, useRouter } from 'vue-router'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
+import 'element-plus/es/components/message/style/css'
 import ModelSettingsDrawer from '@/components/settings/ModelSettingsDrawer.vue'
 import {
   resolveCurrentProjectId,
@@ -34,6 +36,17 @@ const hasProjectContext = computed(() => {
   return currentProjectId.value !== null
 })
 
+const maxVisitedStepIndex = ref(0)
+watch(currentStepIndex, (val) => {
+  if (val !== null && val > maxVisitedStepIndex.value) {
+    maxVisitedStepIndex.value = val
+  }
+}, { immediate: true })
+
+watch(currentProjectId, () => {
+  maxVisitedStepIndex.value = currentStepIndex.value ?? 0
+})
+
 const stepStatus = (stepNumber: number) => {
   const index = stepNumber - 1
   if (currentStepIndex.value !== null) {
@@ -49,6 +62,12 @@ const stepIsCompleted = (stepNumber: number) => stepStatus(stepNumber) === 'comp
 function navigateToStep(stepNumber: number) {
   const status = stepStatus(stepNumber)
   if (status === 'active' || status === 'locked') return
+  const targetIndex = stepNumber - 1
+  if (targetIndex > maxVisitedStepIndex.value + 1) {
+    const nextStepName = workflowSteps[maxVisitedStepIndex.value + 1]?.label || ''
+    ElMessage.warning(`请按工作流顺序依次完成前置步骤，建议先推进【${nextStepName}】`)
+    return
+  }
   const step = workflowSteps[stepNumber - 1]
   if (!step) return
   router.push({

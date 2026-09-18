@@ -27,7 +27,7 @@
       variant="error"
       :message="errorMsg"
       :harness="extractHarness"
-      @action="resetRouteRulesError"
+      @action="handleRetryExtract"
     />
 
     <div v-if="status === 'done'" class="results-area">
@@ -48,7 +48,7 @@
         :status-label="routeMergeStatusLabel"
         :template-mapping-count="templateStepMappingCount"
         :notice="visibleRouteMergeNotice"
-        @open-template-mapping="templateGroupMappingVisible = true"
+        @open-template-mapping="handleOpenTemplateMapping"
         @rerun="resetDialogVisible = true"
       />
 
@@ -174,6 +174,7 @@
         :pending-count="routeMergePendingCount"
         :can-enter="canEnterRouteFactorAnalysis"
         :entering="routeFactorAnalysisEntering"
+        :template-ready="isProjectTemplateReady"
         @previous="goBackToUpload"
         @next="openRouteFactorAnalysis"
       />
@@ -183,6 +184,14 @@
         :operations="templateMappingOperations"
         :legacy-aliases="legacyTemplateGroupAliases"
         @save="saveTemplateGroupMappings"
+      />
+      <TemplateMappingRequiredDialog
+        v-model="templateMappingRequiredVisible"
+        title="请先完成分组模板映射"
+        description="当前路线归并已收敛完成。第三步“规则分析”以及后续规则定稿发布均依赖模板映射关系，必须先完成工序与模板分组映射后方可进入规则分析。"
+        confirm-label="立即去映射"
+        cancel-label="稍后处理"
+        @confirm="openTemplateMappingFromRequiredPrompt"
       />
       </template>
     </div>
@@ -204,6 +213,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, onActivated, onDeactivated, defineAsyncComponent, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import ExtractPageHeader from '@/components/extract/ExtractPageHeader.vue'
 import ExtractRouteActionFooter from '@/components/extract/ExtractRouteActionFooter.vue'
 import ExtractRouteShellHeader from '@/components/extract/ExtractRouteShellHeader.vue'
@@ -211,6 +221,8 @@ import ExtractStatusCard from '@/components/extract/ExtractStatusCard.vue'
 import RouteProgressCard from '@/components/extract/RouteProgressCard.vue'
 import WorkflowResetDialog from '@/components/workflow/WorkflowResetDialog.vue'
 import TemplateGroupMappingDialog from '@/components/extract/TemplateGroupMappingDialog.vue'
+import TemplateMappingRequiredDialog from '@/components/workflow/TemplateMappingRequiredDialog.vue'
+import { isGroupTemplateReady } from '@/composables/projectGroupTemplateCheck'
 import {
   useRouteMergeResultWorkspace,
   type RouteMergeGroup,
@@ -257,6 +269,7 @@ import {
   type MergeSuggestion,
 } from '@/api'
 import { getWorkflowDataRevision } from '@/composables/workflowDataCache'
+import { workflowResetSignal } from '@/composables/workflowResetState'
 
 const MergeQueuePanel = defineAsyncComponent(() => import('@/components/extract/MergeQueuePanel.vue'))
 const NormalizedRoutePanel = defineAsyncComponent(() => import('@/components/extract/NormalizedRoutePanel.vue'))
@@ -364,12 +377,21 @@ const totalRouteSampleCount = computed(() =>
   }, 0)
 )
 const templateGroupMappingVisible = ref(false)
+const templateMappingRequiredVisible = ref(false)
 const templateGroupAliases = ref<Record<string, TemplateAliasBinding>>({})
 const templateAliasesHydratedProjectId = ref<number | null>(null)
 const projectGroupTemplate = useProjectGroupTemplate(
   computed(() => Number(projectId.value || 0)),
   computed(() => legacyTemplateGroupAliases.value),
 )
+const isProjectTemplateReady = computed(() => isGroupTemplateReady(projectGroupTemplate.template.value))
+
+watch(canEnterRouteFactorAnalysis, (canEnter) => {
+  if (!canEnter) {
+    templateGroupMappingVisible.value = false
+    templateMappingRequiredVisible.value = false
+  }
+})
 const templateOperationFamilyById = computed(() => {
   const families = new Map<number, string>()
   routeMergeGroupsSorted.value.forEach((group) => {
@@ -666,6 +688,15 @@ const {
 async function confirmRerunExtraction() {
   if (resettingFromStepTwo.value) return
   resettingFromStepTwo.value = true
+  templateGroupMappingVisible.value = false
+  templateMappingRequiredVisible.value = false
+  if (route.query.open_template_mapping || route.query.from || route.query.resume) {
+    const nextQuery = { ...route.query }
+    delete nextQuery.open_template_mapping
+    delete nextQuery.from
+    delete nextQuery.resume
+    void router.replace({ path: route.path, query: nextQuery })
+  }
   try {
     await startExtraction(true)
     if (status.value !== 'error') {
@@ -882,6 +913,13 @@ async function rejectAllMergeGroups() {
 async function openRouteFactorAnalysis() {
   if (!canEnterRouteFactorAnalysis.value || !projectId.value) return
   if (routeFactorAnalysisEntering.value) return
+  if (!projectGroupTemplate.template.value) {
+    await projectGroupTemplate.load()
+  }
+  if (!isGroupTemplateReady(projectGroupTemplate.template.value)) {
+    templateMappingRequiredVisible.value = true
+    return
+  }
   routeFactorAnalysisEntering.value = true
   errorMsg.value = ''
   const routeResultFingerprint = buildRouteResultSaveFingerprint()
@@ -911,6 +949,25 @@ async function openRouteFactorAnalysis() {
   } finally {
     routeFactorAnalysisEntering.value = false
   }
+}
+
+function handleOpenTemplateMapping() {
+  if (!canEnterRouteFactorAnalysis.value) {
+    ElMessage.warning('请先完成全部候选工序归并，确认最终标准路线后再进行分组模板映射。')
+    return
+  }
+  templateGroupMappingVisible.value = true
+}
+
+function openTemplateMappingFromRequiredPrompt() {
+  templateMappingRequiredVisible.value = false
+  if (!canEnterRouteFactorAnalysis.value) return
+  templateGroupMappingVisible.value = true
+}
+
+async function handleRetryExtract() {
+  resetRouteRulesError()
+  await initializeExtractView()
 }
 
 function goBackToUpload() {
@@ -975,6 +1032,14 @@ function handleMergeKeydown(e: KeyboardEvent) {
 async function initializeExtractView() {
   const routeProjectId = String(route.query.project_id || '')
   const resumeRouteMerge = String(route.query.resume || '').trim() === 'route_merge' || String(route.query.from || '').trim() === 'analysis'
+  if (String(route.query.open_template_mapping || '').trim() === '1') {
+    if (canEnterRouteFactorAnalysis.value) {
+      templateGroupMappingVisible.value = true
+    }
+    const nextQuery = { ...route.query }
+    delete nextQuery.open_template_mapping
+    void router.replace({ path: route.path, query: nextQuery })
+  }
   const preferredProjectId = resolveCurrentProjectId(routeProjectId)
   const currentDataRevision = getWorkflowDataRevision()
   const alreadyInitialized = Boolean(
@@ -1061,13 +1126,31 @@ onMounted(async () => {
   await initializeExtractView()
 })
 
-watch(() => [route.path, route.query.project_id, route.query.resume, route.query.from], () => {
+watch(() => [route.path, route.query.project_id, route.query.resume, route.query.from, route.query.open_template_mapping], () => {
   if (!route.path.startsWith('/extract')) return
+  if (String(route.query.open_template_mapping || '').trim() === '1') {
+    if (canEnterRouteFactorAnalysis.value) {
+      templateGroupMappingVisible.value = true
+    }
+    const nextQuery = { ...route.query }
+    delete nextQuery.open_template_mapping
+    void router.replace({ path: route.path, query: nextQuery })
+  }
+  void initializeExtractView()
+})
+
+watch(workflowResetSignal, (signal) => {
+  if (!signal || signal.projectId !== projectId.value) return
+  lastInitializedDataRevision.value = -1
   void initializeExtractView()
 })
 
 onActivated(() => {
   extractViewActive.value = true
+  const currentDataRevision = getWorkflowDataRevision()
+  if (lastInitializedDataRevision.value !== currentDataRevision) {
+    void initializeExtractView()
+  }
 })
 
 onDeactivated(() => {

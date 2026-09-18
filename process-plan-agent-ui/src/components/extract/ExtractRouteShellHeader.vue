@@ -24,6 +24,7 @@
           <Connection class="icon-sm" />
           模板分组映射
           <span v-if="templateMappingCount" class="route-shell-tool-count">{{ templateMappingCount }}</span>
+          <span v-else-if="canEnter" class="route-shell-tool-badge-unmapped">待映射</span>
         </button>
         <button class="btn btn-text btn-sm route-shell-revert" @click="$emit('rerun')">
           <svg viewBox="0 0 24 24" fill="none" class="icon-sm">
@@ -86,6 +87,16 @@ const isWarningNotice = computed(() =>
   background: #dbeafe;
   color: #1d4ed8;
   font-size: 10px;
+  text-align: center;
+}
+
+.route-shell-tool-badge-unmapped {
+  padding: 1px 6px;
+  border-radius: 9px;
+  background: #ffedd5;
+  color: #c2410c;
+  font-size: 10px;
+  font-weight: 700;
   text-align: center;
 }
 

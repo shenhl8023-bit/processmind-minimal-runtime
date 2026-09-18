@@ -93,6 +93,14 @@
         </div>
       </div>
 
+      <div v-if="isStale" class="output-stale-banner" role="alert">
+        <span class="stale-dot">!</span>
+        <div class="stale-text">
+          <strong>规则包已更新至 V{{ currentPackageVersion }}</strong>
+          <span>当前展示为基于旧版 V{{ result.rule_package_version }} 生成的推演结果，建议重新生成以验证最新规则。</span>
+        </div>
+      </div>
+
       <div class="route-tree">
         <div v-for="(step, index) in result.steps" :key="step.process_id || `${step.name}-${index}`" class="route-node">
           <div class="route-track">
@@ -178,6 +186,8 @@ const props = defineProps<{
   hasRulePackage: boolean
   canGenerate: boolean
   generating: boolean
+  isStale?: boolean
+  currentPackageVersion?: number | null
 }>()
 
 const emit = defineEmits<{
@@ -497,8 +507,52 @@ watch(() => props.result, () => {
 .output-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex-shrink: 0;
+}
+
+.output-stale-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin: 10px 0 14px;
+  background: #fffbeb;
+  border: 1px solid #fef08a;
+  border-left: 4px solid #f59e0b;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #92400e;
+}
+
+.stale-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #f59e0b;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.stale-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stale-text strong {
+  color: #b45309;
+  font-size: 12.5px;
+}
+
+.stale-text span {
+  color: #78350f;
+  font-size: 11.5px;
 }
 
 .copy-button {

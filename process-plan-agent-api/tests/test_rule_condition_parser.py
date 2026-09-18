@@ -206,6 +206,28 @@ async def test_ignores_vague_template_qualifier_when_hole_condition_is_explicit(
 
 
 @pytest.mark.asyncio
+async def test_parses_cut_flat_feature_condition(monkeypatch):
+    async def llm_must_not_run(*args, **kwargs):
+        raise AssertionError("明确的割扁/扁结构条件应由本地解析器直接处理")
+
+    monkeypatch.setattr(condition_parser, "call_llm", llm_must_not_run)
+    candidate, confidence, issues = await condition_parser.parse_rule_condition(
+        "当零件存在扁时，纳入“割扁”工序。",
+        "proc_cut_flat",
+        "割扁",
+        [RuleConditionProcessOption(process_id="proc_cut_flat", display_name="割扁")],
+    )
+
+    assert candidate is not None
+    assert candidate.when is not None
+    assert candidate.when.field == "cad.features"
+    assert candidate.when.op == "contains"
+    assert candidate.when.value == "扁位/平面"
+    assert candidate.then.include_process_ids == ["proc_cut_flat"]
+    assert issues == []
+
+
+@pytest.mark.asyncio
 async def test_parses_compound_and_condition():
     candidate, _, _ = await condition_parser.parse_rule_condition(
         "材料为9Cr18并且硬度不低于HRC58时，纳入检验工序",

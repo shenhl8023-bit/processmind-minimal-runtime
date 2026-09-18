@@ -66,7 +66,7 @@
           :key="index"
           :model-value="child"
           :fields="fields"
-          @update:model-value="updateGroupChild(index, $event)"
+          @update:model-value="updateGroupChild(Number(index), $event)"
         />
       </div>
     </template>
@@ -87,26 +87,32 @@ const emit = defineEmits<{
 }>()
 
 const nodeKind = computed<'leaf' | 'all' | 'any' | 'not'>(() => {
-  if ('all' in props.modelValue) return 'all'
-  if ('any' in props.modelValue) return 'any'
-  if ('not' in props.modelValue) return 'not'
+  if (Array.isArray((props.modelValue as any)?.all)) return 'all'
+  if (Array.isArray((props.modelValue as any)?.any)) return 'any'
+  if ((props.modelValue as any)?.not) return 'not'
   return 'leaf'
 })
 
-const leafField = computed(() => 'field' in props.modelValue ? props.modelValue.field : '')
-const leafOperator = computed(() => 'op' in props.modelValue ? props.modelValue.op : '')
-const leafValue = computed(() => 'value' in props.modelValue ? props.modelValue.value : undefined)
+const leafField = computed(() => {
+  const v = (props.modelValue as any)?.field
+  return typeof v === 'string' ? v : ''
+})
+const leafOperator = computed(() => {
+  const v = (props.modelValue as any)?.op
+  return typeof v === 'string' ? v : ''
+})
+const leafValue = computed(() => (props.modelValue as any)?.value)
 const selectedField = computed(() => props.fields.find(field => field.key === leafField.value))
 const isNumeric = computed(() => selectedField.value?.type === 'number')
 const isListOperator = computed(() => ['in', 'contains_any', 'contains_all'].includes(leafOperator.value))
 const displayValue = computed(() => Array.isArray(leafValue.value) ? leafValue.value.join('，') : String(leafValue.value ?? ''))
 const betweenValues = computed(() => Array.isArray(leafValue.value) ? leafValue.value : ['', ''])
 const groupChildren = computed(() => {
-  if ('all' in props.modelValue) return props.modelValue.all
-  if ('any' in props.modelValue) return props.modelValue.any
+  if (Array.isArray((props.modelValue as any)?.all)) return (props.modelValue as any).all
+  if (Array.isArray((props.modelValue as any)?.any)) return (props.modelValue as any).any
   return []
 })
-const notChild = computed(() => 'not' in props.modelValue ? props.modelValue.not : ({ field: props.fields[0]?.key || '', op: 'eq', value: '' } as RulePackageCondition))
+const notChild = computed(() => (props.modelValue as any)?.not || ({ field: props.fields[0]?.key || '', op: 'eq', value: '' } as RulePackageCondition))
 const fieldGroups = computed(() => {
   const groups = new Map<string, CanonicalConditionField[]>()
   props.fields.forEach((field) => groups.set(field.category, [...(groups.get(field.category) || []), field]))

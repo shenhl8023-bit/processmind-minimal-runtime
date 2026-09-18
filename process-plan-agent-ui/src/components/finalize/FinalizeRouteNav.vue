@@ -2,32 +2,9 @@
   <aside class="route-nav card">
     <div class="route-nav-head">
       <div class="section-title">{{ title }}</div>
-      <!-- Pending / All toggle -->
-      <label
-        v-if="allItemCount > 0"
-        class="nav-filter-toggle"
-        :title="onlyPending ? '当前只显示待处理工序，点击显示全部' : '点击只看待处理工序'"
-      >
-        <input
-          type="checkbox"
-          class="nav-filter-input"
-          :checked="onlyPending"
-          @change="$emit('toggle-only-pending')"
-        />
-        <span class="nav-filter-track" :class="{ 'nav-filter-track--on': onlyPending }">
-          <span class="nav-filter-thumb"></span>
-        </span>
-        <span class="nav-filter-label">待处理</span>
-      </label>
-    </div>
-
-    <!-- Item count hint -->
-    <div v-if="allItemCount > 0" class="nav-count-hint">
-      <span v-if="onlyPending">
-        {{ items.length }} / {{ allItemCount }} 道工序待处理
-      </span>
-      <span v-else>
-        共 {{ allItemCount }} 道工序
+      <span v-if="allItemCount > 0" class="nav-count-badge">
+        <template v-if="onlyPending">{{ items.length }} / {{ allItemCount }} 待处理</template>
+        <template v-else>共 {{ allItemCount }} 道工序</template>
       </span>
     </div>
 
@@ -160,8 +137,6 @@ defineProps<{
 defineEmits<{
   focus: [segmentId: string]
   'toggle-steps': [segmentId: string]
-  /** NEW: toggle the "only pending" filter */
-  'toggle-only-pending': []
 }>()
 </script>
 
@@ -186,7 +161,7 @@ defineEmits<{
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 12px;
 }
 .section-title {
   font-size: 15px;
@@ -198,49 +173,14 @@ defineEmits<{
   letter-spacing: -0.01em;
 }
 
-/* ===== Pending filter toggle ===== */
-.nav-filter-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  user-select: none;
-  flex-shrink: 0;
-}
-.nav-filter-input { display: none; }
-.nav-filter-track {
-  position: relative;
-  width: 28px; height: 16px;
-  background: #cbd5e1;
-  border-radius: 999px;
-  transition: background 0.2s ease;
-  flex-shrink: 0;
-}
-.nav-filter-track--on { background: #6366f1; }
-.nav-filter-thumb {
-  position: absolute;
-  top: 2px; left: 2px;
-  width: 12px; height: 12px;
-  background: #ffffff;
-  border-radius: 50%;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.18);
-  transition: transform 0.2s ease;
-}
-.nav-filter-track--on .nav-filter-thumb { transform: translateX(12px); }
-.nav-filter-label {
+.nav-count-badge {
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   color: #64748b;
+  background: #f1f5f9;
+  padding: 2px 8px;
+  border-radius: 999px;
   white-space: nowrap;
-}
-.nav-filter-track--on + .nav-filter-label { color: #4f46e5; }
-
-/* ===== Count hint ===== */
-.nav-count-hint {
-  margin-bottom: 10px;
-  font-size: 11px;
-  color: #94a3b8;
-  padding-left: 2px;
 }
 
 /* ===== Phase list ===== */

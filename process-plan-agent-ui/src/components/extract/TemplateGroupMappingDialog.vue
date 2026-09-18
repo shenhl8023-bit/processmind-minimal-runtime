@@ -292,6 +292,17 @@
                     <button v-if="treeSearchQuery" class="tgmd-search-clear" type="button" @click="treeSearchQuery = ''"><Close /></button>
                   </div>
                   <button
+                    v-if="activeGroupFeatures.length > 1"
+                    class="tgmd-toggle-group-selection"
+                    type="button"
+                    :title="isAllActiveGroupFeaturesSelected ? '清空当前节点所有特征' : '全选当前节点所有特征'"
+                    @click="toggleSelectAllActiveGroupFeatures"
+                  >
+                    <Select v-if="!isAllActiveGroupFeaturesSelected" />
+                    <Close v-else />
+                    {{ isAllActiveGroupFeaturesSelected ? '清空本组' : '全选本组' }}
+                  </button>
+                  <button
                     class="tgmd-clear-selection"
                     type="button"
                     :disabled="!selectedFeatures.length"
@@ -398,6 +409,7 @@ import {
   MagicStick,
   RefreshRight,
   Search,
+  Select,
   UploadFilled,
   WarningFilled,
 } from '@element-plus/icons-vue'
@@ -751,6 +763,41 @@ function toggleSelectedFeature(selection: { leafKey: string; feature: string }) 
   else selected.add(key)
   selectedFeatureKeys.value = [...selected]
   activeGroupKey.value = selection.leafKey
+}
+
+const activeGroupNode = computed(() => {
+  const tree = model.template.value?.tree || []
+  return findTemplateGroupByKey(tree, activeGroupKey.value)
+})
+
+const activeGroupFeatures = computed(() => {
+  const node = activeGroupNode.value
+  return (node && isFeatureLeaf(node)) ? (node.feature_selections || []) : []
+})
+
+const isAllActiveGroupFeaturesSelected = computed(() => {
+  if (!activeGroupFeatures.value.length) return false
+  const leafKey = activeGroupKey.value
+  const set = new Set(selectedFeatureKeys.value)
+  return activeGroupFeatures.value.every(f => set.has(templateFeatureSelectionKey(leafKey, f)))
+})
+
+function toggleSelectAllActiveGroupFeatures() {
+  const leaf = activeGroupNode.value
+  if (!leaf || !isFeatureLeaf(leaf) || !leaf.feature_selections?.length) return
+  const leafKey = leaf.key
+  const selectAll = !isAllActiveGroupFeaturesSelected.value
+  const currentSet = new Set(selectedFeatureKeys.value)
+
+  leaf.feature_selections.forEach((feature) => {
+    const key = templateFeatureSelectionKey(leafKey, feature)
+    if (selectAll) {
+      currentSet.add(key)
+    } else {
+      currentSet.delete(key)
+    }
+  })
+  selectedFeatureKeys.value = [...currentSet]
 }
 
 function clearSelectedFeatures() {
@@ -1961,6 +2008,47 @@ function closeDialog() {
 .tgmd-smart-button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+.tgmd-clear-selection {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #64748b;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.tgmd-toggle-group-selection {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
+  color: #4f46e5;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.tgmd-toggle-group-selection:hover {
+  background: #e0e7ff;
+  border-color: #818cf8;
+}
+
+.tgmd-toggle-group-selection svg {
+  width: 12px;
+  height: 12px;
 }
 
 /* Link Button (inline in tree header) */

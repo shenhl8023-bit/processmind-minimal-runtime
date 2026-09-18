@@ -225,12 +225,13 @@ export function useQuestionTreeMaterialRows(args: {
   }
 
   watch(
-    () => args.currentQuestion.value,
-    (question) => {
+    [() => args.currentQuestion.value, () => args.currentAnswer.value] as const,
+    ([question, answer]) => {
       if (!question?.multiple || !question.id.includes('material_scope')) return
-
-      const answer = args.currentAnswer.value
       const selectedLabels = new Set(String(answer?.label || '').split('、').map(item => item.trim()).filter(Boolean))
+      const hasValidAnswer = Boolean(
+        answer && answer.label && !args.isFallbackOption(answer as QuestionTreeOption),
+      )
       const detectedRows = question.options
         .filter(option => !args.isFallbackOption(option))
         .map((option, index) => ({
@@ -239,19 +240,21 @@ export function useQuestionTreeMaterialRows(args: {
           grade: option.label,
           category: inferMaterialCategory(option.label),
           countLabel: option.countLabel,
-          selected: selectedLabels.has(option.label),
+          selected: hasValidAnswer ? selectedLabels.has(option.label) : true,
         }))
       const detectedLabels = new Set(detectedRows.map(row => row.grade).filter(Boolean))
-      const answeredManualRows = [...selectedLabels]
-        .filter(label => !detectedLabels.has(label))
-        .map((label, index) => ({
-          id: `${question.id}-answered-manual-${index + 1}`,
-          value: `material_scope::manual::${label}`,
-          grade: label,
-          category: inferMaterialCategory(label),
-          countLabel: '',
-          selected: true,
-        }))
+      const answeredManualRows = hasValidAnswer
+        ? [...selectedLabels]
+            .filter(label => !detectedLabels.has(label))
+            .map((label, index) => ({
+              id: `${question.id}-answered-manual-${index + 1}`,
+              value: `material_scope::manual::${label}`,
+              grade: label,
+              category: inferMaterialCategory(label),
+              countLabel: '',
+              selected: true,
+            }))
+        : []
       const rows = [...detectedRows, ...answeredManualRows]
       while (rows.length < DEFAULT_MATERIAL_ROW_COUNT) {
         rows.push({

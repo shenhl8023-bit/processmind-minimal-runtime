@@ -7,6 +7,18 @@
         <div class="analysis-hero-desc">已保存路线版本一览，左侧选工序、右侧看证据。</div>
       </div>
       <div class="analysis-actions">
+        <button
+          class="btn-accept-all-global"
+          @click="acceptAllRecommendedForAllSegments"
+          :disabled="loading || resettingWorkflow || batchAcceptingAll || !savedRoute || !pendingSegmentCount"
+        >
+          <span v-if="batchAcceptingAll" class="btn-accept-all-spinner" />
+          <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="btn-accept-all-global-icon">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 21l-.813-5.096L3 15l5.096-.813L9 9l.813 5.187L15 15l-5.187.904zM18 10.5l-.5 2.5-.5-2.5-2.5-.5 2.5-.5.5-2.5.5 2.5 2.5.5-2.5.5z" />
+          </svg>
+          {{ batchAcceptingAll ? `正在采纳 (${batchAcceptProgress})...` : '一键采纳全部推荐' }}
+          <span v-if="pendingSegmentCount && !batchAcceptingAll" class="btn-accept-all-global-count">{{ pendingSegmentCount }}</span>
+        </button>
         <button class="btn btn-outline btn-sm" @click="resetDialogVisible = true" :disabled="loading || resettingWorkflow || !savedRoute">
           重新回答全部
         </button>
@@ -28,14 +40,32 @@
       <div class="empty-text">系统正在读取最新保存版本和对应证据。</div>
     </div>
 
-    <div v-else-if="error" class="analysis-empty analysis-empty-error">
+    <div v-else-if="!savedRoute && error" class="analysis-empty analysis-empty-error">
       <div class="empty-mark">!</div>
       <div class="empty-title">暂时还没有可分析的已保存路线</div>
       <div class="empty-text">{{ error }}</div>
       <button class="btn btn-primary" @click="goBackToExtract">返回并保存路线</button>
     </div>
 
+    <div v-else-if="templateMappingMissing" class="analysis-empty analysis-empty-warning">
+      <div class="empty-mark empty-mark--warning">!</div>
+      <div class="empty-title">尚未完成分组模板映射</div>
+      <div class="empty-text">
+        第三步“规则分析”与后续规则包定稿发布均强依赖工序分组模板。请先返回第二步完成工序与模板分组的映射后再进行分析。
+      </div>
+      <div class="analysis-empty-actions" style="margin-top: 16px;">
+        <button class="btn btn-primary" @click="goBackToExtractForTemplateMapping">
+          前往第二步完成映射
+        </button>
+      </div>
+    </div>
+
     <template v-else-if="savedRoute">
+      <div v-if="error" class="analysis-inline-error" role="alert">
+        <span>{{ error }}</span>
+        <button type="button" class="btn-clear-error" @click="error = ''">×</button>
+      </div>
+
       <div class="analysis-filter-bar">
         <label class="analysis-search">
           <span class="analysis-search-icon" aria-hidden="true">⌕</span>
@@ -225,15 +255,26 @@
       :busy="resettingWorkflow"
       @confirm="confirmResetAllAnswers"
     />
+
+    <TemplateMappingRequiredDialog
+      v-model="templateMappingRequiredDialogVisible"
+      title="请先完成分组模板映射"
+      description="当前任务尚未完成工序分组模板映射。第三步“规则分析”以及后续规则包定稿发布均依赖模板映射关系，必须先在第二步完成工序映射后方可继续。"
+      confirm-label="前往第二步完成映射"
+      cancel-label="留在本页"
+      @confirm="goBackToExtractForTemplateMapping"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, defineAsyncComponent, onActivated, onDeactivated, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import AnalysisRouteList from '@/components/analysis/AnalysisRouteList.vue'
 import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
 import WorkflowResetDialog from '@/components/workflow/WorkflowResetDialog.vue'
+import TemplateMappingRequiredDialog from '@/components/workflow/TemplateMappingRequiredDialog.vue'
+import { checkProjectGroupTemplateReady } from '@/composables/projectGroupTemplateCheck'
 import { buildProjectRouteQuery } from '@/composables/useCurrentProject'
 import { useAnalysisWorkspace } from '@/composables/useAnalysisWorkspace'
 import { useRouteSegmentSteps } from '@/composables/useRouteSegmentSteps'
@@ -245,13 +286,18 @@ const EvidenceRowsPanel = defineAsyncComponent(() => import('@/components/analys
 const QuestionTreePanel = defineAsyncComponent(() => import('@/components/analysis/QuestionTreePanel.vue'))
 const SampleComparePanel = defineAsyncComponent(() => import('@/components/analysis/SampleComparePanel.vue'))
 
+const route = useRoute()
 const router = useRouter()
+const isViewActive = ref(false)
 
 type SegmentFilter = 'all' | 'pending' | 'started' | 'completed'
 
 const segmentSearch = ref('')
 const segmentFilter = ref<SegmentFilter>('pending')
 const resetDialogVisible = ref(false)
+const templateMappingMissing = ref(false)
+const templateMappingRequiredDialogVisible = ref(false)
+const checkingTemplateMapping = ref(false)
 
 
 const {
@@ -310,6 +356,9 @@ const {
   reanswerLastQuestionTree,
   resetQuestionTree,
   updateQuestionTreeNote,
+  batchAcceptingAll,
+  batchAcceptProgress,
+  acceptAllRecommendedForAllSegments,
 } = useAnalysisWorkspace()
 
 const {
@@ -374,6 +423,63 @@ async function confirmResetAllAnswers() {
 
 function segmentPhaseLabel(segment: any) {
   return formatRoutePhaseLabel(segment?.phase)
+}
+
+function isAnalysisActive() {
+  return isViewActive.value && route.path.startsWith('/analysis')
+}
+
+async function verifyTemplateMapping() {
+  if (!isAnalysisActive()) return
+  const currentProjectId = Number(projectId.value || 0)
+  if (!currentProjectId) return
+  checkingTemplateMapping.value = true
+  try {
+    const result = await checkProjectGroupTemplateReady(currentProjectId)
+    if (!isAnalysisActive()) return
+    templateMappingMissing.value = !result.ready
+    if (!result.ready) {
+      templateMappingRequiredDialogVisible.value = true
+    }
+  } catch (err) {
+    console.warn('校验分组模板映射失败:', err)
+  } finally {
+    checkingTemplateMapping.value = false
+  }
+}
+
+watch([projectId, savedRoute], ([pid, routeData]) => {
+  if (pid && routeData && isAnalysisActive()) {
+    void verifyTemplateMapping()
+  }
+})
+
+onMounted(() => {
+  isViewActive.value = Boolean(route.path?.startsWith('/analysis'))
+})
+
+onActivated(() => {
+  isViewActive.value = true
+  if (projectId.value && savedRoute.value && route.path.startsWith('/analysis')) {
+    void verifyTemplateMapping()
+  }
+})
+
+onDeactivated(() => {
+  isViewActive.value = false
+  templateMappingRequiredDialogVisible.value = false
+})
+
+function goBackToExtractForTemplateMapping() {
+  templateMappingRequiredDialogVisible.value = false
+  router.push({
+    path: '/extract',
+    query: buildProjectRouteQuery(projectId.value, {
+      resume: 'route_merge',
+      from: 'analysis',
+      open_template_mapping: '1',
+    }),
+  })
 }
 
 
@@ -455,6 +561,75 @@ function goToFinalize() {
   flex-shrink: 0;
 }
 
+.btn-accept-all-global {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 4px rgba(99, 102, 241, 0.3);
+  white-space: nowrap;
+}
+
+.btn-accept-all-global:hover:not(:disabled) {
+  background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
+  transform: translateY(-0.5px);
+}
+
+.btn-accept-all-global:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(99, 102, 241, 0.3);
+}
+
+.btn-accept-all-global:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-accept-all-global-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.btn-accept-all-spinner {
+  width: 13px;
+  height: 13px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: btn-spin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
+}
+
+.btn-accept-all-global-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 .analysis-hero-stats {
   display: flex;
   align-items: center;
@@ -489,6 +664,30 @@ function goToFinalize() {
   flex: 1;
   min-height: 0;
   height: auto;
+}
+
+.analysis-inline-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  margin-bottom: 10px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-left: 4px solid #ef4444;
+  border-radius: 8px;
+  color: #b91c1c;
+  font-size: 12.5px;
+}
+
+.btn-clear-error {
+  background: transparent;
+  border: none;
+  color: #ef4444;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 0 4px;
 }
 
 .analysis-filter-bar {
@@ -1200,10 +1399,19 @@ function goToFinalize() {
   border-color: rgba(239, 68, 68, 0.18);
 }
 
+.analysis-empty-warning {
+  border-color: rgba(234, 88, 12, 0.2);
+  background: linear-gradient(180deg, #fffbf5 0%, #fff7ed 100%);
+}
+
 .empty-mark {
   font-size: 36px;
   font-weight: 700;
   color: #8b5cf6;
+}
+
+.empty-mark--warning {
+  color: #ea580c;
 }
 
 .empty-title {

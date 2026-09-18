@@ -151,16 +151,19 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
       }, 2000)
     } catch (e: any) {
       extractTaskPollRetryCount += 1
-      if (extractTaskPollRetryCount <= 3) {
+      if (extractTaskPollRetryCount <= 8) {
         status.value = 'loading'
         stopExtractTaskPolling()
         extractTaskPollTimer = window.setTimeout(() => {
           void pollExtractionTask()
-        }, 1500)
+        }, 2000)
         return
       }
       stopExtractTaskPolling()
-      errorMsg.value = e?.response?.data?.detail || e?.message || '获取提炼进度失败'
+      const rawMsg = e?.response?.data?.detail || e?.message || ''
+      errorMsg.value = rawMsg === 'Network Error' || !e?.response
+        ? '获取提炼进度时网络连接中断或服务响应超时，请点击重试恢复。'
+        : rawMsg || '获取提炼进度失败'
       status.value = 'error'
     }
   }
@@ -207,7 +210,10 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
       }
       await pollExtractionTask()
     } catch (e: any) {
-      errorMsg.value = e?.response?.data?.detail || e?.message || '提取失败'
+      const rawMsg = e?.response?.data?.detail || e?.message || ''
+      errorMsg.value = rawMsg === 'Network Error' || !e?.response
+        ? '网络连接异常或后端服务暂未响应，请检查服务状态后点击重试。'
+        : rawMsg || '提取失败'
       status.value = 'error'
     }
   }

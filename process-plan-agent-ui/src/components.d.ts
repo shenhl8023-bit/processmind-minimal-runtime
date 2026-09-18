@@ -36,6 +36,7 @@ declare module 'vue' {
     SourceRoutePanel: typeof import('./components/extract/SourceRoutePanel.vue')['default']
     TemplateGroupMappingDialog: typeof import('./components/extract/TemplateGroupMappingDialog.vue')['default']
     TemplateGroupTreeNode: typeof import('./components/extract/TemplateGroupTreeNode.vue')['default']
+    TemplateMappingRequiredDialog: typeof import('./components/workflow/TemplateMappingRequiredDialog.vue')['default']
     UploadMainFileCard: typeof import('./components/upload/UploadMainFileCard.vue')['default']
     UploadProjectBoard: typeof import('./components/upload/UploadProjectBoard.vue')['default']
     UploadReferenceCard: typeof import('./components/upload/UploadReferenceCard.vue')['default']

@@ -31,6 +31,17 @@ describe('workflow reset state', () => {
     expect(storage.getItem('processmind_finalize_drafts_v4_18')).toBe('{}')
   })
 
+  it('clears analysis and finalize local state for step two reset', () => {
+    const storage = new MemoryStorage()
+    storage.setItem('processmind_analysis_question_tree_v10_17', '{"tree":1}')
+    storage.setItem('processmind_finalize_drafts_v4_17', '{"draft":1}')
+
+    clearProjectWorkflowLocalState(17, 2, storage)
+
+    expect(storage.getItem('processmind_analysis_question_tree_v10_17')).toBeNull()
+    expect(storage.getItem('processmind_finalize_drafts_v4_17')).toBeNull()
+  })
+
   it('preserves user text drafts when only step four recognition is reset', () => {
     const storage = new MemoryStorage()
     storage.setItem('processmind_analysis_question_tree_v10_17', '{"answers":1}')
@@ -43,11 +54,11 @@ describe('workflow reset state', () => {
   })
 
   it('publishes the latest project reset revision for mounted views', () => {
-    publishWorkflowReset({ projectId: 17, fromStep: 3, workflowRevision: 9 })
+    publishWorkflowReset({ projectId: 17, fromStep: 2, workflowRevision: 9 })
 
     expect(workflowResetSignal.value).toMatchObject({
       projectId: 17,
-      fromStep: 3,
+      fromStep: 2,
       workflowRevision: 9,
     })
   })
