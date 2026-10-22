@@ -59,7 +59,7 @@ processmind-win7/
 3. 第三方库的 Python 下限、Windows x64 wheel、间接依赖和 C 扩展；目标包只安装在构建机准备好的 wheelhouse，不在 Win7 联网解析依赖。
 4. 文件路径、中文文件名、SQLite WAL、上传临时文件和进程编码行为。
 
-为目标运行时维护独立锁文件（例如 `requirements-win7-py38.txt`），其中的版本必须在 CPython 3.8.10 x64 上实际导入并通过 API 烟测。当前 Python 3.13 锁文件继续服务开发环境和现有 Windows 开发脚本，不直接复用为 Win7 锁文件。
+为目标运行时维护独立锁文件（例如 `requirements-win7-py38.txt`），其中的版本必须在 CPython 3.8.10 x64 上实际导入并通过 API 烟测。runtime 还必须携带 native wheel 依赖的 VC/UCRT Win7 兼容 DLL；官方 embeddable ZIP 若缺少这些 DLL，不能直接作为交付 runtime。当前 Python 3.13 锁文件继续服务开发环境和现有 Windows 开发脚本，不直接复用为 Win7 锁文件。
 
 ## 前端与浏览器基线
 
@@ -84,7 +84,7 @@ processmind-win7/
 构建流程分为四步：
 
 1. 在现代构建机安装并验证当前开发依赖，执行前端生产构建和后端测试。
-2. 使用 CPython 3.8.10 x64 创建目标运行时，安装独立锁文件中的 wheelhouse 依赖，运行导入检查和 API 烟测。
+2. 使用带 VC/UCRT Win7 兼容 DLL 的 CPython 3.8.10 x64 创建目标运行时，安装独立锁文件中的 wheelhouse 依赖，运行导入检查和 API 烟测。
 3. 将源码、静态前端、Python 运行时、依赖元数据、启动脚本和示例配置 staging 到临时目录，执行敏感文件扫描与逐文件 SHA-256 清单。
 4. 生成 ZIP，并在目标环境解压后运行 `status`、`start`、核心流程、`stop` 和重启验证。
 

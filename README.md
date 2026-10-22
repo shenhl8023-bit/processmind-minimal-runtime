@@ -167,7 +167,7 @@ Win7 交付使用独立的 CPython 3.8.10 x64 运行时。开发和构建环境�
 
 目标机需要预装 Chrome 109 或 Edge 109，并允许启动包调用系统浏览器。包内不包含 CEF/Qt 或其他浏览器壳，IE11 不在支持范围内；Chrome 109 和 Edge 109 是验收基线。服务只监听 `127.0.0.1:8000`。
 
-在有网络的 Windows 构建机上，先准备 CPython 3.8.10 x64 runtime 目录（或官方 ZIP）和对应的 Windows x64 wheelhouse，再执行。runtime 不需要预装 pip，打包脚本会用包内的标准库 wheel 安装器离线安装锁定依赖：
+在有网络的 Windows 构建机上，先准备 CPython 3.8.10 x64 runtime 目录和对应的 Windows x64 wheelhouse，再执行。建议直接使用你提供的 `KmAI-Win7-SP1-x64-20261018-r24\runtime` 目录，或内容等价且包含 VC/UCRT Win7 兼容 DLL 的 CPython runtime；打包脚本会拒绝缺少这些 DLL 的 runtime。runtime 不需要预装 pip，脚本会用包内的标准库 wheel 安装器离线安装锁定依赖：
 
 ```bat
 npm run build
@@ -175,7 +175,7 @@ python -m pip download --only-binary=:all: --platform win_amd64 --python-version
 powershell -File scripts\pack-win7-windows.ps1 -PythonRuntime C:\tools\cpython-3.8.10 -Wheelhouse C:\wheelhouse\processmind-py38
 ```
 
-`-PythonRuntime` 可以指向包含 `python.exe` 的目录，也可以指向 CPython ZIP；`-Wheelhouse` 必须包含 `requirements-win7-py38.txt` 中每个依赖的 CPython 3.8 / Windows x64 wheel。
+`-PythonRuntime` 可以指向包含 `python.exe` 的目录；若使用官方 CPython ZIP，需要先补齐 `MSVCP140.dll`、`VCRUNTIME140*.dll`、`ucrtbase.dll` 以及对应的 `api-ms-win-*` 兼容文件。`-Wheelhouse` 必须包含 `requirements-win7-py38.txt` 中每个依赖的 CPython 3.8 / Windows x64 wheel。
 
 脚本会检查 Python 版本、离线依赖、后端导入和 Python 3.8 源码兼容性，然后生成 `dist-win7\processmind-win7-windows-YYYYMMDD.zip`、`manifest.json` 和 `SHA256SUMS.txt`。压缩前只复制后端源码、知识/config 资源、前端 `dist`、Win7 启动器和 `.runtime\python`，并拒绝 `node_modules`、`.runtime\node`、数据库、上传文件、日志、`.env` 和凭据。
 

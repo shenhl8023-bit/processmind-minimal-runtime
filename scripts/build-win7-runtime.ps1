@@ -70,6 +70,26 @@ try {
     }
   }
 
+  # Native wheels in the Win7 lock (notably PyMuPDF, lxml and pydantic-core)
+  # import the VC/UCRT DLLs below. Keep them beside python.exe so a clean
+  # Windows 7 SP1 host does not have to provide a matching developer runtime.
+  $requiredWin7NativeFiles = @(
+    'MSVCP140.dll',
+    'VCRUNTIME140.dll',
+    'VCRUNTIME140_1.dll',
+    'ucrtbase.dll',
+    'api-ms-win-crt-runtime-l1-1-0.dll',
+    'api-ms-win-core-synch-l1-2-0.dll'
+  )
+  $missingWin7NativeFiles = @($requiredWin7NativeFiles | Where-Object {
+    -not (Test-Path -LiteralPath (Join-Path $Destination $_) -PathType Leaf)
+  })
+  if ($missingWin7NativeFiles.Count -gt 0) {
+    throw ('The supplied runtime is missing Win7 native compatibility files: {0}. ' +
+      'Use the CPython runtime from the reference Win7 package or add equivalent VC/UCRT files.') -f
+      ($missingWin7NativeFiles -join ', ')
+  }
+
   # The embeddable distribution disables site-packages by default. Enabling
   # site is required for the wheel-only installer below and is harmless for a
   # full CPython installation. Add an explicit root site-packages entry as

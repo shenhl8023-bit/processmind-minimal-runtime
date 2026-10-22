@@ -53,6 +53,9 @@ def test_win7_packaging_scripts_have_static_frontend_and_offline_contract():
     assert "install-win7-wheels.py" in builder_text
     assert "site-packages" in builder_text
     assert "import site" in builder_text
+    assert "MSVCP140.dll" in builder_text
+    assert "ucrtbase.dll" in builder_text
+    assert "api-ms-win-crt-runtime-l1-1-0.dll" in builder_text
     assert "process-plan-agent-ui\\dist" in packer_text
     assert "manifest.json" in packer_text
     assert "SHA256SUMS.txt" in packer_text

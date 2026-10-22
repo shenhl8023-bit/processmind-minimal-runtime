@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Development and build environment remains Python 3.13.5 and Node.js 24.x; the current Vite toolchain is not downgraded for development.
-- Win7 runtime is CPython 3.8.10 x64 with a separate locked dependency set; the target machine does not run Node.js.
+- Win7 runtime is CPython 3.8.10 x64 with a separate locked dependency set and the VC/UCRT compatibility DLLs required by its native wheels; the target machine does not run Node.js.
 - The package does not contain CEF, Qt, or an embedded browser; Chrome 109 or Edge 109 is the acceptance baseline and IE11 is unsupported.
 - The API binds only to `127.0.0.1:8000`; production frontend requests use same-origin relative `/api` paths.
 - Mutable data, uploads, caches, logs, and PID state live under `%LOCALAPPDATA%\\ProcessMind` unless `PROCESSMIND_RUNTIME_DIR` is set.
@@ -204,7 +204,7 @@
 - Create: `process-plan-agent-api/tests/test_win7_package_contract.py`
 
 **Interfaces:**
-- Consumes: the frontend `dist/`, CPython 3.8.10 x64 source directory or archive, the Python 3.8 lock, and existing offline safety checks.
+- Consumes: the frontend `dist/`, a CPython 3.8.10 x64 runtime directory containing the required VC/UCRT compatibility DLLs, the Python 3.8 lock, and existing offline safety checks.
 - Produces: `dist-win7/processmind-win7-windows-YYYYMMDD.zip`, `manifest.json`, `SHA256SUMS.txt`, and a staging tree without Node artifacts or mutable project data.
 
 - [x] **Step 1: Write failing package-contract tests**
@@ -219,7 +219,7 @@
 
 - [x] **Step 3: Implement the Win7 lock and runtime builder**
 
-  Pin a separately verified Python 3.8 dependency set with Windows x64 wheels, exclude development-only Node tooling, and make `build-win7-runtime.ps1` install from a local wheelhouse with `--no-index --find-links`. It must verify `python.exe --version`, import FastAPI/Uvicorn/SQLAlchemy/PyMuPDF/python-docx/openpyxl, run the Python 3.8 validator, and fail before staging on any mismatch.
+  Pin a separately verified Python 3.8 dependency set with Windows x64 wheels, exclude development-only Node tooling, require the VC/UCRT DLLs needed by native wheels, and make `build-win7-runtime.ps1` install from a local wheelhouse with `--no-index --find-links`. It must verify `python.exe --version`, import FastAPI/Uvicorn/SQLAlchemy/PyMuPDF/python-docx/openpyxl, run the Python 3.8 validator, and fail before staging on any mismatch.
 
 - [x] **Step 4: Implement Win7 staging, manifest, and hashes**
 
