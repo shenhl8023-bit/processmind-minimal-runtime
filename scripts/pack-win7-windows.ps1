@@ -81,7 +81,16 @@ try {
   Copy-Item -LiteralPath $checksumPath -Destination $checksumCopy -Force
 
   Write-Host "Compressing $zipPath ..."
-  Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zipPath -CompressionLevel Optimal
+  # Compress-Archive skips hidden files and directories on Windows. The
+  # delivery package intentionally contains hidden paths such as .runtime,
+  # so use the .NET directory API to include every staged file.
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  [System.IO.Compression.ZipFile]::CreateFromDirectory(
+    $stage,
+    $zipPath,
+    [System.IO.Compression.CompressionLevel]::Optimal,
+    $false
+  )
   if (-not (Test-Path -LiteralPath $zipPath -PathType Leaf)) { throw 'ZIP output was not created.' }
 }
 finally {

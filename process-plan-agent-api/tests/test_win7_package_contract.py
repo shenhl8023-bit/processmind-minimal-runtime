@@ -56,6 +56,8 @@ def test_win7_packaging_scripts_have_static_frontend_and_offline_contract():
     assert "process-plan-agent-ui\\dist" in packer_text
     assert "manifest.json" in packer_text
     assert "SHA256SUMS.txt" in packer_text
+    assert "ZipFile]::CreateFromDirectory" in packer_text
+    assert "Compress-Archive -Path" not in packer_text
     assert "node_modules" in stage_text
     assert ".runtime/node" in stage_text or ".runtime\\node" in stage_text
     assert "node.exe" in stage_text
