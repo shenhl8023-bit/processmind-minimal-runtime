@@ -36,6 +36,11 @@ export async function updateSetting(key: string, value: string) {
   return data as Setting
 }
 
+export async function clearSetting(key: string) {
+  const { data } = await api.delete(`/api/settings/${encodeURIComponent(key)}`)
+  return data as Setting
+}
+
 export async function testLLMConnection(payload: LLMTestRequest) {
   const { data } = await api.post('/api/settings/test-connection', payload)
   return data as LLMTestResult

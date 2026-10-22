@@ -77,11 +77,11 @@ async def get_llm_config() -> dict[str, str]:
 
     try:
         file_settings = get_llm_settings_map()
-        if file_settings.get("LLM_API_URL"):
+        if "LLM_API_URL" in file_settings:
             config["url"] = file_settings["LLM_API_URL"]
-        if file_settings.get("LLM_API_KEY"):
+        if "LLM_API_KEY" in file_settings:
             config["key"] = file_settings["LLM_API_KEY"]
-        if file_settings.get("LLM_MODEL"):
+        if "LLM_MODEL" in file_settings:
             config["model"] = file_settings["LLM_MODEL"]
     except Exception:
         logger.exception("Failed to fetch LLM config from settings store")
@@ -147,7 +147,42 @@ def extract_text_from_responses_json(payload: dict) -> str:
             return "\n".join(chunks).strip()
 
     output_text = payload.get("output_text")
-    return output_text.strip() if isinstance(output_text, str) else ""
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text.strip()
+
+    # A few OpenAI-compatible gateways expose a Responses URL while still
+    # returning the Chat Completions envelope. Treat it as a valid response
+    # instead of turning the successful request into an empty answer.
+    choices = payload.get("choices")
+    if isinstance(choices, list) and choices:
+        message = choices[0].get("message") if isinstance(choices[0], dict) else None
+        content = message.get("content") if isinstance(message, dict) else None
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            chunks = [
+                part.get("text", "")
+                for part in content
+                if isinstance(part, dict) and isinstance(part.get("text"), str)
+            ]
+            if chunks:
+                return "".join(chunks).strip()
+    return ""
+
+
+def _extract_text_from_responses_lines(lines: list[str]) -> str:
+    """Extract text from either Responses SSE or a JSON body read as lines."""
+    sse_text = _extract_text_from_responses_sse(lines)
+    if sse_text:
+        return sse_text
+    body = "\n".join(lines).strip()
+    if not body:
+        return ""
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        return ""
+    return extract_text_from_responses_json(payload) if isinstance(payload, dict) else ""
 
 
 def _build_headers(api_key: str) -> dict[str, str]:
@@ -164,6 +199,7 @@ def _build_completion_payload(
     system_prompt: str,
     user_prompt: str,
     temperature: float,
+    max_tokens: int = 4096,
     web_search_enabled: bool = False,
 ) -> dict:
     if is_responses_api_url(url):
@@ -180,7 +216,7 @@ def _build_completion_payload(
                 },
             ],
             "temperature": temperature,
-            "max_output_tokens": 4096,
+            "max_output_tokens": max_tokens,
             "stream": not web_search_enabled,
         }
         if web_search_enabled:
@@ -194,7 +230,7 @@ def _build_completion_payload(
             {"role": "user", "content": user_prompt},
         ],
         "temperature": temperature,
-        "max_tokens": 4096,
+        "max_tokens": max_tokens,
     }
 
 
@@ -206,6 +242,7 @@ async def request_llm_completion(
     temperature: float = 0.2,
     timeout_seconds: float | None = None,
     max_retries: int | None = None,
+    max_tokens: int = 4096,
 ) -> str:
     headers = _build_headers(config["key"])
     payload = _build_completion_payload(
@@ -214,6 +251,7 @@ async def request_llm_completion(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         temperature=temperature,
+        max_tokens=max_tokens,
     )
 
     last_error: Exception | None = None
@@ -225,7 +263,7 @@ async def request_llm_completion(
                     async with client.stream("POST", config["url"], headers=headers, json=payload) as resp:
                         resp.raise_for_status()
                         lines = [line async for line in resp.aiter_lines() if line]
-                    return _extract_text_from_responses_sse(lines)
+                    return _extract_text_from_responses_lines(lines)
                 resp = await client.post(config["url"], headers=headers, json=payload)
                 resp.raise_for_status()
                 data = resp.json()

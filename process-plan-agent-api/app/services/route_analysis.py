@@ -37,6 +37,8 @@ from app.services.route_merge.workspace import (
     get_latest_route_merge_snapshot,
 )
 from app.services.process_knowledge import canonicalize_route_label
+from app.services.analysis_drafts import AnalysisRuleDraft, validate_rule_draft
+from app.services.rule_packages.condition_contracts import RuleConditionProcessOption
 
 
 def canonical_normalized_route_json(normalized_route: list[dict[str, object]] | list[Any] | Any) -> str:
@@ -159,6 +161,7 @@ async def ensure_saved_normalized_route_version(
     db: AsyncSession,
     ensure_detail_rows: Callable[[], Awaitable[list]],
 ) -> NormalizedRouteVersion | None:
+    latest = await get_latest_normalized_route_version(project_id, db)
     snapshot_row = await get_latest_route_merge_snapshot(project_id, db)
     detail_rows = await ensure_detail_rows()
     docs = (
@@ -191,7 +194,6 @@ async def ensure_saved_normalized_route_version(
             snapshot_items = json.loads(snapshot_row.normalized_superset_route_json or "[]")
         except Exception:
             snapshot_items = []
-    latest = await get_latest_normalized_route_version(project_id, db)
     if latest:
         try:
             latest_items = json.loads(latest.route_json or "[]")
@@ -323,6 +325,7 @@ async def save_segment_rule_review_record(
     note: str,
     summary_lines: list[str],
     question_trail: list[dict[str, str]],
+    analysis_draft: AnalysisRuleDraft | None = None,
     db: AsyncSession,
 ) -> SegmentRuleReviewSaveOut:
     version_row = (
@@ -348,6 +351,44 @@ async def save_segment_rule_review_record(
             if label:
                 return label
         return ""
+
+    def _derived_analysis_draft_from_trail() -> AnalysisRuleDraft | None:
+        if not question_trail:
+            return None
+        scope = ""
+        object_hint = ""
+        detail_parts: list[str] = []
+        for item in question_trail or []:
+            node_id = str(item.get("nodeId") or "")
+            label = str(item.get("label") or "").strip()
+            if not label or node_id == "merge_name_root":
+                continue
+            if node_id == "rule_reason_root" and not scope:
+                scope = label
+                continue
+            if (node_id.endswith("_scope_detail") or node_id.endswith("_type")) and not object_hint:
+                object_hint = label
+                continue
+            detail_parts.append(label)
+        condition_text = note.strip() or "；".join(detail_parts)
+        if not scope and not condition_text:
+            return None
+        missing: list[str] = []
+        if not scope:
+            missing.append("请确认规则适用范围。")
+        if not object_hint:
+            missing.append("请确认规则对应的加工对象。")
+        if not condition_text:
+            missing.append("请补充工序保留条件。")
+        status = "confirmed" if normalized_decision == "accepted" and not missing else "incomplete"
+        return AnalysisRuleDraft(
+            scope=scope,
+            object=object_hint,
+            condition_text=condition_text,
+            missing=missing,
+            status=status,
+            provenance=[{"kind": "user", "label": "第三步问答树回答"}],
+        )
 
     def _apply_segment_name_to_route_json(next_name: str) -> str:
         if not next_name:
@@ -383,12 +424,40 @@ async def save_segment_rule_review_record(
     ).scalars().first()
 
     normalized_step_name = ""
-    if normalized_decision == "pending":
+    if normalized_decision == "pending" and analysis_draft is None:
         if existing:
             await db.delete(existing)
             await db.commit()
         rule_review = None
     else:
+        derived_draft = False
+        if analysis_draft is None and normalized_decision in {"accepted", "rejected"}:
+            analysis_draft = _derived_analysis_draft_from_trail()
+            derived_draft = analysis_draft is not None
+        if analysis_draft is not None and normalized_decision == "accepted":
+            if derived_draft:
+                # Derived drafts are best-effort structured hints; never block
+                # the existing accept flow when the trail lacks a field.
+                analysis_draft.status = "confirmed" if not analysis_draft.missing else "incomplete"
+            else:
+                route_items = parse_route_json(version_row.route_json)
+                processes = [
+                    RuleConditionProcessOption(
+                        process_id=str(item.get("id") or ""),
+                        display_name=str(item.get("normalized_step_name") or item.get("process_name") or item.get("id") or ""),
+                        main=True,
+                    )
+                    for item in route_items
+                    if isinstance(item, dict) and str(item.get("id") or "").strip()
+                ]
+                issues = validate_rule_draft(
+                    analysis_draft,
+                    processes,
+                    segment_id,
+                    require_confirmation=True,
+                )
+                if issues:
+                    raise HTTPException(422, "规则草稿不能确认：" + "；".join(issues))
         normalized_step_name = _apply_segment_name_to_route_json(_resolved_merge_name_from_trail())
         if not existing:
             existing = NormalizedRouteSegmentRuleReview(
@@ -401,6 +470,18 @@ async def save_segment_rule_review_record(
         existing.note = note
         existing.summary_json = json.dumps(list(summary_lines or []), ensure_ascii=False)
         existing.question_trail_json = json.dumps(list(question_trail or []), ensure_ascii=False)
+        if analysis_draft is not None:
+            next_draft_json = analysis_draft.model_dump_json()
+            if existing.analysis_draft_json != next_draft_json:
+                existing.condition_source_text = ""
+                existing.condition_source_hash = ""
+                existing.condition_status = "draft"
+                existing.condition_candidate_json = None
+                existing.condition_confirmed_json = None
+                existing.condition_issues_json = "[]"
+                existing.condition_confirmed_by = None
+                existing.condition_confirmed_at = None
+            existing.analysis_draft_json = next_draft_json
         await db.commit()
         await db.refresh(existing)
         rule_review = serialize_segment_rule_review(existing)

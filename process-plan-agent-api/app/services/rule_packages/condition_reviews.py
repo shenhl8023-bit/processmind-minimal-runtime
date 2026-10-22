@@ -15,6 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import NormalizedRouteSegmentRuleReview, NormalizedRouteVersion
 from app.services.llm_client import get_llm_config
+from app.services.analysis_drafts import AnalysisRuleDraft
+from app.services.knowledge.suggestions import validate_suggestion_for_condition_draft
 from app.services.rule_packages.condition_contracts import (
     ConfirmRuleConditionRequest,
     ManualRuleConditionRequest,
@@ -275,6 +277,7 @@ def serialize_condition_review(row: NormalizedRouteSegmentRuleReview) -> RuleCon
         parse_duration_ms=row.condition_parse_duration_ms,
         confirmed_by=row.condition_confirmed_by or "",
         confirmed_at=confirmed_at.isoformat() if confirmed_at else "",
+        knowledge_suggestion_id=row.condition_knowledge_suggestion_id,
     )
 
 
@@ -431,10 +434,24 @@ async def save_condition_draft(
     body: SaveRuleConditionDraftRequest,
     db: AsyncSession,
 ) -> RuleConditionReviewResponse:
+    if body.knowledge_suggestion_id is not None:
+        await validate_suggestion_for_condition_draft(
+            db,
+            suggestion_id=body.knowledge_suggestion_id,
+            project_id=body.project_id,
+            route_id=body.route_id,
+            segment_id=body.segment_id,
+            source_text=body.source_text,
+        )
     _, review = await _load_route_and_review(body.project_id, body.route_id, body.segment_id, db)
     source_text = body.source_text.strip()
+    source_changed = (review.condition_source_text or "").strip() != source_text
     source_hash = condition_source_hash(source_text)
-    if review.condition_source_hash == source_hash and review.condition_source_text == source_text:
+    if (
+        body.knowledge_suggestion_id is None
+        and review.condition_source_hash == source_hash
+        and review.condition_source_text == source_text
+    ):
         return _response(body, review)
     review.condition_source_text = source_text
     review.condition_source_hash = source_hash
@@ -446,6 +463,10 @@ async def save_condition_draft(
     review.condition_field_registry_version = FIELD_REGISTRY_VERSION
     review.condition_confirmed_by = None
     review.condition_confirmed_at = None
+    if body.knowledge_suggestion_id is not None:
+        review.condition_knowledge_suggestion_id = body.knowledge_suggestion_id
+    elif source_changed:
+        review.condition_knowledge_suggestion_id = None
     await db.commit()
     await db.refresh(review)
     return _response(body, review)
@@ -460,10 +481,52 @@ async def parse_condition_review(
     if body.process_id not in {item.process_id for item in body.processes}:
         raise HTTPException(422, "当前工序不在可用标准工序列表中。")
     source_text = body.source_text.strip()
+    source_changed = (review.condition_source_text or "").strip() != source_text
     if not source_text:
         raise HTTPException(422, "请先填写需要解析的工序条件。")
     source_hash = condition_source_hash(source_text)
     parser_version, llm_config = await _active_condition_parser_context()
+
+    # A user-confirmed step-three structured draft is authoritative for the
+    # exact same condition text. Reuse it as a step-four pending candidate so
+    # export remains an explicit confirmation, without calling the parser.
+    if review.analysis_draft_json:
+        try:
+            draft = AnalysisRuleDraft.model_validate_json(review.analysis_draft_json)
+        except Exception:
+            draft = None
+        if (
+            draft is not None
+            and draft.status == "confirmed"
+            and draft.candidate is not None
+            and (draft.condition_text or "").strip() == source_text
+        ):
+            candidate = RuleConditionCandidate.model_validate(draft.candidate.model_dump())
+            issues = validate_candidate(candidate, body.processes, current_process_id=body.process_id)
+            if not issues:
+                if candidate.kind == "condition" and candidate.when is not None:
+                    candidate.preview = condition_preview(candidate.when)
+                candidate_json = json.dumps(candidate.model_dump(mode="json", by_alias=True), ensure_ascii=False)
+                review.condition_source_text = source_text
+                review.condition_source_hash = source_hash
+                review.condition_status = "pending_confirmation"
+                review.condition_candidate_json = candidate_json
+                review.condition_confirmed_json = None
+                review.condition_issues_json = "[]"
+                review.condition_field_registry_version = FIELD_REGISTRY_VERSION
+                review.condition_parser_version = parser_version
+                review.condition_parse_duration_ms = 0
+                review.condition_confirmed_by = None
+                review.condition_confirmed_at = None
+                await db.commit()
+                await db.refresh(review)
+                logger.info(
+                    "rule_condition_parse analysis_draft_reuse=true project_id=%s route_id=%s segment_id=%s",
+                    body.project_id,
+                    body.route_id,
+                    body.segment_id,
+                )
+                return _response(body, review)
 
     # Reuse a candidate that was already produced for the same source text and
     # field registry. Page reloads and repeated export clicks must not invoke
@@ -496,6 +559,8 @@ async def parse_condition_review(
     review.condition_parse_duration_ms = None
     review.condition_confirmed_by = None
     review.condition_confirmed_at = None
+    if source_changed:
+        review.condition_knowledge_suggestion_id = None
     await db.commit()
 
     started_at = time.perf_counter()
@@ -637,6 +702,7 @@ async def set_manual_condition_review(
     review.condition_parse_duration_ms = 0
     review.condition_confirmed_by = "用户直接设定"
     review.condition_confirmed_at = datetime.now(timezone.utc)
+    review.condition_knowledge_suggestion_id = None
     await db.commit()
     await db.refresh(review)
     return _response(body, review)

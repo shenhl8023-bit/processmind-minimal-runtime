@@ -1,0 +1,160 @@
+[
+  {
+    "id": "WD01",
+    "file_name": "典型工艺说明(钢件类衬套）.docx",
+    "sha256": "25c298e222ea9035c5634a14fa982d3135744e4c5cc35a5c3257bb48dc416233",
+    "document_number": "05-JB50-21",
+    "typical_part": "2219.026F",
+    "part_family": "衬套",
+    "materials": [
+      "9Cr18"
+    ],
+    "applicability": "本典型工艺规程适用于需经热处理、带流量控制小孔、精密配套的钢件类衬套的精密加工指导，其余衬套类零件可参考编制。",
+    "signed_dates": [
+      "编制：刘丽丹 2021-05-08",
+      "校对：李冀霞2021-05-08",
+      "审核：袁君勤2021-05-08",
+      "批准：陈宝来2021-05-08"
+    ],
+    "validity_note": "已核对原文仅表示忠实于此来源；2021年签署及2025年修改元数据均不证明现行有效，需业务审批。",
+    "source_path": "knowledge/demo/word_sources/WD01/典型工艺说明(钢件类衬套）.docx"
+  },
+  {
+    "id": "WD02",
+    "file_name": "典型工艺说明（刚件活门类）.docx",
+    "sha256": "4418d5eff9ea5d6fac1683bd78efad431066988de7f58bb105e7747bc5dd4cbb",
+    "document_number": "69-JB20-21",
+    "typical_part": "2219.027F",
+    "part_family": "活门",
+    "materials": [
+      "9Cr18"
+    ],
+    "applicability": "本典型工艺规程适用于需经热处理、带流量控制锐边、精密配套的钢件淬火类活门的精密加工指导，其余钢件类活门零件可参考编制。",
+    "signed_dates": [
+      "编制：胡文杰 2021-08-18",
+      "校对：龙集城 2021-08-18",
+      "审核：陈云维 2021-08-18",
+      "批准：刘丽丹 2021-08-18"
+    ],
+    "validity_note": "已核对原文仅表示忠实于此来源；2021年签署及2025年修改元数据均不证明现行有效，需业务审批。",
+    "source_path": "knowledge/demo/word_sources/WD02/典型工艺说明（刚件活门类）.docx"
+  },
+  {
+    "id": "WD03",
+    "file_name": "典型工艺说明（活门衬套组件类）.docx",
+    "sha256": "6956a163485ad49e0509bee44d8e1ed269225d1eb3686740cc9540fc6cc1c845",
+    "document_number": "69-JB20-21",
+    "typical_part": "RT34(03)-100",
+    "part_family": "组件",
+    "materials": [],
+    "applicability": "本典型工艺规程适用于需经配套、配研、选配、清洁度控制的精密活门组件的加工指导，其余活门衬套组件类零件可参考编制。",
+    "signed_dates": [
+      "编制：黄尚愚2021-9-24",
+      "校对：汤安胜2021-9-24",
+      "审核：陈云维2021-9-24",
+      "批准：刘丽丹2021-11-5"
+    ],
+    "validity_note": "已核对原文仅表示忠实于此来源；2021年签署及2025年修改元数据均不证明现行有效，需业务审批。",
+    "source_path": "knowledge/demo/word_sources/WD03/典型工艺说明（活门衬套组件类）.docx"
+  },
+  {
+    "id": "WD04",
+    "file_name": "有色金属硬阳化活门典型工艺说明.docx",
+    "sha256": "1428a3a31a0a7f09e76f9877c0830219943fed6ed805efe17ac690c243791eec",
+    "document_number": "69-JB32-21",
+    "typical_part": "2219.018F",
+    "part_family": "活门",
+    "materials": [
+      "6061-T6"
+    ],
+    "applicability": "本典型工艺规程适用于需硬质阳极化处理、带油路交叉孔、有精密配套要求的有色金属活门的精密加工指导，其余有色金属硬质阳极化活门类零件可参考编制。",
+    "signed_dates": [
+      "编制：蒋烨阳2021-11-04",
+      "校对：王建朋2021-11-04",
+      "审核：陈云维2021-11-08",
+      "批准：李冀霞2021-11-10"
+    ],
+    "validity_note": "已核对原文仅表示忠实于此来源；2021年签署及2025年修改元数据均不证明现行有效，需业务审批。",
+    "source_path": "knowledge/demo/word_sources/WD04/有色金属硬阳化活门典型工艺说明.docx"
+  },
+  {
+    "id": "WD05",
+    "file_name": "有色金属硬阳化类衬套典型工艺说明.docx",
+    "sha256": "d08fffd5fff82d955972911152701d0896d1e7efe997748fe2906c2e9c588e7d",
+    "document_number": "69-JB31-21",
+    "typical_part": "2219.002F",
+    "part_family": "衬套",
+    "materials": [
+      "6061-T6"
+    ],
+    "applicability": "本典型工艺规程适用于需硬质阳极化处理、带径向孔孔、有精密配套要求的有色金属衬套的精密加工指导，其余硬质阳极化衬套类零件可参考编制。",
+    "signed_dates": [
+      "编制：胡文杰  2021-09-15",
+      "校对：刘  杨  2021-09-16",
+      "审核：陈云维  2021-09-17",
+      "批准：李冀霞  2021-09-18"
+    ],
+    "validity_note": "已核对原文仅表示忠实于此来源；2021年签署及2025年修改元数据均不证明现行有效，需业务审批。",
+    "source_path": "knowledge/demo/word_sources/WD05/有色金属硬阳化类衬套典型工艺说明.docx"
+  },
+  {
+    "id": "WD06",
+    "file_name": "有色金属类活门典型工艺说明.docx",
+    "sha256": "02f9ea80695e88f56c6cdba9f0641004a86c766a48b2f54637f17be2a5282097",
+    "document_number": "05-JB35-21",
+    "typical_part": "RT49A-3110-01",
+    "part_family": "活门",
+    "materials": [
+      "QAL10-4-4"
+    ],
+    "applicability": "本典型工艺规程适用于有色金属类活门工艺指导，其余产品可参考编制。",
+    "signed_dates": [
+      "编制：刘阳松 2021-10-25",
+      "校对：杨一峰 2021-10-25",
+      "审核：刘杨   2021-10-26",
+      "批准：刘丽丹 2021-10-27"
+    ],
+    "validity_note": "已核对原文仅表示忠实于此来源；2021年签署及2025年修改元数据均不证明现行有效，需业务审批。",
+    "source_path": "knowledge/demo/word_sources/WD06/有色金属类活门典型工艺说明.docx"
+  },
+  {
+    "id": "WD07",
+    "file_name": "有色金属衬套典型工艺说明.docx",
+    "sha256": "c75ee85bb1a77eca72b81c2d207e77174459d4a70016e5caac3b2fb8546d7d40",
+    "document_number": "69-JB34-21",
+    "typical_part": "2176.01.331-1F1",
+    "part_family": "衬套",
+    "materials": [
+      "QA110-4-4"
+    ],
+    "applicability": "本典型工艺规程适用于带槽子、有精密配套要求的镀铬铜衬套的精密加工指导，其余有色金属衬套类零件可参考编制。",
+    "signed_dates": [
+      "编制：龙集城  2021-10-25",
+      "校对：杨一峰  2021-10-25",
+      "审核：刘维军  2021-10-25",
+      "批准：刘丽丹  2021-10-25"
+    ],
+    "validity_note": "已核对原文仅表示忠实于此来源；2021年签署及2025年修改元数据均不证明现行有效，需业务审批。",
+    "source_path": "knowledge/demo/word_sources/WD07/有色金属衬套典型工艺说明.docx"
+  },
+  {
+    "id": "WD08",
+    "file_name": "氮化氰化类活门典型工艺说明.docx",
+    "sha256": "dcce13d452ff62d65ba4e6beea5df0649d2f8eddafa03b4525bcc887e3d2f346",
+    "document_number": "05-JB36-21",
+    "typical_part": "2255.03.038F",
+    "part_family": "活门",
+    "materials": [
+      "4Cr14Ni14W2Mo"
+    ],
+    "applicability": "本典型工艺规程适用于需经热处理、有精密配套要求的氮化/氰化类活门钢件工艺指导，其余产品可参考编制。",
+    "signed_dates": [
+      "编制：刘阳松 2021-06-20",
+      "校对：杨一峰 2021-06-20",
+      "审核：刘杨   2021-06-21",
+      "批准：李冀霞 2021-06-22"
+    ],
+    "validity_note": "已核对原文仅表示忠实于此来源；2021年签署及2025年修改元数据均不证明现行有效，需业务审批。",
+    "source_path": "knowledge/demo/word_sources/WD08/氮化氰化类活门典型工艺说明.docx"
+  }
+]

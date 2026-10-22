@@ -1,4 +1,4 @@
-import { computed, ref, type MaybeRef, unref } from 'vue'
+import { computed, ref, type MaybeRef, unref, watch } from 'vue'
 
 import {
   commitGroupTemplate,
@@ -48,6 +48,7 @@ function mappingInputs(mappings: GroupTemplateMapping[]) {
 
 function stepMappingInput(mapping: GroupTemplateStepMapping): GroupTemplateStepMappingInput {
   return {
+    ...(mapping.final_targets?.length ? { final_targets: mapping.final_targets.map(target => ({ ...target })) } : {}),
     source_operation_id: mapping.source_operation_id,
     source_operation_name: mapping.source_operation_name,
     source_step_order: mapping.source_step_order,
@@ -156,7 +157,30 @@ export function useProjectGroupTemplate(
   const templateRevision = computed(() => template.value?.template_revision ?? 0)
   let selectedFile: File | null = null
   let legacyMigrationProjectId: number | null = null
-  let previewRequestId = 0
+  let requestId = 0
+
+  function beginRequest(kind: 'loading' | 'saving') {
+    const currentRequestId = ++requestId
+    const currentProjectId = unref(projectId)
+    loading.value = kind === 'loading'
+    saving.value = kind === 'saving'
+    return () => currentRequestId === requestId && currentProjectId === unref(projectId)
+  }
+
+  watch(() => unref(projectId), () => {
+    requestId += 1
+    state.value = 'empty'
+    template.value = null
+    preview.value = null
+    selectedFile = null
+    draftMappings.value = []
+    draftStepMappings.value = []
+    replacementImpact.value = null
+    legacyMigrationProjectId = null
+    error.value = ''
+    loading.value = false
+    saving.value = false
+  }, { flush: 'sync' })
 
   function applyTemplate(snapshot: ProjectGroupTemplate) {
     template.value = snapshot
@@ -167,10 +191,11 @@ export function useProjectGroupTemplate(
 
   async function load(options: { preserveError?: boolean } = {}) {
     const currentProjectId = unref(projectId)
-    loading.value = true
+    const isCurrent = beginRequest('loading')
     if (!options.preserveError) error.value = ''
     try {
       const current = await getCurrentGroupTemplate(currentProjectId)
+      if (!isCurrent()) return false
       applyTemplate(current)
       preview.value = null
       selectedFile = null
@@ -181,6 +206,7 @@ export function useProjectGroupTemplate(
       legacyMigrationProjectId = currentProjectId
       return true
     } catch (cause) {
+      if (!isCurrent()) return false
       if (errorStatus(cause) === 404) {
         state.value = 'empty'
         template.value = null
@@ -198,14 +224,12 @@ export function useProjectGroupTemplate(
         : message
       return false
     } finally {
-      loading.value = false
+      if (isCurrent()) loading.value = false
     }
   }
 
   async function selectFile(file: File) {
-    const requestId = ++previewRequestId
-    saving.value = false
-    loading.value = true
+    const isCurrent = beginRequest('loading')
     error.value = ''
     state.value = 'preview'
     selectedFile = null
@@ -213,22 +237,23 @@ export function useProjectGroupTemplate(
     replacementImpact.value = null
     try {
       const nextPreview = await previewGroupTemplate(file)
-      if (requestId !== previewRequestId) return
+      if (!isCurrent()) return
       selectedFile = file
       preview.value = nextPreview
       replacementImpact.value = template.value ? previewMigration(template.value, nextPreview) : null
     } catch (cause) {
-      if (requestId !== previewRequestId) return
+      if (!isCurrent()) return
       error.value = errorMessage(cause)
     } finally {
-      if (requestId === previewRequestId) loading.value = false
+      if (isCurrent()) loading.value = false
     }
   }
 
   function beginReplacement() {
     if (!template.value) return
-    previewRequestId += 1
+    requestId += 1
     loading.value = false
+    saving.value = false
     state.value = 'preview'
     preview.value = null
     selectedFile = null
@@ -237,8 +262,9 @@ export function useProjectGroupTemplate(
   }
 
   function cancelPreview() {
-    previewRequestId += 1
+    requestId += 1
     loading.value = false
+    saving.value = false
     state.value = template.value ? 'workspace' : 'empty'
     preview.value = null
     selectedFile = null
@@ -248,13 +274,15 @@ export function useProjectGroupTemplate(
 
   async function recoverFromConflict() {
     error.value = '分组模板已在其他页面更新，正在重新加载最新内容。'
-    const reloaded = await load({ preserveError: true })
-    if (reloaded) error.value = '分组模板已在其他页面更新，已重新加载最新内容。'
+    const reloading = load({ preserveError: true })
+    const reloadRequestId = requestId
+    const reloaded = await reloading
+    if (reloaded && reloadRequestId === requestId) error.value = '分组模板已在其他页面更新，已重新加载最新内容。'
   }
 
   async function confirmTemplate() {
-    if (!preview.value?.can_confirm || !selectedFile) return
-    saving.value = true
+    if (!preview.value?.can_confirm || !selectedFile) return false
+    const isCurrent = beginRequest('saving')
     error.value = ''
     try {
       const committed = await commitGroupTemplate(
@@ -263,6 +291,7 @@ export function useProjectGroupTemplate(
         preview.value.content_hash,
         templateRevision.value,
       )
+      if (!isCurrent()) return false
       applyTemplate(committed)
       replacementImpact.value = {
         kept_source_operation_ids: committed.kept_source_operation_ids,
@@ -272,20 +301,23 @@ export function useProjectGroupTemplate(
       }
       preview.value = null
       selectedFile = null
+      return true
     } catch (cause) {
+      if (!isCurrent()) return false
       if (errorStatus(cause) === 409) {
         await recoverFromConflict()
       } else {
         error.value = errorMessage(cause)
       }
+      return false
     } finally {
-      saving.value = false
+      if (isCurrent()) saving.value = false
     }
   }
 
   async function saveMappings() {
-    if (!template.value) return
-    saving.value = true
+    if (!template.value || template.value.project_id !== unref(projectId)) return false
+    const isCurrent = beginRequest('saving')
     error.value = ''
     try {
       const saved = await saveGroupTemplateMappings(
@@ -293,37 +325,46 @@ export function useProjectGroupTemplate(
         templateRevision.value,
         draftMappings.value,
       )
+      if (!isCurrent()) return false
       applyTemplate(saved)
+      return true
     } catch (cause) {
+      if (!isCurrent()) return false
       if (errorStatus(cause) === 409) {
         await recoverFromConflict()
       } else {
         error.value = errorMessage(cause)
       }
+      return false
     } finally {
-      saving.value = false
+      if (isCurrent()) saving.value = false
     }
   }
 
   async function saveStepMappings(operations: TemplateGroupMappingOperationInput[] = []) {
-    if (!template.value) return
-    saving.value = true
+    if (!template.value || template.value.project_id !== unref(projectId)) return false
+    const isCurrent = beginRequest('saving')
     error.value = ''
     try {
-      applyTemplate(await saveGroupTemplateStepMappings(
+      const saved = await saveGroupTemplateStepMappings(
         unref(projectId),
         templateRevision.value,
         draftStepMappings.value,
         operations,
-      ))
+      )
+      if (!isCurrent()) return false
+      applyTemplate(saved)
+      return true
     } catch (cause) {
+      if (!isCurrent()) return false
       if (errorStatus(cause) === 409) {
         await recoverFromConflict()
       } else {
         error.value = errorMessage(cause)
       }
+      return false
     } finally {
-      saving.value = false
+      if (isCurrent()) saving.value = false
     }
   }
 

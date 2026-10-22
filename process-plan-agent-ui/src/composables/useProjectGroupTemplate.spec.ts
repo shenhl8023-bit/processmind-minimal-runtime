@@ -9,6 +9,7 @@ import {
   saveGroupTemplateStepMappings,
 } from '@/api/extract'
 import type { GroupTemplateMapping, GroupTemplateNode, GroupTemplateStepMapping } from '@/api/extract'
+import { mappingsForStep, scopeMappingsToFinalSteps, type TemplateStepRef } from './templateStepMapping'
 import { formatGroupTemplateIssueDetail, useProjectGroupTemplate } from './useProjectGroupTemplate'
 
 vi.mock('@/api/extract', () => ({
@@ -110,6 +111,178 @@ function mapping(path = ['A侧', '孔']): GroupTemplateMapping {
 describe('useProjectGroupTemplate', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+  })
+
+  it('keeps the newest template when reloads finish out of order', async () => {
+    let finishOld!: (value: ReturnType<typeof template>) => void
+    getCurrentGroupTemplateMock
+      .mockReturnValueOnce(new Promise(resolve => { finishOld = resolve }))
+      .mockResolvedValueOnce(template(3))
+    const model = useProjectGroupTemplate(ref(28), ref({}))
+    const oldLoad = model.load()
+    await model.load()
+    finishOld(template(2))
+    await oldLoad
+    expect(model.templateRevision.value).toBe(3)
+  })
+
+  it('keeps split-step decisions and stale target IDs scoped after loading and saving', async () => {
+    const snapshot = {
+      ...template(5),
+      step_mappings: [
+        { ...stepMapping(), final_targets: [{ process_id: 'a', step_id: 'a.s1' }] },
+        {
+          ...stepMapping(), status: 'not_applicable' as const,
+          scope_template_group_path: [], template_group_path: [], candidate_features: [],
+          final_targets: [{ process_id: 'b', step_id: 'b.s1' }],
+        },
+        { ...stepMapping(), final_targets: [{ process_id: 'stale', step_id: 'stale.s1' }] },
+      ],
+    }
+    const steps: TemplateStepRef[] = ['a', 'b'].map(processId => ({
+      process_id: processId, step_key: `${processId}.s1`, operation_id: 11,
+      operation_name: '车削A侧', step_order: 1, step_name: '钻孔',
+      source_steps: [{ source_operation_id: 11, source_step_order: 1, source_step_name: '钻孔' }],
+    }))
+    getCurrentGroupTemplateMock.mockResolvedValue(snapshot)
+    saveGroupTemplateStepMappingsMock.mockResolvedValue({ ...snapshot, template_revision: 6 })
+    const model = useProjectGroupTemplate(ref(28), ref({}))
+    await model.load()
+
+    for (const stage of ['loaded', 'saved']) {
+      if (stage === 'saved') await model.saveStepMappings()
+      const scoped = scopeMappingsToFinalSteps(model.draftStepMappings.value, steps)
+      expect(scoped.map(value => ({ status: value.status, targets: value.final_targets }))).toEqual([
+        { status: 'confirmed', targets: [{ process_id: 'a', step_id: 'a.s1' }] },
+        { status: 'not_applicable', targets: [{ process_id: 'b', step_id: 'b.s1' }] },
+        { status: 'confirmed', targets: [{ process_id: 'stale', step_id: 'stale.s1' }] },
+      ])
+      const record = Object.fromEntries(scoped.map((value, index) => [index, value]))
+      expect(mappingsForStep(record, steps[0]!).map(value => value.status)).toEqual(['confirmed'])
+      expect(mappingsForStep(record, steps[1]!).map(value => value.status)).toEqual(['not_applicable'])
+    }
+  })
+
+  it('keeps editing final targets separate from the saved snapshot', async () => {
+    getCurrentGroupTemplateMock.mockResolvedValue({
+      ...template(5),
+      step_mappings: [{ ...stepMapping(), final_targets: [{ process_id: 'a', step_id: 'a.s1' }] }],
+    })
+    const model = useProjectGroupTemplate(ref(28), ref({}))
+    await model.load()
+
+    expect(model.draftStepMappings.value[0]?.final_targets).toEqual([{ process_id: 'a', step_id: 'a.s1' }])
+    model.draftStepMappings.value[0]!.final_targets![0]!.step_id = 'edited.s1'
+    model.draftStepMappings.value[0]!.final_targets!.push({ process_id: 'b', step_id: 'b.s1' })
+    expect(model.template.value?.step_mappings[0]?.final_targets).toEqual([{ process_id: 'a', step_id: 'a.s1' }])
+  })
+
+  it('omits empty legacy targets from editable mappings', async () => {
+    const snapshot = { ...template(5), step_mappings: [{ ...stepMapping(), final_targets: [] }] }
+    getCurrentGroupTemplateMock.mockResolvedValue(snapshot)
+    saveGroupTemplateStepMappingsMock.mockResolvedValue({ ...snapshot, template_revision: 6 })
+    const model = useProjectGroupTemplate(ref(28), ref({}))
+    await model.load()
+    expect(model.draftStepMappings.value[0]).not.toHaveProperty('final_targets')
+    await model.saveStepMappings()
+    expect(model.draftStepMappings.value[0]).not.toHaveProperty('final_targets')
+  })
+
+  it('does not apply an old project response or clear the new project loading state', async () => {
+    let finishOld!: (value: ReturnType<typeof template>) => void
+    let finishCurrent!: (value: ReturnType<typeof template>) => void
+    getCurrentGroupTemplateMock
+      .mockReturnValueOnce(new Promise(resolve => { finishOld = resolve }))
+      .mockReturnValueOnce(new Promise(resolve => { finishCurrent = resolve }))
+    const project = ref(28)
+    const model = useProjectGroupTemplate(project, ref({}))
+    const oldLoad = model.load()
+    project.value = 29
+    const currentLoad = model.load()
+    finishOld(template(2))
+    await oldLoad
+    expect(model.template.value).toBeNull()
+    expect(model.loading.value).toBe(true)
+    finishCurrent({ ...template(4), project_id: 29 })
+    await currentLoad
+    expect(model.template.value?.project_id).toBe(29)
+    expect(model.loading.value).toBe(false)
+  })
+
+  it('clears the previous project workspace before another save can be sent', async () => {
+    getCurrentGroupTemplateMock.mockResolvedValue(template(2, [mapping()]))
+    const project = ref(28)
+    const model = useProjectGroupTemplate(project, ref({}))
+    await model.load()
+    project.value = 29
+    await model.saveStepMappings()
+    expect(model.template.value).toBeNull()
+    expect(model.draftMappings.value).toEqual([])
+    expect(saveGroupTemplateStepMappingsMock).not.toHaveBeenCalled()
+  })
+
+  it('ignores a save response for a project that is no longer selected', async () => {
+    let finishSave!: (value: ReturnType<typeof template>) => void
+    getCurrentGroupTemplateMock
+      .mockResolvedValueOnce(template(2))
+      .mockResolvedValueOnce({ ...template(7), project_id: 29 })
+    saveGroupTemplateStepMappingsMock.mockReturnValueOnce(new Promise(resolve => { finishSave = resolve }))
+    const project = ref(28)
+    const model = useProjectGroupTemplate(project, ref({}))
+    await model.load()
+    const oldSave = model.saveStepMappings()
+    project.value = 29
+    await model.load()
+    finishSave(template(3))
+    await oldSave
+    expect(model.template.value?.project_id).toBe(29)
+    expect(model.templateRevision.value).toBe(7)
+    expect(model.saving.value).toBe(false)
+  })
+
+  it('discards a preview after switching projects', async () => {
+    let finishPreview!: (value: ReturnType<typeof preview>) => void
+    previewGroupTemplateMock.mockReturnValueOnce(new Promise(resolve => { finishPreview = resolve }))
+    const project = ref(28)
+    const model = useProjectGroupTemplate(project, ref({}))
+    const pending = model.selectFile(xmlFile)
+    project.value = 29
+    finishPreview(preview())
+    await pending
+    expect(model.state.value).toBe('empty')
+    expect(model.preview.value).toBeNull()
+    expect(model.loading.value).toBe(false)
+  })
+
+  it('does not show an old project error over the current project', async () => {
+    let failOld!: (error: unknown) => void
+    getCurrentGroupTemplateMock
+      .mockReturnValueOnce(new Promise((_resolve, reject) => { failOld = reject }))
+      .mockResolvedValueOnce({ ...template(7), project_id: 29 })
+    const project = ref(28)
+    const model = useProjectGroupTemplate(project, ref({}))
+    const oldLoad = model.load()
+    project.value = 29
+    await model.load()
+    failOld({ response: { status: 503, data: { detail: '旧任务不可用' } } })
+    await oldLoad
+    expect(model.error.value).toBe('')
+    expect(model.templateRevision.value).toBe(7)
+  })
+
+  it('returns false when a save is superseded by a reload', async () => {
+    let finishSave!: (value: ReturnType<typeof template>) => void
+    getCurrentGroupTemplateMock
+      .mockResolvedValueOnce(template(2))
+      .mockResolvedValueOnce(template(4))
+    saveGroupTemplateStepMappingsMock.mockReturnValueOnce(new Promise(resolve => { finishSave = resolve }))
+    const model = useProjectGroupTemplate(ref(28), ref({}))
+    await model.load()
+    const pending = model.saveStepMappings()
+    await model.load()
+    finishSave(template(3))
+    expect(await pending).toBe(false)
+    expect(model.templateRevision.value).toBe(4)
   })
 
   it('shows the rejected feature value with its group path', () => {

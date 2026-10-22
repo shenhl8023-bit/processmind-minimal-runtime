@@ -15,79 +15,33 @@
         </div>
       </div>
       <div class="preview-card-actions">
-        <span v-if="item.edited" class="edited-badge">{{ editedBadge }}</span>
+        <label v-if="selectable && !inlineEditing && !ruleEditorExpanded && !manualBooleanEditing" class="rule-selection">
+          <input type="checkbox" :checked="selected" :disabled="controlsDisabled" :aria-label="`选择${displayName}规则`" @change="$emit('toggle-selected', item)" />
+          <span>选择</span>
+        </label>
+        <span v-if="conditionBusy" class="edited-badge" role="status">处理中…</span>
         <button
-          v-if="item.edited && !inlineEditing"
-          class="ghost-btn reset-inline-btn"
-          @click="$emit('reset', item)"
-        >
-          恢复默认
+          v-if="!inlineEditing && !manualBooleanEditing && editableCandidate && candidateMatchesCardMode && ['conditional','relation'].includes(cardRuleMode) && effectiveStatus !== 'confirmed'"
+          type="button" class="confirm-rule-primary-btn"
+          :disabled="controlsDisabled || !hasRuleAction" @click="confirmCandidate"
+        >确认规则</button>
+        <span v-else-if="!inlineEditing && effectiveStatus === 'confirmed' && cardRuleMode !== 'mainline'" class="confirmed-status-pill">✓ 已确认</span>
+        <button v-if="!inlineEditing" type="button" class="preview-edit-btn" :disabled="controlsDisabled" :aria-expanded="ruleEditorExpanded" @click="beginEdit">
+          {{ ruleEditorExpanded ? '取消修改' : '修改' }}
         </button>
-        <!-- 显眼主按钮：确认采纳 (未审核时直接展示) -->
-        <button
-          v-if="!inlineEditing && editableCandidate && candidateMatchesCardMode && ['conditional','relation'].includes(cardRuleMode) && effectiveStatus !== 'confirmed'"
-          type="button"
-          class="confirm-rule-primary-btn"
-          :disabled="conditionBusy || !hasRuleAction"
-          @click="confirmCandidate"
-        >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" class="confirm-check-svg">
-            <path d="M3 8l4 4 6-7" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          确认采纳
-        </button>
-
-        <!-- 已审核胶囊标签 -->
-        <span
-          v-else-if="!inlineEditing && effectiveStatus === 'confirmed' && ['conditional','relation'].includes(cardRuleMode)"
-          class="confirmed-status-pill"
-        >
-          ✓ 已审核
-        </span>
-
-        <!-- 微调条件 (原修改规则) -->
-        <button
-          v-if="!inlineEditing && editableCandidate && candidateMatchesCardMode && ['conditional','relation'].includes(cardRuleMode)"
-          type="button"
-          class="ghost-btn"
-          @click="ruleEditorExpanded = !ruleEditorExpanded"
-        >
-          {{ ruleEditorExpanded ? '收起条件' : '微调条件' }}
-        </button>
-
-        <!-- 改原描述 (原编辑) -->
-        <button
-          v-if="!inlineEditing"
-          type="button"
-          class="preview-edit-btn"
-          @click="$emit('start-edit', item)"
-        >
-          <svg class="edit-btn-svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 20h9" />
-            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-          </svg>
-          <span>{{ cardRuleMode === 'mainline' ? '改为条件工序' : '改原描述' }}</span>
-        </button>
-
-        <!-- 次级操作：转主工序 / 转Bool (轻量展示) -->
-        <button
-          v-if="manualModeState.visible && !inlineEditing && !manualBooleanEditing && !(cardRuleMode === 'mainline' && !mainlineExpanded)"
-          type="button"
-          class="ghost-btn ghost-btn-subtle"
-          :disabled="conditionBusy || manualModeState.mainlineActive"
-          @click="$emit('set-mainline', item)"
-        >
-          {{ manualModeState.mainlineActive ? '已是主工序' : '转主工序' }}
-        </button>
-        <button
-          v-if="manualModeState.visible && !inlineEditing && !manualBooleanEditing && !(cardRuleMode === 'mainline' && !mainlineExpanded)"
-          type="button"
-          class="ghost-btn ghost-btn-subtle ghost-btn-bool"
-          :disabled="conditionBusy || manualModeState.booleanActive"
-          @click="beginBooleanConversion"
-        >
-          {{ manualModeState.booleanActive ? '已是Bool' : '转Bool' }}
-        </button>
+        <details v-if="!inlineEditing" ref="moreMenu" class="rule-more-menu" @click.stop @keydown.esc="closeMoreMenu">
+          <summary class="ghost-btn">更多</summary>
+          <div class="rule-more-options">
+            <button v-if="manualModeState.visible" type="button" :disabled="controlsDisabled || manualModeState.mainlineActive" @click="setMainline">
+              {{ manualModeState.mainlineActive ? '已始终保留该工序' : '始终保留该工序' }}
+            </button>
+            <button v-if="manualModeState.visible" type="button" :disabled="controlsDisabled || manualModeState.booleanActive" @click="beginBooleanConversion">
+              {{ manualModeState.booleanActive ? '已设为人工选择' : '改为人工选择' }}
+            </button>
+            <button v-if="item.edited" type="button" :disabled="controlsDisabled" @click="resetRule">恢复默认</button>
+            <button type="button" :disabled="controlsDisabled" @click="reparseRule">重新识别</button>
+          </div>
+        </details>
         <!-- Mainline collapse toggle -->
         <button
           v-if="cardRuleMode === 'mainline'"
@@ -108,6 +62,10 @@
       </div>
     </div>
 
+    <div v-if="conditionError" class="card-inline-strip card-strip-warn" role="alert">
+      <span class="strip-desc">{{ conditionError }}</span>
+      <button v-if="!editableCandidate || !candidateMatchesCardMode" class="strip-action" :disabled="controlsDisabled" @click="$emit('parse-condition', item)">重试识别</button>
+    </div>
     <!-- Mainline collapsed: minimal one-line hint -->
     <div v-if="cardRuleMode === 'mainline' && !mainlineExpanded && !inlineEditing" class="mainline-collapsed-hint">
       <span class="mainline-hint-text">{{ item.conditionText || '主线工序，默认纳入路线' }}</span>
@@ -115,32 +73,20 @@
 
     <!-- Full card body -->
     <div v-else class="preview-card-body">
-      <div class="preview-row">
-        <div v-if="cardRuleMode === 'mainline'" class="preview-row-label">
-          <span class="condition-badge-label">{{ conditionLabel }}</span>
-        </div>
-        <div class="preview-row-content preview-condition">
-          <div v-if="inlineEditing" class="inline-edit-box">
-            <textarea
-              :value="inlineEditingText"
-              class="inline-edit-textarea"
-              rows="3"
-              :ref="handleTextareaRef"
-              placeholder="请输入工序规则，例如：当外圆尺寸精度要求达到IT8时，纳入磨外圆工序。"
-              @input="$emit('update:inlineEditingText', ($event.target as HTMLTextAreaElement).value)"
-            ></textarea>
-            <div class="inline-edit-actions">
-              <button class="inline-btn inline-btn-cancel" @click="$emit('cancel')">取消</button>
-              <button class="inline-btn inline-btn-save" @click="$emit('save', item)">保存</button>
-            </div>
-          </div>
-          <div v-else>{{ item.conditionText }}</div>
+      <div v-if="inlineEditing" class="inline-edit-box">
+        <textarea :value="inlineEditingText" class="inline-edit-textarea" :disabled="controlsDisabled" rows="3" :ref="handleTextareaRef"
+          placeholder="请输入规则，例如：当外圆尺寸精度达到IT8时，纳入磨外圆工序。"
+          @input="$emit('update:inlineEditingText', ($event.target as HTMLTextAreaElement).value)" />
+        <div class="inline-edit-actions">
+          <button class="inline-btn inline-btn-cancel" @click="$emit('cancel')">取消</button>
+          <button class="inline-btn inline-btn-save" :disabled="controlsDisabled || !inlineEditingText.trim()" @click="$emit('save', item)">保存并识别</button>
         </div>
       </div>
 
+
       <!-- Boolean conversion inline editor -->
       <div v-if="manualBooleanEditing && !inlineEditing" class="manual-boolean-editor">
-        <span class="manual-bool-tag">Bool 开关名称</span>
+        <span class="manual-bool-tag">人工选择项名称</span>
         <input
           :id="`manual-bool-label-${item.segment.id}`"
           v-model="manualBooleanLabel"
@@ -154,10 +100,10 @@
           <button
             type="button"
             class="manual-bool-btn manual-bool-btn-save"
-            :disabled="conditionBusy || !manualBooleanLabel.trim()"
+            :disabled="controlsDisabled || !manualBooleanLabel.trim()"
             @click="confirmBooleanConversion"
           >
-            确认转换
+            保存人工选择
           </button>
         </div>
       </div>
@@ -175,13 +121,13 @@
         <div v-if="!editableCandidate || !candidateMatchesCardMode" class="card-inline-strip card-strip-pending">
           <span class="strip-label" :class="{ 'strip-label-attention': sourceTextChanged }">{{ pendingStatusLabel }}</span>
           <span class="strip-desc">{{ pendingStatusDetail }}</span>
-          <button class="strip-action" :disabled="conditionBusy" @click="$emit('parse-condition', item)">{{ pendingActionLabel }}</button>
+          <button class="strip-action" :disabled="controlsDisabled" @click="$emit('parse-condition', item)">{{ pendingActionLabel }}</button>
         </div>
 
         <!-- Has candidate: compact rule line -->
         <template v-else>
           <div class="card-rule-compact">
-            <span class="compact-status" :class="{ 'compact-confirmed': effectiveStatus === 'confirmed' }">{{ effectiveStatus === 'confirmed' ? '✓ 已审核' : '已识别' }}</span>
+            <span class="compact-status" :class="{ 'compact-confirmed': effectiveStatus === 'confirmed' }">{{ effectiveStatus === 'confirmed' ? '✓ 已确认' : '待确认' }}</span>
             <span class="compact-summary">{{ candidateSummary }}</span>
           </div>
 
@@ -190,15 +136,9 @@
             <span>{{ manualReviewReason }}</span>
           </div>
 
-          <div v-if="ruleEditorExpanded" class="candidate-recognition" aria-label="规则识别依据">
-            <span class="candidate-recognition-label">识别结果</span>
-            <span class="candidate-type-chip" :class="`candidate-type-${candidateRecognition.kind}`">{{ candidateRecognition.label }}</span>
-            <span class="candidate-recognition-divider">依据</span>
-            <span>{{ editableCandidate.evidence || candidateRecognition.reason }}</span>
-          </div>
-
           <!-- Expanded rule editor -->
-          <div v-if="ruleEditorExpanded" class="candidate-editor">
+          <div v-if="ruleEditorExpanded" class="candidate-editor" :inert="controlsDisabled">
+            <button type="button" class="ghost-btn" :disabled="controlsDisabled" @click="$emit('start-edit', item)">修改原始描述</button>
             <RuleConditionNodeEditor
               v-if="candidateKind === 'condition' && editableCandidate.when"
               :model-value="editableCandidate.when"
@@ -338,9 +278,9 @@
             </div>
 
             <div class="candidate-footer">
-              <span class="editor-note">保存修改后，该规则将视为已审核。</span>
-              <button class="confirm-rule-btn" :disabled="conditionBusy || !hasRuleAction" @click="confirmCandidate">
-                保存修改
+              <span class="editor-note">核对后保存，即确认该规则。</span>
+              <button class="confirm-rule-btn" :disabled="controlsDisabled || !hasRuleAction" @click="confirmCandidate">
+                保存并确认
               </button>
             </div>
           </div>
@@ -350,6 +290,18 @@
           </div>
         </template>
       </template>
+
+      <details v-if="!inlineEditing" class="rule-evidence">
+        <summary>查看判定依据</summary>
+        <div class="preview-row" v-if="item.analysisDraftContext">
+          <div class="preview-row-label">第三步依据</div><div class="preview-row-value">{{ item.analysisDraftContext }}</div>
+        </div>
+        <div class="preview-row"><div class="preview-row-label">原始描述</div><div class="preview-row-value">{{ item.conditionText }}</div></div>
+        <div v-if="editableCandidate" class="candidate-recognition">
+          <span class="candidate-type-chip" :class="`candidate-type-${candidateRecognition.kind}`">{{ candidateRecognition.label }}</span>
+          <span>{{ editableCandidate.evidence || candidateRecognition.reason }}</span>
+        </div>
+      </details>
 
     </div>
   </article>
@@ -369,8 +321,11 @@ import {
   defaultManualBooleanLabel,
   finalizeRuleMode,
   isSafeForBatchRuleConfirmation,
+  isManualBooleanFinalizeCard,
   manualRuleModeActionState,
+  exportProcessIdForItem,
 } from '@/utils/finalizeRulePackage'
+import { formatRuleCondition } from '@/utils/finalizeRulePresentation'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
 
 const props = defineProps<{
@@ -385,11 +340,16 @@ const props = defineProps<{
   conditionLabel: string
   conditionFields: CanonicalConditionField[]
   processOptions: RuleConditionProcessOption[]
+  selectable?: boolean
+  selected?: boolean
+  conditionError?: string
+  actionsDisabled?: boolean
   conditionBusy: boolean
   setInlineTextareaRef: (el: Element | null) => void
 }>()
 
 const emit = defineEmits<{
+  'toggle-selected': [item: FinalizeCard]
   reset: [item: FinalizeCard]
   'start-edit': [item: FinalizeCard]
   cancel: []
@@ -401,8 +361,10 @@ const emit = defineEmits<{
   'update:inlineEditingText': [value: string]
 }>()
 
+const controlsDisabled = computed(() => props.conditionBusy || props.actionsDisabled)
 const editableCandidate = ref<RuleConditionCandidate | null>(null)
 const ruleEditorExpanded = ref(false)
+const moreMenu = ref<HTMLDetailsElement | null>(null)
 const mainlineExpanded = ref(false)
 const manualBooleanEditing = ref(false)
 const manualBooleanLabel = ref('')
@@ -413,7 +375,7 @@ const processPickerOpen = ref<PickerKind | null>(null)
 const processPickerSearch = ref('')
 const searchInputEl = ref<HTMLInputElement | null>(null)
 
-const currentProcessId = computed(() => String(props.item.segment.id || ''))
+const currentProcessId = computed(() => exportProcessIdForItem(props.item))
 const conditionActionKind = computed(() => (
   editableCandidate.value?.then?.exclude_process_ids?.includes(currentProcessId.value)
     ? 'exclude'
@@ -436,6 +398,7 @@ watch(processPickerOpen, async (val) => {
 function handleDocumentClick() {
   processPickerOpen.value = null
   processPickerSearch.value = ''
+  closeMoreMenu()
 }
 onMounted(() => document.addEventListener('click', handleDocumentClick))
 onBeforeUnmount(() => document.removeEventListener('click', handleDocumentClick))
@@ -451,14 +414,16 @@ const sourceTextChanged = computed(() => {
   return Boolean(review?.source_text?.trim() && review.source_text.trim() !== props.item.conditionText.trim())
 })
 const cardRuleMode = computed(() => finalizeRuleMode(props.item))
-const modeLabel = computed(() => ({
-  mainline: '主线工序',
-  conditional: '条件工序',
-  relation: '关联工序',
+const modeLabel = computed(() => isManualBooleanFinalizeCard(props.item) ? '人工选择' : ({
+  mainline: '始终保留',
+  conditional: '条件判断',
+  relation: '工序关联',
   unresolved: '条件待补充',
 })[cardRuleMode.value])
 const candidateKind = computed(() => editableCandidate.value?.kind || 'condition')
-const editorFields = computed(() => props.conditionFields)
+const editorFields = computed(() => Array.from(new Map([
+  ...props.conditionFields, ...(editableCandidate.value?.field_definitions || []),
+].map(field => [field.key, field])).values()))
 const candidateMatchesCardMode = computed(() => {
   if (!editableCandidate.value) return false
   return cardRuleMode.value === 'relation'
@@ -484,7 +449,7 @@ const requiresManualReview = computed(() => (
 const manualModeState = computed(() => manualRuleModeActionState(props.item, props.inlineEditing))
 const manualReviewReason = computed(() => {
   if (hasCrossProcessConditionTarget.value) {
-    return '此条件规则曾指向其他工序。请在“修改规则”中将动作保存为当前工序，跨工序关系请单独配置。'
+    return '此条件规则曾指向其他工序。请在“修改”中将动作保存为当前工序，跨工序关系请单独配置。'
   }
   const issue = props.item.conditionReview?.issues?.[0]
   if (issue) return issue
@@ -525,7 +490,7 @@ const candidateSummary = computed(() => {
   if (!candidate) return ''
   if ((candidate.kind || 'condition') === 'process_relation' && candidate.relation) {
     const pm = new Map(props.processOptions.map(p => [p.process_id, p.display_name]))
-    const src = Array.from(new Set(candidate.relation.source_process_ids.map(id => pm.get(id) || id))).join('、')
+    const src = Array.from(new Set(candidate.relation.source_process_ids.map(id => pm.get(id) || id))).join(candidate.relation.source_match === 'all' ? '和' : '或')
     const tgt = Array.from(new Set(candidate.relation.target_process_ids.map(id => pm.get(id) || id))).join('、')
     if (candidate.relation.relation_type === 'trigger_after') return `${src}进入路线 → 纳入${tgt}，并排在${src}之后`
     if (candidate.relation.relation_type === 'order_after') return `${tgt}如进入路线 → 排在${src}之后`
@@ -539,7 +504,7 @@ const candidateSummary = computed(() => {
     includes.length ? `纳入 ${includes.join('、')}` : '',
     excludes.length ? `排除 ${excludes.join('、')}` : '',
   ].filter(Boolean).join('；')
-  return `${candidate.preview || '已调整结构化条件'} → ${actions}`
+  return `${formatRuleCondition(candidate.when, editorFields.value)} → ${actions}`
 })
 const candidateRecognition = computed(() => {
   const candidate = editableCandidate.value
@@ -600,15 +565,18 @@ function openPicker(kind: PickerKind) {
   processPickerSearch.value = ''
 }
 
-// ---- Watch candidate ----
+function resetCandidateFromReview() {
+  const review = props.item.conditionReview
+  const sourceMatches = review?.source_text?.trim() === props.item.conditionText.trim()
+  const candidate = sourceMatches ? (review?.confirmed || review?.candidate) : null
+  editableCandidate.value = candidate ? JSON.parse(JSON.stringify(candidate)) : null
+}
 watch(
   () => [props.item.conditionReview, props.item.conditionText] as const,
   () => {
-    const review = props.item.conditionReview
-    const sourceMatches = review?.source_text?.trim() === props.item.conditionText.trim()
-    const candidate = sourceMatches ? (review?.confirmed || review?.candidate) : null
-    editableCandidate.value = candidate ? JSON.parse(JSON.stringify(candidate)) : null
+    resetCandidateFromReview()
     ruleEditorExpanded.value = false
+    if (isManualBooleanFinalizeCard(props.item)) manualBooleanEditing.value = false
   },
   { immediate: true, deep: true },
 )
@@ -685,7 +653,25 @@ function confirmCandidate() {
   emit('confirm-condition', props.item, JSON.parse(JSON.stringify(editableCandidate.value)))
 }
 
+function closeMoreMenu() { if (moreMenu.value) moreMenu.value.open = false }
+function beginEdit() {
+  if (props.selected) emit('toggle-selected', props.item)
+  mainlineExpanded.value = true
+  manualBooleanEditing.value = false
+  if (editableCandidate.value && candidateMatchesCardMode.value && ['conditional', 'relation'].includes(cardRuleMode.value)) {
+    if (ruleEditorExpanded.value) resetCandidateFromReview()
+    ruleEditorExpanded.value = !ruleEditorExpanded.value
+  } else emit('start-edit', props.item)
+}
+function setMainline() { closeMoreMenu(); emit('set-mainline', props.item) }
+function resetRule() { closeMoreMenu(); emit('reset', props.item) }
+function reparseRule() { closeMoreMenu(); emit('parse-condition', props.item) }
+
 function beginBooleanConversion() {
+  if (props.selected) emit('toggle-selected', props.item)
+  closeMoreMenu()
+  mainlineExpanded.value = true
+  ruleEditorExpanded.value = false
   manualBooleanLabel.value = defaultManualBooleanLabel(props.item)
   manualBooleanEditing.value = true
 }
@@ -694,7 +680,6 @@ function confirmBooleanConversion() {
   const label = manualBooleanLabel.value.trim()
   if (!label) return
   emit('set-boolean', props.item, label)
-  manualBooleanEditing.value = false
 }
 
 function formatConfirmedAt(value: string) {
@@ -704,6 +689,19 @@ function formatConfirmedAt(value: string) {
 </script>
 
 <style scoped>
+.rule-selection { display: inline-flex; align-items: center; gap: 4px; color: #64748b; font-size: 12px; cursor: pointer; }
+.rule-selection input { accent-color: #6366f1; }
+.rule-more-menu { position: relative; }
+.rule-more-menu > summary { list-style: none; cursor: pointer; }
+.rule-more-menu > summary::-webkit-details-marker { display: none; }
+.rule-more-options { position: absolute; right: 0; top: calc(100% + 6px); z-index: 25; min-width: 166px; padding: 5px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; box-shadow: 0 8px 24px rgba(15,23,42,.1); }
+.rule-more-options button { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: 5px; background: transparent; color: #475569; text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
+.rule-more-options button:hover:enabled { background: #eef2ff; color: #4f46e5; }
+.rule-more-options button:disabled { opacity: .45; cursor: default; }
+.rule-evidence { order: 2; margin-top: 8px; color: #64748b; font-size: 12px; }
+.rule-evidence > summary { cursor: pointer; padding: 4px 0; }
+.rule-evidence[open] > summary { margin-bottom: 8px; }
+
 /* ===== Mainline collapse ===== */
 .collapse-toggle-btn {
   display: inline-flex;
@@ -1008,7 +1006,7 @@ function formatConfirmedAt(value: string) {
 .strip-label { font-weight: 700; color: #52647e; flex-shrink: 0; white-space: nowrap; }
 .strip-label-attention { color: #9a5b2d; }
 .card-strip-warn .strip-label { color: #a04b2e; }
-.strip-desc { flex: 1; min-width: 0; color: #748095; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.strip-desc { flex: 1; min-width: 0; color: #748095; overflow-wrap: anywhere; line-height: 1.6; }
 .strip-action {
   flex-shrink: 0;
   border: 1px solid #8093bd; border-radius: 5px;
@@ -1029,7 +1027,7 @@ function formatConfirmedAt(value: string) {
 }
 .compact-status { flex-shrink: 0; font-size: 10px; font-weight: 750; color: #52647e; letter-spacing: .02em; }
 .compact-confirmed { color: #2f7554; }
-.compact-summary { flex: 1; min-width: 0; color: #475569; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compact-summary { flex: 1; min-width: 0; color: #475569; font-weight: 550; overflow-wrap: anywhere; line-height: 1.6; }
 
 /* ===== Editor footer ===== */
 .candidate-footer {

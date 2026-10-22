@@ -1,0 +1,4377 @@
+[
+  {
+    "source_id": "WD01",
+    "anchor": "P001",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P002",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P003",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P004",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P005",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P006",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P007",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P008",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P009",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P010",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P011",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P012",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P013",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P014",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P015",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P016",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P017",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P018",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P019",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P020",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P021",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P022",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P023",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-23-scope"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P024",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P025",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P026",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-23-scope"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P027",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "保留全文于项目内锚点提取；本段为重复说明、示例零件图题或未形成可独立复用条件规则的内容，避免把图纸要求泛化。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P028",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P029",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P030",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P031",
+    "disposition": "excluded",
+    "record_ids": [
+      "WD01-46-rule",
+      "WD01-47-rule",
+      "WD01-48-rule",
+      "WD01-49-rule",
+      "WD01-50-rule",
+      "WD01-51-rule",
+      "WD01-44-stage_overview"
+    ],
+    "reason": "该段是嵌入路线图的VML/DrawingML文本框顺序化提取，不等同于图上箭头方向；主路线采用P044正文，按需条件依据P046-P051策展。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P032",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P033",
+    "disposition": "excluded",
+    "record_ids": [
+      "WD01-46-rule",
+      "WD01-47-rule",
+      "WD01-48-rule",
+      "WD01-49-rule",
+      "WD01-50-rule",
+      "WD01-51-rule",
+      "WD01-44-stage_overview"
+    ],
+    "reason": "该段是嵌入路线图的VML/DrawingML文本框顺序化提取，不等同于图上箭头方向；主路线采用P044正文，按需条件依据P046-P051策展。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P034",
+    "disposition": "excluded",
+    "record_ids": [
+      "WD01-46-rule",
+      "WD01-47-rule",
+      "WD01-48-rule",
+      "WD01-49-rule",
+      "WD01-50-rule",
+      "WD01-51-rule",
+      "WD01-44-stage_overview"
+    ],
+    "reason": "该段是嵌入路线图的VML/DrawingML文本框顺序化提取，不等同于图上箭头方向；主路线采用P044正文，按需条件依据P046-P051策展。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P035",
+    "disposition": "excluded",
+    "record_ids": [
+      "WD01-46-rule",
+      "WD01-47-rule",
+      "WD01-48-rule",
+      "WD01-49-rule",
+      "WD01-50-rule",
+      "WD01-51-rule",
+      "WD01-44-stage_overview"
+    ],
+    "reason": "该段是嵌入路线图的VML/DrawingML文本框顺序化提取，不等同于图上箭头方向；主路线采用P044正文，按需条件依据P046-P051策展。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P036",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P037",
+    "disposition": "excluded",
+    "record_ids": [
+      "WD01-46-rule",
+      "WD01-47-rule",
+      "WD01-48-rule",
+      "WD01-49-rule",
+      "WD01-50-rule",
+      "WD01-51-rule",
+      "WD01-44-stage_overview"
+    ],
+    "reason": "该段是嵌入路线图的VML/DrawingML文本框顺序化提取，不等同于图上箭头方向；主路线采用P044正文，按需条件依据P046-P051策展。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P038",
+    "disposition": "excluded",
+    "record_ids": [
+      "WD01-46-rule",
+      "WD01-47-rule",
+      "WD01-48-rule",
+      "WD01-49-rule",
+      "WD01-50-rule",
+      "WD01-51-rule",
+      "WD01-44-stage_overview"
+    ],
+    "reason": "该段是嵌入路线图的VML/DrawingML文本框顺序化提取，不等同于图上箭头方向；主路线采用P044正文，按需条件依据P046-P051策展。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P039",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P040",
+    "disposition": "excluded",
+    "record_ids": [
+      "WD01-46-rule",
+      "WD01-47-rule",
+      "WD01-48-rule",
+      "WD01-49-rule",
+      "WD01-50-rule",
+      "WD01-51-rule",
+      "WD01-44-stage_overview"
+    ],
+    "reason": "该段是嵌入路线图的VML/DrawingML文本框顺序化提取，不等同于图上箭头方向；主路线采用P044正文，按需条件依据P046-P051策展。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P041",
+    "disposition": "excluded",
+    "record_ids": [
+      "WD01-46-rule",
+      "WD01-47-rule",
+      "WD01-48-rule",
+      "WD01-49-rule",
+      "WD01-50-rule",
+      "WD01-51-rule",
+      "WD01-44-stage_overview"
+    ],
+    "reason": "该段是嵌入路线图的VML/DrawingML文本框顺序化提取，不等同于图上箭头方向；主路线采用P044正文，按需条件依据P046-P051策展。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P042",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P043",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-44-stage_overview"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P044",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-44-stage_overview"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P045",
+    "disposition": "excluded",
+    "record_ids": [
+      "WD01-46-rule",
+      "WD01-47-rule",
+      "WD01-48-rule",
+      "WD01-49-rule",
+      "WD01-50-rule",
+      "WD01-51-rule"
+    ],
+    "reason": "此为“增加8道按需工序”引导句；具体条件分别从P046-P051拆成已链接的去应力、磨槽、型孔、光整、时效、钝化规则。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P046",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-46-rule",
+      "WD01-44-stage_overview"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P047",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-47-rule",
+      "WD01-44-stage_overview"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P048",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-48-rule",
+      "WD01-44-stage_overview"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P049",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-49-rule",
+      "WD01-44-stage_overview"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P050",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-50-rule",
+      "WD01-44-stage_overview"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P051",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-51-rule",
+      "WD01-44-stage_overview"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P052",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P053",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-53-allowance",
+      "WD01-53-allowance-02",
+      "WD01-53-allowance-03",
+      "WD01-53-allowance-04"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P054",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P055",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P056",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-56-quality"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P057",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P058",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-50-rule",
+      "WD01-58-quality",
+      "WD01-58-quality-02",
+      "WD01-58-quality-03",
+      "WD01-58-quality-04"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P059",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "保留全文于项目内锚点提取；本段为重复说明、示例零件图题或未形成可独立复用条件规则的内容，避免把图纸要求泛化。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P060",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-60-quality"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P061",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P062",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-62-fit",
+      "WD01-44-stage_overview"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P063",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P064",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "保留全文于项目内锚点提取；本段为重复说明、示例零件图题或未形成可独立复用条件规则的内容，避免把图纸要求泛化。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P065",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-65-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "T01R01",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "历史成熟度评价或表头数据；仅保留为本地源表，不编码为制造能力/工艺规则。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "T01R02",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "历史成熟度评价或表头数据；仅保留为本地源表，不编码为制造能力/工艺规则。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "T01R03",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-65-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "T01R04",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-65-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "T01R05",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-65-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "T01R06",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-65-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "T01R07",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-65-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "T01R08",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-65-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "T01R09",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-65-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "T01R10",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-65-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "T01R11",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-65-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "T01R12",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-65-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "T01R13",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-65-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "T01R14",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-65-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "T01R15",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-65-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "T01R16",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-65-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P066",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P067",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "仅列出被引用但未提供全文的编制规范，不能据此编码未见正文的要求。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P068",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-68-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P069",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P070",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P071",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P072",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P073",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P074",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P075",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P076",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P077",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P078",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P079",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P080",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P081",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P082",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "保留全文于项目内锚点提取；本段为重复说明、示例零件图题或未形成可独立复用条件规则的内容，避免把图纸要求泛化。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P083",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P084",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P085",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P086",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P087",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P088",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P089",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P090",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P091",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P027 image1.png",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "结构图设计尺寸只属示例零件，不泛化为族规则；图片副本保留。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P083 image2.png",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "结构图设计尺寸只属示例零件，不泛化为族规则；图片副本保留。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P083 image3.png",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-image3.png-quality"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P083 image4.png",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "结构图设计尺寸只属示例零件，不泛化为族规则；图片副本保留。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P086 image5.png",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "结构图设计尺寸只属示例零件，不泛化为族规则；图片副本保留。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P087 image6.png",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "结构图设计尺寸只属示例零件，不泛化为族规则；图片副本保留。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P088 image7.png",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "结构图设计尺寸只属示例零件，不泛化为族规则；图片副本保留。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P088 image8.png",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-image8.png-resource"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P089 image9.png",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "结构图设计尺寸只属示例零件，不泛化为族规则；图片副本保留。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P089 image10.png",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-image10.png-resource"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P090 image11.png",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-image11.png-resource"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P091 image12.png",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "结构图设计尺寸只属示例零件，不泛化为族规则；图片副本保留。"
+  },
+  {
+    "source_id": "WD01",
+    "anchor": "P091 image13.png",
+    "disposition": "included",
+    "record_ids": [
+      "WD01-image13.png-resource"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P001",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P002",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P003",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P004",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P005",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P006",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P007",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P008",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P009",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P010",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P011",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P012",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P013",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P014",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P015",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P016",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P017",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P018",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P019",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P020",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P021",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P022",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P023",
+    "disposition": "included",
+    "record_ids": [
+      "WD02-23-scope"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P024",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P025",
+    "disposition": "included",
+    "record_ids": [
+      "WD02-23-scope"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P026",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P027",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P028",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P029",
+    "disposition": "included",
+    "record_ids": [
+      "WD02-image2.png-route"
+    ],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P030",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P031",
+    "disposition": "included",
+    "record_ids": [
+      "WD02-image2.png-route"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P032",
+    "disposition": "included",
+    "record_ids": [
+      "WD02-32-rule"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P033",
+    "disposition": "included",
+    "record_ids": [
+      "WD02-33-rule"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P034",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P035",
+    "disposition": "included",
+    "record_ids": [
+      "WD02-35-allowance",
+      "WD02-35-allowance-02",
+      "WD02-35-allowance-03",
+      "WD02-35-allowance-04",
+      "WD02-35-allowance-05"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P036",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P037",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P038",
+    "disposition": "included",
+    "record_ids": [
+      "WD02-38-quality"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P039",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P040",
+    "disposition": "included",
+    "record_ids": [
+      "WD02-40-quality"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P041",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "保留全文于项目内锚点提取；本段为重复说明、示例零件图题或未形成可独立复用条件规则的内容，避免把图纸要求泛化。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P042",
+    "disposition": "included",
+    "record_ids": [
+      "WD02-42-quality"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P043",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P044",
+    "disposition": "included",
+    "record_ids": [
+      "WD02-44-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P045",
+    "disposition": "included",
+    "record_ids": [
+      "WD02-44-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P046",
+    "disposition": "included",
+    "record_ids": [
+      "WD02-44-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P047",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P048",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P049",
+    "disposition": "included",
+    "record_ids": [
+      "WD02-49-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P026 image1.png",
+    "disposition": "included",
+    "record_ids": [
+      "WD02-image1.png-reference",
+      "WD02-image1.png-reference-02"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD02",
+    "anchor": "P029 image2.png",
+    "disposition": "included",
+    "record_ids": [
+      "WD02-image2.png-route"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P001",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P002",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P003",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P004",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P005",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P006",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P007",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P008",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P009",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P010",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P011",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P012",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P013",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P014",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P015",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P016",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P017",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P018",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P019",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P020",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P021",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P022",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P023",
+    "disposition": "included",
+    "record_ids": [
+      "WD03-23-scope"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P024",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P025",
+    "disposition": "included",
+    "record_ids": [
+      "WD03-23-scope"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P026",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P027",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P028",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "保留全文于项目内锚点提取；本段为重复说明、示例零件图题或未形成可独立复用条件规则的内容，避免把图纸要求泛化。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P029",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P030",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P031",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P032",
+    "disposition": "included",
+    "record_ids": [
+      "WD03-32-stage_overview"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P033",
+    "disposition": "included",
+    "record_ids": [
+      "WD03-33-rule",
+      "WD03-32-stage_overview"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P034",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P035",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P036",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P037",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P038",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P039",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P040",
+    "disposition": "included",
+    "record_ids": [
+      "WD03-41-formula"
+    ],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P041",
+    "disposition": "included",
+    "record_ids": [
+      "WD03-41-formula"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P042",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P043",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P044",
+    "disposition": "included",
+    "record_ids": [
+      "WD03-44-quality"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P045",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "保留全文于项目内锚点提取；本段为重复说明、示例零件图题或未形成可独立复用条件规则的内容，避免把图纸要求泛化。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P046",
+    "disposition": "included",
+    "record_ids": [
+      "WD03-46-quality",
+      "WD03-32-stage_overview"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P047",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "保留全文于项目内锚点提取；本段为重复说明、示例零件图题或未形成可独立复用条件规则的内容，避免把图纸要求泛化。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P048",
+    "disposition": "included",
+    "record_ids": [
+      "WD03-48-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P049",
+    "disposition": "included",
+    "record_ids": [
+      "WD03-48-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P050",
+    "disposition": "included",
+    "record_ids": [
+      "WD03-48-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P051",
+    "disposition": "included",
+    "record_ids": [
+      "WD03-48-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P052",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P053",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "保留全文于项目内锚点提取；本段为重复说明、示例零件图题或未形成可独立复用条件规则的内容，避免把图纸要求泛化。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P054",
+    "disposition": "included",
+    "record_ids": [
+      "WD03-54-rule",
+      "WD03-32-stage_overview"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P055",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P056",
+    "disposition": "included",
+    "record_ids": [
+      "WD03-56-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P026 image1.png",
+    "disposition": "included",
+    "record_ids": [
+      "WD03-image1.png-reference",
+      "WD03-image1.png-reference-02",
+      "WD03-image1.png-reference-03"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P030 image2.png",
+    "disposition": "included",
+    "record_ids": [
+      "WD03-image2.png-route"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD03",
+    "anchor": "P040 image3.png",
+    "disposition": "included",
+    "record_ids": [
+      "WD03-41-formula"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P001",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P002",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P003",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P004",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P005",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P006",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P007",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "保留全文于项目内锚点提取；本段为重复说明、示例零件图题或未形成可独立复用条件规则的内容，避免把图纸要求泛化。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P008",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P009",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "保留全文于项目内锚点提取；本段为重复说明、示例零件图题或未形成可独立复用条件规则的内容，避免把图纸要求泛化。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P010",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P011",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P012",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P013",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P014",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P015",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P016",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "保留全文于项目内锚点提取；本段为重复说明、示例零件图题或未形成可独立复用条件规则的内容，避免把图纸要求泛化。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P017",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P018",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P019",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P020",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P021",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P022",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-22-scope"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P023",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P024",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-22-scope"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P025",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P026",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "保留全文于项目内锚点提取；本段为重复说明、示例零件图题或未形成可独立复用条件规则的内容，避免把图纸要求泛化。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P027",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P028",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P029",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P030",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P031",
+    "disposition": "excluded",
+    "record_ids": [
+      "WD04-58-stage_overview"
+    ],
+    "reason": "该段为硬阳化路线图形XML的文本框提取；DrawingML/VML重复节点的存储顺序不是可核路线。保留图形锚点，阶段概要据P058/P067/P071，并显式列入路线差异待核。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P032",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P033",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P034",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P035",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P036",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P037",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P038",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P039",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P040",
+    "disposition": "excluded",
+    "record_ids": [
+      "WD04-58-stage_overview"
+    ],
+    "reason": "该段为硬阳化路线图形XML的文本框提取；DrawingML/VML重复节点的存储顺序不是可核路线。保留图形锚点，阶段概要据P058/P067/P071，并显式列入路线差异待核。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P041",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P042",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P043",
+    "disposition": "excluded",
+    "record_ids": [
+      "WD04-58-stage_overview"
+    ],
+    "reason": "该段为硬阳化路线图形XML的文本框提取；DrawingML/VML重复节点的存储顺序不是可核路线。保留图形锚点，阶段概要据P058/P067/P071，并显式列入路线差异待核。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P044",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P045",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P046",
+    "disposition": "excluded",
+    "record_ids": [
+      "WD04-58-stage_overview"
+    ],
+    "reason": "该段为硬阳化路线图形XML的文本框提取；DrawingML/VML重复节点的存储顺序不是可核路线。保留图形锚点，阶段概要据P058/P067/P071，并显式列入路线差异待核。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P047",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P048",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P049",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P050",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P051",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P052",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P053",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P054",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P055",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P056",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P057",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P058",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-58-stage_overview"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P059",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-59-rule",
+      "WD04-58-stage_overview"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P060",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P061",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-61-allowance",
+      "WD04-61-allowance-02",
+      "WD04-61-allowance-03"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P062",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P063",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P064",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-64-quality"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P065",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P066",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P067",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-67-rule",
+      "WD04-58-stage_overview"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P068",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P069",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-69-quality",
+      "WD04-58-stage_overview"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P070",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-70-quality"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P071",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-70-quality",
+      "WD04-58-stage_overview"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P072",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-70-quality"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P073",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-70-quality"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P074",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-74-formula"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P075",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-74-formula"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P076",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-74-formula"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P077",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-74-formula"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P078",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-74-formula"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P079",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-74-formula"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P080",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-74-formula"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P081",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P082",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-82-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P083",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-82-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P084",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-82-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P085",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P086",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-86-quality"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P087",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "仅列出被引用但未提供全文的编制规范，不能据此编码未见正文的要求。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P088",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-88-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P089",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD04",
+    "anchor": "P025 image1.png",
+    "disposition": "included",
+    "record_ids": [
+      "WD04-image1.png-reference",
+      "WD04-image1.png-reference-02"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P001",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P002",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P003",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P004",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P005",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P006",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P007",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P008",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P009",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P010",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P011",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P012",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P013",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P014",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P015",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P016",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P017",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P018",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P019",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P020",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P021",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P022",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P023",
+    "disposition": "included",
+    "record_ids": [
+      "WD05-23-scope"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P024",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P025",
+    "disposition": "included",
+    "record_ids": [
+      "WD05-23-scope"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P026",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P027",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "保留全文于项目内锚点提取；本段为重复说明、示例零件图题或未形成可独立复用条件规则的内容，避免把图纸要求泛化。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P028",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P029",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P030",
+    "disposition": "included",
+    "record_ids": [
+      "WD05-image2.png-route"
+    ],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P031",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P032",
+    "disposition": "included",
+    "record_ids": [
+      "WD05-image2.png-route"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P033",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P034",
+    "disposition": "included",
+    "record_ids": [
+      "WD05-34-allowance",
+      "WD05-34-allowance-02"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P035",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P036",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P037",
+    "disposition": "included",
+    "record_ids": [
+      "WD05-37-quality"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P038",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P039",
+    "disposition": "included",
+    "record_ids": [
+      "WD05-39-rule"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P040",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P041",
+    "disposition": "included",
+    "record_ids": [
+      "WD05-41-quality",
+      "WD05-41-allowance",
+      "WD05-image2.png-route"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P042",
+    "disposition": "included",
+    "record_ids": [
+      "WD05-42-formula"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P043",
+    "disposition": "included",
+    "record_ids": [
+      "WD05-42-formula"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P044",
+    "disposition": "included",
+    "record_ids": [
+      "WD05-42-formula"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P045",
+    "disposition": "included",
+    "record_ids": [
+      "WD05-42-formula"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P046",
+    "disposition": "included",
+    "record_ids": [
+      "WD05-42-formula"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P047",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P048",
+    "disposition": "included",
+    "record_ids": [
+      "WD05-48-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P049",
+    "disposition": "included",
+    "record_ids": [
+      "WD05-48-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P050",
+    "disposition": "included",
+    "record_ids": [
+      "WD05-48-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P051",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P052",
+    "disposition": "included",
+    "record_ids": [
+      "WD05-52-quality",
+      "WD05-52-quality-02"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P053",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P054",
+    "disposition": "included",
+    "record_ids": [
+      "WD05-54-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P026 image1.png",
+    "disposition": "included",
+    "record_ids": [
+      "WD05-image1.png-reference",
+      "WD05-image1.png-reference-02"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD05",
+    "anchor": "P030 image2.png",
+    "disposition": "included",
+    "record_ids": [
+      "WD05-image2.png-route"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P001",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P002",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P003",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P004",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P005",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P006",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P007",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P008",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P009",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P010",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P011",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P012",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P013",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P014",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P015",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P016",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P017",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P018",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P019",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P020",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P021",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P022",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P023",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P024",
+    "disposition": "included",
+    "record_ids": [
+      "WD06-24-scope"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P025",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P026",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P027",
+    "disposition": "included",
+    "record_ids": [
+      "WD06-24-scope"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P028",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P029",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P030",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "标题或图题；对应图像及相关规则另按图像/段落锚点处理。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P031",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P032",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P033",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P034",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P035",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P036",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P037",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P038",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P039",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P040",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P041",
+    "disposition": "included",
+    "record_ids": [
+      "WD06-image2.png-route"
+    ],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P042",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P043",
+    "disposition": "included",
+    "record_ids": [
+      "WD06-image2.png-route"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P044",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P045",
+    "disposition": "included",
+    "record_ids": [
+      "WD06-45-allowance",
+      "WD06-45-allowance-02"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P046",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P047",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P048",
+    "disposition": "included",
+    "record_ids": [
+      "WD06-48-quality"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P049",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P050",
+    "disposition": "included",
+    "record_ids": [
+      "WD06-50-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P051",
+    "disposition": "included",
+    "record_ids": [
+      "WD06-50-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P052",
+    "disposition": "included",
+    "record_ids": [
+      "WD06-50-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P053",
+    "disposition": "included",
+    "record_ids": [
+      "WD06-50-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P054",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P055",
+    "disposition": "included",
+    "record_ids": [
+      "WD06-55-quality"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P056",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P057",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "仅列出被引用但未提供全文的编制规范，不能据此编码未见正文的要求。"
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P058",
+    "disposition": "included",
+    "record_ids": [
+      "WD06-58-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P029 image1.png",
+    "disposition": "included",
+    "record_ids": [
+      "WD06-image1.png-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD06",
+    "anchor": "P041 image2.png",
+    "disposition": "included",
+    "record_ids": [
+      "WD06-image2.png-route"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P001",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P002",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P003",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P004",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P005",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P006",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P007",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P008",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P009",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P010",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P011",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P012",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P013",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P014",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P015",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P016",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P017",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P018",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P019",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P020",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P021",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P022",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P023",
+    "disposition": "included",
+    "record_ids": [
+      "WD07-23-scope"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P024",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P025",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P026",
+    "disposition": "included",
+    "record_ids": [
+      "WD07-23-scope"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P027",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P028",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "标题或图题；对应图像及相关规则另按图像/段落锚点处理。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P029",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P030",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P031",
+    "disposition": "included",
+    "record_ids": [
+      "WD07-image2.png-route"
+    ],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P032",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P033",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P034",
+    "disposition": "included",
+    "record_ids": [
+      "WD07-34-quality",
+      "WD07-image2.png-route"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P035",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P036",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P037",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P038",
+    "disposition": "included",
+    "record_ids": [
+      "WD07-38-allowance",
+      "WD07-38-allowance-02",
+      "WD07-38-allowance-03",
+      "WD07-38-allowance-04",
+      "WD07-38-allowance-05"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P039",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P040",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P041",
+    "disposition": "included",
+    "record_ids": [
+      "WD07-41-quality"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P042",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P043",
+    "disposition": "included",
+    "record_ids": [
+      "WD07-43-rule"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P044",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P045",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P046",
+    "disposition": "included",
+    "record_ids": [
+      "WD07-46-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P047",
+    "disposition": "included",
+    "record_ids": [
+      "WD07-46-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P048",
+    "disposition": "included",
+    "record_ids": [
+      "WD07-46-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P049",
+    "disposition": "included",
+    "record_ids": [
+      "WD07-46-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P050",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P051",
+    "disposition": "included",
+    "record_ids": [
+      "WD07-51-quality"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P052",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "保留全文于项目内锚点提取；本段为重复说明、示例零件图题或未形成可独立复用条件规则的内容，避免把图纸要求泛化。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P053",
+    "disposition": "included",
+    "record_ids": [
+      "WD07-53-formula",
+      "WD07-53-rule"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P054",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P055",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "仅列出被引用但未提供全文的编制规范，不能据此编码未见正文的要求。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P056",
+    "disposition": "included",
+    "record_ids": [
+      "WD07-56-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P057",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P027 image1.png",
+    "disposition": "included",
+    "record_ids": [
+      "WD07-image1.png-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD07",
+    "anchor": "P031 image2.png",
+    "disposition": "included",
+    "record_ids": [
+      "WD07-image2.png-route"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P001",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P002",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P003",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P004",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P005",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P006",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P007",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P008",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P009",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P010",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P011",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P012",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P013",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P014",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P015",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P016",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P017",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P018",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P019",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P020",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "封面、签署或编制人员/日期元数据，只用于来源追溯；不作为能力或有效性结论。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P021",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P022",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P023",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P024",
+    "disposition": "included",
+    "record_ids": [
+      "WD08-24-scope"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P025",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P026",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P027",
+    "disposition": "included",
+    "record_ids": [
+      "WD08-24-scope"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P028",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P029",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P030",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "标题或图题；对应图像及相关规则另按图像/段落锚点处理。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P031",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P032",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P033",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P034",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P035",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P036",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P037",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P038",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P039",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P040",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P041",
+    "disposition": "included",
+    "record_ids": [
+      "WD08-image2.png-route"
+    ],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P042",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P043",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P044",
+    "disposition": "included",
+    "record_ids": [
+      "WD08-image2.png-route"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P045",
+    "disposition": "included",
+    "record_ids": [
+      "WD08-45-rule"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P046",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P047",
+    "disposition": "included",
+    "record_ids": [
+      "WD08-47-allowance",
+      "WD08-47-allowance-02",
+      "WD08-47-allowance-03",
+      "WD08-47-allowance-04",
+      "WD08-47-allowance-05"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P048",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P049",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P050",
+    "disposition": "included",
+    "record_ids": [
+      "WD08-50-quality"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P051",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P052",
+    "disposition": "included",
+    "record_ids": [
+      "WD08-52-formula"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P053",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P054",
+    "disposition": "included",
+    "record_ids": [
+      "WD08-54-quality"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P055",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P056",
+    "disposition": "included",
+    "record_ids": [
+      "WD08-56-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P057",
+    "disposition": "included",
+    "record_ids": [
+      "WD08-56-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P058",
+    "disposition": "included",
+    "record_ids": [
+      "WD08-56-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P059",
+    "disposition": "included",
+    "record_ids": [
+      "WD08-56-fit"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P060",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "章节/小节标题；该锚点没有独立工艺条件或结论（相邻正文规则另有记录）。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P061",
+    "disposition": "included",
+    "record_ids": [
+      "WD08-61-quality"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P062",
+    "disposition": "empty",
+    "record_ids": [],
+    "reason": "空段落，仅保留定位。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P063",
+    "disposition": "excluded",
+    "record_ids": [],
+    "reason": "仅列出被引用但未提供全文的编制规范，不能据此编码未见正文的要求。"
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P064",
+    "disposition": "included",
+    "record_ids": [
+      "WD08-64-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P029 image1.png",
+    "disposition": "included",
+    "record_ids": [
+      "WD08-image1.png-reference"
+    ],
+    "reason": ""
+  },
+  {
+    "source_id": "WD08",
+    "anchor": "P041 image2.png",
+    "disposition": "included",
+    "record_ids": [
+      "WD08-image2.png-route"
+    ],
+    "reason": ""
+  }
+]

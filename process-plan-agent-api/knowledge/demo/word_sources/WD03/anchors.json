@@ -1,0 +1,355 @@
+{
+  "blocks": [
+    {
+      "id": "P001",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P002",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P003",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P004",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P005",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P006",
+      "type": "paragraph",
+      "style": null,
+      "text": "活门衬套组件典型工艺说明"
+    },
+    {
+      "id": "P007",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P008",
+      "type": "paragraph",
+      "style": null,
+      "text": "69-JB20-21"
+    },
+    {
+      "id": "P009",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P010",
+      "type": "paragraph",
+      "style": null,
+      "text": "共 5 页"
+    },
+    {
+      "id": "P011",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P012",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P013",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P014",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P015",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P016",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P017",
+      "type": "paragraph",
+      "style": null,
+      "text": "编制：黄尚愚2021-9-24"
+    },
+    {
+      "id": "P018",
+      "type": "paragraph",
+      "style": null,
+      "text": "校对：汤安胜2021-9-24"
+    },
+    {
+      "id": "P019",
+      "type": "paragraph",
+      "style": null,
+      "text": "审核：陈云维2021-9-24"
+    },
+    {
+      "id": "P020",
+      "type": "paragraph",
+      "style": null,
+      "text": "批准：刘丽丹2021-11-5"
+    },
+    {
+      "id": "P021",
+      "type": "paragraph",
+      "style": null,
+      "text": "\n"
+    },
+    {
+      "id": "P022",
+      "type": "paragraph",
+      "style": null,
+      "text": "1  适用范围"
+    },
+    {
+      "id": "P023",
+      "type": "paragraph",
+      "style": null,
+      "text": "本典型工艺规程适用于需经配套、配研、选配、清洁度控制的精密活门组件的加工指导，其余活门衬套组件类零件可参考编制。"
+    },
+    {
+      "id": "P024",
+      "type": "paragraph",
+      "style": null,
+      "text": "2  典型零件选取及主要特征"
+    },
+    {
+      "id": "P025",
+      "type": "paragraph",
+      "style": null,
+      "text": "目前，按公司产品族划分，军品活门衬套组件共涉及994项零件，结构相似，工艺路线、工艺方法及材料基本一致，经综合分析，选取RT34(03)-100（活门组件）为活门衬套组件的典型零件。主要特征：以分流活门（2255.01.089F）和衬套（RT34(03)-100-01）为组成单件，经过配套、配研、超声波冲洗、冲洗、浸泡、选配等工序，整个过程活门外圆及衬套内孔需保持光洁锐边。设计要求见下图"
+    },
+    {
+      "id": "P026",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P027",
+      "type": "paragraph",
+      "style": null,
+      "text": "3  典型零件工艺规程设计"
+    },
+    {
+      "id": "P028",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.1 RT34(03)-100工艺路线如下："
+    },
+    {
+      "id": "P029",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P030",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P031",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.2 工艺路线说明"
+    },
+    {
+      "id": "P032",
+      "type": "paragraph",
+      "style": null,
+      "text": "活门衬套组件类零件的加工，主要流程包含备件、配套、配研、选配、低温灵活性试验，整个加工过程需注意组件的清洁度控制、活门衬套单件的尖边控制。活门衬套组件RT34(03)-100工序安排为：备件（备齐所需单件零件并注明数量）→清洗（清洁度控制的一部分）→检验（测量尺寸计算重叠量，若重叠量不满足要求，则需按需进行机加工序）→按需机加（含车外形、去毛刺、清洗等）→配套（按间隙开出配套尺寸单，提供给配研工序确定加工尺寸）→配研外圆（按配套尺寸单加工）→清洁度控制（包含浸泡、超声波冲洗、冲洗、清洗等工序）→检验（按配套尺寸单检查尺寸，并在标印处标印尺寸尾数）→选配（按间隙要求选配零件）→清洗、低温灵活性试验、油封，加工过程需要按要求对单件衬套、活门尖边进行控制。"
+    },
+    {
+      "id": "P033",
+      "type": "paragraph",
+      "style": null,
+      "text": "冲洗为深长孔结构的零件进行工序，无深长孔结构的零件无需进行。"
+    },
+    {
+      "id": "P034",
+      "type": "paragraph",
+      "style": null,
+      "text": " "
+    },
+    {
+      "id": "P035",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P036",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P037",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.3  重叠量计算说明"
+    },
+    {
+      "id": "P038",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P039",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P040",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P041",
+      "type": "paragraph",
+      "style": null,
+      "text": "     以上图为例，=--2.52；=+--2.52；=+--2.52，若重叠量计算不合格，则需进行车外形工序加工使重叠量合格。"
+    },
+    {
+      "id": "P042",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4 其余技术要求"
+    },
+    {
+      "id": "P043",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4.1 锐边要求"
+    },
+    {
+      "id": "P044",
+      "type": "paragraph",
+      "style": null,
+      "text": " 活门衬套组件的单件通常要求与配套外圆交接处保持光洁锐边，为保证锐边质量，需在组件每道工序都需保持外圆光洁锐边（或箭示处保持锐边），并在技术要求栏注明，加工过程不得损坏外圆光洁锐边（或箭示处锐边）；在每道涉及锐边加工的工序（如去毛刺、磨外圆等）以及检验工序，需检查锐边质量。"
+    },
+    {
+      "id": "P045",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4.2 清洁度要求"
+    },
+    {
+      "id": "P046",
+      "type": "paragraph",
+      "style": null,
+      "text": "     活门衬套组件一般设计会要求清洁度要求按GJB420B-6级进行，为达到要求，通常会在机加后安排清洗，研磨后安排浸泡、清洗、超声波冲洗、冲洗工序，油封前再次清洗。其中，在最终清洗工序技术要求栏需注明“由检验和操作者共同选取任意1件零件，用颗粒度检查等级不低于GJB420B-6级的清洗介质冲淋零件后取样检测，检测标准不低于6级，其余零件目视检查无可见污物，清洁干净，如不符合则重新清洗后进行”的要求，保证零件的清洁度。"
+    },
+    {
+      "id": "P047",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4.3 配套要求"
+    },
+    {
+      "id": "P048",
+      "type": "paragraph",
+      "style": null,
+      "text": "配套工序一般有两种情况"
+    },
+    {
+      "id": "P049",
+      "type": "paragraph",
+      "style": null,
+      "text": "1.基孔制，根据衬套孔的实际尺寸开出活门外圆的磨（研）外圆的配套尺寸单，这种情况组件配磨（研）工序加工位置为活门外圆；"
+    },
+    {
+      "id": "P050",
+      "type": "paragraph",
+      "style": null,
+      "text": "2.基轴制，根据活门外圆的实际尺寸开出衬套孔的珩（研）配套尺寸单，这种情况组件配珩（研）工序加工位置为衬套内孔。"
+    },
+    {
+      "id": "P051",
+      "type": "paragraph",
+      "style": null,
+      "text": " 需根据单件实际情况选择。"
+    },
+    {
+      "id": "P052",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P053",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4.4虚拟工序说明"
+    },
+    {
+      "id": "P054",
+      "type": "paragraph",
+      "style": null,
+      "text": "     典型零件RT34(03)-100零件工艺路线无低温灵活性试验要求，特虚拟一道低温灵活性试验工序，使典型工艺路线更加完整。"
+    },
+    {
+      "id": "P055",
+      "type": "paragraph",
+      "style": null,
+      "text": "4  工序编制说明"
+    },
+    {
+      "id": "P056",
+      "type": "paragraph",
+      "style": null,
+      "text": "工艺规程的编制按Q/14DGL05.106《工艺规程的编制与审批》、69-GZ62《军品机加分厂工艺规程编制指导》，各类工序卡片填写参考05-TY8-15《典型工艺编制与应用指导书》附件1：工艺卡片填写说明。工序的填写按结构化工艺系统内工序术语库相关内容进行。"
+    }
+  ],
+  "figures": [
+    {
+      "paragraph": "P026",
+      "target": "media/image1.png"
+    },
+    {
+      "paragraph": "P030",
+      "target": "media/image2.png"
+    },
+    {
+      "paragraph": "P040",
+      "target": "media/image3.png"
+    }
+  ],
+  "extra_parts": {}
+}

@@ -1,3 +1,4 @@
+import { finalProcessMetadata, type FinalRouteStep } from '@/composables/finalRouteSteps'
 import { FINALIZE_EXPORT_COPY } from '@/config/finalizeRulePresentation'
 import type {
   CanonicalConditionField,
@@ -167,24 +168,7 @@ export function exportBlockedReason(item: any): ExportBlockedReason {
 }
 
 export function exportBlockingCards(cards: any[]) {
-  const referencedByConfirmedRules = new Set<string>()
-  cards.filter(hasCurrentConfirmedUserRule).forEach(item => {
-    const confirmed = item.conditionReview.confirmed
-    ;[
-      ...(confirmed.then?.include_process_ids || []),
-      ...(confirmed.then?.exclude_process_ids || []),
-      ...(confirmed.relation?.source_process_ids || []),
-      ...(confirmed.relation?.target_process_ids || []),
-    ].forEach(processId => referencedByConfirmedRules.add(processId))
-  })
-  return cards.filter(item =>
-    requiresConfirmedUserRule(item)
-    && !hasCurrentConfirmedUserRule(item)
-    && (
-      exportBlockedReason(item) !== 'pending_candidate'
-      || referencedByConfirmedRules.has(exportProcessIdForItem(item))
-    ),
-  )
+  return cards.filter(item => requiresConfirmedUserRule(item) && !hasCurrentConfirmedUserRule(item))
 }
 
 export function exportBlockedReasonLabel(item: any) {
@@ -221,7 +205,7 @@ export function blockedExportPrimaryActionLabel(cards: any[]) {
   const groups = groupExportBlockedCards(cards)
   if (groups.missingConditionCards.length) return '去处理待补充项'
   if (groups.rebuildRequiredCards.length) return '去处理首项'
-  return '确认候选并发布'
+  return '去确认规则'
 }
 
 function manualProcessFieldKey(processId: string) {
@@ -856,10 +840,14 @@ export function buildCompileRequestFromCards(args: {
   primarySteps: (segment: any) => string[]
   attachedSteps: (segment: any) => string[]
   conditionFields?: CanonicalConditionField[]
+  finalSteps?: (segment: any) => FinalRouteStep[]
 }): CompileRulePackageRequest {
   const processMap = new Map<string, any>()
+  const processDisplayName = (segment: any) => args.finalSteps
+    ? String(args.displayName(segment) || '').trim()
+    : normalizeExportProcessName(args.displayName(segment))
   args.cards.forEach((item) => {
-    const displayName = normalizeExportProcessName(args.displayName(item.segment))
+    const displayName = processDisplayName(item.segment)
     const processId = stableProcessId(exportProcessIdForItem(item), displayName)
     const templateGroupAliases = normalizeTemplateGroupAliases(item.segment?.template_group_aliases)
     const sourceOperationIds = Array.from(new Set(
@@ -877,6 +865,8 @@ export function buildCompileRequestFromCards(args: {
       name,
       kind: 'attached' as const,
     }))
+    const finalNodes = args.finalSteps?.(item.segment)
+    const finalCatalogSteps = finalNodes === undefined ? [...primary, ...attached] : (finalProcessMetadata(item.segment, finalNodes).process_type === '辅助工序' ? [] : finalNodes.map(step => ({ step_id: step.step_id, name: step.step_name, kind: step.kind })))
     const existing = processMap.get(processId)
     if (!existing) {
       processMap.set(processId, {
@@ -888,7 +878,7 @@ export function buildCompileRequestFromCards(args: {
         default_sequence: Number(item.segment?.sequence || 0) * 10,
         main: isMainlineRule(item),
         template_group_aliases: templateGroupAliases,
-        steps: [...primary, ...attached],
+        steps: finalCatalogSteps,
         constraints: {
           requires: [],
           must_run_after: [],
@@ -905,11 +895,11 @@ export function buildCompileRequestFromCards(args: {
     ]))
     existing.default_sequence = Math.min(existing.default_sequence, Number(item.segment?.sequence || 0) * 10)
     mergeTemplateGroupAliases(existing.template_group_aliases, templateGroupAliases)
-    const known = new Set(existing.steps.map((step: any) => step.name))
-    ;[...primary, ...attached].forEach((step) => {
-      if (!known.has(step.name)) {
+    const known = new Set(existing.steps.map((step: any) => step.step_id))
+    ;finalCatalogSteps.forEach((step) => {
+      if (!known.has(step.step_id)) {
         existing.steps.push(step)
-        known.add(step.name)
+        known.add(step.step_id)
       }
     })
   })
@@ -1015,7 +1005,7 @@ export function buildCompileRequestFromCards(args: {
   const pendingCandidateProcessIds = new Set(
     args.cards
       .filter(item => !hasCurrentConfirmedUserRule(item) && exportBlockedReason(item) === 'pending_candidate')
-      .map(item => stableProcessId(exportProcessIdForItem(item), normalizeExportProcessName(args.displayName(item.segment)))),
+      .map(item => stableProcessId(exportProcessIdForItem(item), processDisplayName(item.segment))),
   )
   const filteredStaticRules = staticRules.flatMap((rule) => {
     const includeProcessIds = (rule.then.include_process_ids || [])

@@ -430,28 +430,76 @@ async def test_step_mapping_save_builds_process_mapping_output(template_store):
             "process_name": "车削加工（A侧）",
             "process_type": "加工工序",
             "precision": "",
-            "technical_requirements": ["φ20孔", "需要形成孔特征"],
             "steps": [
                 {
                     "step_name": "钻孔",
                     "candidates": {"A侧/孔": ["孔(盲孔)"]},
-                    "is_last": True,
+                    "step_id": "op_11_s01",
                 },
                 {
                     "step_name": "清洗",
                     "candidates": {},
-                    "is_last": False,
+                    "step_id": "op_11_s02",
                 },
             ],
+            "process_id": "op_11",
         },
         {
             "process_name": "调质",
             "process_type": "辅助工序",
-            "precision": "",
-            "technical_requirements": ["调质 35HRC"],
+            "precision": "辅助工序",
             "steps": [],
+            "process_id": "op_12",
         },
     ]
+
+
+@pytest.mark.parametrize("invalidate_feature", [False, True])
+@pytest.mark.parametrize("duplicate_source", [False, True])
+def test_template_replacement_rebuilds_output_from_migrated_mappings(
+    template_api_client, invalidate_feature, duplicate_source,
+):
+    client = template_api_client
+    payload = _template_xml()
+    preview = client.post("/api/extract/group-templates/preview",
+                          files={"file": ("old.xml", payload, "application/xml")}).json()
+    created = client.put("/api/extract/group-templates/current", data={
+        "project_id": client.project_id,
+        "expected_content_hash": preview["content_hash"],
+        "expected_template_revision": 0,
+    }, files={"file": ("old.xml", payload, "application/xml")})
+    assert created.status_code == 200
+    operations = [
+        {"operation_id": 11, "operation_name": "车削加工（A侧）",
+         "step_items": ["清洗", "钻孔"], "rule_evidence": ["孔径20mm"]},
+        {"operation_id": 12, "operation_name": "检验", "step_items": ["尺寸检查"]},
+    ]
+    if duplicate_source:
+        operations.insert(0, {"operation_id": 13, "operation_name": "车削加工（A侧）",
+                              "step_items": ["清洗", "钻孔"]})
+    saved = client.put("/api/extract/group-templates/step-mappings", json={
+        "project_id": client.project_id,
+        "expected_template_revision": 1,
+        "mappings": [_step_mapping(step_order=2)],
+        "operations": operations,
+    })
+    assert saved.status_code == 200
+    expected_output = saved.json()["mapping_output"]
+    if invalidate_feature:
+        expected_output[int(duplicate_source)]["steps"][1].update(candidates={})
+        payload = _template_xml(feature="孔(通孔)")
+    preview = client.post("/api/extract/group-templates/preview",
+                          files={"file": ("new.xml", payload, "application/xml")}).json()
+    replacement = client.put("/api/extract/group-templates/current", data={
+        "project_id": client.project_id,
+        "expected_content_hash": preview["content_hash"],
+        "expected_template_revision": 2,
+    }, files={"file": ("new.xml", payload, "application/xml")})
+    assert replacement.status_code == 200
+    assert len(replacement.json()["step_mappings"]) == (0 if invalidate_feature else 1)
+    assert replacement.json()["mapping_output"] == expected_output
+    current = client.get("/api/extract/group-templates/current", params={"project_id": client.project_id})
+    assert current.json()["mapping_output"] == expected_output
 
 
 @pytest.mark.asyncio
@@ -590,3 +638,303 @@ async def test_schema_maintenance_is_idempotent_and_preserves_existing_template(
         ).one()
 
     assert row == ("preserved.xml", 1, "[]", "[]", "[]")
+
+
+def _create_template(client):
+    payload = _template_xml()
+    preview = client.post('/api/extract/group-templates/preview',
+                          files={'file': ('template.xml', payload, 'application/xml')}).json()
+    result = client.put('/api/extract/group-templates/current', data={
+        'project_id': client.project_id,
+        'expected_content_hash': preview['content_hash'],
+        'expected_template_revision': 0,
+    }, files={'file': ('template.xml', payload, 'application/xml')})
+    assert result.status_code == 200
+
+
+def _final_mapping_operations():
+    return [
+        {'operation_id': 7001, 'process_id': 'final_turning',
+         'source_operation_ids': [11, 12], 'operation_name': '精车（合并后）',
+         'process_type': '加工工序', 'precision': '精加工',
+         'step_items': ['精车内孔', '精车内孔'], 'steps': [
+             {'step_id': 'final_hole_a', 'step_name': '精车内孔',
+              'source_operation_id': 11, 'source_step_order': 1, 'source_step_name': '钻孔'},
+             {'step_id': 'final_hole_b', 'step_name': '精车内孔',
+              'source_operation_id': 12, 'source_step_order': 2, 'source_step_name': '铰孔'},
+         ]},
+        {'operation_id': 7002, 'process_id': 'final_cleaning', 'operation_name': '清洗',
+         'process_type': '辅助工序', 'precision': '辅助工序',
+         'step_items': ['清洗零件'], 'steps': [
+             {'step_id': 'cleaning_step', 'step_name': '清洗零件',
+              'source_operation_id': 0, 'source_step_order': 0, 'source_step_name': ''},
+         ]},
+        {'operation_id': 7003, 'process_id': 'final_cleaning_2', 'operation_name': '清洗',
+         'process_type': '辅助工序', 'precision': '辅助工序', 'steps': []},
+    ]
+
+
+def test_final_tree_save_uses_final_nodes_and_actual_source_step_identity(template_api_client):
+    client = template_api_client
+    _create_template(client)
+    second_mapping = dict(_step_mapping(step_order=2, step_name='铰孔'), source_operation_id=12)
+    result = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'operations': _final_mapping_operations(),
+        'mappings': [_step_mapping(), second_mapping],
+    })
+    assert result.status_code == 200
+    assert result.json()['mapping_output'] == [
+        {'process_name': '精车（合并后）', 'process_type': '加工工序', 'precision': '精加工',
+         'steps': [
+             {'step_name': '精车内孔', 'candidates': {'A侧/孔': ['孔(盲孔)']}, 'step_id': 'final_hole_a'},
+             {'step_name': '精车内孔', 'candidates': {'A侧/孔': ['孔(盲孔)']}, 'step_id': 'final_hole_b'},
+         ], 'process_id': 'final_turning'},
+        {'process_name': '清洗', 'process_type': '辅助工序', 'precision': '辅助工序',
+         'steps': [], 'process_id': 'final_cleaning'},
+        {'process_name': '清洗', 'process_type': '辅助工序', 'precision': '辅助工序',
+         'steps': [], 'process_id': 'final_cleaning_2'},
+    ]
+
+
+def test_final_tree_save_discards_mapping_to_removed_source_step(template_api_client):
+    client = template_api_client
+    _create_template(client)
+    result = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'operations': _final_mapping_operations(),
+        'mappings': [_step_mapping(step_order=3, step_name='旧工步')],
+    })
+    assert result.status_code == 200
+    current = client.get('/api/extract/group-templates/current', params={'project_id': client.project_id}).json()
+    assert current['template_revision'] == 2
+    assert current['step_mappings'] == []
+    assert [process['process_id'] for process in current['mapping_output']] == [
+        'final_turning', 'final_cleaning', 'final_cleaning_2',
+    ]
+
+
+def test_final_tree_ids_and_names_survive_template_replacement(template_api_client):
+    client = template_api_client
+    _create_template(client)
+    saved = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'operations': _final_mapping_operations(), 'mappings': [_step_mapping()],
+    })
+    assert saved.status_code == 200
+    expected = [
+        {'process_name': '精车（合并后）', 'process_type': '加工工序', 'precision': '精加工',
+         'steps': [
+             {'step_name': '精车内孔', 'candidates': {}, 'step_id': 'final_hole_a'},
+             {'step_name': '精车内孔', 'candidates': {}, 'step_id': 'final_hole_b'},
+         ], 'process_id': 'final_turning'},
+        {'process_name': '清洗', 'process_type': '辅助工序', 'precision': '辅助工序',
+         'steps': [], 'process_id': 'final_cleaning'},
+        {'process_name': '清洗', 'process_type': '辅助工序', 'precision': '辅助工序',
+         'steps': [], 'process_id': 'final_cleaning_2'},
+    ]
+    payload = _template_xml(feature='孔(通孔)')
+    preview = client.post('/api/extract/group-templates/preview',
+                          files={'file': ('new.xml', payload, 'application/xml')}).json()
+    replacement = client.put('/api/extract/group-templates/current', data={
+        'project_id': client.project_id,
+        'expected_content_hash': preview['content_hash'], 'expected_template_revision': 2,
+    }, files={'file': ('new.xml', payload, 'application/xml')})
+    assert replacement.status_code == 200
+    assert replacement.json()['mapping_output'] == expected
+    assert replacement.json()['step_mappings'] == []
+
+
+@pytest.mark.parametrize('identity', ['process', 'step', 'cross_level'])
+def test_final_tree_rejects_duplicate_id_before_saving(template_api_client, identity):
+    client = template_api_client
+    _create_template(client)
+    operations = _final_mapping_operations()
+    if identity == 'process':
+        operations[2]['process_id'] = operations[0]['process_id']
+    elif identity == 'step':
+        operations[0]['steps'][1]['step_id'] = operations[0]['steps'][0]['step_id']
+    else:
+        operations[0]['steps'][0]['step_id'] = operations[0]['process_id']
+    result = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'operations': operations, 'mappings': [_step_mapping()],
+    })
+    assert result.status_code == 422
+    current = client.get('/api/extract/group-templates/current', params={'project_id': client.project_id}).json()
+    assert current['template_revision'] == 1
+
+
+def test_final_tree_one_step_combines_all_explicit_source_mappings(template_api_client):
+    client = template_api_client
+    _create_template(client)
+    operations = _final_mapping_operations()
+    operations[0]['steps'] = [{
+        'step_id': 'merged_hole', 'step_name': '加工内孔',
+        'source_steps': [
+            {'source_operation_id': 11, 'source_step_order': 1, 'source_step_name': '钻孔'},
+            {'source_operation_id': 12, 'source_step_order': 2, 'source_step_name': '铰孔'},
+        ],
+    }]
+    second_mapping = dict(_step_mapping(step_order=2, step_name='铰孔'), source_operation_id=12)
+    saved = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'operations': operations, 'mappings': [second_mapping],
+    })
+    assert saved.status_code == 200
+    assert saved.json()['mapping_output'][0]['steps'] == [{
+        'step_name': '加工内孔', 'candidates': {'A侧/孔': ['孔(盲孔)']}, 'step_id': 'merged_hole',
+    }]
+
+
+def test_final_tree_unknown_machining_precision_is_not_guessed_from_step_word(template_api_client):
+    client = template_api_client
+    _create_template(client)
+    operations = _final_mapping_operations()
+    operations[0]['precision'] = ''
+    operations[0]['operation_name'] = '车削加工'
+    operations[0]['steps'][0]['step_name'] = '加工精密内孔'
+    result = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'operations': operations, 'mappings': [_step_mapping()],
+    })
+    assert result.status_code == 200
+    assert result.json()['mapping_output'][0]['precision'] == ''
+
+
+def test_final_tree_precision_is_preserved_and_auxiliary_precision_is_explicit(template_api_client):
+    client = template_api_client
+    _create_template(client)
+    operations = _final_mapping_operations()
+    operations[0]['precision'] = '半精加工'
+    result = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'operations': operations, 'mappings': [_step_mapping()],
+    })
+    assert result.status_code == 200
+    rows = result.json()['mapping_output']
+    assert rows[0]['precision'] == '半精加工'
+    assert rows[1]['precision'] == '辅助工序'
+
+
+def test_user_confirmed_precision_survives_mapping_reload(template_api_client):
+    client = template_api_client
+    _create_template(client)
+    operations = _final_mapping_operations()
+    operations[0]['precision'] = '粗加工'
+    saved = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'operations': operations, 'mappings': [_step_mapping()],
+    })
+    assert saved.status_code == 200
+    current = client.get('/api/extract/group-templates/current', params={'project_id': client.project_id})
+    assert current.status_code == 200
+    assert current.json()['mapping_output'][0]['precision'] == '粗加工'
+
+
+def _split_mapping_operations():
+    first = _final_mapping_operations()[0]
+    first['steps'] = first['steps'][:1]
+    second = json.loads(json.dumps(first))
+    second.update(operation_id=7004, process_id='split_turning')
+    second['steps'][0]['step_id'] = 'split_hole'
+    return [first, second]
+
+
+def test_split_final_nodes_keep_mapping_on_explicit_target_only(template_api_client):
+    client = template_api_client
+    _create_template(client)
+    target = {'process_id': 'final_turning', 'step_id': 'final_hole_a'}
+    result = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'operations': _split_mapping_operations(),
+        'mappings': [dict(_step_mapping(), final_targets=[target])],
+    })
+    assert result.status_code == 200, result.text
+    current = client.get('/api/extract/group-templates/current', params={'project_id': client.project_id}).json()
+    assert current['step_mappings'][0]['final_targets'] == [target]
+    assert current['mapping_output'][0]['steps'][0]['candidates'] == {'A侧/孔': ['孔(盲孔)']}
+    assert current['mapping_output'][1]['steps'][0]['candidates'] == {}
+
+
+@pytest.mark.parametrize('second_status', ['confirmed', 'not_applicable'])
+def test_split_final_nodes_have_independent_deduplication_and_status(template_api_client, second_status):
+    client = template_api_client
+    _create_template(client)
+    result = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'operations': _split_mapping_operations(),
+        'mappings': [
+            dict(_step_mapping(), final_targets=[{'process_id': 'final_turning', 'step_id': 'final_hole_a'}]),
+            dict(_step_mapping(status=second_status),
+                 final_targets=[{'process_id': 'split_turning', 'step_id': 'split_hole'}]),
+        ],
+    })
+    assert result.status_code == 200, result.text
+    assert len(result.json()['step_mappings']) == 2
+    assert result.json()['mapping_output'][1]['steps'][0]['candidates'] == (
+        {'A侧/孔': ['孔(盲孔)']} if second_status == 'confirmed' else {}
+    )
+
+
+@pytest.mark.parametrize('explicit_target', [True, False])
+def test_merged_final_step_rejects_conflicting_status_across_source_aliases(template_api_client, explicit_target):
+    client = template_api_client
+    _create_template(client)
+    operations = _final_mapping_operations()
+    operations[0]['steps'] = [{
+        'step_id': 'merged_hole', 'step_name': '加工内孔',
+        'source_steps': [
+            {'source_operation_id': 11, 'source_step_order': 1, 'source_step_name': '钻孔'},
+            {'source_operation_id': 12, 'source_step_order': 2, 'source_step_name': '铰孔'},
+        ],
+    }]
+    mappings = [
+        _step_mapping(),
+        dict(_step_mapping(step_order=2, step_name='铰孔', status='not_applicable'),
+             source_operation_id=12),
+    ]
+    if explicit_target:
+        for mapping in mappings:
+            mapping['final_targets'] = [{'process_id': 'final_turning', 'step_id': 'merged_hole'}]
+    result = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'operations': operations, 'mappings': mappings,
+    })
+    assert result.status_code == 422, result.text
+    current = client.get('/api/extract/group-templates/current', params={'project_id': client.project_id}).json()
+    assert current['template_revision'] == 1
+    assert current['step_mappings'] == []
+
+
+@pytest.mark.parametrize('target', [
+    {'process_id': 'final_turning', 'step_id': 'final_hole_b'},
+    {'process_id': 'missing', 'step_id': 'final_hole_a'},
+    {'process_id': 'final_cleaning', 'step_id': 'cleaning_step'},
+])
+def test_explicit_final_target_must_match_mapping_source_and_machining_step(template_api_client, target):
+    client = template_api_client
+    _create_template(client)
+    operations = _final_mapping_operations()
+    operations[1]['steps'][0].update(source_operation_id=11, source_step_order=1, source_step_name='钻孔')
+    result = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'operations': operations, 'mappings': [dict(_step_mapping(), final_targets=[target])],
+    })
+    assert result.status_code == 422, result.text
+    current = client.get('/api/extract/group-templates/current', params={'project_id': client.project_id}).json()
+    assert current['template_revision'] == 1
+
+
+def test_legacy_source_mapping_does_not_confirm_auxiliary_only_final_node(template_api_client):
+    client = template_api_client
+    _create_template(client)
+    operation = _final_mapping_operations()[1]
+    operation['steps'][0].update(source_operation_id=11, source_step_order=1, source_step_name='钻孔')
+    result = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'operations': [operation], 'mappings': [_step_mapping()],
+    })
+    assert result.status_code == 200, result.text
+    assert result.json()['step_mappings'] == []
+    assert result.json()['mapping_output'][0]['steps'] == []

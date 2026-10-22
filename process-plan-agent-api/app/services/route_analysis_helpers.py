@@ -83,12 +83,17 @@ def serialize_segment_rule_review(row: NormalizedRouteSegmentRuleReview) -> Segm
         ]
     except Exception:
         question_trail = []
+    try:
+        analysis_draft = json.loads(row.analysis_draft_json) if row.analysis_draft_json else None
+    except Exception:
+        analysis_draft = None
     return SegmentRuleReviewOut(
         id=row.id,
         decision=row.decision or "accepted",
         note=row.note or "",
         summary_lines=list(summary_lines or []),
         question_trail=list(question_trail or []),
+        analysis_draft=analysis_draft,
         condition_review=serialize_condition_review(row),
         created_at=row.created_at,
         updated_at=row.updated_at,

@@ -1,0 +1,339 @@
+{
+  "blocks": [
+    {
+      "id": "P001",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P002",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P003",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P004",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P005",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P006",
+      "type": "paragraph",
+      "style": null,
+      "text": "有色金属硬阳化类衬套典型工艺说明"
+    },
+    {
+      "id": "P007",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P008",
+      "type": "paragraph",
+      "style": null,
+      "text": "69-JB31-21"
+    },
+    {
+      "id": "P009",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P010",
+      "type": "paragraph",
+      "style": null,
+      "text": "共 4 页"
+    },
+    {
+      "id": "P011",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P012",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P013",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P014",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P015",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P016",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P017",
+      "type": "paragraph",
+      "style": null,
+      "text": "编制：胡文杰  2021-09-15"
+    },
+    {
+      "id": "P018",
+      "type": "paragraph",
+      "style": null,
+      "text": "校对：刘  杨  2021-09-16"
+    },
+    {
+      "id": "P019",
+      "type": "paragraph",
+      "style": null,
+      "text": "审核：陈云维  2021-09-17"
+    },
+    {
+      "id": "P020",
+      "type": "paragraph",
+      "style": null,
+      "text": "批准：李冀霞  2021-09-18"
+    },
+    {
+      "id": "P021",
+      "type": "paragraph",
+      "style": null,
+      "text": "\n"
+    },
+    {
+      "id": "P022",
+      "type": "paragraph",
+      "style": "a9",
+      "text": "适用范围"
+    },
+    {
+      "id": "P023",
+      "type": "paragraph",
+      "style": null,
+      "text": "本典型工艺规程适用于需硬质阳极化处理、带径向孔孔、有精密配套要求的有色金属衬套的精密加工指导，其余硬质阳极化衬套类零件可参考编制。"
+    },
+    {
+      "id": "P024",
+      "type": "paragraph",
+      "style": "a9",
+      "text": "典型零件选取及主要特征"
+    },
+    {
+      "id": "P025",
+      "type": "paragraph",
+      "style": null,
+      "text": "目前，公司有色金属硬阳化类衬套件较多，结构相似，工艺路线、工艺方法及材料基本一致，经综合分析，选取衬套2219.002F为典型零件。主要特征：材料为6061-T6，内孔A(ф12H10)、B(ф25H10)需进行硬质阳极化处理的精密件，且内孔A(ф12H10)有配套要求，带4处密封圈槽,14处径向孔。内孔A(ф12H10)交接处保持光洁锐边。零件外形结构见图一。"
+    },
+    {
+      "id": "P026",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P027",
+      "type": "paragraph",
+      "style": null,
+      "text": "图一  衬套2219.002F外形结构图"
+    },
+    {
+      "id": "P028",
+      "type": "paragraph",
+      "style": "a9",
+      "text": "典型零件工艺规程设计"
+    },
+    {
+      "id": "P029",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.1  工艺路线如下："
+    },
+    {
+      "id": "P030",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P031",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.2  工艺路线说明"
+    },
+    {
+      "id": "P032",
+      "type": "paragraph",
+      "style": null,
+      "text": "有色金属硬阳化类衬套的加工，一般分为粗加工、半精加工、精加工；工序安排为：备料→粗加工（含车工、钳工、去毛刺、清洗等）→铬酸阳极化→半精加工（含研磨、清洗等）→精加工（研磨、清洗等），在每一阶段的加工（粗加工、半精加工、精加工）完成之后都需安排一道检验工序，确保本阶段的零件加工合格再进行下一阶段的加工。"
+    },
+    {
+      "id": "P033",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.3  加工余量说明"
+    },
+    {
+      "id": "P034",
+      "type": "paragraph",
+      "style": null,
+      "text": "根据零件硬阳化内孔尺寸及硬阳化层厚度要求，对于需硬阳化且有配套要求的内孔，粗加工为半精加工留单边0.01mm～0.02mm余量，半精加工比精加工单边多加工0～0.005mm的硬阳化层厚度增长尺寸。"
+    },
+    {
+      "id": "P035",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4  其余技术要求"
+    },
+    {
+      "id": "P036",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4.1 锐边要求"
+    },
+    {
+      "id": "P037",
+      "type": "paragraph",
+      "style": null,
+      "text": "有色金属硬阳化类衬套通常要求配套内孔交接处保持光洁锐边，为保证锐边质量，需在最初锐边形成工序开始（如车内孔、钻孔等），如有锐边硬质阳极化后研孔锐边易崩块的零件，需在粗加工时用箭头注明该锐边按R0.07～R0.1控制，后序每道工序都需保证配套内孔表面保持锐边要求，并在技术要求栏注明。"
+    },
+    {
+      "id": "P038",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4.2 铬酸阳极化要求"
+    },
+    {
+      "id": "P039",
+      "type": "paragraph",
+      "style": null,
+      "text": "有色金属硬阳化类衬套需在外形尺寸形成后进行铬酸阳极化处理，目的是保护非硬质阳极化表面，为硬质阳极化处理做准备。"
+    },
+    {
+      "id": "P040",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4.3 硬质阳极化要求"
+    },
+    {
+      "id": "P041",
+      "type": "paragraph",
+      "style": null,
+      "text": "硬质阳极化在半精加工去除铬酸阳极化层后进行，硬质阳极化厚度加工尺寸一般控制为0.035mm～0.055mm，可根据设计要求厚度及工艺加工难度进行适当调整，具体可按以下计算公式进行计算调整："
+    },
+    {
+      "id": "P042",
+      "type": "paragraph",
+      "style": null,
+      "text": "计算公式：S=T/2-(DES-DEI)/2。"
+    },
+    {
+      "id": "P043",
+      "type": "paragraph",
+      "style": null,
+      "text": "注释：S—设计要求阳极化层厚度；"
+    },
+    {
+      "id": "P044",
+      "type": "paragraph",
+      "style": null,
+      "text": "T—热表分厂阳极化层最小厚度；"
+    },
+    {
+      "id": "P045",
+      "type": "paragraph",
+      "style": null,
+      "text": "DES—孔上差值（硬质阳极化后孔上差值）；"
+    },
+    {
+      "id": "P046",
+      "type": "paragraph",
+      "style": null,
+      "text": "DEI—孔下差值（硬质阳极化前孔下差值）。"
+    },
+    {
+      "id": "P047",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4.3 精加工配套孔要求"
+    },
+    {
+      "id": "P048",
+      "type": "paragraph",
+      "style": null,
+      "text": "配套孔的加工路线一般为：车—粗研（粗珩）--精研（精珩），珩磨加工可满足要求时，无需进行研磨。配套孔的精加工根据配套方式不同有以下两种安排方式："
+    },
+    {
+      "id": "P049",
+      "type": "paragraph",
+      "style": null,
+      "text": "1.基孔制，即先把配套孔加工到设计要求的最终尺寸，再根据孔的实际尺寸及间隙要求配加工活门外圆尺寸；"
+    },
+    {
+      "id": "P050",
+      "type": "paragraph",
+      "style": null,
+      "text": "2.基轴制，即先加工活门外圆，再根据外圆的实际尺寸及间隙要求配加工衬套内孔尺寸。"
+    },
+    {
+      "id": "P051",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4.4 标印"
+    },
+    {
+      "id": "P052",
+      "type": "paragraph",
+      "style": null,
+      "text": "标印配套尺寸尾数及批次号是为了记录零件的信息，方便组件的配套和选配加工，通常安排在尺寸最终加工后的检验工序，批次号可按需在机加工序标印；标印时应按设计图要求规定字深和字高等，若设计无具体要求，可根据标印位置实际情况进行标印。"
+    },
+    {
+      "id": "P053",
+      "type": "paragraph",
+      "style": "a9",
+      "text": "工序编制说明"
+    },
+    {
+      "id": "P054",
+      "type": "paragraph",
+      "style": null,
+      "text": "工艺规程的编制按Q/14DGL05.106《工艺规程的编制与审批》、69-GZ62《军品机加分厂工艺规程编制指导》，各类工序卡片填写参考05-TY8-15《典型工艺编制与应用指导书》附件1：工艺卡片填写说明。工序的填写按结构化工艺系统内工序术语库相关内容进行。"
+    }
+  ],
+  "figures": [
+    {
+      "paragraph": "P026",
+      "target": "media/image1.png"
+    },
+    {
+      "paragraph": "P030",
+      "target": "media/image2.png"
+    }
+  ],
+  "extra_parts": {}
+}

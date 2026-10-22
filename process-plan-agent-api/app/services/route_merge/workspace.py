@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
 import json
 import re
@@ -25,6 +26,7 @@ from app.services.rule_packages.lifecycle import supersede_published_rule_packag
 from app.services.route_merge.config import (
     ROUTE_MERGE_ALGO_VERSION,
 )
+from app.services.route_merge.llm_advisor import advise_merge_groups, advice_prompt_digest
 from app.services.route_merge.equipment import extract_detail_excerpt
 from app.services.route_merge.group_builder import (
     build_initial_merge_groups,
@@ -105,6 +107,7 @@ async def invalidate_project_route_merge_cache(
     project_id: int,
     *,
     document_ids: list[int] | set[int] | tuple[int, ...] | None = None,
+    delete_details: bool = True,
 ) -> dict[str, int]:
     """Invalidate only rebuildable route-merge state for one project.
 
@@ -121,7 +124,9 @@ async def invalidate_project_route_merge_cache(
         await db.delete(snapshot)
 
     detail_rows: list[DocumentOperationDetail] = []
-    if document_ids is None:
+    if not delete_details:
+        detail_rows = []
+    elif document_ids is None:
         detail_rows = (
             await db.execute(
                 select(DocumentOperationDetail).where(DocumentOperationDetail.project_id == project_id)
@@ -304,6 +309,10 @@ def build_merge_suggestions_from_groups(groups: list[dict]) -> list[dict]:
             "equipment_models": [],
             "equipment_support_result": "neutral",
             "equipment_support_reason": "",
+            "advice_source": str(group.get("advice_source") or "local_rules"),
+            "advice_action": str(group.get("advice_action") or ""),
+            "advice_confidence": group.get("advice_confidence"),
+            "advice_evidence_ids": list(group.get("advice_evidence_ids") or []),
             "suggestion_type": str(group.get("suggestion_type") or "single"),
             "recommendation_label": str(group.get("recommendation_label") or ""),
             "recommendation_reason": str(group.get("recommendation_reason") or ""),
@@ -408,7 +417,7 @@ def route_merge_source_signature(
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     return (
         f"{ROUTE_MERGE_ALGO_VERSION}|ops={len(op_keys)}|details={len(detail_keys)}|"
-        f"docs={len(document_keys)}|docsha256={document_digest}|sha256={digest}"
+        f"docs={len(document_keys)}|docsha256={document_digest}|sha256={digest}|promptsha256={advice_prompt_digest()}"
     )
 
 
@@ -473,7 +482,10 @@ async def ensure_route_merge_snapshot(
     load_superset_route: Callable[[], Awaitable[list[dict]]],
     load_detail_rows: Callable[[], Awaitable[list[DocumentOperationDetail]]],
 ) -> dict[str, object]:
-    async def _load_snapshot_payload() -> tuple[dict[str, object] | None, bool, bool]:
+    previous_payload: dict | None = None
+
+    async def _load_snapshot_payload() -> tuple[dict | None, bool, bool]:
+        nonlocal previous_payload
         latest = await get_latest_route_merge_snapshot(project_id, db)
         if not latest:
             return None, False, False
@@ -487,63 +499,122 @@ async def ensure_route_merge_snapshot(
                 "source_signature": latest.source_signature or "",
                 "review_state": json.loads(latest.review_state_json or "{}"),
             }
-            source_signature = str(payload.get("source_signature") or "")
-            if not source_signature.startswith(f"{ROUTE_MERGE_ALGO_VERSION}|"):
-                return None, True, False
+            previous_payload = payload
+            source_signature = str(payload["source_signature"])
+            # Check document identity before algorithm identity: a simultaneous
+            # document and algorithm change must invalidate source-derived data.
             document_digest_match = re.search(r"(?:^|\|)docsha256=([0-9a-f]{64})(?:\||$)", source_signature)
-            if not document_digest_match:
-                return None, True, False
             current_document_keys = await _project_document_source_keys(project_id, db)
-            if document_digest_match.group(1) != _document_source_digest(current_document_keys):
+            if document_digest_match and document_digest_match.group(1) != _document_source_digest(current_document_keys):
+                previous_payload = None
                 return None, True, True
-            detail_count = int(
-                (
-                    await db.execute(
-                        select(func.count())
-                        .select_from(DocumentOperationDetail)
-                        .where(DocumentOperationDetail.project_id == project_id)
-                    )
-                ).scalar_one()
-                or 0
+            legacy_domain = (
+                json.loads(latest.knowledge_package_json or "null") is not None
+                or any(group.get("domain_evidence") for group in payload["merge_groups"])
             )
+            if (not document_digest_match or not source_signature.startswith(f"{ROUTE_MERGE_ALGO_VERSION}|")
+                    or f"|promptsha256={advice_prompt_digest()}" not in source_signature
+                    or legacy_domain and any(group.get("domain_evidence") for group in payload["merge_groups"])):
+                return None, True, False
+            detail_count = int((await db.execute(
+                select(func.count()).select_from(DocumentOperationDetail)
+                .where(DocumentOperationDetail.project_id == project_id)
+            )).scalar_one() or 0)
             has_detail_evidence = any(
                 group.get("matched_detail_rows") or group.get("evidence_excerpt")
-                for group in payload.get("merge_groups") or []
+                for group in payload["merge_groups"]
             )
-            if detail_count > 0 or not payload.get("merge_groups") or has_detail_evidence:
+            if detail_count > 0 or not payload["merge_groups"] or has_detail_evidence or not current_document_keys:
                 return payload, False, False
-        except Exception:
-            return None, False, False
+        except (ValueError, TypeError, AttributeError):
+            previous_payload = None
         return None, False, False
 
     cached, _, _ = await _load_snapshot_payload()
     if cached:
         return cached
-
-    lock = get_route_merge_project_lock(project_id)
-    async with lock:
+    async with get_route_merge_project_lock(project_id):
         cached, cache_stale, document_source_changed = await _load_snapshot_payload()
         if cached:
             return cached
-
         if cache_stale:
             if document_source_changed:
                 await invalidate_project_document_derived_state(db, project_id)
-            else:
-                await invalidate_project_route_merge_cache(db, project_id)
+            # Algorithm/prompt upgrades overwrite the snapshot in place and
+            # retain parsed evidence plus legacy metadata.
 
         raw_operations = await load_superset_route()
         detail_rows = await load_detail_rows()
         document_source_keys = await _project_document_source_keys(project_id, db)
-        payload = build_route_merge_snapshot_payload(
-            project_id,
-            raw_operations,
-            detail_rows,
-            document_source_keys,
-        )
-        await save_route_merge_snapshot(project_id, db, payload, review_state={})
+        payload = build_route_merge_snapshot_payload(project_id, raw_operations, detail_rows, document_source_keys)
+        review_state = {}
+        if previous_payload and _same_superset_route_sources(previous_payload.get("superset_route"), raw_operations):
+            review_state = copy.deepcopy(previous_payload.get("review_state") or {})
+            payload["merge_groups"] = _restore_reviewed_groups(
+                payload["merge_groups"], previous_payload, raw_operations, detail_rows,
+            )
+        groups, _ = await advise_merge_groups(payload["merge_groups"])
+        payload["merge_groups"] = groups
+        payload["merge_suggestions"] = build_merge_suggestions_from_groups(groups)
+        payload["normalized_superset_route"] = build_normalized_route_from_groups(groups)
+        if review_state.get("_manual_normalized_route_saved"):
+            payload["normalized_superset_route"] = copy.deepcopy(previous_payload["normalized_superset_route"])
+        await save_route_merge_snapshot(project_id, db, payload, review_state=review_state)
         await db.commit()
         return payload
+
+
+def _restore_reviewed_groups(groups: list[dict], previous: dict, operations: list[dict], details: list) -> list[dict]:
+    """Keep human decisions even when a rule's group IDs/membership change."""
+    state = previous.get("review_state") or {}
+    rejected_ids = set()
+    legacy_rejection = False
+    for key, entry in state.items():
+        if isinstance(entry, dict) and entry.get("action") == "reject":
+            rejected_ids.update(entry.get("source_operation_ids") or [])
+            matching = next((g for g in groups if f"suggestion-{g['id']}" == key), None)
+            if matching:
+                rejected_ids.update(matching.get("source_operation_ids") or [])
+            elif not entry.get("source_operation_ids"):
+                legacy_rejection = True
+    protected = []
+    for group in previous.get("merge_groups") or []:
+        ids = set(group.get("source_operation_ids") or [])
+        if (group.get("review_status") in {"merged", "conflict"}
+                or group.get("source_type") == "manual_adjusted"
+                or f"suggestion-{group['id']}" in state
+                or group.get("source_type") == "split_from_reject" and (ids & rejected_ids or legacy_rejection)):
+            restored = copy.deepcopy(group)
+            restored.pop("domain_evidence", None)
+            protected.append(restored)
+    claimed = {item for group in protected for item in group.get("source_operation_ids") or []}
+    operations_by_id = {op['id']: op for op in operations}
+    remaining = []
+    for group in groups:
+        ids = set(group.get("source_operation_ids") or [])
+        if not ids & claimed:
+            remaining.append(group)
+        else:
+            remaining.extend(build_source_group_from_operation(operations_by_id[item], details) for item in sorted(ids - claimed))
+    return sorted([*protected, *remaining], key=lambda group: (group.get("sequence") or 0, str(group['id'])))
+
+
+def _same_superset_route_sources(previous: object, current: object) -> bool:
+    """Compare source operation identity while tolerating rebuilt display order."""
+    if not isinstance(previous, list) or not isinstance(current, list) or len(previous) != len(current):
+        return False
+    previous_ids = [item.get("id") for item in previous if isinstance(item, dict)]
+    current_ids = [item.get("id") for item in current if isinstance(item, dict)]
+    if len(previous_ids) != len(previous) or len(current_ids) != len(current):
+        return previous == current
+    if any(item is None for item in previous_ids + current_ids):
+        return previous == current
+    if len(set(previous_ids)) != len(previous_ids) or set(previous_ids) != set(current_ids):
+        return False
+    def identities(items: list[dict]) -> dict:
+        return {item['id']: (item.get('name'), item.get('source')) for item in items}
+    return identities(previous) == identities(current)
+
 
 async def persist_normalized_superset_route(
     *,

@@ -118,6 +118,9 @@ async def run_extraction_pipeline(
                 project_id,
                 preserve_document_details=not force_reextract,
             )
+            # Cleanup flushes DELETEs. Release SQLite's writer before parsing
+            # documents or waiting on external services.
+            await db.commit()
 
             config = await get_llm_config()
             api_key = config["key"]

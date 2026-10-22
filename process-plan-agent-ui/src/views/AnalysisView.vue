@@ -47,19 +47,6 @@
       <button class="btn btn-primary" @click="goBackToExtract">返回并保存路线</button>
     </div>
 
-    <div v-else-if="templateMappingMissing" class="analysis-empty analysis-empty-warning">
-      <div class="empty-mark empty-mark--warning">!</div>
-      <div class="empty-title">尚未完成分组模板映射</div>
-      <div class="empty-text">
-        第三步“规则分析”与后续规则包定稿发布均强依赖工序分组模板。请先返回第二步完成工序与模板分组的映射后再进行分析。
-      </div>
-      <div class="analysis-empty-actions" style="margin-top: 16px;">
-        <button class="btn btn-primary" @click="goBackToExtractForTemplateMapping">
-          前往第二步完成映射
-        </button>
-      </div>
-    </div>
-
     <template v-else-if="savedRoute">
       <div v-if="error" class="analysis-inline-error" role="alert">
         <span>{{ error }}</span>
@@ -237,68 +224,54 @@
     <WorkflowNavFooter
       :summary="analysisNavSummary"
       previous-label="← 返回路线归并"
-      next-label="进入规则定稿 →"
+      next-label="进入模板分组映射 →"
       :previous-disabled="!projectId"
-      :next-disabled="!projectId"
+      :next-disabled="!projectId || !savedRoute || loading"
       @previous="goBackToExtract"
       @next="goToFinalize"
     />
 
     <WorkflowResetDialog
       v-model="resetDialogVisible"
-      title="重新回答第三步全部问题？"
-      description="标准路线不会改变，系统会清除当前问题回答及其下游规则结果。"
-      :keep-items="['第二步已保存的标准路线', '上传文件和工序明细']"
-      :clear-items="['第三步全部问答与因素审核', '第四步条件审核和当前规则包', '第五步已生成路线']"
-      confirm-label="重新回答全部"
-      busy-label="正在清理..."
+      :title="thirdStepResetCopy.title"
+      :description="thirdStepResetCopy.description"
+      :keep-items="thirdStepResetCopy.keepItems"
+      :clear-items="thirdStepResetCopy.clearItems"
+      :confirm-label="thirdStepResetCopy.confirmLabel"
+      :busy-label="thirdStepResetCopy.busyLabel"
       :busy="resettingWorkflow"
       @confirm="confirmResetAllAnswers"
     />
 
-    <TemplateMappingRequiredDialog
-      v-model="templateMappingRequiredDialogVisible"
-      title="请先完成分组模板映射"
-      description="当前任务尚未完成工序分组模板映射。第三步“规则分析”以及后续规则包定稿发布均依赖模板映射关系，必须先在第二步完成工序映射后方可继续。"
-      confirm-label="前往第二步完成映射"
-      cancel-label="留在本页"
-      @confirm="goBackToExtractForTemplateMapping"
-    />
+
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onActivated, onDeactivated, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, defineAsyncComponent, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import AnalysisRouteList from '@/components/analysis/AnalysisRouteList.vue'
 import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
 import WorkflowResetDialog from '@/components/workflow/WorkflowResetDialog.vue'
-import TemplateMappingRequiredDialog from '@/components/workflow/TemplateMappingRequiredDialog.vue'
-import { checkProjectGroupTemplateReady } from '@/composables/projectGroupTemplateCheck'
 import { buildProjectRouteQuery } from '@/composables/useCurrentProject'
 import { useAnalysisWorkspace } from '@/composables/useAnalysisWorkspace'
 import { useRouteSegmentSteps } from '@/composables/useRouteSegmentSteps'
 import { formatRoutePhaseLabel } from '@/composables/routeNameDisplay'
 import { startRulePreprocessingForSavedRoute } from '@/composables/rulePreprocessingTrigger'
+import { thirdStepResetCopy } from '@/composables/workflowResetCopy'
 
 const EvidenceExcerptPanel = defineAsyncComponent(() => import('@/components/analysis/EvidenceExcerptPanel.vue'))
 const EvidenceRowsPanel = defineAsyncComponent(() => import('@/components/analysis/EvidenceRowsPanel.vue'))
 const QuestionTreePanel = defineAsyncComponent(() => import('@/components/analysis/QuestionTreePanel.vue'))
 const SampleComparePanel = defineAsyncComponent(() => import('@/components/analysis/SampleComparePanel.vue'))
 
-const route = useRoute()
 const router = useRouter()
-const isViewActive = ref(false)
 
 type SegmentFilter = 'all' | 'pending' | 'started' | 'completed'
 
 const segmentSearch = ref('')
 const segmentFilter = ref<SegmentFilter>('pending')
 const resetDialogVisible = ref(false)
-const templateMappingMissing = ref(false)
-const templateMappingRequiredDialogVisible = ref(false)
-const checkingTemplateMapping = ref(false)
-
 
 const {
   loading,
@@ -425,65 +398,6 @@ function segmentPhaseLabel(segment: any) {
   return formatRoutePhaseLabel(segment?.phase)
 }
 
-function isAnalysisActive() {
-  return isViewActive.value && route.path.startsWith('/analysis')
-}
-
-async function verifyTemplateMapping() {
-  if (!isAnalysisActive()) return
-  const currentProjectId = Number(projectId.value || 0)
-  if (!currentProjectId) return
-  checkingTemplateMapping.value = true
-  try {
-    const result = await checkProjectGroupTemplateReady(currentProjectId)
-    if (!isAnalysisActive()) return
-    templateMappingMissing.value = !result.ready
-    if (!result.ready) {
-      templateMappingRequiredDialogVisible.value = true
-    }
-  } catch (err) {
-    console.warn('校验分组模板映射失败:', err)
-  } finally {
-    checkingTemplateMapping.value = false
-  }
-}
-
-watch([projectId, savedRoute], ([pid, routeData]) => {
-  if (pid && routeData && isAnalysisActive()) {
-    void verifyTemplateMapping()
-  }
-})
-
-onMounted(() => {
-  isViewActive.value = Boolean(route.path?.startsWith('/analysis'))
-})
-
-onActivated(() => {
-  isViewActive.value = true
-  if (projectId.value && savedRoute.value && route.path.startsWith('/analysis')) {
-    void verifyTemplateMapping()
-  }
-})
-
-onDeactivated(() => {
-  isViewActive.value = false
-  templateMappingRequiredDialogVisible.value = false
-})
-
-function goBackToExtractForTemplateMapping() {
-  templateMappingRequiredDialogVisible.value = false
-  router.push({
-    path: '/extract',
-    query: buildProjectRouteQuery(projectId.value, {
-      resume: 'route_merge',
-      from: 'analysis',
-      open_template_mapping: '1',
-    }),
-  })
-}
-
-
-
 function goToFinalize() {
   void startRulePreprocessingForSavedRoute({
     projectId: projectId.value,
@@ -494,7 +408,7 @@ function goToFinalize() {
     console.warn('进入第4步前启动规则预处理失败', error)
   })
   router.push({
-    path: '/finalize',
+    path: '/template-mapping',
     query: buildProjectRouteQuery(projectId.value),
   })
 }

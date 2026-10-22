@@ -26,6 +26,14 @@ async def ensure_project_schema(conn):
             return True
         return False
 
+    for name, ddl in (
+        ('domain_knowledge_package_id', 'VARCHAR(100)'), ('domain_knowledge_package_version', 'INTEGER'),
+        ('domain_part_family', 'VARCHAR(255)'), ('domain_material', 'VARCHAR(255)'), ('domain_stage', 'VARCHAR(255)'),
+        ('domain_analysis_stale', 'BOOLEAN NOT NULL DEFAULT 0'),
+    ):
+        await ensure_column('projects', name, f'{name} {ddl}')
+    await ensure_column('route_merge_snapshots', 'knowledge_package_json', 'knowledge_package_json TEXT')
+
     await ensure_column("documents", "project_id", "project_id INTEGER")
     await ensure_column("references", "project_id", "project_id INTEGER")
     await ensure_column("operations", "project_id", "project_id INTEGER")
@@ -34,6 +42,7 @@ async def ensure_project_schema(conn):
     await ensure_column("document_operation_details", "equipment_models", "equipment_models TEXT")
     await ensure_column("generated_routes", "project_id", "project_id INTEGER")
     await ensure_column("normalized_route_segment_rule_reviews", "question_trail_json", "question_trail_json TEXT")
+    await ensure_column("normalized_route_segment_rule_reviews", "analysis_draft_json", "analysis_draft_json TEXT")
     await ensure_column("normalized_route_segment_rule_reviews", "condition_source_text", "condition_source_text TEXT")
     await ensure_column("normalized_route_segment_rule_reviews", "condition_source_hash", "condition_source_hash VARCHAR(64)")
     await ensure_column("normalized_route_segment_rule_reviews", "condition_status", "condition_status VARCHAR(30) DEFAULT 'draft'")
@@ -46,7 +55,36 @@ async def ensure_project_schema(conn):
     await ensure_column("normalized_route_segment_rule_reviews", "condition_parse_duration_ms", "condition_parse_duration_ms INTEGER")
     await ensure_column("normalized_route_segment_rule_reviews", "condition_confirmed_by", "condition_confirmed_by VARCHAR(100)")
     await ensure_column("normalized_route_segment_rule_reviews", "condition_confirmed_at", "condition_confirmed_at DATETIME")
+    await ensure_column("normalized_route_segment_rule_reviews", "condition_knowledge_suggestion_id", "condition_knowledge_suggestion_id INTEGER")
     await ensure_column("projects", "workflow_revision", "workflow_revision INTEGER NOT NULL DEFAULT 0")
+    await ensure_column("knowledge_evidence_snapshots", "route_version_id", "route_version_id INTEGER")
+    await ensure_column("knowledge_evidence_snapshots", "segment_id", "segment_id VARCHAR(255)")
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS knowledge_rule_suggestions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            route_version_id INTEGER,
+            segment_id VARCHAR(255) NOT NULL,
+            title VARCHAR(255) NOT NULL DEFAULT '企业知识规则建议',
+            suggestion_text TEXT NOT NULL,
+            candidate_json TEXT,
+            evidence_ids_json TEXT NOT NULL DEFAULT '[]',
+            status VARCHAR(30) NOT NULL DEFAULT 'draft',
+            created_by VARCHAR(100) NOT NULL DEFAULT '默认用户',
+            updated_by VARCHAR(100) NOT NULL DEFAULT '默认用户',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY(route_version_id) REFERENCES normalized_route_versions(id) ON DELETE SET NULL
+        )
+    """))
+    for name in ('domain_evidence_refs_json', 'domain_package_ref_json', 'sample_detail_ids_json'):
+        await ensure_column('knowledge_rule_suggestions', name, f'{name} TEXT')
+    await ensure_column('normalized_route_versions', 'knowledge_package_json', 'knowledge_package_json TEXT')
+    await conn.execute(text("""
+        CREATE INDEX IF NOT EXISTS idx_knowledge_rule_suggestions_scope
+        ON knowledge_rule_suggestions(project_id, route_version_id, segment_id, status)
+    """))
     await conn.execute(text("""
         CREATE TABLE IF NOT EXISTS project_group_templates (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -261,6 +299,8 @@ async def ensure_project_schema(conn):
     )
     await ensure_column("finalized_rule_packages", "manifest_json", "manifest_json TEXT")
     await ensure_column("finalized_rule_packages", "factor_dictionary_json", "factor_dictionary_json TEXT")
+    await ensure_column("finalized_rule_packages", "demo_tables_json", "demo_tables_json TEXT")
+    await ensure_column("finalized_rule_packages", "export_sources_json", "export_sources_json TEXT")
     await ensure_column("finalized_rule_packages", "test_cases_json", "test_cases_json TEXT")
     await ensure_column("finalized_rule_packages", "content_hash", "content_hash VARCHAR(64)")
     await ensure_column("finalized_rule_packages", "published_by", "published_by VARCHAR(100)")

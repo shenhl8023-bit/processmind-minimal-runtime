@@ -1,3 +1,6 @@
+import httpx
+import pytest
+
 from app.services import llm_client
 
 
@@ -23,3 +26,96 @@ def test_request_specific_limits_override_general_defaults(monkeypatch):
 
     assert llm_client.llm_request_timeout_seconds(45) == 45.0
     assert llm_client.llm_max_retries(1) == 1
+
+
+@pytest.mark.asyncio
+async def test_request_llm_completion_retries_transient_503(monkeypatch):
+    attempts = 0
+
+    class FakeResponse:
+        def __init__(self, status_code):
+            self.status_code = status_code
+            self.request = httpx.Request("POST", "https://example.test/v1/chat/completions")
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise httpx.HTTPStatusError("temporary outage", request=self.request, response=self)
+
+        def json(self):
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def post(self, *_args, **_kwargs):
+            nonlocal attempts
+            attempts += 1
+            return FakeResponse(503 if attempts < 3 else 200)
+
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda **_kwargs: FakeClient())
+    monkeypatch.setattr(llm_client.asyncio, "sleep", lambda _seconds: _completed())
+
+    result = await llm_client.request_llm_completion(
+        {"url": "https://example.test/v1", "key": "secret", "model": "demo"},
+        "system",
+        "user",
+    )
+
+    assert result == "ok"
+    assert attempts == 3
+
+
+async def _completed():
+    return None
+
+
+@pytest.mark.asyncio
+async def test_responses_endpoint_accepts_a_non_streaming_json_response(monkeypatch):
+    """Some OpenAI-compatible Responses endpoints ignore stream=true and return JSON."""
+
+    payload = {
+        "output": [
+            {
+                "type": "message",
+                "content": [{"type": "output_text", "text": "pong"}],
+            }
+        ]
+    }
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def aiter_lines(self):
+            yield __import__("json").dumps(payload)
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        def stream(self, *_args, **_kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda **_kwargs: FakeClient())
+
+    result = await llm_client.request_llm_completion(
+        {"url": "https://example.test/v1/responses", "key": "secret", "model": "demo"},
+        "system",
+        "user",
+        max_retries=0,
+    )
+
+    assert result == "pong"

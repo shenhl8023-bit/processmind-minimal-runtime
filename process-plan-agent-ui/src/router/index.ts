@@ -3,14 +3,17 @@ import { createRouter, createWebHistory } from 'vue-router'
 const loadUploadView = () => import('@/views/UploadView.vue')
 const loadExtractView = () => import('@/views/ExtractView.vue')
 const loadAnalysisView = () => import('@/views/AnalysisView.vue')
+const loadTemplateMappingView = () => import('@/views/TemplateMappingView.vue')
 const loadFinalizeView = () => import('@/views/FinalizeView.vue')
 const loadGenerateView = () => import('@/views/GenerateView.vue')
 const loadSettingsView = () => import('@/views/SettingsView.vue')
+const loadKnowledgeView = () => import('@/views/KnowledgeView.vue')
 
 export const workflowRouteLoaders = [
   loadUploadView,
   loadExtractView,
   loadAnalysisView,
+  loadTemplateMappingView,
   loadFinalizeView,
   loadGenerateView,
 ]
@@ -38,6 +41,7 @@ const router = createRouter({
       name: 'analysis',
       component: loadAnalysisView
     },
+    { path: '/template-mapping', name: 'template-mapping', component: loadTemplateMappingView },
     {
       path: '/finalize',
       name: 'finalize',
@@ -52,7 +56,16 @@ const router = createRouter({
       path: '/settings',
       name: 'settings',
       component: loadSettingsView
-    }
+    },
+    {
+      path: '/knowledge',
+      name: 'knowledge',
+      component: loadKnowledgeView
+    },
+    {
+      path: '/:pathMatch(.*)*',
+      redirect: '/upload'
+    },
   ]
 })
 

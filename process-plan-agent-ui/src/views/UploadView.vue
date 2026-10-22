@@ -12,7 +12,7 @@
       @remove="removeProject"
     />
 
-    <div v-if="selectedProjectId" class="content-grid">
+    <div v-if="selectedProjectId" :class="['content-grid', { 'content-grid--main-only': !showReferencePanel }]">
       <UploadMainFileCard
         :title="currentMainTitle"
         :desc="currentMainDesc"
@@ -25,6 +25,7 @@
       />
 
       <UploadReferenceCard
+        v-if="showReferencePanel"
         :title="currentRefTitle"
         :desc="currentRefDesc"
         :files="refFiles"
@@ -182,6 +183,7 @@ const lastCreateProjectAt = ref(0)
 const uploading = ref(false)
 const uploadingRef = ref(false)
 const deletingProject = ref(false)
+const showReferencePanel = false
 
 const projects = ref<any[]>([])
 const selectedProjectId = ref('')
@@ -450,6 +452,10 @@ const goNext = async () => {
   gap: 12px;
   margin-bottom: 0;
   overflow: hidden;
+}
+
+.content-grid--main-only {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .btn-with-svg {

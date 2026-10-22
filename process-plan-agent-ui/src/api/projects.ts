@@ -6,7 +6,6 @@ import {
   getWorkflowDataRevision,
   setWorkflowDataCache,
 } from '@/composables/workflowDataCache'
-
 const PROJECT_LIST_CACHE_KEY = 'api:projects:list'
 
 export interface Project {

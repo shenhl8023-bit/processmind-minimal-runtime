@@ -3,12 +3,16 @@ from typing import List
 import httpx
 
 from app.schemas.schemas import SettingOut, SettingUpdate, LLMTestRequest, LLMTestOut, LLMModelOut
-from app.services.llm_client import normalize_llm_api_url
+from app.services.llm_client import (
+    normalize_llm_api_url,
+    request_llm_completion,
+)
 from app.services.settings_store import (
     SettingsStoreError,
     load_settings_for_output,
     serialize_setting_for_output,
     update_setting_value,
+    clear_setting_value,
     get_llm_settings_map,
 )
 
@@ -47,7 +51,7 @@ async def test_llm_connection(payload: LLMTestRequest):
     """
     api_url = normalize_llm_api_url(payload.api_url)
     api_key = payload.api_key
-    model = payload.model
+    model = (payload.model or "").strip()
 
     if api_key == "__use_saved__":
         try:
@@ -58,33 +62,25 @@ async def test_llm_connection(payload: LLMTestRequest):
     if not api_url or not api_key:
         raise HTTPException(status_code=400, detail="API URL 和 API Key 不能为空")
 
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-
-    # 构建一个简单的测试请求
-    test_payload = {
-        "model": model or "gpt-3.5-turbo",
-        "messages": [{"role": "user", "content": "Hi"}],
-        "max_tokens": 5,
-    }
-
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            # 判断是否是 Responses API
-            if api_url.rstrip("/").endswith("/responses"):
-                test_payload = {
-                    "model": model or "gpt-4o-mini",
-                    "input": [{"role": "user", "content": [{"type": "input_text", "text": "Hi"}]}],
-                    "max_output_tokens": 5,
-                }
-                resp = await client.post(api_url, headers=headers, json=test_payload)
-            else:
-                resp = await client.post(api_url, headers=headers, json=test_payload)
-
-            resp.raise_for_status()
-            return LLMTestOut(success=True, message="连接成功，模型可用")
+        response_text = await request_llm_completion(
+            {
+                "url": api_url,
+                "key": api_key,
+                "model": model or ("gpt-4o-mini" if api_url.rstrip("/").endswith("/responses") else "gpt-3.5-turbo"),
+            },
+            "You are testing an LLM connection. Reply with a short confirmation.",
+            "Reply with pong.",
+            temperature=0,
+            timeout_seconds=30,
+            max_tokens=16,
+        )
+        # A 2xx response without usable text is not a valid model connection.
+        # Providers occasionally return an empty stream while still reporting success.
+        # Keep this check here so the UI does not claim a false positive.
+        if not response_text.strip():
+            return LLMTestOut(success=False, message="模型未返回有效内容，请检查模型名称和接口配置。")
+        return LLMTestOut(success=True, message="连接成功，模型可用")
     except httpx.HTTPStatusError as e:
         status = e.response.status_code
         if status == 401:
@@ -95,14 +91,33 @@ async def test_llm_connection(payload: LLMTestRequest):
             return LLMTestOut(success=False, message="接口地址错误或模型不存在")
         elif status == 429:
             return LLMTestOut(success=False, message="请求过于频繁，请稍后重试")
+        elif status in (500, 502, 503, 504):
+            return LLMTestOut(success=False, message="模型服务暂时不可用，请稍后重试。")
         else:
-            return LLMTestOut(success=False, message=f"HTTP {status}: {str(e)}")
+            return LLMTestOut(success=False, message=f"模型服务返回 HTTP {status}，请检查接口配置。")
     except httpx.ConnectError:
         return LLMTestOut(success=False, message="无法连接到 API 服务器，请检查网络或地址")
     except httpx.TimeoutException:
         return LLMTestOut(success=False, message="连接超时，请检查网络或稍后重试")
-    except Exception as e:
-        return LLMTestOut(success=False, message=f"测试失败：{str(e)}")
+    except httpx.HTTPError:
+        return LLMTestOut(success=False, message="无法完成模型请求，请检查网络或接口地址。")
+    except (KeyError, TypeError, ValueError):
+        return LLMTestOut(success=False, message="模型响应格式无效，请检查接口是否兼容 OpenAI 协议。")
+    except Exception:
+        return LLMTestOut(success=False, message="测试模型调用失败，请检查配置后重试。")
+
+
+@router.delete("/{key}", response_model=SettingOut)
+async def clear_setting(key: str):
+    """Explicitly clear a setting; used for secret values such as API keys."""
+    if key not in {"LLM_API_KEY", "KNOWLEDGE_SEARCH_API_KEY"}:
+        raise HTTPException(status_code=400, detail="只有密钥设置支持清空操作")
+    try:
+        return serialize_setting_for_output(clear_setting_value(key))
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Setting {key} not found")
+    except SettingsStoreError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get("/models", response_model=List[LLMModelOut])

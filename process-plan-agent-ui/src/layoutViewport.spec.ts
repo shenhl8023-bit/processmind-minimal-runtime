@@ -3,6 +3,7 @@ import appSource from './App.vue?raw'
 import analysisSource from './views/AnalysisView.vue?raw'
 import extractSource from './views/ExtractView.vue?raw'
 import finalizeSource from './views/FinalizeView.vue?raw'
+import finalizePrecheckSource from './components/finalize/FinalizePublishPrecheckDialog.vue?raw'
 import generateSource from './views/GenerateView.vue?raw'
 import uploadSource from './views/UploadView.vue?raw'
 
@@ -40,9 +41,22 @@ describe('workflow viewport layout', () => {
 
   it('keeps finalize publication status explicit and clears stale precheck results', () => {
     expect(finalizeSource).toContain('ash-publish-state')
-    expect(finalizeSource).toContain('发布阻塞')
-    expect(finalizeSource).toContain('规则包暂不可发布')
+    expect(finalizeSource).toContain('FinalizePublishPrecheckDialog')
+    expect(finalizePrecheckSource).toContain('规则包暂不可发布')
+    expect(finalizePrecheckSource).toContain('修复映射')
+    expect(finalizeSource).toContain('function openPrecheckDialog()')
+    expect(finalizeSource).toContain('openFinalizePrecheckDialog(showPrecheckDialog)')
+    expect(finalizeSource).toContain('发布预检有 ${precheckBlockerCount.value} 项待修复')
     expect(finalizeSource).toContain('empty-mark--success')
     expect(finalizeSource).toMatch(/precheckResult\.value\s*=\s*null/)
+  })
+
+  it('shows only actionable precheck status and keeps the resolved-filter empty state compact', () => {
+    expect(finalizeSource).toMatch(/v-if="precheckResult && !precheckResult\.ok && canOpenPrecheck"\s+type="button"\s+class="ash-publish-state ash-publish-state--blocked ash-publish-state--clickable"/s)
+    expect(finalizeSource).toContain('暂无待处理工序')
+    expect(finalizeSource).toContain('查看全部规则')
+    expect(finalizeSource).not.toContain('当前规则已全部确认')
+    expect(finalizeSource).not.toContain('可以发布规则包，或切换查看全部规则。')
+    expect(finalizeSource).not.toContain('publishStatusLabel')
   })
 })

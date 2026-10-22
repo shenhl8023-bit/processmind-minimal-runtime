@@ -56,7 +56,7 @@ class RuleConditionCandidate(StrictModel):
         return self
 
 
-class SaveRuleConditionDraftRequest(StrictModel):
+class RuleConditionSourceRequest(StrictModel):
     project_id: int = Field(gt=0)
     route_id: int = Field(gt=0)
     expected_workflow_revision: int = Field(default=0, ge=0)
@@ -64,20 +64,24 @@ class SaveRuleConditionDraftRequest(StrictModel):
     source_text: str = ""
 
 
-class ParseRuleConditionRequest(SaveRuleConditionDraftRequest):
+class SaveRuleConditionDraftRequest(RuleConditionSourceRequest):
+    knowledge_suggestion_id: int | None = Field(default=None, gt=0)
+
+
+class ParseRuleConditionRequest(RuleConditionSourceRequest):
     process_id: str = Field(min_length=1)
     process_name: str = Field(min_length=1)
     processes: list[RuleConditionProcessOption]
 
 
-class ConfirmRuleConditionRequest(SaveRuleConditionDraftRequest):
+class ConfirmRuleConditionRequest(RuleConditionSourceRequest):
     source_hash: str = Field(min_length=64, max_length=64)
     candidate: RuleConditionCandidate
     processes: list[RuleConditionProcessOption]
     confirmed_by: str = "默认用户"
 
 
-class ManualRuleConditionRequest(SaveRuleConditionDraftRequest):
+class ManualRuleConditionRequest(RuleConditionSourceRequest):
     process_id: str = Field(min_length=1)
     candidate: RuleConditionCandidate
     processes: list[RuleConditionProcessOption]
@@ -97,6 +101,7 @@ class RuleConditionReview(StrictModel):
     parse_duration_ms: int | None = None
     confirmed_by: str = ""
     confirmed_at: str = ""
+    knowledge_suggestion_id: int | None = Field(default=None, gt=0)
 
 
 class RuleConditionReviewResponse(StrictModel):

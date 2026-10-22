@@ -98,7 +98,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { listSettings, updateSetting } from '@/api'
+import { listSettings, updateSetting, clearSetting, testLLMConnection } from '@/api'
 
 interface SettingsForm {
   LLM_API_URL: string
@@ -163,7 +163,7 @@ async function clearApiKey() {
   saving.value = true
   saveStatus.value = null
   try {
-    await updateSetting('LLM_API_KEY', '')
+    await clearSetting('LLM_API_KEY')
     form.value.LLM_API_KEY = ''
     hasStoredKey.value = false
     saveStatus.value = { type: 'success', msg: 'API Key 已清空。' }
@@ -179,13 +179,16 @@ async function testConnection() {
   testing.value = true
   saveStatus.value = null
   try {
-    // 这里我们可以调用一个简单的接口来测试 LLM 连接
-    // 目前暂用后端 status 接口检查是否有 key，
-    // 后续可以增加一个专门的 LLM echo 测试接口
-    await listSettings()
-    saveStatus.value = { type: 'success', msg: '后端 API 通讯正常。' }
+    const apiKey = form.value.LLM_API_KEY.trim() || (hasStoredKey.value ? '__use_saved__' : '')
+    const result = await testLLMConnection({
+      api_url: form.value.LLM_API_URL.trim(),
+      api_key: apiKey,
+      model: form.value.LLM_MODEL.trim(),
+    })
+    saveStatus.value = { type: result.success ? 'success' : 'error', msg: result.message }
   } catch (e) {
-    saveStatus.value = { type: 'error', msg: '通讯失败，请检查后端是否在线。' }
+    const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+    saveStatus.value = { type: 'error', msg: detail || '模型测试请求失败，请检查后端服务。' }
   } finally {
     testing.value = false
   }

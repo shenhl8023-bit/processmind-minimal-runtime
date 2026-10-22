@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import asyncio
+import hashlib
 from pathlib import Path
 from typing import Any, Callable
 
@@ -228,14 +229,24 @@ def test_generate_uses_published_v2_plan_route(generation_context):
     assert asyncio.run(_generation_state(session_factory, project_id)) == ("GENERATED", 1)
 
 
-def test_generate_serializes_project_template_output(generation_context):
+@pytest.mark.parametrize("snapshot_state", ["published", "legacy", "tampered"])
+def test_generate_keeps_template_output_bound_to_published_snapshot(generation_context, snapshot_state):
     client, session_factory = generation_context
     project_id, _ = asyncio.run(_seed_published_v2(session_factory, "v2-template-output"))
     full_route_structure = [{
-        "process_name": "车削加工",
+        "process_name": "粗加工",
         "process_type": "加工工序",
-        "precision": "精加工",
-        "technical_requirements": [],
+        "precision": "粗加工",
+        "steps": [{
+            "step_name": "粗车",
+            "candidates": {"A侧/外圆": ["外圆柱面"]},
+            "step_id": "rough.turn",
+        }],
+        "process_id": "process_rough_machine",
+    }]
+    live_route_structure = [{
+        **full_route_structure[0],
+        "process_name": "尚未发布的新名称",
         "steps": [],
     }]
 
@@ -253,11 +264,26 @@ def test_generate_serializes_project_template_output(generation_context):
                 validation_json="[]",
                 mappings_json="[]",
                 step_mappings_json="[]",
-                mapping_output_json=json.dumps(full_route_structure, ensure_ascii=False),
+                mapping_output_json=json.dumps(live_route_structure, ensure_ascii=False),
                 template_revision=1,
                 group_count=0,
                 feature_selection_count=0,
             ))
+            if snapshot_state != "legacy":
+                tables = {
+                    "factor_table": [],
+                    "full_route_table": full_route_structure,
+                    "rule_table": [{"target": "process_rough_machine", "required": True}],
+                }
+                canonical = json.dumps(tables, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                snapshot_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+                row = (await db.execute(
+                    select(FinalizedRulePackage).where(FinalizedRulePackage.project_id == project_id)
+                )).scalar_one()
+                row.demo_tables_json = json.dumps(tables, ensure_ascii=False)
+                row.export_sources_json = json.dumps({
+                    "demo_tables_hash": snapshot_hash if snapshot_state == "published" else "corrupted",
+                })
             await db.commit()
 
     asyncio.run(seed_template())
@@ -274,8 +300,15 @@ def test_generate_serializes_project_template_output(generation_context):
         },
     )
 
+    if snapshot_state == "tampered":
+        assert response.status_code == 409, response.text
+        assert "三文件快照" in response.json()["detail"]
+        _assert_generation_not_persisted(session_factory, project_id)
+        return
     assert response.status_code == 200, response.text
-    assert response.json()["full_route_structure"] == full_route_structure
+    expected_structure = full_route_structure if snapshot_state == "published" else []
+    assert response.json()["full_route_structure"] == expected_structure
+    assert json.loads(response.json()["output_json_text"])["full_route_structure"] == expected_structure
 
 
 def test_generate_rejects_rule_package_from_an_older_route_version(generation_context):

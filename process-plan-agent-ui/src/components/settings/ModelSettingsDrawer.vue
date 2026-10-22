@@ -92,6 +92,9 @@
             </svg>
             已配置密钥，输入新值可更新
           </p>
+          <button v-if="keyConfigured" class="p-clear-key" type="button" :disabled="saving || testing" @click="clearApiKey">
+            清空已保存密钥
+          </button>
         </div>
 
         <!-- Model Selection -->
@@ -185,7 +188,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { listSettings, updateSetting, testLLMConnection, getAvailableModels } from '@/api'
+import { listSettings, updateSetting, clearSetting, testLLMConnection, getAvailableModels } from '@/api'
 
 const props = defineProps<{
   modelValue: boolean
@@ -372,9 +375,6 @@ async function testConnection() {
     // 使用用户输入的配置进行测试，如果 API Key 为空且已配置，则使用已保存的密钥
     let apiKey = form.value.LLM_API_KEY.trim()
     if (!apiKey && keyConfigured.value) {
-      // 需要先保存其他配置，然后使用已保存的密钥测试
-      await updateSetting('LLM_API_URL', form.value.LLM_API_URL.trim())
-      await updateSetting('LLM_MODEL', form.value.LLM_MODEL.trim())
       const result = await testLLMConnection({
         api_url: form.value.LLM_API_URL.trim(),
         api_key: '__use_saved__',
@@ -398,9 +398,27 @@ async function testConnection() {
     setTimeout(() => { saveStatus.value = null }, 3000)
   } catch (e) {
     console.error('测试连接失败', e)
-    saveStatus.value = { type: 'error', msg: '测试请求失败' }
+    const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+    saveStatus.value = { type: 'error', msg: detail || '测试请求失败，请检查配置和后端服务' }
   } finally {
     testing.value = false
+  }
+}
+
+async function clearApiKey() {
+  saving.value = true
+  saveStatus.value = null
+  try {
+    await clearSetting('LLM_API_KEY')
+    keyConfigured.value = false
+    form.value.LLM_API_KEY = ''
+    errors.value.LLM_API_KEY = '请输入 API Key'
+    saveStatus.value = { type: 'success', msg: '已清空保存的 API Key' }
+  } catch (e) {
+    console.error('清空 API Key 失败', e)
+    saveStatus.value = { type: 'error', msg: '清空 API Key 失败，请检查后端服务' }
+  } finally {
+    saving.value = false
   }
 }
 
@@ -688,6 +706,22 @@ function handleClose() {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+.p-clear-key {
+  margin-top: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #b91c1c;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.p-clear-key:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .p-help-strip {

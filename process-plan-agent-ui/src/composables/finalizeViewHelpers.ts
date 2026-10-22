@@ -31,6 +31,7 @@ export type FinalizeCard = {
   edited: boolean
   rawRuleLines: string[]
   availableFactors: FactorCandidate[]
+  analysisDraftContext: string
 }
 
 export function dedupeLabels(values: string[]) {
@@ -262,6 +263,10 @@ export function buildFinalizeCards(
     const systemFactorLabels = factorLabels.filter(label => !userAnswerLabels.includes(label))
     const defaultConditionText = buildUserFirstCondition(segment.normalized_step_name, userAnswerLabels, userAnswerContextLabels, factorNames, segment)
     const conditionReview = segment.rule_review?.condition_review || null
+    const analysisDraft = segment.rule_review?.analysis_draft || null
+    const analysisDraftContext = analysisDraft
+      ? `第三步问答树${analysisDraft.status === 'confirmed' ? '已确认' : '待补充'}：${analysisDraft.scope || '未填写范围'}；${analysisDraft.object || '未填写加工对象'}`
+      : ''
     return {
       segment,
       factorNames,
@@ -275,6 +280,7 @@ export function buildFinalizeCards(
       edited: !!draft,
       rawRuleLines: buildRawRuleLines(segment, factorNames, userAnswerLabels, userAnswerContextLabels),
       availableFactors,
+      analysisDraftContext,
     }
   })
 }

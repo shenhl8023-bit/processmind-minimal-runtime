@@ -1,3 +1,4 @@
+import type { FinalRouteStep } from './finalRouteSteps'
 import type { GroupTemplateNode as ApiGroupTemplateNode } from '@/api/extract'
 
 export const TEMPLATE_GROUP_MAPPING_DRAFT_STORAGE_KEY = 'template_group_mapping_draft'
@@ -13,6 +14,11 @@ export type TemplateStepFamily = typeof ALLOWED_TEMPLATE_STEP_FAMILIES[number]
 export type TemplateGroupNode = ApiGroupTemplateNode
 
 export type TemplateOperation = {
+  process_id?: string
+  source_operation_ids?: number[]
+  steps?: FinalRouteStep[]
+  process_type?: string
+  precision?: string
   id?: number
   name: string
   sequence?: number
@@ -24,6 +30,11 @@ export type TemplateOperation = {
 }
 
 export type TemplateRouteStructureOperation = {
+  process_id?: string
+  source_operation_ids?: number[]
+  steps?: FinalRouteStep[]
+  process_type?: string
+  precision?: string
   operation_id: number
   operation_name: string
   step_items: string[]
@@ -117,17 +128,25 @@ function cleanTextList(value: unknown) {
 
 export function buildTemplateRouteStructureOperations(
   operations: TemplateOperation[],
+  precisionOverrides: Record<string, string> = {},
 ): TemplateRouteStructureOperation[] {
   const seen = new Set<number>()
   return operations
-    .map((operation) => ({
-      operation_id: cleanId(operation.source_operation_id || operation.id),
+    .map((operation) => {
+      const processKey = cleanText(operation.process_id)
+      const precision = processKey && Object.prototype.hasOwnProperty.call(precisionOverrides, processKey)
+        ? cleanText(precisionOverrides[processKey])
+        : cleanText(operation.precision)
+      return ({
+      operation_id: cleanId(operation.process_id ? operation.id : operation.source_operation_id || operation.id),
+      ...(operation.process_id ? { process_id: operation.process_id, source_operation_ids: operation.source_operation_ids || [], steps: operation.steps || [], process_type: operation.process_type || '', precision } : {}),
       operation_name: cleanText(operation.name),
       sequence: Number(operation.sequence || 0),
       step_items: cleanTextList(operation.step_items),
       rule_evidence: cleanTextList(operation.rule_evidence),
       rule_reasons: cleanTextList(operation.rule_reasons),
-    }))
+    })
+    })
     .filter((operation) => {
       if (!operation.operation_id || !operation.operation_name || seen.has(operation.operation_id)) return false
       seen.add(operation.operation_id)

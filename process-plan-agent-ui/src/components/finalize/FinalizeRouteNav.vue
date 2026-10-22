@@ -2,10 +2,26 @@
   <aside class="route-nav card">
     <div class="route-nav-head">
       <div class="section-title">{{ title }}</div>
-      <span v-if="allItemCount > 0" class="nav-count-badge">
-        <template v-if="onlyPending">{{ items.length }} / {{ allItemCount }} 待处理</template>
-        <template v-else>共 {{ allItemCount }} 道工序</template>
-      </span>
+      <div class="route-filter" role="group" aria-label="工序筛选">
+        <button
+          type="button"
+          class="route-filter-option"
+          :class="{ 'route-filter-option--active': !onlyPending }"
+          :aria-pressed="!onlyPending"
+          @click="$emit('filter-change', false)"
+        >
+          全部 <span>{{ allItemCount }}</span>
+        </button>
+        <button
+          type="button"
+          class="route-filter-option"
+          :class="{ 'route-filter-option--active': onlyPending }"
+          :aria-pressed="onlyPending"
+          @click="$emit('filter-change', true)"
+        >
+          待处理 <span>{{ pendingItemCount }}</span>
+        </button>
+      </div>
     </div>
 
     <div class="phase-list">
@@ -98,14 +114,6 @@
         </button>
       </div>
 
-      <!-- Empty state when filtering -->
-      <div v-if="items.length === 0 && onlyPending" class="nav-empty-pending">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-          <path d="M22 4L12 14.01l-3-3"/>
-        </svg>
-        <span>所有工序均已处理完成</span>
-      </div>
     </div>
   </aside>
 </template>
@@ -132,11 +140,13 @@ defineProps<{
   onlyPending: boolean
   /** NEW: total item count (before filtering) for display */
   allItemCount: number
+  pendingItemCount: number
 }>()
 
 defineEmits<{
   focus: [segmentId: string]
   'toggle-steps': [segmentId: string]
+  'filter-change': [onlyPending: boolean]
 }>()
 </script>
 
@@ -160,27 +170,74 @@ defineEmits<{
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin-bottom: 12px;
 }
 .section-title {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   color: #0f172a;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   letter-spacing: -0.01em;
+  white-space: nowrap;
 }
 
-.nav-count-badge {
-  font-size: 11px;
-  font-weight: 500;
-  color: #64748b;
+.route-filter {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
   background: #f1f5f9;
-  padding: 2px 8px;
-  border-radius: 999px;
+}
+
+.route-filter-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 25px;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: #64748b;
+  font: inherit;
+  font-size: 11px;
   white-space: nowrap;
+  cursor: pointer;
+  transition: background-color .15s ease, color .15s ease, border-color .15s ease;
+}
+
+.route-filter-option span {
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.route-filter-option--active {
+  border-color: #e0e7ff;
+  background: #ffffff;
+  color: #4338ca;
+  font-weight: 650;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .06);
+}
+
+.route-filter-option--active span {
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.route-filter-option:focus-visible {
+  outline: 2px solid #818cf8;
+  outline-offset: 1px;
 }
 
 /* ===== Phase list ===== */

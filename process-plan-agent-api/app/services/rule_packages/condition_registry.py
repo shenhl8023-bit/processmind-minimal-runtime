@@ -16,6 +16,10 @@ _FIELDS = [
         key="material.grade", label="材料牌号", category="材料", type="single_select",
         operators=["eq", "neq", "in"], aliases=["材料", "材质", "材料牌号"], source="CAD/PLM",
         options=[{"value": value, "label": value} for value in ["9Cr18", "95Cr18", "4Cr14Ni14W2Mo", "6061"]], required=True,
+        # A finite reviewed material-grade domain lets the Demo compiler lower
+        # case/whitespace-insensitive authoring comparisons without changing
+        # their meaning. New grades must be added to this controlled list.
+        allow_custom=False,
     ),
     CanonicalConditionField(
         key="precision.outer_diameter_it", label="外圆尺寸精度 IT", category="尺寸精度", type="number",
@@ -81,16 +85,22 @@ _FIELDS = [
         key="cad.features", label="CAD 特征集合", category="结构特征", type="multi_select",
         operators=["contains", "contains_any", "contains_all"], aliases=["CAD特征", "结构特征", "槽", "孔", "扁位"], source="CAD",
         options=[{"value": value, "label": value} for value in ["扁位/平面", "槽类特征", "普通孔/辅助孔", "铰孔/精孔", "型孔/割扁", "顶尖孔"]], required=True,
+        # CAD feature_select is normalized to these reviewed categories before
+        # publication; custom values must be classified before they can affect
+        # a route rule.
+        allow_custom=False,
     ),
     CanonicalConditionField(
         key="precision.grades", label="精度/表面要求集合", category="精度要求", type="multi_select",
         operators=["contains", "contains_any", "contains_all"], aliases=["精加工要求", "磨削要求", "研磨要求"], source="CAD/工艺要求",
         options=[{"value": value, "label": value} for value in ["孔精加工", "珩孔要求", "研孔要求", "外圆磨削", "端面磨削", "槽磨削", "研外圆"]], required=True,
+        allow_custom=False,
     ),
     CanonicalConditionField(
         key="special.requirements", label="特殊要求", category="特殊要求", type="multi_select",
         operators=["contains", "contains_any", "contains_all"], aliases=["特殊要求", "技术要求", "检验要求", "表面处理要求"], source="人工补充/图样技术要求",
         options=[{"value": value, "label": value} for value in ["渗氮层要求", "铬酸阳极化要求", "硬质阳极化要求", "追溯标印", "无损检测要求", "磁粉检查要求", "烧伤检查要求"]],
+        allow_custom=False,
     ),
 ]
 

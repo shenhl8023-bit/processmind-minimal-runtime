@@ -4,8 +4,8 @@ from collections import defaultdict
 
 from app.models.models import DocumentOperationDetail, Operation
 from app.services.process_knowledge import canonicalize_route_label
+from app.services.process_tree_ordering import place_additional_process_nodes, renumber_process_tree
 from app.services.process_tree_builder_support import (
-    ORDER_SLOT_BY_KEY,
     ORDER_SLOTS,
     REPEATABLE_STAGE_LABELS,
     TreeNodeBucket,
@@ -104,6 +104,9 @@ def build_superset_process_tree(
     extra_keys = [key for key in buckets if key not in known_keys]
     extra_keys.sort(key=lambda key: extra_node_sort_key(buckets[key]))
     ordered_node_keys = ordered_keys + extra_keys
+    packaging_key = next((key for key in ordered_node_keys if buckets[key].label == "包装"), None)
+    if packaging_key:
+        ordered_node_keys = [key for key in ordered_node_keys if key != packaging_key] + [packaging_key]
 
     raw_ops_by_name: defaultdict[str, list[Operation]] = defaultdict(list)
     for op in operations:
@@ -117,8 +120,7 @@ def build_superset_process_tree(
     project_id = int(getattr(operations[0], "project_id", 0) or 0) if operations else int(getattr(detail_rows[0], "project_id", 0) or 0)
     for index, node_key in enumerate(ordered_node_keys, start=1):
         bucket = buckets[node_key]
-        slot = ORDER_SLOT_BY_KEY.get(node_key)
-        sequence = int(slot["sequence"]) if slot else index * 10
+        sequence = index * 10
         description = slot_description(node_key, bucket.label, bucket.source_nodes)
         display_name = bucket.label
 
@@ -172,7 +174,8 @@ def build_superset_process_tree(
             "detail_row_ids": list(bucket.detail_row_ids),
         })
 
-    return tree_items
+    # Assign IDs before reordering so saved merge/review source IDs stay stable.
+    return renumber_process_tree(place_additional_process_nodes(tree_items, detail_rows))
 
 
 __all__ = ["build_superset_process_tree"]

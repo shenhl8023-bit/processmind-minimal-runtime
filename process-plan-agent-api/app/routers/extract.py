@@ -58,6 +58,7 @@ from app.services.extraction_pipeline import (
     run_extraction_pipeline,
 )
 from app.services.finalized_rule_package_helpers import (
+    compile_publication_snapshot,
     json_dumps,
     json_dumps_list,
     json_loads,
@@ -72,6 +73,7 @@ from app.services.rule_packages.loader import load_published_rule_package
 from app.services.rule_packages.template_mapping_requirements import validate_rule_package_template_mapping
 from app.services.rule_packages.validator import validate_rule_package
 from app.services.process_tree_builder import build_superset_process_tree
+from app.services.process_tree_orderer import order_process_tree
 from app.services.route_merge.config import ROUTE_MERGE_ALGO_VERSION
 from app.services.extraction_tasks import set_extraction_task_state
 from app.services.route_rules_runtime import (
@@ -150,6 +152,31 @@ async def _ensure_project_exists(project_id: int, db: AsyncSession) -> Project:
     if not project:
         raise HTTPException(404, "任务不存在")
     return project
+
+
+async def _require_current_package_route(
+    project_id: int,
+    route_version_id: int | None,
+    manifest_route_version_id: int | None,
+    db: AsyncSession,
+) -> None:
+    if route_version_id is None:
+        raise HTTPException(422, "规则包必须关联当前路线版本")
+    if route_version_id != manifest_route_version_id:
+        raise HTTPException(422, "manifest.route_version_id 与请求 route_version_id 不一致")
+    route_exists = (
+        await db.execute(
+            select(NormalizedRouteVersion.id).where(
+                NormalizedRouteVersion.id == route_version_id,
+                NormalizedRouteVersion.project_id == project_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not route_exists:
+        raise HTTPException(422, "规则包关联的路线版本不属于当前任务")
+    latest_route = await get_latest_normalized_route_version(project_id, db)
+    if latest_route is None or latest_route.id != route_version_id:
+        raise HTTPException(409, "标准化路线版本已更新，请基于当前路线重新提炼规则包。")
 
 
 async def _ensure_route_merge_ready(project_id: int, db: AsyncSession) -> Project:
@@ -347,6 +374,7 @@ async def _list_superset_route_tree(project_id: int, db: AsyncSession) -> list[d
         detail_rows=detail_rows,
         sample_count=sample_count,
     )
+    tree_items = await order_process_tree(tree_items, detail_rows)
     if not tree_items:
         return await list_operations(project_id=project_id, db=db)
     return tree_items
@@ -473,7 +501,8 @@ async def get_document_operation_details(
 
 @router.get("/superset-route", response_model=SupersetRouteOut)
 async def get_superset_route(project_id: int, db: AsyncSession = Depends(get_db)):
-    ops = await _list_superset_route_tree(project_id=project_id, db=db)
+    snapshot = await _ensure_project_route_merge_snapshot(project_id, db)
+    ops = snapshot.get('superset_route') or []
     return {
         "project_id": project_id,
         "superset_route": ops,
@@ -598,6 +627,7 @@ async def save_segment_rule_review(
         note=str(body.note or "").strip(),
         summary_lines=list(body.summary_lines or []),
         question_trail=list(body.question_trail or []),
+        analysis_draft=body.analysis_draft,
         db=db,
     )
 
@@ -669,34 +699,26 @@ async def precheck_finalized_rule_package(
             "severity": "blocking",
         } for item in validation.errors)
 
-    if body.route_version_id is not None:
-        route_exists = (
-            await db.execute(
-                select(NormalizedRouteVersion.id).where(
-                    NormalizedRouteVersion.id == body.route_version_id,
-                    NormalizedRouteVersion.project_id == body.project_id,
-                )
-            )
-        ).scalar_one_or_none()
-    else:
-        route_exists = None
-    if route_exists:
+    try:
+        await _require_current_package_route(
+            body.project_id, body.route_version_id, package_v2.manifest.route_version_id, db,
+        )
         checklist.append({
             "code": "route_version",
             "label": "路线版本关联",
             "status": "passed",
             "message": "规则包已关联当前路线版本。",
         })
-    else:
+    except HTTPException as exc:
         checklist.append({
             "code": "route_version",
             "label": "路线版本关联",
             "status": "blocking",
-            "message": "规则包必须关联当前路线版本。",
+            "message": str(exc.detail),
         })
         blockers.append({
             "code": "route_version_missing",
-            "message": "规则包必须关联当前路线版本。",
+            "message": str(exc.detail),
             "severity": "blocking",
         })
 
@@ -734,7 +756,7 @@ async def precheck_finalized_rule_package(
             "code": "template_mapping",
             "label": "分组模板映射",
             "status": "blocking",
-            "message": f"还有 {len(template_blockers)} 道必要工序未完成分组模板映射。",
+            "message": "请为每个包含特征的模板分组至少保存一条有效映射；无需逐个映射工步或组内全部特征。",
         })
         blockers.extend(asdict(blocker) for blocker in template_blockers)
     else:
@@ -742,8 +764,28 @@ async def precheck_finalized_rule_package(
             "code": "template_mapping",
             "label": "分组模板映射",
             "status": "passed",
-            "message": "规则包实际使用的工序均已完成分组模板映射。",
+            "message": "每个包含特征的模板分组均已关联至少一个有效特征；无需逐个映射工步或组内全部特征。",
         })
+
+    if validation.valid:
+        from app.services.rule_packages.demo_tables import DemoTableError
+
+        try:
+            await compile_publication_snapshot(package_v2, project, db)
+            checklist.append({
+                "code": "demo_tables",
+                "label": "三文件兼容校验",
+                "status": "passed",
+                "message": "因素表、全集路线表和规则表已通过格式与引用校验。",
+            })
+        except DemoTableError as exc:
+            checklist.append({
+                "code": "demo_tables",
+                "label": "三文件兼容校验",
+                "status": "blocking",
+                "message": str(exc),
+            })
+            blockers.extend({**item, "severity": "blocking"} for item in exc.issues)
 
     return {
         "project_id": body.project_id,
@@ -765,7 +807,7 @@ async def save_finalized_rule_package(
     )
     # A project remains based on the same reviewed route after step 5 has run.
     # Allow publishing a corrected package in that state; the route-version
-    # ownership check below still prevents cross-project or stale-route saves.
+    # validation below still prevents cross-project or stale-route saves.
     if project.status not in {"ROUTE_SET_READY", "GENERATED"}:
         raise HTTPException(409, "当前资料已变更或尚未完成路线提炼，请重新完成第二至四步后再导出规则包。")
     if not body.input_schema:
@@ -808,8 +850,9 @@ async def save_finalized_rule_package(
                 "validation": server_validation,
             },
         )
-    if body.route_version_id is None:
-        raise HTTPException(422, "规则包必须关联当前路线版本")
+    await _require_current_package_route(
+        body.project_id, body.route_version_id, package_v2.manifest.route_version_id, db,
+    )
     await require_confirmed_user_rule_sources(
         package_v2,
         project_id=body.project_id,
@@ -825,59 +868,56 @@ async def save_finalized_rule_package(
                 "blockers": [asdict(blocker) for blocker in template_blockers],
             },
         )
+    from app.services.rule_packages.demo_tables import DemoTableError
+
+    try:
+        demo_tables, export_sources = await compile_publication_snapshot(package_v2, project, db)
+    except DemoTableError as exc:
+        raise HTTPException(422, detail={
+            "message": str(exc),
+            "blockers": [{**item, "severity": "blocking"} for item in exc.issues],
+        }) from exc
     content_hash = rule_package_content_hash(package_v2)
 
-    if body.route_version_id is not None:
-        route_exists = (
-            await db.execute(
-                select(NormalizedRouteVersion.id).where(
-                    NormalizedRouteVersion.id == body.route_version_id,
-                    NormalizedRouteVersion.project_id == body.project_id,
-                )
+    # A retry must reread and revalidate all source revisions. Return a conflict
+    # after rollback rather than reusing a snapshot from a released write lock.
+    latest_version = (
+        await db.execute(
+            select(func.max(FinalizedRulePackage.version)).where(
+                FinalizedRulePackage.project_id == body.project_id
             )
-        ).scalar_one_or_none()
-        if not route_exists:
-            raise HTTPException(422, "规则包关联的路线版本不属于当前任务")
-
-    # The database owns the final uniqueness guarantee. Retry after a competing
-    # export instead of leaking a raw unique-index error to the user.
-    for _ in range(3):
-        latest_version = (
-            await db.execute(
-                select(func.max(FinalizedRulePackage.version)).where(
-                    FinalizedRulePackage.project_id == body.project_id
-                )
-            )
-        ).scalar_one_or_none()
-        row = FinalizedRulePackage(
-            project_id=body.project_id,
-            route_version_id=body.route_version_id,
-            version=int(latest_version or 0) + 1,
-            package_name=package_name,
-            schema_version=schema_version,
-            status="draft",
-            manifest_json=json_dumps(manifest),
-            factor_dictionary_json=json_dumps(package_v2.factor_dictionary.model_dump(mode="json")),
-            input_schema_json=json_dumps(body.input_schema),
-            route_catalog_json=json_dumps(body.route_catalog),
-            route_rules_json=json_dumps(body.route_rules),
-            test_cases_json=json_dumps_list(test_cases),
-            rule_report_md=body.rule_report_md,
-            validation_report_json=json_dumps(server_validation),
-            content_hash=content_hash,
-            created_by=(body.created_by or "默认用户").strip() or "默认用户",
         )
-        db.add(row)
-        try:
-            await db.flush()
-            await publish_rule_package(row, db, actor=row.created_by)
-            await db.commit()
-            await db.refresh(row)
-            return serialize_finalized_rule_package(row)
-        except IntegrityError:
-            await db.rollback()
-
-    raise HTTPException(409, "规则包版本正在由其他请求导出，请稍后重试。")
+    ).scalar_one_or_none()
+    row = FinalizedRulePackage(
+        project_id=body.project_id,
+        route_version_id=body.route_version_id,
+        version=int(latest_version or 0) + 1,
+        package_name=package_name,
+        schema_version=schema_version,
+        status="draft",
+        manifest_json=json_dumps(manifest),
+        factor_dictionary_json=json_dumps(package_v2.factor_dictionary.model_dump(mode="json")),
+        input_schema_json=json_dumps(body.input_schema),
+        route_catalog_json=json_dumps(body.route_catalog),
+        route_rules_json=json_dumps(body.route_rules),
+        demo_tables_json=json_dumps(demo_tables),
+        export_sources_json=json_dumps(export_sources),
+        test_cases_json=json_dumps_list(test_cases),
+        rule_report_md=body.rule_report_md,
+        validation_report_json=json_dumps(server_validation),
+        content_hash=content_hash,
+        created_by=(body.created_by or "默认用户").strip() or "默认用户",
+    )
+    db.add(row)
+    try:
+        await db.flush()
+        await publish_rule_package(row, db, actor=row.created_by)
+        await db.commit()
+        await db.refresh(row)
+        return serialize_finalized_rule_package(row)
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(409, "规则包版本正在由其他请求导出，请刷新后重试。") from exc
 
 
 @router.get("/finalized-rule-packages/latest", response_model=FinalizedRulePackageOut)
@@ -924,6 +964,28 @@ async def list_finalized_rule_packages(project_id: int, db: AsyncSession = Depen
     ]
 
 
+@router.get("/finalized-rule-packages/{package_id:int}", response_model=FinalizedRulePackageOut)
+async def get_finalized_rule_package(
+    package_id: int,
+    project_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Read a published revision's frozen exports, including superseded revisions."""
+    row = (
+        await db.execute(
+            select(FinalizedRulePackage).where(
+                FinalizedRulePackage.id == package_id,
+                FinalizedRulePackage.project_id == project_id,
+                FinalizedRulePackage.schema_version == "2.0",
+                FinalizedRulePackage.status.in_(["published", "superseded", "archived"]),
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(404, "当前任务没有此版本的规则包。")
+    return serialize_finalized_rule_package(row)
+
+
 @router.post("/merge-suggestions/review")
 async def review_merge_suggestion(
     body: MergeSuggestionReviewRequest,
@@ -936,7 +998,7 @@ async def review_merge_suggestion(
             body.expected_workflow_revision,
         )
         snapshot = await _ensure_project_route_merge_snapshot(body.project_id, db)
-        tree_operations = await _list_superset_route_tree(project_id=body.project_id, db=db)
+        tree_operations = list(snapshot.get("superset_route") or [])
         operations_by_id = _route_tree_operations_by_id(tree_operations)
         detail_rows = (
             await db.execute(

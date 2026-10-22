@@ -15,7 +15,9 @@ import {
   buildRuleReportFromV2Package,
   exportBlockingCards,
 } from '@/utils/finalizeRulePackage'
+import { isGroupTemplateReady } from '@/composables/projectGroupTemplateCheck'
 import { isWorkflowRevisionConflict } from '@/composables/workflowResetState'
+import type { FinalRouteStep } from '@/composables/finalRouteSteps'
 
 type Segment = SavedNormalizedRouteVersionResult['segments'][number]
 
@@ -29,6 +31,7 @@ type UseFinalizeRulePackageExportOptions = {
   phaseLabel: (segment: Pick<Segment, 'phase' | 'normalized_step_name' | 'sequence'>) => string
   primarySteps: (segment: any) => string[]
   attachedSteps: (segment: any) => string[]
+  finalSteps?: (segment: Segment) => FinalRouteStep[]
   conditionFields: Ref<CanonicalConditionField[]>
   onBlockedCards?: (cards: FinalizeCard[]) => void | Promise<void>
   onExportIssue?: (issue: { title: string; summary: string; details?: string }) => void
@@ -57,13 +60,18 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
     options.onExportIssue?.({ title, summary, details })
   }
 
-  async function loadFullRouteStructure(projectId: number) {
+  async function ensureTemplateMappingReady(projectId: number) {
     try {
       const template = await getCurrentGroupTemplate(projectId)
-      return template.mapping_output || []
+      if (!isGroupTemplateReady(template)) {
+        reportExportIssue('模板分组映射尚未完成', '请为右侧每个包含特征的分组，至少关联一个特征到左侧工步后再发布。无需映射组内全部特征或每个工步。')
+        return false
+      }
+      return true
     } catch (err: any) {
       if (err?.response?.status === 404) {
-        return []
+        reportExportIssue('尚未绑定分组模板', '请返回模板分组映射页上传模板，并为每个包含特征的分组至少关联一个特征。')
+        return false
       }
       throw err
     }
@@ -93,6 +101,7 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
       phaseLabel: options.phaseLabel,
       primarySteps: options.primarySteps,
       attachedSteps: options.attachedSteps,
+      finalSteps: options.finalSteps,
       conditionFields: options.conditionFields.value,
     })
 
@@ -103,14 +112,13 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
 
     exportingRulePackage.value = true
     try {
-      let compiled = await compileRulePackage(compileRequest)
+      const compiled = await compileRulePackage(compileRequest)
       if (!compiled.validation?.valid) {
         const detail = formatValidationErrors(compiled.validation) || '规则包校验未通过'
         reportExportIssue('规则包还不能发布', '请先修正未通过校验的规则，再重新发布。', detail)
         return
       }
-      const fullRouteStructure = await loadFullRouteStructure(options.projectId.value)
-      if (!fullRouteStructure) {
+      if (!await ensureTemplateMappingReady(options.projectId.value)) {
         return
       }
 
@@ -162,10 +170,22 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
         status: savedPackage.status,
       })
 
+      const tables = savedPackage.demo_tables
+      if (savedPackage.export_error || !tables
+        || !Array.isArray(tables.factor_table)
+        || !Array.isArray(tables.full_route_table) || !tables.full_route_table.length
+        || !Array.isArray(tables.rule_table)) {
+        reportExportIssue(
+          '三文件快照不可下载',
+          savedPackage.export_error || '此版本缺少完整的三文件快照，请重新发布后下载。',
+        )
+        return
+      }
+
       const files = [
-        { name: 'factor_table.json', content: textFile(savedPackage.factor_dictionary) },
-        { name: 'full_route_structure.json', content: textFile(fullRouteStructure) },
-        { name: 'rule_table.json', content: textFile(savedPackage.route_rules) },
+        { name: 'factor_table.json', content: textFile(tables.factor_table) },
+        { name: 'full_route_table.json', content: textFile(tables.full_route_table) },
+        { name: 'rule_table.json', content: textFile(tables.rule_table) },
       ]
       downloadBlob(
         createZipBlob(files),

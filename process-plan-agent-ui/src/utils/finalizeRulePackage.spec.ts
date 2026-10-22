@@ -308,12 +308,12 @@ describe('V2 compile DTO from finalize cards', () => {
       rebuildRequiredCards: [rebuildRequired],
       total: 3,
     })
-    expect(blockedExportPrimaryActionLabel([pendingCandidate])).toBe('确认候选并发布')
+    expect(blockedExportPrimaryActionLabel([pendingCandidate])).toBe('去确认规则')
     expect(blockedExportPrimaryActionLabel([missingCondition])).toBe('去处理待补充项')
     expect(blockedExportPrimaryActionLabel([rebuildRequired])).toBe('去处理首项')
   })
 
-  it('does not block publishing for current pending candidates but keeps unresolved and stale rules blocking', () => {
+  it('blocks publishing for every pending candidate including high confidence rules', () => {
     const candidate = {
       ...finalizeItem({ id: 'process_slot', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
       conditionText: '当零件存在槽时，纳入铣槽工序',
@@ -342,8 +342,8 @@ describe('V2 compile DTO from finalize cards', () => {
       },
     }
 
-    expect(exportBlockingCards([candidate])).toEqual([])
-    expect(exportBlockingCards([candidate, unresolved, stale])).toEqual([unresolved, stale])
+    expect(exportBlockingCards([candidate])).toEqual([candidate])
+    expect(exportBlockingCards([candidate, unresolved, stale])).toEqual([candidate, unresolved, stale])
     expect(exportBlockingCards([wrongKind])).toEqual([wrongKind])
   })
 

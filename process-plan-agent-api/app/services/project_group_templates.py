@@ -51,6 +51,7 @@ class ProjectGroupStepMapping:
     source: str = "user_confirmed"
     template_group_key: str = ""
     template_group_name: str = ""
+    final_targets: list[dict[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -124,20 +125,6 @@ AUXILIARY_PROCESS_PATTERN = re.compile(
 )
 
 
-def _text_list(value: object) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    result: list[str] = []
-    seen: set[str] = set()
-    for item in value:
-        text_value = normalize_name(item)
-        if not text_value or text_value in seen:
-            continue
-        seen.add(text_value)
-        result.append(text_value)
-    return result
-
-
 def _operation_id(operation: object) -> int:
     value = _mapping_value(operation, "operation_id", _mapping_value(operation, "source_operation_id", 0))
     return int(value or 0)
@@ -145,17 +132,6 @@ def _operation_id(operation: object) -> int:
 
 def _operation_name(operation: object) -> str:
     return normalize_name(_mapping_value(operation, "operation_name", _mapping_value(operation, "name", "")))
-
-
-def _operation_steps(operation: object) -> list[str]:
-    return _text_list(_mapping_value(operation, "step_items", []))
-
-
-def _operation_requirements(operation: object) -> list[str]:
-    return _text_list([
-        *_text_list(_mapping_value(operation, "rule_evidence", [])),
-        *_text_list(_mapping_value(operation, "rule_reasons", [])),
-    ])
 
 
 def _process_type(operation_name: str, steps: list[str]) -> str:
@@ -193,76 +169,189 @@ def _mapping_candidates(mappings: list[ProjectGroupStepMapping]) -> dict[str, li
     return candidates
 
 
-def _mapping_feature_keys(mapping: ProjectGroupStepMapping) -> set[str]:
-    if mapping.status != "confirmed" or not mapping.template_group_path:
-        return set()
-    path_key = "/".join(mapping.template_group_path)
-    return {f"{path_key}\u0000{feature}" for feature in mapping.candidate_features if feature}
+def _source_step_refs(step: object) -> list[tuple[int, int, str]]:
+    refs = _mapping_value(step, "source_steps", [])
+    values = list(refs) if isinstance(refs, list) and refs else [step]
+    result: list[tuple[int, int, str]] = []
+    for value in values:
+        operation_id = int(_mapping_value(value, "source_operation_id", 0) or 0)
+        order = int(_mapping_value(value, "source_step_order", 0) or 0)
+        name = normalize_name(_mapping_value(value, "source_step_name", ""))
+        if operation_id > 0 and order > 0 and name:
+            ref = (operation_id, order, name)
+            if ref not in result:
+                result.append(ref)
+    return result
+
+
+def _mapping_final_targets(mapping: object) -> list[dict[str, str]] | None:
+    targets = _mapping_value(mapping, "final_targets", None)
+    if targets is None:
+        return None
+    return [{"process_id": normalize_name(_mapping_value(target, "process_id", "")),
+             "step_id": normalize_name(_mapping_value(target, "step_id", ""))}
+            for target in targets]
+
+
+def _final_mapping_targets(operations: list[object]) -> dict[tuple[int, int, str], list[dict[str, str]]]:
+    targets: dict[tuple[int, int, str], list[dict[str, str]]] = {}
+    seen_ids: set[str] = set()
+    for operation in operations:
+        process_id = normalize_name(_mapping_value(operation, "process_id", ""))
+        if not process_id or process_id in seen_ids:
+            raise HTTPException(422, "最终路线工序 ID 缺失或重复，请重新加载规则分析结果。")
+        seen_ids.add(process_id)
+        steps = _mapping_value(operation, "steps", []) or []
+        process_type = normalize_name(_mapping_value(operation, "process_type", "")) or _process_type(
+            _operation_name(operation), [normalize_name(_mapping_value(step, "step_name", "")) for step in steps],
+        )
+        for step in steps:
+            step_id = normalize_name(_mapping_value(step, "step_id", ""))
+            if not step_id or step_id in seen_ids:
+                raise HTTPException(422, "最终路线工步 ID 缺失或重复，请重新加载规则分析结果。")
+            seen_ids.add(step_id)
+            if process_type != "加工工序":
+                continue
+            for ref in _source_step_refs(step):
+                targets.setdefault(ref, []).append({"process_id": process_id, "step_id": step_id})
+    return targets
+
+
+def _legacy_operations(operations: list[object] | None, mappings: list[ProjectGroupStepMapping]) -> list[object]:
+    result = list(operations or [])
+    # Older clients omitted the complete final route. This fallback is deliberately
+    # isolated from the explicit final-tree contract, which never adds source nodes.
+    if not result:
+        for operation_id in dict.fromkeys(mapping.source_operation_id for mapping in mappings):
+            operation_mappings = [mapping for mapping in mappings if mapping.source_operation_id == operation_id]
+            names_by_order = {mapping.source_step_order: mapping.source_step_name for mapping in operation_mappings}
+            result.append({
+                "operation_id": operation_id,
+                "operation_name": operation_mappings[0].source_operation_name,
+                "step_items": [names_by_order.get(order, "") for order in range(1, max(names_by_order, default=0) + 1)],
+            })
+    return result
 
 
 def _build_mapping_output(operations: list[object] | None, mappings: list[ProjectGroupStepMapping]) -> list[dict[str, object]]:
-    mappings_by_step: dict[tuple[int, int], list[ProjectGroupStepMapping]] = {}
+    explicit_final_tree = any(_mapping_value(operation, "process_id", "") for operation in operations or [])
+    operations = list(operations or []) if explicit_final_tree else _legacy_operations(operations, mappings)
+    if explicit_final_tree:
+        _final_mapping_targets(operations)
+    mappings_by_source: dict[tuple[int, int, str], list[ProjectGroupStepMapping]] = {}
     for mapping in mappings:
-        mappings_by_step.setdefault((mapping.source_operation_id, mapping.source_step_order), []).append(mapping)
-
-    normalized_operations: list[dict[str, object]] = []
-    seen_operations: set[int] = set()
-    for operation in operations or []:
-        operation_id = _operation_id(operation)
-        operation_name = _operation_name(operation)
-        if operation_id <= 0 or not operation_name or operation_id in seen_operations:
-            continue
-        seen_operations.add(operation_id)
-        normalized_operations.append({
-            "operation_id": operation_id,
-            "operation_name": operation_name,
-            "step_items": _operation_steps(operation),
-            "technical_requirements": _operation_requirements(operation),
-        })
-
-    for operation_id in sorted({mapping.source_operation_id for mapping in mappings} - seen_operations):
-        operation_mappings = [mapping for mapping in mappings if mapping.source_operation_id == operation_id]
-        operation_name = operation_mappings[0].source_operation_name if operation_mappings else ""
-        normalized_operations.append({
-            "operation_id": operation_id,
-            "operation_name": operation_name,
-            "step_items": [mapping.source_step_name for mapping in sorted(operation_mappings, key=lambda item: item.source_step_order)],
-            "technical_requirements": [],
-        })
+        key = (mapping.source_operation_id, mapping.source_step_order, normalize_name(mapping.source_step_name))
+        mappings_by_source.setdefault(key, []).append(mapping)
 
     output: list[dict[str, object]] = []
-    for operation in normalized_operations:
-        operation_id = int(operation["operation_id"])
-        operation_name = str(operation["operation_name"])
-        steps = [str(step) for step in operation.get("step_items", []) if str(step).strip()]
-        last_feature_step: dict[str, int] = {}
-        for (mapped_operation_id, step_order), step_mappings in mappings_by_step.items():
-            if mapped_operation_id != operation_id:
-                continue
-            for mapping in step_mappings:
-                for feature_key in _mapping_feature_keys(mapping):
-                    last_feature_step[feature_key] = max(last_feature_step.get(feature_key, 0), step_order)
-
-        step_output: list[dict[str, object]] = []
-        for step_order, step_name in enumerate(steps, start=1):
-            step_mappings = mappings_by_step.get((operation_id, step_order), [])
-            feature_keys = set().union(*[_mapping_feature_keys(mapping) for mapping in step_mappings]) if step_mappings else set()
-            candidates = _mapping_candidates(step_mappings)
-            step_output.append({
-                "step_name": step_name,
-                "candidates": candidates,
-                "is_last": bool(feature_keys) and all(last_feature_step.get(key) == step_order for key in feature_keys),
-            })
-
+    seen_process_ids: set[str] = set()
+    for operation in operations:
+        operation_id = _operation_id(operation)
+        operation_name = _operation_name(operation)
+        process_id = normalize_name(_mapping_value(operation, "process_id", "")) or f"op_{operation_id}"
+        if operation_id <= 0 or not operation_name or process_id in seen_process_ids:
+            continue
+        seen_process_ids.add(process_id)
+        if explicit_final_tree:
+            source_steps = list(_mapping_value(operation, "steps", []) or [])
+        else:
+            raw_steps = _mapping_value(operation, "step_items", []) or []
+            source_steps = [{
+                "step_id": stable_step_key(operation_id, order),
+                "step_name": normalize_name(name),
+                "source_operation_id": operation_id,
+                "source_step_order": order,
+                "source_step_name": normalize_name(name),
+            } for order, name in enumerate(raw_steps, start=1) if normalize_name(name)]
+        step_names = [normalize_name(_mapping_value(step, "step_name", "")) for step in source_steps]
+        process_type = normalize_name(_mapping_value(operation, "process_type", "")) or _process_type(operation_name, step_names)
+        if process_type not in {"加工工序", "辅助工序"}:
+            raise HTTPException(422, "最终路线工序类型必须为加工工序或辅助工序。")
+        precision = normalize_name(_mapping_value(operation, "precision", ""))
+        if not precision:
+            precision = "辅助工序" if process_type == "辅助工序" else (
+                "" if explicit_final_tree else _precision_label(operation_name, step_names)
+            )
+        steps: list[dict[str, object]] = []
+        if process_type == "加工工序":
+            for step in source_steps:
+                target = {"process_id": process_id, "step_id": normalize_name(_mapping_value(step, "step_id", ""))}
+                step_mappings = [mapping for ref in _source_step_refs(step)
+                                 for mapping in mappings_by_source.get(ref, [])
+                                 if not mapping.final_targets or target in mapping.final_targets]
+                steps.append({
+                    "step_name": normalize_name(_mapping_value(step, "step_name", "")),
+                    "candidates": _mapping_candidates(step_mappings),
+                    "step_id": normalize_name(_mapping_value(step, "step_id", "")),
+                })
         output.append({
             "process_name": operation_name,
-            "process_type": _process_type(operation_name, steps),
-            "precision": _precision_label(operation_name, steps),
-            "technical_requirements": list(operation.get("technical_requirements", [])),
-            "steps": step_output,
+            "process_type": process_type,
+            "precision": precision,
+            "steps": steps,
+            "process_id": process_id,
         })
-
     return output
+
+
+def _restore_mapping_operations(
+    output: list[object], mappings: list[ProjectGroupStepMapping],
+) -> list[object]:
+    """Restore final IDs and provenance; never infer current sources from names."""
+    if any(_mapping_value(process, "process_id", "") for process in output):
+        operations: list[object] = []
+        for index, process in enumerate(output, start=1):
+            process_id = normalize_name(_mapping_value(process, "process_id", ""))
+            steps: list[dict[str, object]] = []
+            for step in _mapping_value(process, "steps", []) or []:
+                step_id = normalize_name(_mapping_value(step, "step_id", ""))
+                refs = [{
+                    "source_operation_id": mapping.source_operation_id,
+                    "source_step_order": mapping.source_step_order,
+                    "source_step_name": mapping.source_step_name,
+                } for mapping in mappings if {"process_id": process_id, "step_id": step_id} in mapping.final_targets]
+                # Legacy op IDs already encode their source identity, unlike final IDs.
+                if not refs and re.fullmatch(r"op_[0-9]+", process_id) and re.fullmatch(r"op_[0-9]+_s[0-9]+", step_id):
+                    refs = [{"source_operation_id": int(process_id[3:]),
+                             "source_step_order": int(step_id.rsplit("_s", 1)[1]),
+                             "source_step_name": _mapping_value(step, "step_name", "")}]
+                steps.append({"step_id": step_id, "step_name": _mapping_value(step, "step_name", ""),
+                              "source_steps": refs})
+            operations.append({
+                "operation_id": index,
+                "process_id": process_id,
+                "operation_name": _mapping_value(process, "process_name", ""),
+                "process_type": _mapping_value(process, "process_type", ""),
+                "precision": _mapping_value(process, "precision", ""),
+                "steps": steps,
+            })
+        return operations
+
+    # Migrate pre-ID snapshots once. Exact old candidates disambiguate duplicate
+    # source names, but candidates are rebuilt exclusively from valid mappings.
+    mappings_by_operation: dict[int, list[ProjectGroupStepMapping]] = {}
+    for mapping in mappings:
+        mappings_by_operation.setdefault(mapping.source_operation_id, []).append(mapping)
+    used_ids: set[int] = set()
+    next_id = max(mappings_by_operation, default=0) + 1
+    operations = []
+    for process in output:
+        name = normalize_name(_mapping_value(process, "process_name", ""))
+        raw_steps = _mapping_value(process, "steps", [])
+        steps = [normalize_name(_mapping_value(step, "step_name", "")) for step in raw_steps] if isinstance(raw_steps, list) else []
+        matching_ids = [operation_id for operation_id, operation_mappings in mappings_by_operation.items()
+                        if operation_id not in used_ids
+                        and all(mapping.source_operation_name == name and 0 < mapping.source_step_order <= len(steps)
+                                and steps[mapping.source_step_order - 1] == mapping.source_step_name for mapping in operation_mappings)
+                        and all(_mapping_value(step, "candidates", {}) == _mapping_candidates([
+                            mapping for mapping in operation_mappings if mapping.source_step_order == step_order
+                        ]) for step_order, step in enumerate(raw_steps, start=1))]
+        operation_id = matching_ids[0] if matching_ids else next_id
+        if not matching_ids:
+            next_id += 1
+        used_ids.add(operation_id)
+        operations.append({"operation_id": operation_id, "operation_name": name, "step_items": steps})
+    return operations
 
 
 def _mapping_snapshot(mapping: object) -> ProjectGroupMapping:
@@ -312,6 +401,7 @@ def _step_mapping_snapshot(mapping: object) -> ProjectGroupStepMapping:
         source=str(_mapping_value(mapping, "source", "user_confirmed")),
         template_group_key=str(_mapping_value(mapping, "template_group_key", "")),
         template_group_name=str(_mapping_value(mapping, "template_group_name", "")),
+        final_targets=_mapping_final_targets(mapping) or [],
     )
 
 
@@ -366,6 +456,7 @@ def _resolve_step_mapping(
     source = str(_mapping_value(mapping, "source", "user_confirmed"))
     key = stable_step_key(operation_id, step_order)
     text_hash = step_text_hash(step_name)
+    final_targets = _step_mapping_snapshot(mapping).final_targets
 
     if status == "not_applicable":
         return ProjectGroupStepMapping(
@@ -378,6 +469,7 @@ def _resolve_step_mapping(
             status=status,
             confidence=confidence,
             source=source,
+            final_targets=final_targets,
         )
 
     requested_path = _mapping_value(mapping, "template_group_path", [])
@@ -427,6 +519,7 @@ def _resolve_step_mapping(
         source=source,
         template_group_key=str(target.get("key", "")),
         template_group_name=str(target.get("name", "")),
+        final_targets=final_targets,
     )
 
 
@@ -556,11 +649,17 @@ async def commit_project_group_template(
             migrated.append(resolved)
     migrated_steps: list[ProjectGroupStepMapping] = []
     invalidated_steps: list[ProjectGroupStepMapping] = []
-    for old_mapping in _json_list(current.step_mappings_json):
+    old_step_mappings = _json_list(current.step_mappings_json)
+    for old_mapping in old_step_mappings:
         try:
             migrated_steps.append(_resolve_step_mapping(old_mapping, new_index))
         except HTTPException:
             invalidated_steps.append(_step_mapping_snapshot(old_mapping))
+    source_operations = _restore_mapping_operations(
+        _json_list(current.mapping_output_json),
+        [_step_mapping_snapshot(mapping) for mapping in old_step_mappings],
+    )
+    mapping_output = _build_mapping_output(source_operations, migrated_steps)
 
     revision = (
         await db.execute(
@@ -576,7 +675,7 @@ async def commit_project_group_template(
                     validation_json = :validation_json,
                     mappings_json = :mappings_json,
                     step_mappings_json = :step_mappings_json,
-                    mapping_output_json = '[]',
+                    mapping_output_json = :mapping_output_json,
                     group_count = :group_count,
                     feature_selection_count = :feature_selection_count,
                     template_revision = template_revision + 1,
@@ -589,6 +688,7 @@ async def commit_project_group_template(
                 "expected_revision": expected_revision,
                 "mappings_json": _json_dump(_mapping_dicts(migrated)),
                 "step_mappings_json": _json_dump(_step_mapping_dicts(migrated_steps)),
+                "mapping_output_json": _json_dump(mapping_output),
                 **values,
             },
         )
@@ -657,13 +757,34 @@ async def replace_project_group_step_mappings(
         raise _conflict()
     index = _path_index(_json_list(current.tree_json))
     resolved: list[ProjectGroupStepMapping] = []
-    seen_targets: set[tuple[str, str]] = set()
-    statuses: dict[str, set[str]] = {}
+    seen_targets: set[tuple[str, tuple[tuple[str, str], ...], str]] = set()
+    statuses: dict[tuple[str, str, str], set[str]] = {}
+    explicit_final_tree = any(_mapping_value(operation, "process_id", "") for operation in operations or [])
+    final_targets = _final_mapping_targets(list(operations or [])) if explicit_final_tree else {}
     for mapping in mappings:
+        source_ref = (int(_mapping_value(mapping, "source_operation_id", 0) or 0),
+                      int(_mapping_value(mapping, "source_step_order", 0) or 0),
+                      normalize_name(_mapping_value(mapping, "source_step_name", "")))
+        requested_targets = _mapping_final_targets(mapping)
+        allowed_targets = final_targets.get(source_ref, [])
+        if requested_targets is not None:
+            if not explicit_final_tree or not requested_targets or any(
+                target not in allowed_targets for target in requested_targets
+            ):
+                raise HTTPException(422, "映射目标必须是当前来源工步对应的最终加工工步，请重新加载模板映射。")
+        elif explicit_final_tree and not allowed_targets:
+            continue
         server_mapping = _resolve_step_mapping(mapping, index)
-        statuses.setdefault(server_mapping.source_step_key, set()).add(server_mapping.status)
+        if explicit_final_tree:
+            server_mapping.final_targets = requested_targets if requested_targets is not None else allowed_targets
+        target_ids = tuple(sorted((target["process_id"], target["step_id"]) for target in server_mapping.final_targets))
+        status_keys = [("final", process_id, step_id) for process_id, step_id in target_ids]
+        if not status_keys:
+            status_keys = [("source", server_mapping.source_step_key, "")]
+        for status_key in status_keys:
+            statuses.setdefault(status_key, set()).add(server_mapping.status)
         target_key = _canonical_path(server_mapping.template_group_path)
-        dedupe_key = (server_mapping.source_step_key, target_key)
+        dedupe_key = (server_mapping.source_step_key, target_ids, target_key)
         if dedupe_key in seen_targets:
             continue
         seen_targets.add(dedupe_key)

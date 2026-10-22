@@ -1068,6 +1068,95 @@ async def test_parse_result_does_not_overwrite_a_newer_condition_draft(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_parse_review_reuses_confirmed_analysis_draft_candidate(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    source_text = "当材料为合金钢时，纳入磨外圆工序"
+    draft_candidate = {
+        "kind": "condition",
+        "when": {
+            "field": "material.grade",
+            "op": "eq",
+            "value": "合金钢",
+        },
+        "then": {"include_process_ids": ["process_grind_outer"], "exclude_process_ids": []},
+    }
+
+    async with session_factory() as session:
+        route = NormalizedRouteVersion(
+            id=1,
+            project_id=7,
+            version=1,
+            route_json='[{"id":"process_grind_outer"}]',
+        )
+        session.add_all([Project(id=7, name="条件解析测试"), route])
+        await session.commit()
+
+        from app.services.analysis_drafts import AnalysisRuleDraft
+
+        session.add(
+            NormalizedRouteSegmentRuleReview(
+                project_id=7,
+                route_version_id=1,
+                segment_id="process_grind_outer",
+                decision="accepted",
+                analysis_draft_json=AnalysisRuleDraft(
+                    scope="全部适用零件",
+                    object="外圆",
+                    condition_text=source_text,
+                    candidate=draft_candidate,
+                    missing=[],
+                    status="confirmed",
+                ).model_dump_json(),
+            )
+        )
+        await session.commit()
+
+        async def unexpected_parse(*args, **kwargs):
+            raise AssertionError("已确认的结构化草稿不应再次调用解析器")
+
+        monkeypatch.setattr(condition_reviews, "parse_rule_condition", unexpected_parse)
+        response = await parse_condition_review(
+            ParseRuleConditionRequest(
+                project_id=7,
+                route_id=1,
+                segment_id="process_grind_outer",
+                source_text=source_text,
+                process_id="process_grind_outer",
+                process_name="磨外圆",
+                processes=[RuleConditionProcessOption(process_id="process_grind_outer", display_name="磨外圆")],
+            ),
+            session,
+        )
+        assert response.review.status == "pending_confirmation"
+        assert response.review.candidate is not None
+        assert response.review.candidate.when.field == "material.grade"
+
+        async def changed_parse(*args, **kwargs):
+            return None, None, ["changed source needs new parse"]
+
+        monkeypatch.setattr(condition_reviews, "parse_rule_condition", changed_parse)
+        changed = await parse_condition_review(
+            ParseRuleConditionRequest(
+                project_id=7,
+                route_id=1,
+                segment_id="process_grind_outer",
+                source_text=source_text + "，且硬度不低于 HRC45",
+                process_id="process_grind_outer",
+                process_name="磨外圆",
+                processes=[RuleConditionProcessOption(process_id="process_grind_outer", display_name="磨外圆")],
+            ),
+            session,
+        )
+        assert changed.review.status == "invalid"
+        assert changed.review.candidate is None
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_parse_review_reuses_current_candidate_without_calling_parser(monkeypatch):
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:

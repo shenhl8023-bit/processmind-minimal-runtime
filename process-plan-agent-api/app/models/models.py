@@ -1,7 +1,7 @@
 """
 ORM 数据模型 —— 对应 database_schema.md 中设计的核心表
 """
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import UniqueConstraint, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.database import Base
@@ -17,6 +17,12 @@ class Project(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(255), nullable=False)
+    domain_knowledge_package_id = Column(String(100), nullable=True)
+    domain_knowledge_package_version = Column(Integer, nullable=True)
+    domain_part_family = Column(String(255), nullable=True)
+    domain_material = Column(String(255), nullable=True)
+    domain_stage = Column(String(255), nullable=True)
+    domain_analysis_stale = Column(Boolean, nullable=False, default=False, server_default='0')
     workflow_revision = Column(Integer, nullable=False, default=0, server_default="0")
     status = Column(String(20), default="CREATED")  # CREATED / UPLOADED / EXTRACTING / ROUTE_SET_READY / GENERATED / EXTRACT_ERROR
     created_at = Column(DateTime, default=utcnow)
@@ -34,6 +40,18 @@ class Project(Base):
     normalized_route_segment_factor_reviews = relationship("NormalizedRouteSegmentFactorReview", back_populates="project")
     normalized_route_segment_rule_reviews = relationship("NormalizedRouteSegmentRuleReview", back_populates="project")
     finalized_rule_packages = relationship("FinalizedRulePackage", back_populates="project")
+    knowledge_evidence_snapshots = relationship(
+        "KnowledgeEvidenceSnapshot",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    knowledge_rule_suggestions = relationship(
+        "KnowledgeRuleSuggestion",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
     extraction_task_state = relationship(
         "ExtractionTaskState",
         back_populates="project",
@@ -258,6 +276,7 @@ class RouteMergeSnapshot(Base):
     merge_groups_json = Column(Text)
     merge_suggestions_json = Column(Text)
     normalized_superset_route_json = Column(Text)
+    knowledge_package_json = Column(Text)
     review_state_json = Column(Text)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
@@ -271,6 +290,7 @@ class NormalizedRouteVersion(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
     version = Column(Integer, nullable=False, default=1)
+    knowledge_package_json = Column(Text)
     source_signature = Column(String(255))
     saved_by = Column(String(100), default="默认用户")
     total_docs = Column(Integer, default=0)
@@ -281,6 +301,7 @@ class NormalizedRouteVersion(Base):
     project = relationship("Project", back_populates="normalized_route_versions")
     factor_reviews = relationship("NormalizedRouteSegmentFactorReview", back_populates="route_version")
     rule_reviews = relationship("NormalizedRouteSegmentRuleReview", back_populates="route_version")
+    knowledge_rule_suggestions = relationship("KnowledgeRuleSuggestion", back_populates="route_version")
 
 
 class NormalizedRouteSegmentFactorReview(Base):
@@ -315,6 +336,7 @@ class NormalizedRouteSegmentRuleReview(Base):
     note = Column(Text)
     summary_json = Column(Text)
     question_trail_json = Column(Text)
+    analysis_draft_json = Column(Text)
     condition_source_text = Column(Text)
     condition_source_hash = Column(String(64))
     condition_status = Column(String(30), default="draft")
@@ -327,6 +349,9 @@ class NormalizedRouteSegmentRuleReview(Base):
     condition_parse_duration_ms = Column(Integer)
     condition_confirmed_by = Column(String(100))
     condition_confirmed_at = Column(DateTime)
+    # Audit-only link to the reviewed enterprise-knowledge suggestion.  This
+    # is intentionally outside the executable V2 candidate/package contract.
+    condition_knowledge_suggestion_id = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -349,6 +374,8 @@ class FinalizedRulePackage(Base):
     input_schema_json = Column(Text)
     route_catalog_json = Column(Text)
     route_rules_json = Column(Text)
+    demo_tables_json = Column(Text)
+    export_sources_json = Column(Text)
     test_cases_json = Column(Text)
     rule_report_md = Column(Text)
     validation_report_json = Column(Text)
@@ -360,3 +387,78 @@ class FinalizedRulePackage(Base):
     supersedes_id = Column(Integer, ForeignKey("finalized_rule_packages.id"), nullable=True)
 
     project = relationship("Project", back_populates="finalized_rule_packages")
+
+
+# ---------- 企业知识库证据快照 ----------
+class KnowledgeEvidenceSnapshot(Base):
+    """独立于严格 V2 规则合同的外部知识引用快照。"""
+
+    __tablename__ = "knowledge_evidence_snapshots"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=True)
+    route_version_id = Column(Integer, ForeignKey("normalized_route_versions.id", ondelete="SET NULL"), nullable=True)
+    segment_id = Column(String(255), nullable=True)
+    query = Column(Text, nullable=False)
+    item_id = Column(String(255), nullable=False)
+    content = Column(Text, nullable=False)
+    document_id = Column(String(255))
+    document_name = Column(String(500))
+    page_no = Column(Integer)
+    identity = Column(String(500))
+    retrieval_method = Column(String(100), default="hybrid", nullable=False)
+    snapshot_hash = Column(String(64), nullable=False, unique=True, index=True)
+    retrieved_at = Column(DateTime, default=utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+    project = relationship("Project", back_populates="knowledge_evidence_snapshots")
+
+
+class KnowledgeRuleSuggestion(Base):
+    """A human-reviewable rule proposal derived from saved knowledge evidence.
+
+    This table deliberately stores a candidate snapshot instead of writing to
+    the executable V2 rule tables.  A reviewer can later copy a confirmed
+    candidate into the existing condition review flow.
+    """
+
+    __tablename__ = "knowledge_rule_suggestions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    route_version_id = Column(
+        Integer,
+        ForeignKey("normalized_route_versions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    segment_id = Column(String(255), nullable=False)
+    title = Column(String(255), nullable=False, default="企业知识规则建议")
+    suggestion_text = Column(Text, nullable=False)
+    domain_evidence_refs_json = Column(Text)
+    domain_package_ref_json = Column(Text)
+    sample_detail_ids_json = Column(Text)
+    candidate_json = Column(Text)
+    evidence_ids_json = Column(Text, nullable=False, default="[]")
+    status = Column(String(30), nullable=False, default="draft")
+    created_by = Column(String(100), nullable=False, default="默认用户")
+    updated_by = Column(String(100), nullable=False, default="默认用户")
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+    project = relationship("Project", back_populates="knowledge_rule_suggestions")
+    route_version = relationship("NormalizedRouteVersion", back_populates="knowledge_rule_suggestions")
+
+
+class DomainKnowledgePackageVersion(Base):
+    __tablename__ = 'domain_knowledge_package_versions'
+    __table_args__ = (UniqueConstraint('package_id', 'version'),)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    package_id = Column(String(100), nullable=False, index=True)
+    version = Column(Integer, nullable=False)
+    status = Column(String(30), nullable=False, default='draft')
+    content_hash = Column(String(64), nullable=False, default='', index=True)
+    draft_json = Column(Text, nullable=False)
+    audit_json = Column(Text, nullable=False, default='[]')
+    import_json = Column(Text, nullable=False, default='{}')
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    activated_at = Column(DateTime, nullable=True)

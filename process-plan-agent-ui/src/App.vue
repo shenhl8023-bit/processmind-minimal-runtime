@@ -18,8 +18,9 @@ const workflowSteps = [
   { path: '/upload', number: 1, label: '上传资料' },
   { path: '/extract', number: 2, label: '路线归并' },
   { path: '/analysis', number: 3, label: '规则分析' },
-  { path: '/finalize', number: 4, label: '规则定稿' },
-  { path: '/generate', number: 5, label: '验证生成' },
+  { path: '/template-mapping', number: 4, label: '模板映射' },
+  { path: '/finalize', number: 5, label: '规则定稿' },
+  { path: '/generate', number: 6, label: '验证生成' },
 ] as const
 
 const currentStepIndex = computed(() => {
@@ -80,6 +81,13 @@ const openSettings = () => {
   settingsVisible.value = true
 }
 
+const openKnowledge = () => {
+  router.push({
+    path: '/knowledge',
+    query: route.query.project_id ? { project_id: route.query.project_id } : {},
+  })
+}
+
 onMounted(() => {
   if (typeof window === 'undefined') return
   const prefetchWorkflowViews = () => {
@@ -131,6 +139,13 @@ onMounted(() => {
 
       <div class="top-bar-right">
         <button
+          class="asset-entry knowledge-entry"
+          type="button"
+          @click="openKnowledge"
+        >
+          工艺知识库
+        </button>
+        <button
           class="asset-entry"
           @click="openSettings"
         >
@@ -145,8 +160,8 @@ onMounted(() => {
     <main class="main-area">
       <RouterView v-slot="{ Component, route: viewRoute }">
         <KeepAlive
-          include="UploadView,ExtractView,AnalysisView,FinalizeView,GenerateView"
-          :max="5"
+          include="UploadView,ExtractView,AnalysisView,TemplateMappingView,FinalizeView,GenerateView,KnowledgeView"
+          :max="7"
         >
           <component :is="Component" :key="viewRoute.name || viewRoute.path" />
         </KeepAlive>

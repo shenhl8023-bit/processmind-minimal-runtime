@@ -245,9 +245,19 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
 
   async function applyMergeSuggestionAction(groupId: string, action: 'accept' | 'reject', setError: (message: string) => void) {
     const current = options.routeMergeCandidateGroups.value.find(group => group.id === groupId)
-    if (!current || !options.projectId.value) return false
+    if (!current) {
+      setError('未找到当前归并候选，请刷新工作台后重试。')
+      return false
+    }
+    if (!options.projectId.value) {
+      setError('缺少当前项目，无法保存归并结果。')
+      return false
+    }
     const suggestion = options.routeMergeSuggestions.value.find(item => item.target_group_id === current.id)
-    if (!suggestion?.suggestion_id) return false
+    if (!suggestion?.suggestion_id) {
+      setError('未找到对应的后端归并建议，请刷新工作台后重试。')
+      return false
+    }
     const affectedOperationIds = [...current.operation_ids]
     const nextGroupId = options.getNextActionableGroupId(groupId)
 
@@ -260,7 +270,11 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
       })
       clearWorkflowProjectDataCache(options.projectId.value)
       options.clearRouteResultDraftStorage()
-      await refreshRouteMergeWorkspace(nextGroupId, true)
+      const refreshed = await refreshRouteMergeWorkspace(nextGroupId, true)
+      if (!refreshed) {
+        setError('归并审核已提交，但工作台刷新失败，请手动刷新确认最新状态。')
+        return false
+      }
       options.triggerPreviewHighlight({
         groupIds: action === 'accept' ? [groupId] : [],
         operationIds: affectedOperationIds,
@@ -284,11 +298,15 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
     options.cancelPreviewRename()
     try {
       const pendingIds = options.routeMergeActionableGroupsSorted.value.map(group => group.id)
+      let allSucceeded = true
       for (const groupId of pendingIds) {
         const ok = await applyMergeSuggestionAction(groupId, 'accept', setError)
-        if (!ok) break
+        if (!ok) {
+          allSucceeded = false
+          break
+        }
       }
-      routeMergeNotice.value = '已按系统建议完成全部合并。'
+      if (allSucceeded) routeMergeNotice.value = '已确认全部候选归并组。'
     } finally {
       routeMergeBatchSubmitting.value = false
     }
@@ -301,11 +319,15 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
     options.cancelPreviewRename()
     try {
       const pendingIds = options.routeMergeActionableGroupsSorted.value.map(group => group.id)
+      let allSucceeded = true
       for (const groupId of pendingIds) {
         const ok = await applyMergeSuggestionAction(groupId, 'reject', setError)
-        if (!ok) break
+        if (!ok) {
+          allSucceeded = false
+          break
+        }
       }
-      routeMergeNotice.value = '已将全部候选归并组设为不合并。'
+      if (allSucceeded) routeMergeNotice.value = '已将全部候选归并组设为不合并。'
     } finally {
       routeMergeBatchSubmitting.value = false
     }

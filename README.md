@@ -1,5 +1,4 @@
 # ProcessMind 最小可运行包
-
 这个包用于把当前系统交给其他开发者继续修改和运行。
 
 它保留了：
@@ -129,6 +128,12 @@ docker compose up -d --build
 4. 前端组件：`process-plan-agent-ui/src/components/`
 5. 路由规则知识：`process-plan-agent-api/knowledge/`
 6. 提示词模板：`process-plan-agent-api/prompt_templates.md`
+
+## 轴套类工艺知识库 Demo
+
+知识库使用 `process-plan-agent-api/knowledge/demo/local_records.json` 中的本地轴套类历史工艺与加工能力样例，通过关键词检索返回相关记录，再复用项目的大模型配置组织中文答案。答案只依据检索到的本地记录，并展示原始 JSON 或 Excel 的文件、工作表、行号和单元格范围等来源。
+
+在「设置 → 大模型」配置项目已有的模型服务后，即可在「知识库」页面直接提问。未检索到本地依据时不会调用模型；模型未配置或调用失败时仍会显示已检索到的本地记录。Demo 不要求用户上传知识文件，也不接入外部知识检索服务；样例内容仅供参考，实际工艺仍需审核确认。
 
 ## 规则包 V2 说明
 

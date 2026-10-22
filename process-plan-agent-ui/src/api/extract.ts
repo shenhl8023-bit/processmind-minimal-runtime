@@ -77,6 +77,10 @@ export interface MergeMatchedDetailRow {
 }
 
 export interface MergeSuggestion {
+  advice_source?: 'model' | 'local_rules'
+  advice_action?: 'direct_merge' | 'absorb_into_parent' | 'keep_separate'
+  advice_confidence?: number | null
+  advice_evidence_ids?: string[]
   suggestion_id: string
   target_group_id: string
   sequence: number
@@ -164,6 +168,7 @@ export interface GroupTemplateStepMappingInput {
   status: 'confirmed' | 'not_applicable'
   confidence: number
   source: 'user_confirmed' | 'auto_confirmed' | 'legacy_migrated'
+  final_targets?: Array<{ process_id: string; step_id: string }>
 }
 
 export interface GroupTemplateStepMapping extends GroupTemplateStepMappingInput {
@@ -176,14 +181,14 @@ export interface GroupTemplateStepMapping extends GroupTemplateStepMappingInput 
 export interface GroupTemplateMappingOutputStep {
   step_name: string
   candidates: Record<string, string[]>
-  is_last: boolean
+  step_id: string
 }
 
 export interface GroupTemplateMappingOutputProcess {
   process_name: string
   process_type: '加工工序' | '辅助工序'
   precision: string
-  technical_requirements: string[]
+  process_id: string
   steps: GroupTemplateMappingOutputStep[]
 }
 
@@ -229,6 +234,11 @@ export interface GroupTemplateMigrationResult {
 export interface GroupTemplateCommitResult extends ProjectGroupTemplate, GroupTemplateMigrationResult {}
 
 export interface TemplateGroupMappingOperationInput {
+  process_id?: string
+  source_operation_ids?: number[]
+  steps?: import('@/composables/finalRouteSteps').FinalRouteStep[]
+  process_type?: string
+  precision?: string
   operation_id: number
   operation_name: string
   step_items: string[]
@@ -391,6 +401,15 @@ export interface SegmentRuleReview {
     value: string
     label: string
   }>
+  analysis_draft?: {
+    scope: string
+    object: string
+    condition_text: string
+    candidate?: Record<string, any> | null
+    missing: string[]
+    provenance: Array<{ kind: string; label: string; evidence: string }>
+    status: 'incomplete' | 'ready' | 'confirmed'
+  } | null
   condition_review?: import('./rulePackages').RuleConditionReview | null
   created_at: string
   updated_at: string
@@ -455,6 +474,13 @@ export interface FinalizedRulePackageResult {
   input_schema: Record<string, any>
   route_catalog: Record<string, any>
   route_rules: Record<string, any>
+  demo_tables?: {
+    factor_table: Array<Record<string, any>>
+    full_route_table: Array<Record<string, any>>
+    rule_table: Array<Record<string, any>>
+  } | null
+  export_sources?: Record<string, any>
+  export_error?: string | null
   test_cases: Array<Record<string, any>>
   rule_report_md: string
   validation_report: Record<string, any>
@@ -789,6 +815,7 @@ export async function saveSegmentRuleReview(body: {
     value: string
     label: string
   }>
+  analysis_draft?: SegmentRuleReview['analysis_draft']
 }) {
   const { data } = await api.post('/api/extract/segment-rule-reviews', body)
   clearWorkflowProjectDataCache(body.project_id)

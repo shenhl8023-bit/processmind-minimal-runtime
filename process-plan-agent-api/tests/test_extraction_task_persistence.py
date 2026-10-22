@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base, configure_sqlite_engine
-from app.models.models import Project
+from app.models.models import Operation, Project
 from app.services import extraction_pipeline
 from app.services.extraction_pipeline import resolve_extraction_task_status, run_extraction_pipeline
 from app.services.extraction_tasks import (
@@ -163,3 +163,58 @@ def test_force_reextract_controls_document_detail_cache(tmp_path, monkeypatch):
 
     asyncio.run(run())
     assert captured == [True, False]
+
+
+def test_extraction_releases_write_lock_before_slow_document_work(tmp_path, monkeypatch):
+    async def fake_config():
+        return {"key": "configured"}
+
+    monkeypatch.setattr(extraction_pipeline, "get_llm_config", fake_config)
+
+    async def run():
+        engine = create_async_engine(
+            f"sqlite+aiosqlite:///{tmp_path / 'extraction-lock.db'}",
+            connect_args={"timeout": 0.1},
+        )
+        sessions = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        concurrent_write_succeeded = False
+
+        async def slow_extract(_db, _project_id):
+            nonlocal concurrent_write_succeeded
+            # Exercise an independent write while extraction is at its slow boundary.
+            async with sessions() as other:
+                other.add(Project(id=2, name="independent-button-action"))
+                await other.commit()
+            concurrent_write_succeeded = True
+            return [{"name": "新工序"}]
+
+        async def save_ops(db, project_id, _ops):
+            db.add(Operation(project_id=project_id, name="新工序", sequence=10))
+
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            async with sessions() as db:
+                db.add(Project(id=1, name="extracting", status="UPLOADED"))
+                await db.commit()
+                db.add(Operation(project_id=1, name="旧工序", sequence=10))
+                await db.commit()
+
+            await run_extraction_pipeline(
+                project_id=1,
+                force_reextract=True,
+                async_session_factory=sessions,
+                extract_route_set_with_llm=slow_extract,
+                save_ops=save_ops,
+            )
+            assert concurrent_write_succeeded, "Extraction held a SQLite write lock during document work"
+            async with sessions() as db:
+                project = await db.get(Project, 1)
+                assert project.status == "ROUTE_SET_READY"
+                names = (await db.scalars(select(Operation.name).where(Operation.project_id == 1))).all()
+                assert names == ["新工序"]
+        finally:
+            _clear_runtime_task_state()
+            await engine.dispose()
+
+    asyncio.run(run())

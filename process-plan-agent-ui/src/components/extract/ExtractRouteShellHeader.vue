@@ -12,20 +12,9 @@
           <span class="route-shell-stat">结果 <strong>{{ resultCount }}</strong></span>
           <span class="route-shell-stat">待处理 <strong>{{ pendingCount }}</strong></span>
         </div>
-        <span class="tag" :class="canEnter ? 'tag-success' : 'tag-warning'">
-          {{ canEnter ? '已收敛' : statusLabel }}
+        <span v-if="!canEnter" class="tag tag-warning">
+          {{ statusLabel }}
         </span>
-        <button
-          class="btn btn-text btn-sm route-shell-tool"
-          type="button"
-          :disabled="!canEnter"
-          @click="$emit('open-template-mapping')"
-        >
-          <Connection class="icon-sm" />
-          模板分组映射
-          <span v-if="templateMappingCount" class="route-shell-tool-count">{{ templateMappingCount }}</span>
-          <span v-else-if="canEnter" class="route-shell-tool-badge-unmapped">待映射</span>
-        </button>
         <button class="btn btn-text btn-sm route-shell-revert" @click="$emit('rerun')">
           <svg viewBox="0 0 24 24" fill="none" class="icon-sm">
             <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 005.373 6.222M20 20v-5h-.581m-15.357-2a8.001 8.001 0 0013.984 4.778" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -43,7 +32,6 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Connection } from '@element-plus/icons-vue'
 
 const props = defineProps<{
   editUnlocked: boolean
@@ -52,13 +40,11 @@ const props = defineProps<{
   pendingCount: number
   canEnter: boolean
   statusLabel: string
-  templateMappingCount?: number
   notice?: string
 }>()
 
 defineEmits<{
   rerun: []
-  'open-template-mapping': []
 }>()
 
 const isWarningNotice = computed(() =>
@@ -78,26 +64,6 @@ const isWarningNotice = computed(() =>
   background: #ffffff;
   box-shadow: 0 1.5px 5px rgba(15, 23, 42, 0.02);
   margin-bottom: 6px;
-}
-
-.route-shell-tool-count {
-  min-width: 18px;
-  padding: 1px 5px;
-  border-radius: 9px;
-  background: #dbeafe;
-  color: #1d4ed8;
-  font-size: 10px;
-  text-align: center;
-}
-
-.route-shell-tool-badge-unmapped {
-  padding: 1px 6px;
-  border-radius: 9px;
-  background: #ffedd5;
-  color: #c2410c;
-  font-size: 10px;
-  font-weight: 700;
-  text-align: center;
 }
 
 .route-shell-info {
@@ -157,38 +123,6 @@ const isWarningNotice = computed(() =>
   background: transparent;
   border: 1px solid #c7d2fe;
   transition: all .2s;
-}
-
-.route-shell-tool {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 10px;
-  border: 1px solid #c7d2fe;
-  border-radius: 6px;
-  background: #ffffff;
-  color: #4f46e5;
-  font-size: 11.5px;
-  font-weight: 600;
-  transition: all .2s;
-}
-
-.route-shell-tool:hover:not(:disabled),
-.route-shell-tool-active {
-  border-color: #818cf8;
-  background: #eef2ff;
-  color: #3730a3;
-}
-
-.route-shell-tool:disabled {
-  border-color: #e2e8f0;
-  color: #94a3b8;
-  cursor: not-allowed;
-}
-
-.route-shell-tool .icon-sm {
-  width: 13px;
-  height: 13px;
 }
 
 .route-shell-revert:hover {

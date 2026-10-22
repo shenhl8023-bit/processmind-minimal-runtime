@@ -423,6 +423,76 @@ def test_merge_suggestion_review_rejects_stale_revision(workflow_client):
     assert "页面已过期" in str(response.json()["detail"])
 
 
+def test_merge_suggestion_review_reports_missing_suggestion(workflow_client):
+    response = workflow_client.post("/api/extract/merge-suggestions/review", json={
+        "project_id": 9,
+        "expected_workflow_revision": 7,
+        "suggestion_id": "suggestion-missing",
+        "action": "accept",
+    })
+
+    assert response.status_code == 404
+    assert "归并建议不存在" in str(response.json()["detail"])
+
+
+@pytest.mark.parametrize("action", ["accept", "reject", "rename"])
+def test_merge_review_uses_saved_tree_without_model_reordering(workflow_client, monkeypatch, action):
+    from app.routers import extract
+
+    snapshot = {
+        "superset_route": [
+            {"id": 900, "name": "下料", "sequence": 10},
+            {"id": 901, "name": "备料", "sequence": 20},
+        ],
+        "merge_groups": [{
+            "id": "blank-prep", "normalized_step_name": "下料",
+            "source_nodes": ["下料", "备料"], "source_operation_ids": [900, 901],
+            "review_status": "pending", "suggestion_type": "direct_merge",
+        }],
+        "merge_suggestions": [{"suggestion_id": "suggestion-blank-prep", "target_group_id": "blank-prep"}],
+        "review_state": {},
+    }
+
+    async def cached_snapshot(_project_id, _db):
+        return snapshot
+
+    async def forbidden_tree_rebuild(*_args, **_kwargs):
+        raise AssertionError("A review must not recompute the process tree or call its model")
+
+    monkeypatch.setattr(extract, "_ensure_project_route_merge_snapshot", cached_snapshot)
+    monkeypatch.setattr(extract, "_list_superset_route_tree", forbidden_tree_rebuild)
+    response = workflow_client.post("/api/extract/merge-suggestions/review", json={
+        "project_id": 9, "expected_workflow_revision": 7,
+        "suggestion_id": "suggestion-blank-prep", "action": action, "manual_label": "毛坯准备",
+    })
+    assert response.status_code == 200
+    if action == "reject":
+        assert [g["source_operation_ids"] for g in snapshot["merge_groups"]] == [[900], [901]]
+    elif action == "accept":
+        assert snapshot["merge_groups"][0]["review_status"] == "merged"
+    else:
+        assert snapshot["merge_groups"][0]["normalized_step_name"] == "毛坯准备"
+
+
+def test_superset_read_reuses_saved_tree_without_model_reordering(workflow_client, monkeypatch):
+    from app.routers import extract
+
+    async def cached_snapshot(_project_id, _db):
+        return {"superset_route": [{
+            "id": 900001, "name": "车外圆", "sequence": 10,
+            "op_type": "MAIN", "confidence": "STRONG",
+        }]}
+
+    async def forbidden_tree_rebuild(*_args, **_kwargs):
+        raise AssertionError('Reading mapping sources must not rerun the ordering model')
+
+    monkeypatch.setattr(extract, '_ensure_project_route_merge_snapshot', cached_snapshot)
+    monkeypatch.setattr(extract, '_list_superset_route_tree', forbidden_tree_rebuild)
+    response = workflow_client.get('/api/extract/superset-route', params={'project_id': 9})
+    assert response.status_code == 200
+    assert response.json()['superset_route'][0]['id'] == 900001
+
+
 def test_rule_package_publish_rejects_user_rule_that_differs_from_confirmed_ast(
     workflow_client,
     rule_package_v2_payload,

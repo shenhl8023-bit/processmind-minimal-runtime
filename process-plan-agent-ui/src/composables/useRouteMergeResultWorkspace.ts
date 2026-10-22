@@ -5,6 +5,10 @@ import { formatRouteDisplayName } from '@/composables/routeNameDisplay'
 export type MergeGroupStatus = 'pending' | 'merged' | 'kept' | 'conflict'
 
 export type RouteMergeGroup = {
+  advice_source?: 'model' | 'local_rules'
+  advice_action?: 'direct_merge' | 'absorb_into_parent' | 'keep_separate'
+  advice_confidence?: number | null
+  advice_evidence_ids?: string[]
   id: string
   sequence: number
   standard_name: string

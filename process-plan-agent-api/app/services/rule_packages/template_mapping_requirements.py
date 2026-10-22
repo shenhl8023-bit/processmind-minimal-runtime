@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import unicodedata
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.models import DocumentOperationDetail
+from app.services.process_tree_builder import build_superset_process_tree
 from app.services.project_group_templates import get_project_group_template, serialize_project_group_template
 from app.services.rule_packages.contracts import RulePackageV2
 
@@ -40,52 +44,16 @@ def _source_operation_ids(process) -> set[int]:
     return result
 
 
-def _referenced_process_ids(package: RulePackageV2) -> set[str]:
-    selected: set[str] = set()
-    for process in package.route_catalog.processes:
-        if process.main:
-            selected.add(process.process_id)
-    for rule in package.route_rules.rules:
-        if not rule.enabled:
-            continue
-        selected.update(rule.then.include_process_ids)
-        selected.update(rule.then.exclude_process_ids)
-    for relation in package.route_rules.process_relations or []:
-        if not relation.enabled:
-            continue
-        selected.update(relation.source_process_ids)
-        selected.update(relation.target_process_ids)
-    return selected
-
-
-def _required_by(package: RulePackageV2) -> dict[str, tuple[list[str], list[str]]]:
-    reasons: dict[str, tuple[list[str], list[str]]] = {}
-
-    def add(process_id: str, code: str, label: str) -> None:
-        codes, labels = reasons.setdefault(process_id, ([], []))
-        if code not in codes:
-            codes.append(code)
-        if label not in labels:
-            labels.append(label)
-
-    for process in package.route_catalog.processes:
-        if process.main:
-            add(process.process_id, "mainline", "主线工序")
-    for rule in package.route_rules.rules:
-        if not rule.enabled:
-            continue
-        for process_id in rule.then.include_process_ids:
-            add(process_id, "rule_include", "规则包含引用")
-        for process_id in rule.then.exclude_process_ids:
-            add(process_id, "rule_exclude", "规则排除引用")
-    for relation in package.route_rules.process_relations or []:
-        if not relation.enabled:
-            continue
-        for process_id in relation.source_process_ids:
-            add(process_id, "relation_source", "工序关系来源")
-        for process_id in relation.target_process_ids:
-            add(process_id, "relation_target", "工序关系目标")
-    return reasons
+async def _load_source_step_items(db: AsyncSession, project_id: int) -> dict[int, list[str]]:
+    # Rebuild only the deterministic source identities; publication never calls a model.
+    details = (await db.execute(
+        select(DocumentOperationDetail).where(DocumentOperationDetail.project_id == project_id)
+        .order_by(DocumentOperationDetail.document_id.asc(), DocumentOperationDetail.operation_seq.asc(),
+                  DocumentOperationDetail.page_no.asc(), DocumentOperationDetail.id.asc())
+    )).scalars().all()
+    sources = build_superset_process_tree(operations=[], detail_rows=details, sample_count=0)
+    return {int(source['id']): [*list(source.get('step_items') or []),
+                               *list(source.get('attached_step_items') or [])] for source in sources}
 
 
 async def validate_rule_package_template_mapping(
@@ -100,44 +68,87 @@ async def validate_rule_package_template_mapping(
         )]
 
     template = serialize_project_group_template(template_row)
-    if not template.mappings and not template.step_mappings:
+    def path_key(path):
+        return tuple(unicodedata.normalize("NFC", str(part)).strip() for part in path)
+
+    nodes = {}
+
+    def visit(tree):
+        for node in tree:
+            nodes[path_key(node.get("path", []))] = node
+            visit(node.get("children", []))
+
+    visit(template.tree)
+    required_paths = {
+        path_key(node.get("path", [])): node
+        for node in nodes.values()
+        if not node.get("children") and node.get("feature_selections")
+    }
+    if not required_paths:
         return [TemplateMappingBlocker(
             code="group_template_mapping_missing",
-            message="请先完成分组模板映射。",
+            message="分组模板中没有包含特征的叶子分组，无法建立工艺映射。",
         )]
+    covered_paths = set()
+    processes = package.route_catalog.processes
+    operation_ids = set().union(*(
+        _source_operation_ids(process) | _alias_operation_ids(process.template_group_aliases)
+        for process in processes
+    ))
+    for mapping in template.mappings:
+        mapping_path = path_key(mapping.template_group_path)
+        node = required_paths.get(mapping_path)
+        mapped_features = set(getattr(mapping, "feature_selections", []) or [])
+        if (mapping.source_operation_id in operation_ids and node
+                and mapped_features.intersection(node.get("feature_selections", []))):
+            covered_paths.add(mapping_path)
 
-    mapped_operation_ids = {mapping.source_operation_id for mapping in template.mappings}
-    confirmed_step_operation_ids = {
-        mapping.source_operation_id
-        for mapping in template.step_mappings
-        if mapping.status == "confirmed" and mapping.template_group_path
+    source_steps = await _load_source_step_items(db, package.manifest.project_id) if template.step_mappings else {}
+    processes_by_id = {process.process_id: process for process in processes}
+    mapped_steps = {
+        (process.get("process_id"), step.get("step_id")): step
+        for process in getattr(template, "mapping_output", [])
+        if process.get("process_type") != "辅助工序"
+        for step in process.get("steps", [])
     }
-    step_mapping_mode = bool(template.step_mappings and not template.mappings)
-    blockers: list[TemplateMappingBlocker] = []
-    referenced_process_ids = _referenced_process_ids(package)
-    required_by = _required_by(package)
-    for process in package.route_catalog.processes:
-        aliases = _alias_operation_ids(process.template_group_aliases)
-        if process.process_id not in referenced_process_ids:
+    for mapping in template.step_mappings:
+        if mapping.status != "confirmed" or mapping.source_operation_id not in operation_ids:
             continue
-        source_operation_ids = _source_operation_ids(process)
-        if step_mapping_mode and not (source_operation_ids & confirmed_step_operation_ids):
-            # Step mappings are only created for operations that have eligible
-            # template features. Ordinary operations do not need a legacy
-            # operation-level alias just to pass publication checks.
+        node = nodes.get(path_key(mapping.template_group_path))
+        if not node or node.get("children") or not mapping.candidate_features:
             continue
-        if (
-            (aliases and aliases & mapped_operation_ids)
-            or (source_operation_ids and source_operation_ids & confirmed_step_operation_ids)
-        ):
+        if not set(mapping.candidate_features).issubset(set(node.get("feature_selections", []))):
             continue
-        reason_codes, reason_labels = required_by.get(process.process_id, ([], []))
-        blockers.append(TemplateMappingBlocker(
-            code="group_template_mapping_missing",
-            message="请先完成分组模板映射。",
-            process_id=process.process_id,
-            process_name=process.display_name,
-            required_by=reason_codes,
-            required_by_labels=reason_labels,
-        ))
-    return blockers
+        steps = source_steps.get(mapping.source_operation_id, [])
+        position = mapping.source_step_order - 1
+        if position < 0 or position >= len(steps):
+            continue
+        if unicodedata.normalize('NFC', steps[position]).strip() != unicodedata.normalize('NFC', mapping.source_step_name).strip():
+            continue
+        final_targets = getattr(mapping, "final_targets", [])
+        if final_targets:
+            valid_target = False
+            for target in final_targets:
+                process = processes_by_id.get(target.get("process_id"))
+                if process is None or mapping.source_operation_id not in _source_operation_ids(process):
+                    continue
+                if target.get("step_id") not in {step.step_id for step in process.steps}:
+                    continue
+                step = mapped_steps.get((process.process_id, target.get("step_id")), {})
+                path = "/".join(path_key(mapping.template_group_path))
+                candidates = step.get("candidates", {}).get(path, [])
+                if set(mapping.candidate_features).issubset(set(candidates)):
+                    valid_target = True
+                    break
+            if not valid_target:
+                continue
+        covered_paths.add(path_key(mapping.template_group_path))
+
+    missing_paths = [path for path in required_paths if path not in covered_paths]
+    if not missing_paths:
+        return []
+    missing_labels = [" / ".join(map(str, required_paths[path].get("path", []))) for path in missing_paths]
+    return [TemplateMappingBlocker(
+        code="group_template_mapping_missing",
+        message="以下模板分组尚未关联任何有效特征映射，请至少为每个有特征的分组关联一个特征：" + "、".join(missing_labels),
+    )]

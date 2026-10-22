@@ -38,6 +38,10 @@ def apply_merge_suggestion_review(
     current = dict(groups[group_idx])
     normalized_action = (action or "").strip().lower()
     if normalized_action == "accept":
+        if (current.get("advice_source") == "model"
+                and current.get("advice_action") in {"direct_merge", "absorb_into_parent"}
+                and current.get("source_type") != "manual_adjusted"):
+            current["normalized_step_name"] = current.get("recommended_target_name") or current["normalized_step_name"]
         current["review_status"] = "merged"
         groups[group_idx] = current
     elif normalized_action == "reject":
@@ -74,6 +78,7 @@ def apply_merge_suggestion_review(
     review_state[suggestion_id] = {
         "action": normalized_action,
         "manual_label": canonicalize_route_label(manual_label.strip()),
+        "source_operation_ids": list(current.get("source_operation_ids") or []),
     }
     snapshot["review_state"] = review_state
     return snapshot

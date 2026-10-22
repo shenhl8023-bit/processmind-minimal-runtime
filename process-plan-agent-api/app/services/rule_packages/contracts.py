@@ -230,7 +230,22 @@ class PackageScope(StrictModel):
     key: str = Field(pattern=r"^[1-9]\d*$")
 
 
+class DomainKnowledgePackageRef(StrictModel):
+    package_id: str = Field(min_length=1)
+    version: int = Field(gt=0)
+    content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+
 class RulePackageManifestV2(StrictModel):
+    domain_knowledge_package: DomainKnowledgePackageRef | None = None
+
+    @model_serializer(mode='wrap')
+    def serialize_optional_domain_ref(self, handler):
+        payload = handler(self)
+        if self.domain_knowledge_package is None:
+            payload.pop('domain_knowledge_package', None)
+        return payload
+
     schema_version: Literal["2.0"] = "2.0"
     package_name: str = Field(min_length=1)
     project_id: int = Field(gt=0)

@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   getCurrentGroupTemplate: vi.fn(),
   precheckFinalizedRulePackage: vi.fn(),
   saveFinalizedRulePackage: vi.fn(),
-  createZipBlob: vi.fn(() => new Blob()),
+  createZipBlob: vi.fn((_files: any[]) => new Blob()),
   downloadBlob: vi.fn(),
 }))
 
@@ -17,11 +17,15 @@ vi.mock('@/api', () => ({
   saveFinalizedRulePackage: mocks.saveFinalizedRulePackage,
 }))
 
-vi.mock('@/utils/exportArchive', () => ({
-  createZipBlob: mocks.createZipBlob,
-  downloadBlob: mocks.downloadBlob,
-  textFile: (value: unknown) => JSON.stringify(value),
-}))
+vi.mock('@/utils/exportArchive', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/utils/exportArchive')>()
+  mocks.createZipBlob.mockImplementation(actual.createZipBlob)
+  return {
+    ...actual,
+    createZipBlob: mocks.createZipBlob,
+    downloadBlob: mocks.downloadBlob,
+  }
+})
 
 vi.mock('@/utils/finalizeRulePackage', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/utils/finalizeRulePackage')>(),
@@ -52,13 +56,19 @@ const fullRouteStructure = [{
   process_name: '车削加工（A侧）',
   process_type: '加工工序',
   precision: '粗加工',
-  technical_requirements: ['外圆'],
+  process_id: 'turning_a',
   steps: [{
     step_name: '粗车外圆',
     candidates: { 'A侧/外圆': ['外圆柱面'] },
-    is_last: true,
+    step_id: 'turning_a_s01',
   }],
 }]
+
+const frozenTables = {
+  factor_table: [{ key: 'material', label: '材料', type: 'string', source: 'manual_defaults.material_grade', visible: true }],
+  full_route_table: fullRouteStructure,
+  rule_table: [{ target: 'turning_a', required: true }],
+}
 
 function compiled(packageValue: typeof firstPackage) {
   return {
@@ -68,7 +78,12 @@ function compiled(packageValue: typeof firstPackage) {
   }
 }
 
-function createExport() {
+function validTemplate(output: unknown[] = []) {
+  return { mapping_output: output, tree: [{ path: ['外圆'], children: [], feature_selections: ['外圆'] }],
+    mappings: [{ source_operation_id: 1, template_group_path: ['外圆'], feature_selections: ['外圆'] }], step_mappings: [] }
+}
+
+function createExport(extra: Record<string, unknown> = {}) {
   return useFinalizeRulePackageExport({
     projectId: ref(12),
     projectName: ref('project'),
@@ -80,10 +95,67 @@ function createExport() {
     primarySteps: () => [],
     attachedSteps: () => [],
     conditionFields: ref([{ key: 'cad.features' }]),
+    ...extra,
   } as any)
 }
 
+async function readStoredZip(blob: Blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer())
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const decoder = new TextDecoder('utf-8', { fatal: true })
+  const files: Record<string, string> = {}
+  const centralFiles: string[] = []
+  let offset = 0
+  while (offset + 4 <= bytes.length && view.getUint32(offset, true) === 0x04034b50) {
+    const method = view.getUint16(offset + 8, true)
+    const compressedSize = view.getUint32(offset + 18, true)
+    const nameLength = view.getUint16(offset + 26, true)
+    const extraLength = view.getUint16(offset + 28, true)
+    const nameStart = offset + 30
+    const contentStart = nameStart + nameLength + extraLength
+    const name = decoder.decode(bytes.subarray(nameStart, nameStart + nameLength))
+    if (method !== 0) throw new Error(`Unexpected ZIP compression method: ${method}`)
+    files[name] = decoder.decode(bytes.subarray(contentStart, contentStart + compressedSize))
+    offset = contentStart + compressedSize
+  }
+  const centralOffset = offset
+  while (offset + 4 <= bytes.length && view.getUint32(offset, true) === 0x02014b50) {
+    const nameLength = view.getUint16(offset + 28, true)
+    const extraLength = view.getUint16(offset + 30, true)
+    const commentLength = view.getUint16(offset + 32, true)
+    const nameStart = offset + 46
+    centralFiles.push(decoder.decode(bytes.subarray(nameStart, nameStart + nameLength)))
+    offset = nameStart + nameLength + extraLength + commentLength
+  }
+  const centralSize = offset - centralOffset
+  const endSignature = offset + 4 <= bytes.length ? view.getUint32(offset, true) : 0
+  const entryCount = endSignature === 0x06054b50 ? view.getUint16(offset + 10, true) : 0
+  const reportedCentralSize = endSignature === 0x06054b50 ? view.getUint32(offset + 12, true) : -1
+  const reportedCentralOffset = endSignature === 0x06054b50 ? view.getUint32(offset + 16, true) : -1
+  const endRecordLength = endSignature === 0x06054b50 ? 22 + view.getUint16(offset + 20, true) : 0
+  return {
+    files,
+    centralFiles,
+    endSignature,
+    entryCount,
+    centralSize,
+    reportedCentralSize,
+    reportedCentralOffset,
+    archiveLength: offset + endRecordLength,
+    byteLength: bytes.length,
+  }
+}
+
 describe('useFinalizeRulePackageExport', () => {
+  it('blocks publication when every saved mapping is invalid', async () => {
+    mocks.compileRulePackage.mockResolvedValueOnce(compiled(firstPackage))
+    mocks.getCurrentGroupTemplate.mockResolvedValue({ ...validTemplate(), tree: [] })
+    await createExport().downloadRuleDocument()
+    expect(mocks.precheckFinalizedRulePackage).not.toHaveBeenCalled()
+    expect(mocks.saveFinalizedRulePackage).not.toHaveBeenCalled()
+    expect(mocks.downloadBlob).not.toHaveBeenCalled()
+  })
+
   beforeEach(() => {
     mocks.compileRulePackage.mockReset()
     mocks.getCurrentGroupTemplate.mockReset()
@@ -99,9 +171,9 @@ describe('useFinalizeRulePackageExport', () => {
     mocks.downloadBlob.mockClear()
   })
 
-  it('exports factor, full-route, and rule tables', async () => {
+  it('exports exactly the three frozen tables from the published package despite different live mapping', async () => {
     mocks.compileRulePackage.mockResolvedValueOnce(compiled(secondPackage))
-    mocks.getCurrentGroupTemplate.mockResolvedValue({ mapping_output: fullRouteStructure })
+    mocks.getCurrentGroupTemplate.mockResolvedValue(validTemplate([{ process_name: '实时映射已经改变' }]))
     mocks.saveFinalizedRulePackage.mockResolvedValue({
       version: 3,
       schema_version: '2.0',
@@ -114,6 +186,7 @@ describe('useFinalizeRulePackageExport', () => {
       test_cases: [],
       rule_report_md: '# report',
       validation_report: {},
+      demo_tables: frozenTables,
     })
 
     const { downloadRuleDocument } = createExport()
@@ -125,17 +198,28 @@ describe('useFinalizeRulePackageExport', () => {
       manifest: secondPackage.manifest,
       factor_dictionary: secondPackage.factor_dictionary,
     }))
-    expect(mocks.createZipBlob).toHaveBeenCalledWith([
-      { name: 'factor_table.json', content: JSON.stringify(secondPackage.factor_dictionary) },
-      { name: 'full_route_structure.json', content: JSON.stringify(fullRouteStructure) },
-      { name: 'rule_table.json', content: JSON.stringify(secondPackage.route_rules) },
-    ])
     expect(mocks.downloadBlob).toHaveBeenCalledTimes(1)
+    const downloadedBlob = mocks.downloadBlob.mock.calls[0]?.[0] as Blob | undefined
+    expect(downloadedBlob).toBeInstanceOf(Blob)
+    const archive = await readStoredZip(downloadedBlob as Blob)
+    expect(Object.keys(archive.files).sort()).toEqual([
+      'factor_table.json', 'full_route_table.json', 'rule_table.json',
+    ])
+    expect(archive.centralFiles.sort()).toEqual(Object.keys(archive.files).sort())
+    expect(archive.endSignature).toBe(0x06054b50)
+    expect(archive.entryCount).toBe(3)
+    expect(archive.reportedCentralOffset).toBeGreaterThan(0)
+    expect(archive.reportedCentralSize).toBe(archive.centralSize)
+    expect(archive.archiveLength).toBe(archive.byteLength)
+    expect(JSON.parse(archive.files['factor_table.json']!)).toEqual(frozenTables.factor_table)
+    expect(JSON.parse(archive.files['full_route_table.json']!)).toEqual(frozenTables.full_route_table)
+    expect(JSON.parse(archive.files['rule_table.json']!)).toEqual(frozenTables.rule_table)
+    expect(archive.files['full_route_table.json']).toContain('粗加工')
   })
 
-  it('can still export when the saved full route structure is empty', async () => {
+  it('does not download a package without a frozen three-table snapshot', async () => {
     mocks.compileRulePackage.mockResolvedValueOnce(compiled(firstPackage))
-    mocks.getCurrentGroupTemplate.mockResolvedValue({ mapping_output: [] })
+    mocks.getCurrentGroupTemplate.mockResolvedValue(validTemplate())
     mocks.saveFinalizedRulePackage.mockResolvedValue({
       version: 3,
       schema_version: '2.0',
@@ -149,23 +233,33 @@ describe('useFinalizeRulePackageExport', () => {
       rule_report_md: '# report',
       validation_report: {},
     })
-    const { downloadRuleDocument } = createExport()
+    const onExportIssue = vi.fn()
+    const { downloadRuleDocument } = createExport({ onExportIssue })
 
     await downloadRuleDocument()
 
     expect(mocks.compileRulePackage).toHaveBeenCalledTimes(1)
     expect(mocks.saveFinalizedRulePackage).toHaveBeenCalledTimes(1)
-    expect(mocks.createZipBlob).toHaveBeenCalledWith([
-      { name: 'factor_table.json', content: JSON.stringify(firstPackage.factor_dictionary) },
-      { name: 'full_route_structure.json', content: JSON.stringify([]) },
-      { name: 'rule_table.json', content: JSON.stringify(firstPackage.route_rules) },
-    ])
-    expect(mocks.downloadBlob).toHaveBeenCalledTimes(1)
+    expect(mocks.createZipBlob).not.toHaveBeenCalled()
+    expect(mocks.downloadBlob).not.toHaveBeenCalled()
+    expect(onExportIssue).toHaveBeenCalledWith(expect.objectContaining({ summary: expect.stringContaining('重新发布') }))
   })
 
-  it('publishes without confirming a current pending route candidate', async () => {
+  it('does not download an empty frozen full-route table', async () => {
     mocks.compileRulePackage.mockResolvedValueOnce(compiled(firstPackage))
-    mocks.getCurrentGroupTemplate.mockResolvedValue({ mapping_output: [] })
+    mocks.getCurrentGroupTemplate.mockResolvedValue(validTemplate(fullRouteStructure))
+    mocks.saveFinalizedRulePackage.mockResolvedValue({
+      version: 4, schema_version: '2.0', status: 'published', ...firstPackage,
+      demo_tables: { ...frozenTables, full_route_table: [] },
+    })
+    await createExport().downloadRuleDocument()
+    expect(mocks.createZipBlob).not.toHaveBeenCalled()
+    expect(mocks.downloadBlob).not.toHaveBeenCalled()
+  })
+
+  it('blocks unconfirmed candidates before compilation, saving or downloading', async () => {
+    mocks.compileRulePackage.mockResolvedValueOnce(compiled(firstPackage))
+    mocks.getCurrentGroupTemplate.mockResolvedValue(validTemplate())
     mocks.saveFinalizedRulePackage.mockResolvedValue({
       version: 4,
       schema_version: '2.0',
@@ -202,45 +296,25 @@ describe('useFinalizeRulePackageExport', () => {
 
     await downloadRuleDocument()
 
-    expect(onBlockedCards).not.toHaveBeenCalled()
-    expect(onExportedVersion).toHaveBeenCalledWith(4, { schemaVersion: '2.0', status: 'published' })
+    expect(onBlockedCards).toHaveBeenCalledWith([pendingCandidate])
+    expect(onExportedVersion).not.toHaveBeenCalled()
+    expect(mocks.compileRulePackage).not.toHaveBeenCalled()
+    expect(mocks.saveFinalizedRulePackage).not.toHaveBeenCalled()
+    expect(mocks.downloadBlob).not.toHaveBeenCalled()
   })
 
-  it('treats a missing full route structure as empty by default', async () => {
+  it('blocks publishing when no template is bound', async () => {
     mocks.compileRulePackage.mockResolvedValueOnce(compiled(secondPackage))
-    mocks.getCurrentGroupTemplate.mockRejectedValue({
-      response: { status: 404 },
-    })
-    mocks.saveFinalizedRulePackage.mockResolvedValue({
-      version: 3,
-      schema_version: '2.0',
-      status: 'published',
-      manifest: secondPackage.manifest,
-      factor_dictionary: secondPackage.factor_dictionary,
-      input_schema: secondPackage.input_schema,
-      route_catalog: secondPackage.route_catalog,
-      route_rules: secondPackage.route_rules,
-      test_cases: [],
-      rule_report_md: '# report',
-      validation_report: {},
-    })
-
-    const { downloadRuleDocument } = createExport()
-    await downloadRuleDocument()
-
-    expect(mocks.compileRulePackage).toHaveBeenCalledTimes(1)
-    expect(mocks.saveFinalizedRulePackage).toHaveBeenCalledTimes(1)
-    expect(mocks.createZipBlob).toHaveBeenCalledWith([
-      { name: 'factor_table.json', content: JSON.stringify(secondPackage.factor_dictionary) },
-      { name: 'full_route_structure.json', content: JSON.stringify([]) },
-      { name: 'rule_table.json', content: JSON.stringify(secondPackage.route_rules) },
-    ])
-    expect(mocks.downloadBlob).toHaveBeenCalledTimes(1)
+    mocks.getCurrentGroupTemplate.mockRejectedValue({ response: { status: 404 } })
+    await createExport().downloadRuleDocument()
+    expect(mocks.saveFinalizedRulePackage).not.toHaveBeenCalled()
+    expect(mocks.precheckFinalizedRulePackage).not.toHaveBeenCalled()
+    expect(mocks.downloadBlob).not.toHaveBeenCalled()
   })
 
   it('surfaces template mapping blockers from the publish API', async () => {
     mocks.compileRulePackage.mockResolvedValueOnce(compiled(secondPackage))
-    mocks.getCurrentGroupTemplate.mockResolvedValue({ mapping_output: fullRouteStructure })
+    mocks.getCurrentGroupTemplate.mockResolvedValue(validTemplate(fullRouteStructure))
     mocks.saveFinalizedRulePackage.mockRejectedValue({
       response: {
         data: {
@@ -288,7 +362,7 @@ describe('useFinalizeRulePackageExport', () => {
 
   it('runs the publish precheck before saving and surfaces its checklist blockers', async () => {
     mocks.compileRulePackage.mockResolvedValueOnce(compiled(secondPackage))
-    mocks.getCurrentGroupTemplate.mockResolvedValue({ mapping_output: fullRouteStructure })
+    mocks.getCurrentGroupTemplate.mockResolvedValue(validTemplate(fullRouteStructure))
     mocks.precheckFinalizedRulePackage.mockResolvedValueOnce({
       project_id: 12,
       ok: false,

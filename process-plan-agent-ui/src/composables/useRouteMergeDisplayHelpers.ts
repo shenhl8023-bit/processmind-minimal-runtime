@@ -33,7 +33,7 @@ export function useRouteMergeDisplayHelpers(options: UseRouteMergeDisplayHelpers
     const label = String(group.recommendation_label || '').trim()
     const reason = String(group.recommendation_reason || '').trim()
     const targetName = formatRouteDisplayName(String(group.recommended_target_name || group.standard_name || '').trim())
-    const suggestionType = String(group.suggestion_type || '').trim()
+    const suggestionType = String(group.advice_action || group.suggestion_type || '').trim()
 
     if (label && reason) {
       if (suggestionType === 'absorb_into_parent' && targetName) {

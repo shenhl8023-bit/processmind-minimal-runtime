@@ -1,0 +1,372 @@
+{
+  "blocks": [
+    {
+      "id": "P001",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P002",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P003",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P004",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P005",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P006",
+      "type": "paragraph",
+      "style": null,
+      "text": "典型工艺说明"
+    },
+    {
+      "id": "P007",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P008",
+      "type": "paragraph",
+      "style": null,
+      "text": "05-JB35-21"
+    },
+    {
+      "id": "P009",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P010",
+      "type": "paragraph",
+      "style": null,
+      "text": "共 5 页"
+    },
+    {
+      "id": "P011",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P012",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P013",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P014",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P015",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P016",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P017",
+      "type": "paragraph",
+      "style": null,
+      "text": "编制：刘阳松 2021-10-25"
+    },
+    {
+      "id": "P018",
+      "type": "paragraph",
+      "style": null,
+      "text": "校对：杨一峰 2021-10-25"
+    },
+    {
+      "id": "P019",
+      "type": "paragraph",
+      "style": null,
+      "text": "审核：刘杨   2021-10-26"
+    },
+    {
+      "id": "P020",
+      "type": "paragraph",
+      "style": null,
+      "text": "批准：刘丽丹 2021-10-27"
+    },
+    {
+      "id": "P021",
+      "type": "paragraph",
+      "style": null,
+      "text": "\n"
+    },
+    {
+      "id": "P022",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P023",
+      "type": "paragraph",
+      "style": null,
+      "text": "1  适用范围"
+    },
+    {
+      "id": "P024",
+      "type": "paragraph",
+      "style": null,
+      "text": "    本典型工艺规程适用于有色金属类活门工艺指导，其余产品可参考编制。"
+    },
+    {
+      "id": "P025",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P026",
+      "type": "paragraph",
+      "style": null,
+      "text": "2  典型零件选取及主要特征"
+    },
+    {
+      "id": "P027",
+      "type": "paragraph",
+      "style": null,
+      "text": "目前，公司有色金属类活门产品涉及各型号产品，工艺路线、工艺方法基本一致，经综合分析，选取RT49A-3110-01成为典型零件。主要特征：材料为QAL10-4-4，粗加工零件外形,精加工零件，外圆A有配套要求，需保持光洁锐边。零件结构图如图1。"
+    },
+    {
+      "id": "P028",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P029",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P030",
+      "type": "paragraph",
+      "style": null,
+      "text": "图1"
+    },
+    {
+      "id": "P031",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P032",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P033",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P034",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P035",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P036",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P037",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P038",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P039",
+      "type": "paragraph",
+      "style": null,
+      "text": "3   典型零件工艺规程设计"
+    },
+    {
+      "id": "P040",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.1  工艺路线如下："
+    },
+    {
+      "id": "P041",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P042",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.2 工艺路线说明"
+    },
+    {
+      "id": "P043",
+      "type": "paragraph",
+      "style": null,
+      "text": "有色金属类活门，一般分为粗加工、半精加工、精加工。活门RT49A-3110-01材料为QAL10-4-4，工序安排为：下料→粗加工（含车工、钳工钻孔、去毛刺等）→半精加工（含磨工、线切割、等）→精加工（精车），在每一阶段的加工（粗加工、精加工）完成之后都需安排一道检验工序，确保本阶段的零件加工合格再进行下一阶段的加工，在粗加工之后，根据零件结构按需增加去应力工序。"
+    },
+    {
+      "id": "P044",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.3 加工余量说明"
+    },
+    {
+      "id": "P045",
+      "type": "paragraph",
+      "style": null,
+      "text": "根据零件大小，对于需要磨削的外圆，磨外圆粗加工为半精加工留单边0.1mm～0.15mm余量；磨外圆半精加工为精加工留单边0.02mm～0.03mm余量。"
+    },
+    {
+      "id": "P046",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4 其余技术要求"
+    },
+    {
+      "id": "P047",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4.1 锐边要求"
+    },
+    {
+      "id": "P048",
+      "type": "paragraph",
+      "style": null,
+      "text": "有色金属类活门通常要求与配套外圆交接处保持光洁锐边，为保证锐边质量，需在最初锐边形成工序开始（如车外圆等），后序每道工序都需保持外圆光洁锐边（或箭示处保持锐边），并在技术要求栏注明，加工过程不得损坏外圆光洁锐边（或箭示处锐边）；在每道涉及锐边加工的工序（如去毛刺、磨外圆等）以及检验工序，需检查锐边质量。"
+    },
+    {
+      "id": "P049",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4.2 精加工配套外圆要求"
+    },
+    {
+      "id": "P050",
+      "type": "paragraph",
+      "style": null,
+      "text": "配套外圆根据精度要求不同，若磨外圆可达到配套要求的不需要研外圆。配套外圆的精加工根据配套方式不同有以下两种安排方式："
+    },
+    {
+      "id": "P051",
+      "type": "paragraph",
+      "style": null,
+      "text": "1.基孔制，即先把配套孔加工到设计要求的最终尺寸，再根据孔的实际尺寸及间隙要求加工活门外圆尺寸；"
+    },
+    {
+      "id": "P052",
+      "type": "paragraph",
+      "style": null,
+      "text": "2.基轴制，即先加工活门外圆，再根据外圆尺寸及间隙要求加工衬套内孔尺寸；"
+    },
+    {
+      "id": "P053",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.互换制，间隙公差大于0.01mm的配套要求可进行，活门和外圆尺寸在单件时根据间隙要求加工，在组件中可任意配套。"
+    },
+    {
+      "id": "P054",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4.3   标印的安排"
+    },
+    {
+      "id": "P055",
+      "type": "paragraph",
+      "style": null,
+      "text": "     标印零件是为了能让每个零件有个区分，表音标印要求安排在第一道检验工序，必要时标印要求安排在前面工序，标印处的位置加工出来后就可以进行标印，标印时应按设计图要求规定字深和字高等。"
+    },
+    {
+      "id": "P056",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P057",
+      "type": "paragraph",
+      "style": null,
+      "text": "四、工序编制说明"
+    },
+    {
+      "id": "P058",
+      "type": "paragraph",
+      "style": null,
+      "text": "    工艺规程的编制按Q/14DGL05.106《工艺规程的编制与审批》，各类工序卡片填写参考05-TY8-15《典型工艺编制与应用指导书》附件1：工艺卡片填写说明。工序的填写按结构化工艺系统内工序术语库相关内容进行。"
+    }
+  ],
+  "figures": [
+    {
+      "paragraph": "P029",
+      "target": "media/image1.png"
+    },
+    {
+      "paragraph": "P041",
+      "target": "media/image2.png"
+    }
+  ],
+  "extra_parts": {
+    "word/footer3.xml": "",
+    "word/footer2.xml": "",
+    "word/footer1.xml": "",
+    "word/header2.xml": "",
+    "word/header1.xml": "",
+    "word/header3.xml": "",
+    "word/endnotes.xml": "",
+    "word/footnotes.xml": ""
+  }
+}

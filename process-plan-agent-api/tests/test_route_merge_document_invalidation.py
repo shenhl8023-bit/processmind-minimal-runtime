@@ -496,3 +496,91 @@ def test_new_document_signature_creates_new_current_route_version_without_deleti
             assert [row.route_version_id for row in reviews] == [historical_version.id]
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize('model_raises', [False, True])
+def test_snapshot_advice_is_cached_and_cannot_change_unreviewed_route(route_merge_db, monkeypatch, model_raises):
+    from app.services.route_merge import llm_advisor
+    calls = []
+
+    async def fake_call(system_prompt, user_prompt, **kwargs):
+        calls.append(json.loads(user_prompt))
+        if model_raises:
+            raise RuntimeError('provider unavailable')
+        return json.dumps({'decisions': [{
+            'candidate_id': item['candidate_id'], 'action': 'direct_merge',
+            'target_name': '模型建议名称', 'reason': '基于来源工步',
+            'evidence_ids': [source['evidence_id'] for source in item['sources']], 'confidence': 0.8,
+        } for item in calls[-1]['candidates']]})
+
+    monkeypatch.setattr(llm_advisor, 'call_llm', fake_call)
+
+    async def run():
+        async with route_merge_db() as db:
+            db.add(Project(id=1, name='建议集成'))
+            await db.commit()
+            async def operations():
+                return [{'id': 1, 'name': '下料', 'sequence': 10}, {'id': 2, 'name': '备料', 'sequence': 20}]
+            async def details():
+                return []
+            payload = await ensure_route_merge_snapshot(1, db, operations, details)
+            suggestion = next(item for item in payload['merge_suggestions'] if len(item['source_operation_ids']) > 1)
+            assert suggestion['advice_source'] == ('local_rules' if model_raises else 'model')
+            assert len(payload['normalized_superset_route']) == 2
+            assert all(item['normalized_step_name'] != '模型建议名称' for item in payload['normalized_superset_route'])
+            second = await ensure_route_merge_snapshot(1, db, operations, details)
+            assert second == payload
+            assert len(calls) == 1
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('action', ['accept', 'reject', 'rename', 'unsure', 'manual_route'])
+@pytest.mark.parametrize('reorder_sources', [False, True])
+def test_prompt_or_algorithm_rebuild_preserves_human_review(route_merge_db, monkeypatch, action, reorder_sources):
+    from app.services.route_merge import llm_advisor
+    from app.services.route_merge.review import apply_merge_suggestion_review
+    monkeypatch.setattr(llm_advisor, 'get_prompt_template', lambda key: 'old prompt')
+    async def no_model(*args, **kwargs):
+        return ''
+    monkeypatch.setattr(llm_advisor, 'call_llm', no_model)
+
+    async def run():
+        async with route_merge_db() as db:
+            db.add(Project(id=1, name='审核保留'))
+            db.add(_detail(1, 11, '车削'))
+            await db.commit()
+            ops = [{'id': 1, 'name': '下料', 'sequence': 10}, {'id': 2, 'name': '备料', 'sequence': 20}]
+            async def operations():
+                return ops
+            async def details():
+                return list((await db.execute(select(DocumentOperationDetail))).scalars().all())
+            original = await ensure_route_merge_snapshot(1, db, operations, details)
+            suggestion = next(item for item in original['merge_suggestions'] if len(item['source_operation_ids']) > 1)
+            if action == 'manual_route':
+                original['review_state'] = {'_manual_normalized_route_saved': True}
+                original['normalized_superset_route'] = [{'id': 'manual', 'normalized_step_name': '人工路线'}]
+            else:
+                # Accept after rename must preserve the human name, too.
+                apply_merge_suggestion_review(original, suggestion['suggestion_id'], 'rename', '人工车削', {op['id']: op for op in ops}, await details())
+                if action != 'rename':
+                    apply_merge_suggestion_review(original, suggestion['suggestion_id'], action, '', {op['id']: op for op in ops}, await details())
+            await route_merge_workspace.save_route_merge_snapshot(1, db, original)
+            await db.commit()
+            monkeypatch.setattr(llm_advisor, 'get_prompt_template', lambda key: 'new prompt')
+            if reorder_sources:
+                ops.reverse()
+                for index, operation in enumerate(ops, 1):
+                    operation['sequence'] = index * 10
+                    operation['coverage_count'] = 2
+            # Also exercise legacy algorithm migration.
+            latest = await route_merge_workspace.get_latest_route_merge_snapshot(1, db)
+            latest.source_signature = latest.source_signature.replace(route_merge_workspace.ROUTE_MERGE_ALGO_VERSION + '|', 'old-version|', 1)
+            await db.commit()
+            rebuilt = await ensure_route_merge_snapshot(1, db, operations, details)
+            assert rebuilt['source_signature'] != original['source_signature']
+            assert rebuilt['review_state'] == original['review_state']
+            assert rebuilt['normalized_superset_route'] == original['normalized_superset_route']
+            if action != 'manual_route' or not reorder_sources:
+                assert rebuilt['merge_groups'] == original['merge_groups']
+            assert len(await details()) == 1
+    asyncio.run(run())

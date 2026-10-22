@@ -3,6 +3,7 @@ Pydantic 响应与请求模型
 """
 from pydantic import BaseModel, Field, model_serializer
 
+from app.services.analysis_drafts import AnalysisRuleDraft
 from app.services.rule_packages.condition_contracts import RuleConditionReview
 from typing import Optional, List, Any, Dict, Literal
 from datetime import datetime
@@ -189,6 +190,11 @@ class GroupTemplateMappingOut(GroupTemplateMappingIn):
     feature_selections: List[str] = Field(default_factory=list)
 
 
+class GroupTemplateFinalTargetIn(BaseModel):
+    process_id: str = Field(min_length=1)
+    step_id: str = Field(min_length=1)
+
+
 class GroupTemplateStepMappingIn(BaseModel):
     source_operation_id: int = Field(gt=0)
     source_operation_name: str = Field(min_length=1, max_length=255)
@@ -201,6 +207,7 @@ class GroupTemplateStepMappingIn(BaseModel):
     status: Literal["confirmed", "not_applicable"] = "confirmed"
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     source: Literal["user_confirmed", "auto_confirmed", "legacy_migrated"] = "user_confirmed"
+    final_targets: Optional[List[GroupTemplateFinalTargetIn]] = None
 
 
 class GroupTemplateStepMappingOut(GroupTemplateStepMappingIn):
@@ -213,15 +220,15 @@ class GroupTemplateStepMappingOut(GroupTemplateStepMappingIn):
 class GroupTemplateMappingOutputStepOut(BaseModel):
     step_name: str
     candidates: Dict[str, List[str]] = Field(default_factory=dict)
-    is_last: bool = False
+    step_id: str = ""
 
 
 class GroupTemplateMappingOutputProcessOut(BaseModel):
     process_name: str
     process_type: Literal["加工工序", "辅助工序"]
     precision: str = ""
-    technical_requirements: List[str] = Field(default_factory=list)
     steps: List[GroupTemplateMappingOutputStepOut] = Field(default_factory=list)
+    process_id: str = ""
 
 
 class GroupTemplatePreviewOut(BaseModel):
@@ -269,9 +276,27 @@ class GroupTemplateMappingsUpdateRequest(BaseModel):
     mappings: List[GroupTemplateMappingIn] = Field(default_factory=list)
 
 
+class TemplateGroupMappingSourceStepIn(BaseModel):
+    source_operation_id: int = Field(default=0, ge=0)
+    source_step_order: int = Field(default=0, ge=0)
+    source_step_name: str = ""
+
+
+class TemplateGroupMappingStepIn(TemplateGroupMappingSourceStepIn):
+    step_id: str = Field(min_length=1)
+    step_name: str = Field(min_length=1)
+    kind: str = "primary"
+    source_steps: List[TemplateGroupMappingSourceStepIn] = Field(default_factory=list)
+
+
 class TemplateGroupMappingOperationIn(BaseModel):
     operation_id: int = Field(gt=0)
     operation_name: str = Field(min_length=1)
+    process_id: str = ""
+    source_operation_ids: List[int] = Field(default_factory=list)
+    process_type: str = ""
+    precision: str = ""
+    steps: List[TemplateGroupMappingStepIn] = Field(default_factory=list)
     step_items: List[str] = Field(default_factory=list)
     rule_evidence: List[str] = Field(default_factory=list)
     rule_reasons: List[str] = Field(default_factory=list)
@@ -350,6 +375,10 @@ class TemplateStepMappingSuggestResponse(BaseModel):
 
 
 class MergeSuggestionOut(BaseModel):
+    advice_source: str = "local_rules"
+    advice_action: str = ""
+    advice_confidence: Optional[float] = None
+    advice_evidence_ids: List[str] = []
     suggestion_id: str
     target_group_id: str
     sequence: int = 0
@@ -457,6 +486,7 @@ class SegmentRuleReviewOut(BaseModel):
     note: str = ""
     summary_lines: List[str] = []
     question_trail: List[Dict[str, str]] = []
+    analysis_draft: Optional[AnalysisRuleDraft] = None
     condition_review: Optional[RuleConditionReview] = None
     created_at: datetime
     updated_at: datetime
@@ -540,6 +570,7 @@ class SaveSegmentRuleReviewRequest(BaseModel):
     note: str = ""
     summary_lines: List[str] = []
     question_trail: List[Dict[str, str]] = []
+    analysis_draft: Optional[AnalysisRuleDraft] = None
 
 
 class SegmentRuleReviewSaveOut(BaseModel):
@@ -595,6 +626,9 @@ class FinalizedRulePackageOut(BaseModel):
     input_schema: Dict[str, Any] = Field(default_factory=dict)
     route_catalog: Dict[str, Any] = Field(default_factory=dict)
     route_rules: Dict[str, Any] = Field(default_factory=dict)
+    demo_tables: Optional[Dict[str, List[Dict[str, Any]]]] = None
+    export_sources: Dict[str, Any] = Field(default_factory=dict)
+    export_error: Optional[str] = None
     test_cases: List[Dict[str, Any]] = Field(default_factory=list)
     rule_report_md: str = ""
     validation_report: Dict[str, Any] = Field(default_factory=dict)
@@ -946,3 +980,121 @@ class LLMTestOut(BaseModel):
 class LLMModelOut(BaseModel):
     id: str
     name: str
+
+
+# ---------- 企业知识库 ----------
+class KnowledgeSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+    project_id: Optional[int] = Field(default=None, gt=0)
+    top_k: int = Field(default=8, ge=1, le=50)
+    context: Dict[str, Any] = Field(default_factory=dict)
+
+
+class KnowledgeSourceOut(BaseModel):
+    document_id: Optional[str] = None
+    document_name: Optional[str] = None
+    page_no: Optional[int] = None
+    identity: Optional[str] = None
+    url: Optional[str] = None
+    worksheet: Optional[str] = None
+    row_no: Optional[int] = None
+    cell_range: Optional[str] = None
+
+
+class KnowledgeSearchItemOut(BaseModel):
+    id: str
+    content: str
+    category: str = "local"
+    title: str = "本地知识记录"
+    score: Optional[float] = None
+    retrieval_method: str = "hybrid"
+    source: KnowledgeSourceOut = Field(default_factory=KnowledgeSourceOut)
+    capability: Optional[Dict[str, Any]] = None
+    route: Optional[Dict[str, Any]] = None
+    guidance: Optional[Dict[str, Any]] = None
+    relationships: Dict[str, Any] = Field(default_factory=dict)
+    data_warnings: List[str] = Field(default_factory=list)
+
+
+class KnowledgeSearchResponse(BaseModel):
+    status: str
+    message: str = ""
+    answer: str = ""
+    items: List[KnowledgeSearchItemOut] = Field(default_factory=list)
+    intent: str = "general"
+    relationship_gaps: List[str] = Field(default_factory=list)
+    resource_summary: Optional[Dict[str, Any]] = None
+
+
+class KnowledgeEvidenceCreate(BaseModel):
+    project_id: Optional[int] = Field(default=None, gt=0)
+    route_version_id: Optional[int] = Field(default=None, gt=0)
+    segment_id: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    query: str = Field(min_length=1, max_length=2000)
+    item_id: str = Field(min_length=1, max_length=255)
+    content: str = Field(min_length=1)
+    document_id: Optional[str] = None
+    document_name: Optional[str] = None
+    page_no: Optional[int] = Field(default=None, ge=1)
+    identity: Optional[str] = None
+    retrieval_method: str = "hybrid"
+
+
+class KnowledgeEvidenceOut(BaseModel):
+    id: int
+    project_id: Optional[int] = None
+    route_version_id: Optional[int] = None
+    segment_id: Optional[str] = None
+    query: str
+    item_id: str
+    content: str
+    document_id: Optional[str] = None
+    document_name: Optional[str] = None
+    page_no: Optional[int] = None
+    identity: Optional[str] = None
+    retrieval_method: str
+    snapshot_hash: str
+    retrieved_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+KNOWLEDGE_SUGGESTION_STATUSES = ("draft", "pending_review", "confirmed", "rejected", "stale")
+
+
+class KnowledgeRuleSuggestionDraft(BaseModel):
+    project_id: int = Field(gt=0)
+    route_version_id: int = Field(gt=0)
+    segment_id: str = Field(min_length=1, max_length=255)
+    title: str = Field(default="企业知识规则建议", min_length=1, max_length=255)
+    suggestion_text: str = Field(min_length=1)
+    candidate: Optional[Dict[str, Any]] = None
+    evidence_ids: List[int] = Field(min_length=1)
+    created_by: str = Field(default="默认用户", min_length=1, max_length=100)
+
+
+class KnowledgeRuleSuggestionUpdate(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    suggestion_text: Optional[str] = Field(default=None, min_length=1)
+    candidate: Optional[Dict[str, Any]] = None
+    evidence_ids: Optional[List[int]] = Field(default=None, min_length=1)
+    status: Optional[Literal["draft", "pending_review", "confirmed", "rejected", "stale"]] = None
+    updated_by: str = Field(default="默认用户", min_length=1, max_length=100)
+
+
+class KnowledgeRuleSuggestionOut(BaseModel):
+    id: int
+    project_id: int
+    route_version_id: Optional[int] = None
+    segment_id: str
+    title: str
+    suggestion_text: str
+    candidate: Optional[Dict[str, Any]] = None
+    evidence_ids: List[int] = Field(default_factory=list)
+    status: Literal["draft", "pending_review", "confirmed", "rejected", "stale"]
+    created_by: str
+    updated_by: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}

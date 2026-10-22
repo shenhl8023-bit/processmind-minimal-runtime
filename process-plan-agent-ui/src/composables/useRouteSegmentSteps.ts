@@ -1,20 +1,8 @@
 import { computed, ref, type Ref } from 'vue'
 import type { OperationItem } from '@/api'
-import { buildRouteFullSetDisplayOperations, normalizeOperationName } from '@/composables/extractViewHelpers'
+import { buildRouteFullSetDisplayOperations } from '@/composables/extractViewHelpers'
 
-function collectUniqueSteps(operations: any[], key: 'step_items' | 'attached_step_items') {
-  const unique = new Set<string>()
-  const items: string[] = []
-  operations.forEach((operation) => {
-    ;(Array.isArray(operation[key]) ? operation[key] : []).forEach((step: unknown) => {
-      const text = normalizeOperationName(String(step || '').trim())
-      if (!text || unique.has(text)) return
-      unique.add(text)
-      items.push(text)
-    })
-  })
-  return items
-}
+import { buildFinalRouteSteps } from './finalRouteSteps'
 
 export function useRouteSegmentSteps(supersetOperations: Ref<OperationItem[]>) {
   const expandedSegmentStepIds = ref<Set<string>>(new Set())
@@ -28,12 +16,14 @@ export function useRouteSegmentSteps(supersetOperations: Ref<OperationItem[]>) {
     })
   }
 
+  function segmentStepNodes(segment: any) { return buildFinalRouteSteps(segment, supersetOperations.value) }
+
   function segmentPrimarySteps(segment: any) {
-    return collectUniqueSteps(segmentDisplayOperations(segment), 'step_items')
+    return segmentStepNodes(segment).filter(step => step.kind === 'primary').map(step => step.step_name)
   }
 
   function segmentAttachedSteps(segment: any) {
-    return collectUniqueSteps(segmentDisplayOperations(segment), 'attached_step_items')
+    return segmentStepNodes(segment).filter(step => step.kind === 'attached').map(step => step.step_name)
   }
 
   function segmentStepCount(segment: any) {
@@ -57,6 +47,7 @@ export function useRouteSegmentSteps(supersetOperations: Ref<OperationItem[]>) {
     segmentDisplayOperations,
     segmentPrimarySteps,
     segmentStepCount,
+    segmentStepNodes,
     toggleSegmentSteps,
   }
 }

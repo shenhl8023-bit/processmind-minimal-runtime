@@ -18,7 +18,7 @@ const EXCLUDED_STEP_PATTERNS = [
   /热处理|调质|正常化|正火|淬火|回火|退火|时效|清洗|除油|检验|检查|探伤|测量|包装|标记|打标|装配/,
 ]
 const GEOMETRY_PROCESS_PATTERNS = [
-  /车|铣|钻|镗|铰|攻丝|磨|研|珩|切槽|挖槽|倒角|倒圆|成形|割型|打型|电火花|线切割/,
+  /车|铣|钻|镗|铰|攻丝|磨|研|珩|切槽|挖槽|倒角|倒圆|成形|割型|打型|打孔|割扁|刻线|电火花|线切割/,
 ]
 
 function cleanText(value: unknown) {
@@ -30,13 +30,14 @@ function flatten(nodes: GroupTemplateNode[]): GroupTemplateNode[] {
 }
 
 export function classifyTemplateProcessStep(
-  _operation: TemplateOperation,
+  operation: TemplateOperation,
   step: TemplateStepRef,
 ): TemplateProcessStep {
   const text = cleanText(step.step_name)
+  if (operation.process_id && operation.process_type === '辅助工序') return { ...step, eligibility: 'excluded', eligibility_reason: '辅助工序无需几何特征映射' }
   const excluded = EXCLUDED_STEP_PATTERNS.some(pattern => pattern.test(text))
   if (excluded) return { ...step, eligibility: 'excluded', eligibility_reason: '不直接加工模板几何特征' }
-  const eligible = GEOMETRY_PROCESS_PATTERNS.some(pattern => pattern.test(text))
+  const eligible = operation.process_id && operation.process_type === '加工工序' || GEOMETRY_PROCESS_PATTERNS.some(pattern => pattern.test(text))
   if (eligible) return { ...step, eligibility: 'eligible', eligibility_reason: '工步包含几何特征加工动作' }
   return { ...step, eligibility: 'excluded', eligibility_reason: '未识别到几何特征加工动作' }
 }
@@ -84,6 +85,7 @@ export function mappingRecord(mappings: GroupTemplateStepMappingInput[]) {
     scope_template_group_path: [...mapping.scope_template_group_path],
     template_group_path: [...mapping.template_group_path],
     candidate_features: [...mapping.candidate_features],
+    ...(mapping.final_targets ? { final_targets: mapping.final_targets.map(target => ({ ...target })) } : {}),
   }]))
 }
 

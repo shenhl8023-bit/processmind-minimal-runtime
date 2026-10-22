@@ -1,0 +1,1006 @@
+{
+  "blocks": [
+    {
+      "id": "P001",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P002",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P003",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P004",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P005",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P006",
+      "type": "paragraph",
+      "style": null,
+      "text": "典型工艺说明"
+    },
+    {
+      "id": "P007",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P008",
+      "type": "paragraph",
+      "style": null,
+      "text": "05-JB50-21"
+    },
+    {
+      "id": "P009",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P010",
+      "type": "paragraph",
+      "style": null,
+      "text": "共 14 页"
+    },
+    {
+      "id": "P011",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P012",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P013",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P014",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P015",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P016",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P017",
+      "type": "paragraph",
+      "style": null,
+      "text": "编制：刘丽丹 2021-05-08"
+    },
+    {
+      "id": "P018",
+      "type": "paragraph",
+      "style": null,
+      "text": "校对：李冀霞2021-05-08"
+    },
+    {
+      "id": "P019",
+      "type": "paragraph",
+      "style": null,
+      "text": "审核：袁君勤2021-05-08"
+    },
+    {
+      "id": "P020",
+      "type": "paragraph",
+      "style": null,
+      "text": "批准：陈宝来2021-05-08"
+    },
+    {
+      "id": "P021",
+      "type": "paragraph",
+      "style": null,
+      "text": "\n"
+    },
+    {
+      "id": "P022",
+      "type": "paragraph",
+      "style": null,
+      "text": "1  适用范围"
+    },
+    {
+      "id": "P023",
+      "type": "paragraph",
+      "style": null,
+      "text": "    本典型工艺规程适用于需经热处理、带流量控制小孔、精密配套的钢件类衬套的精密加工指导，其余衬套类零件可参考编制。"
+    },
+    {
+      "id": "P024",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P025",
+      "type": "paragraph",
+      "style": null,
+      "text": "2  典型零件选取及主要特征"
+    },
+    {
+      "id": "P026",
+      "type": "paragraph",
+      "style": null,
+      "text": "    目前，公司军品钢件类衬套共涉及700余个零件，结构相似，工艺路线、工艺方法及材料基本一致，经综合分析，选取衬套2219.026F为典型零件。主要特征：材料为不锈钢9Cr18，内孔ф6有配套要求，带2排共4个ф0.8径向小孔，与内孔ф6交接处保持光洁锐边。"
+    },
+    {
+      "id": "P027",
+      "type": "paragraph",
+      "style": null,
+      "text": "钢件淬火类活门典型工艺 钢件淬火类活门典型工艺 "
+    },
+    {
+      "id": "P028",
+      "type": "paragraph",
+      "style": null,
+      "text": "3   典型零件工艺规程设计"
+    },
+    {
+      "id": "P029",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.1  工艺路线如下："
+    },
+    {
+      "id": "P030",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P031",
+      "type": "paragraph",
+      "style": null,
+      "text": "车外圆，车槽钻镗孔车外形调质下料"
+    },
+    {
+      "id": "P032",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P033",
+      "type": "paragraph",
+      "style": null,
+      "text": "去应力（按需）珩 孔去毛刺去毛刺钻 孔车外圆钻镗孔"
+    },
+    {
+      "id": "P034",
+      "type": "paragraph",
+      "style": null,
+      "text": "检 验清 洗研 孔淬 火珩 孔"
+    },
+    {
+      "id": "P035",
+      "type": "paragraph",
+      "style": null,
+      "text": "电火花（按需）线切割（按需）磨 槽（按需）磨外圆去毛刺磨外圆"
+    },
+    {
+      "id": "P036",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P037",
+      "type": "paragraph",
+      "style": null,
+      "text": "光整表面（按需）清 洗清 洗磨粒流去毛刺研 孔"
+    },
+    {
+      "id": "P038",
+      "type": "paragraph",
+      "style": null,
+      "text": "时 效（按需）检 验清 洗烧伤检查磁粉检测"
+    },
+    {
+      "id": "P039",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P040",
+      "type": "paragraph",
+      "style": null,
+      "text": "钝   化（按需）检 验清 洗研 孔珩 孔"
+    },
+    {
+      "id": "P041",
+      "type": "paragraph",
+      "style": null,
+      "text": "油 封检   验（按需）"
+    },
+    {
+      "id": "P042",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P043",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.2 工艺路线说明"
+    },
+    {
+      "id": "P044",
+      "type": "paragraph",
+      "style": null,
+      "text": "    精密钢件类衬套加工，一般分为初加工、半精加工、精加工。衬套2219.026F材料为不锈钢9Cr18，工序安排为：棒料进行调质处理→粗加工（含车工、铣工、钳工钻孔、去毛刺等）→淬火→半精加工（含珩磨、磨工、线切割（虚拟）、磨粒流去毛刺、磁力探伤等）→时效→精加工（含珩磨、研磨等），在每一阶段的加工（粗加工、半精加工、精加工）完成之后都需安排一道检验工序，确保本阶段的零件加工合格再进行下一阶段的加工。"
+    },
+    {
+      "id": "P045",
+      "type": "paragraph",
+      "style": null,
+      "text": "    该典型工艺规程增加8道按需工序，主要安排原则如下："
+    },
+    {
+      "id": "P046",
+      "type": "paragraph",
+      "style": null,
+      "text": "   （1）去应力：针对淬火变形量大的零件，在粗加工后增加去应力工序，去除机加应力，减少淬火变形。"
+    },
+    {
+      "id": "P047",
+      "type": "paragraph",
+      "style": null,
+      "text": "   （2）磨槽：针对密封槽精度要求高的零件，在磨外圆后安排磨槽工序。"
+    },
+    {
+      "id": "P048",
+      "type": "paragraph",
+      "style": null,
+      "text": "   （3）线切割、电火花：主要目的是给带型孔的钢件类衬套零件以工艺路线设计指导，一般将线切割/电火花工序安排在半精加工珩磨以及磨工之后，便于毛刺的去除以及保证型孔尖边质量。"
+    },
+    {
+      "id": "P049",
+      "type": "paragraph",
+      "style": null,
+      "text": "   （4）光整表面：根据零件结构及设计要求按需选择，尖边要求高的零件不安排光整表面。"
+    },
+    {
+      "id": "P050",
+      "type": "paragraph",
+      "style": null,
+      "text": "   （5）时效：针对淬火变形量大的零件，在半精加工后增加时效工序，去除机加应力。"
+    },
+    {
+      "id": "P051",
+      "type": "paragraph",
+      "style": null,
+      "text": "   （6）钝化、检验：设计要求有钝化的零件，在精加工及定尺寸完成后安排钝化，且钝化之后安排检验工序检查零件外观。"
+    },
+    {
+      "id": "P052",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.3 加工余量说明"
+    },
+    {
+      "id": "P053",
+      "type": "paragraph",
+      "style": null,
+      "text": "   根据零件大小，以及考虑热处理变形问题，对于需要磨削的外圆和密封槽，精加工单边留0.1mm~0.3mm余量；密封槽边留0.04mm~0.8mm。配套内孔半精加工（钻镗孔）单边留0.05mm~0.1mm余量，精加工单边留0.01mm~0.02mm。"
+    },
+    {
+      "id": "P054",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4 其余技术要求"
+    },
+    {
+      "id": "P055",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4.1锐边要求"
+    },
+    {
+      "id": "P056",
+      "type": "paragraph",
+      "style": null,
+      "text": "    精密钢件类衬套通常要求与配套内孔交接处保持光洁锐边，为保证锐边质量，需在最初锐的边形成工序开始（如车内孔、钻孔等），后序每道工序都需用箭头标示尖边处，并在技术要求栏注明，加工过程不得损坏箭示处尖边；在每道涉及尖边加工的工序（如去毛刺、珩孔、研孔、挤压珩磨等）以及检验工序，需用5倍~20倍（根据尖边的不同要求）放大镜检查尖边质量。"
+    },
+    {
+      "id": "P057",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4.2 热处理要求"
+    },
+    {
+      "id": "P058",
+      "type": "paragraph",
+      "style": null,
+      "text": "\t\t    9Cr18等钢件材料需调质处理，目的是改善切削加工性，消除内应力为最终热处理作准备，调质处理硬度为22~32HRC；粗加工后进行淬火，9Cr18材料硬度常用硬度58-62HRC，具体根据设计图纸要求。考虑淬火的变形量，在粗加工时，根据零件大小，一般要求配套内孔对外圆的跳动0.02mm~0.4mm，淬火后0.05mm~0.1mm；半精加工之后按需安排时效工序，以消除残余应力，稳定材料性能和零件尺寸。"
+    },
+    {
+      "id": "P059",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4.3 磁粉检测及烧伤检查"
+    },
+    {
+      "id": "P060",
+      "type": "paragraph",
+      "style": null,
+      "text": "    每一道磨工工序加工的首件都需做磁粉检测及烧伤检查，确认零件无裂纹及烧伤（可视情况增加检测频率）。在最后一道磨削工序之后安排磁粉检测及烧伤检查工序，磁粉检测之前和烧伤检查之后各安排一道清洗工序。"
+    },
+    {
+      "id": "P061",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4.4 精加工配套孔要求"
+    },
+    {
+      "id": "P062",
+      "type": "paragraph",
+      "style": null,
+      "text": "    配套孔的加工路线一般为：车--粗珩--精珩--研磨，根据精度要求不同，若珩孔可达到配套要求的不需要研孔。配套孔的精加工根据配套方式不同有以下两种安排方式：1.基孔制，即先把配套孔加工到设计要求的最终尺寸，再根据孔的实际尺寸及间隙要求加工活门外圆；2.基轴制，即先加工活门外圆，再根据外圆尺寸及间隙要求加工衬套内孔。"
+    },
+    {
+      "id": "P063",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P064",
+      "type": "paragraph",
+      "style": null,
+      "text": "四、典型工艺评价"
+    },
+    {
+      "id": "P065",
+      "type": "paragraph",
+      "style": null,
+      "text": "    根据表1进行典型工艺成熟度评价，得分为37（82%），大于70%. "
+    },
+    {
+      "id": "T01",
+      "type": "table",
+      "rows": [
+        {
+          "id": "T01R01",
+          "cells": [
+            {
+              "id": "T01R01C01",
+              "text": "表1  钢件类衬套典型工艺评价表",
+              "gridSpan": "5",
+              "vMerge": null
+            }
+          ]
+        },
+        {
+          "id": "T01R02",
+          "cells": [
+            {
+              "id": "T01R02C01",
+              "text": "序号",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R02C02",
+              "text": "主要评价内容",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R02C03",
+              "text": "标准分值",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R02C04",
+              "text": "实际得分",
+              "gridSpan": "2",
+              "vMerge": null
+            }
+          ]
+        },
+        {
+          "id": "T01R03",
+          "cells": [
+            {
+              "id": "T01R03C01",
+              "text": "1",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R03C02",
+              "text": "工序路线代表产品族内的全部零件",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R03C03",
+              "text": "5",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R03C04",
+              "text": "4",
+              "gridSpan": "2",
+              "vMerge": null
+            }
+          ]
+        },
+        {
+          "id": "T01R04",
+          "cells": [
+            {
+              "id": "T01R04C01",
+              "text": "2",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R04C02",
+              "text": "典型工艺前对典型工艺进行工艺精益化活动",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R04C03",
+              "text": "5",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R04C04",
+              "text": "5",
+              "gridSpan": "2",
+              "vMerge": null
+            }
+          ]
+        },
+        {
+          "id": "T01R05",
+          "cells": [
+            {
+              "id": "T01R05C01",
+              "text": "3",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R05C02",
+              "text": "工艺装备类型及结构等优先选用适合族内零件的成组工艺装备或通用工艺装备",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R05C03",
+              "text": "5",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R05C04",
+              "text": "4",
+              "gridSpan": "2",
+              "vMerge": null
+            }
+          ]
+        },
+        {
+          "id": "T01R06",
+          "cells": [
+            {
+              "id": "T01R06C01",
+              "text": "4",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R06C02",
+              "text": "选用加工设备应当保证加工高效率",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R06C03",
+              "text": "5",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R06C04",
+              "text": "4",
+              "gridSpan": "2",
+              "vMerge": null
+            }
+          ]
+        },
+        {
+          "id": "T01R07",
+          "cells": [
+            {
+              "id": "T01R07C01",
+              "text": "5",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R07C02",
+              "text": "典型工艺使用的工艺文件应是形式简单，内容详尽、使用方便",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R07C03",
+              "text": "5",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R07C04",
+              "text": "4",
+              "gridSpan": "2",
+              "vMerge": null
+            }
+          ]
+        },
+        {
+          "id": "T01R08",
+          "cells": [
+            {
+              "id": "T01R08C01",
+              "text": "6",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R08C02",
+              "text": "去毛刺工序安排合理，对去毛刺部位进行了明示，对毛刺难去除部位明确了去毛刺、清洗及检查方法。",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R08C03",
+              "text": "5",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R08C04",
+              "text": "4",
+              "gridSpan": "2",
+              "vMerge": null
+            }
+          ]
+        },
+        {
+          "id": "T01R09",
+          "cells": [
+            {
+              "id": "T01R09C01",
+              "text": "7",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R09C02",
+              "text": "清洗、热浸泡、超声波、冲洗等清洁度控制工序安排合理。",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R09C03",
+              "text": "5",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R09C04",
+              "text": "4",
+              "gridSpan": "2",
+              "vMerge": null
+            }
+          ]
+        },
+        {
+          "id": "T01R10",
+          "cells": [
+            {
+              "id": "T01R10C01",
+              "text": "8",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R10C02",
+              "text": "工艺规程中的图形、标注等规范清晰；各类符号表达正确,符合标准。",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R10C03",
+              "text": "5",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R10C04",
+              "text": "4",
+              "gridSpan": "2",
+              "vMerge": null
+            }
+          ]
+        },
+        {
+          "id": "T01R11",
+          "cells": [
+            {
+              "id": "T01R11C01",
+              "text": "9",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R11C02",
+              "text": "关重工序作业是否标准化",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R11C03",
+              "text": "5",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R11C04",
+              "text": "NA",
+              "gridSpan": "2",
+              "vMerge": null
+            }
+          ]
+        },
+        {
+          "id": "T01R12",
+          "cells": [
+            {
+              "id": "T01R12C01",
+              "text": "10",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R12C02",
+              "text": "典型工艺说明是否对重点工序、技术难点等有详细说明",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R12C03",
+              "text": "5",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R12C04",
+              "text": "4",
+              "gridSpan": "2",
+              "vMerge": null
+            }
+          ]
+        },
+        {
+          "id": "T01R13",
+          "cells": [
+            {
+              "id": "T01R13C01",
+              "text": "　",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R13C02",
+              "text": "合计",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R13C03",
+              "text": "50",
+              "gridSpan": null,
+              "vMerge": null
+            },
+            {
+              "id": "T01R13C04",
+              "text": "37",
+              "gridSpan": "2",
+              "vMerge": null
+            }
+          ]
+        },
+        {
+          "id": "T01R14",
+          "cells": [
+            {
+              "id": "T01R14C01",
+              "text": "注：",
+              "gridSpan": "4",
+              "vMerge": null
+            }
+          ]
+        },
+        {
+          "id": "T01R15",
+          "cells": [
+            {
+              "id": "T01R15C01",
+              "text": "1.选择分数1-5, 或na, 除非将来也不适用, 否则按现在的状态打分, 不要空格（0分）。",
+              "gridSpan": "4",
+              "vMerge": null
+            }
+          ]
+        },
+        {
+          "id": "T01R16",
+          "cells": [
+            {
+              "id": "T01R16C01",
+              "text": "2.\"na\"将不会记入分数。",
+              "gridSpan": "4",
+              "vMerge": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "P066",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P067",
+      "type": "paragraph",
+      "style": null,
+      "text": "五、工序编制说明"
+    },
+    {
+      "id": "P068",
+      "type": "paragraph",
+      "style": null,
+      "text": "    工艺规程的编制按Q/14DGL05.106《工艺规程的编制与审批》，各类工序卡片填写参考附件1：工艺卡片填写说明。工序的填写按结构化工艺系统内工序术语库相关内容进行。"
+    },
+    {
+      "id": "P069",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P070",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P071",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P072",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P073",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P074",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P075",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P076",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P077",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P078",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P079",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P080",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P081",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P082",
+      "type": "paragraph",
+      "style": null,
+      "text": "附件1   工艺卡片填写说明"
+    },
+    {
+      "id": "P083",
+      "type": "paragraph",
+      "style": null,
+      "text": "  "
+    },
+    {
+      "id": "P084",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P085",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P086",
+      "type": "paragraph",
+      "style": null,
+      "text": " "
+    },
+    {
+      "id": "P087",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P088",
+      "type": "paragraph",
+      "style": null,
+      "text": " "
+    },
+    {
+      "id": "P089",
+      "type": "paragraph",
+      "style": null,
+      "text": " "
+    },
+    {
+      "id": "P090",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P091",
+      "type": "paragraph",
+      "style": null,
+      "text": " "
+    }
+  ],
+  "figures": [
+    {
+      "paragraph": "P027",
+      "target": "media/image1.png"
+    },
+    {
+      "paragraph": "P083",
+      "target": "media/image2.png"
+    },
+    {
+      "paragraph": "P083",
+      "target": "media/image3.png"
+    },
+    {
+      "paragraph": "P083",
+      "target": "media/image4.png"
+    },
+    {
+      "paragraph": "P086",
+      "target": "media/image5.png"
+    },
+    {
+      "paragraph": "P087",
+      "target": "media/image6.png"
+    },
+    {
+      "paragraph": "P088",
+      "target": "media/image7.png"
+    },
+    {
+      "paragraph": "P088",
+      "target": "media/image8.png"
+    },
+    {
+      "paragraph": "P089",
+      "target": "media/image9.png"
+    },
+    {
+      "paragraph": "P089",
+      "target": "media/image10.png"
+    },
+    {
+      "paragraph": "P090",
+      "target": "media/image11.png"
+    },
+    {
+      "paragraph": "P091",
+      "target": "media/image12.png"
+    },
+    {
+      "paragraph": "P091",
+      "target": "media/image13.png"
+    }
+  ],
+  "extra_parts": {
+    "word/footnotes.xml": "",
+    "word/endnotes.xml": ""
+  }
+}

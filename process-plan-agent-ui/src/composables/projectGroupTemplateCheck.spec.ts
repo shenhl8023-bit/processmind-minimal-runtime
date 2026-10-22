@@ -20,7 +20,8 @@ describe('projectGroupTemplateCheck', () => {
   it('detects ready when legacy mappings are present', () => {
     const template: any = {
       project_id: 1,
-      mappings: [{ source_operation_id: 10, template_group_path: ['A', 'B'] }],
+      tree: [{ path: ['A', 'B'], children: [], feature_selections: ['外圆'] }],
+      mappings: [{ source_operation_id: 10, template_group_path: ['A', 'B'], feature_selections: ['外圆'] }],
       step_mappings: [],
     }
     expect(isGroupTemplateReady(template)).toBe(true)
@@ -29,11 +30,12 @@ describe('projectGroupTemplateCheck', () => {
   it('detects ready when confirmed step mappings are present', () => {
     const template: any = {
       project_id: 1,
+      tree: [{ path: ['A', 'B'], children: [], feature_selections: ['外圆'] }],
       mappings: [],
       step_mappings: [
         {
           source_operation_id: 10,
-          status: 'confirmed',
+          status: 'confirmed', candidate_features: ['外圆'],
           template_group_path: ['A', 'B'],
         },
       ],
@@ -44,6 +46,7 @@ describe('projectGroupTemplateCheck', () => {
   it('detects not ready when mappings and step mappings are empty or unconfirmed', () => {
     const template: any = {
       project_id: 1,
+      tree: [{ path: ['A', 'B'], children: [], feature_selections: ['外圆'] }],
       mappings: [],
       step_mappings: [
         {
@@ -77,9 +80,9 @@ describe('projectGroupTemplateCheck', () => {
       part_filename: 'part.xml',
       content_hash: 'hash',
       feature_dictionary_version: '1.0',
-      tree: [],
+      tree: [{ key: '1', source_id: '1', name: '下料', path: ['下料'], feature_selections: ['外圆'], params: {}, children: [] }],
       validation_issues: [],
-      mappings: [{ source_operation_id: 1, alias: '', template_group_id: '1', template_group_key: '1', template_group_name: '下料', template_group_path: ['下料'], feature_selections: [] }],
+      mappings: [{ source_operation_id: 1, alias: '', template_group_id: '1', template_group_key: '1', template_group_name: '下料', template_group_path: ['下料'], feature_selections: ['外圆'] }],
       step_mappings: [],
       mapping_output: [],
       template_revision: 1,

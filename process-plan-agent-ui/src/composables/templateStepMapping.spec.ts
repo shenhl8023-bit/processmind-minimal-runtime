@@ -3,9 +3,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GroupTemplateNode, TemplateGroupMappingOperationInput } from '@/api/extract'
 import {
   buildTemplateStepRefs,
+  buildSourceSuggestionOperations,
   chunkTemplateSuggestionOperations,
   createNotApplicableStepMapping,
+  createNotApplicableStepMappingsForFinalStep,
   createTemplateStepMapping,
+  createTemplateStepMappingsForFinalStep,
   confirmedMappingsForStep,
   descendantFeatureLeaves,
   groupStepMappingsByStep,
@@ -69,6 +72,77 @@ describe('templateStepMapping', () => {
 
     expect(groupStepMappingsByStep(record)[step.step_key]).toEqual([mapping])
     expect(mapping.candidate_features).toEqual(['孔(盲孔)', '孔(通孔)'])
+  })
+
+  it('creates one source-lineage mapping per contributor to a merged final step', () => {
+    const step = buildTemplateStepRefs({
+      id: 101,
+      process_id: 'turn-final',
+      name: '钻孔加工',
+      steps: [{
+        step_id: 'turn-final.primary.op_11_s01', step_name: '钻孔', kind: 'primary',
+        source_operation_id: 11, source_step_order: 1, source_step_name: '钻孔',
+        source_steps: [
+          { source_operation_id: 11, source_operation_name: '钻', source_step_order: 1, source_step_name: '钻孔' },
+          { source_operation_id: 12, source_operation_name: '精钻', source_step_order: 2, source_step_name: '钻孔' },
+        ],
+      }],
+    })[0]!
+
+    const mappings = createTemplateStepMappingsForFinalStep(step, tree[0]!.children[1]!)
+
+    expect(mappings.map(mapping => ({
+      source_operation_id: mapping.source_operation_id,
+      source_operation_name: mapping.source_operation_name,
+      source_step_order: mapping.source_step_order,
+      source_step_name: mapping.source_step_name,
+      final_targets: mapping.final_targets,
+      template_group_path: mapping.template_group_path,
+    }))).toEqual([
+      {
+        source_operation_id: 11,
+        source_operation_name: '钻',
+        source_step_order: 1,
+        source_step_name: '钻孔',
+        final_targets: [{ process_id: 'turn-final', step_id: 'turn-final.primary.op_11_s01' }],
+        template_group_path: ['A侧', '孔'],
+      },
+      {
+        source_operation_id: 12,
+        source_operation_name: '精钻',
+        source_step_order: 2,
+        source_step_name: '钻孔',
+        final_targets: [{ process_id: 'turn-final', step_id: 'turn-final.primary.op_11_s01' }],
+        template_group_path: ['A侧', '孔'],
+      },
+    ])
+  })
+
+  it('applies a general decision to every source of a merged final step', () => {
+    const step = buildTemplateStepRefs({
+      id: 101,
+      process_id: 'turn-final',
+      name: '钻孔加工',
+      steps: [{
+        step_id: 'turn-final.primary.op_11_s01', step_name: '钻孔', kind: 'primary',
+        source_operation_id: 11, source_step_order: 1, source_step_name: '钻孔',
+        source_steps: [
+          { source_operation_id: 11, source_operation_name: '钻', source_step_order: 1, source_step_name: '钻孔' },
+          { source_operation_id: 12, source_operation_name: '精钻', source_step_order: 2, source_step_name: '钻孔' },
+        ],
+      }],
+    })[0]!
+
+    expect(createNotApplicableStepMappingsForFinalStep(step).map(mapping => ({
+      source_operation_id: mapping.source_operation_id,
+      source_operation_name: mapping.source_operation_name,
+      source_step_order: mapping.source_step_order,
+      final_targets: mapping.final_targets,
+      status: mapping.status,
+    }))).toEqual([
+      { source_operation_id: 11, source_operation_name: '钻', source_step_order: 1, final_targets: [{ process_id: 'turn-final', step_id: 'turn-final.primary.op_11_s01' }], status: 'not_applicable' },
+      { source_operation_id: 12, source_operation_name: '精钻', source_step_order: 2, final_targets: [{ process_id: 'turn-final', step_id: 'turn-final.primary.op_11_s01' }], status: 'not_applicable' },
+    ])
   })
 
   it('reports unresolved steps until mapped or explicitly skipped', () => {
@@ -229,5 +303,40 @@ describe('templateStepMapping', () => {
 
     expect(loadTemplateStepMappingDraft(28, 3, 'route-a')).toEqual([mapping])
     expect(loadTemplateStepMappingDraft(28, 3, 'route-b')).toEqual([])
+  })
+
+  it('restores an intentionally empty draft instead of saved mappings', () => {
+    const values = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) || null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    })
+    const step = buildTemplateStepRefs({ id: 11, name: '车削A侧', step_items: ['钻孔'] })[0]!
+    const formal = [createTemplateStepMapping(step, tree[0]!.children[1]!, ['A侧'])]
+    expect(loadTemplateStepMappingDraft(28, 3, 'route-a', formal)).toEqual(formal)
+    saveTemplateStepMappingDraft(28, 3, 'route-a', [])
+    expect(loadTemplateStepMappingDraft(28, 3, 'route-a', formal)).toEqual([])
+  })
+
+  it('isolates mappings of split final steps while retaining legacy source mappings', () => {
+    const operations = ['turn-a', 'turn-b'].map(process_id => ({
+      id: 100, process_id, name: process_id, source_operation_ids: [11],
+      steps: [{ step_id: `${process_id}.s1`, step_name: '钻孔', kind: 'primary', source_operation_id: 11, source_step_order: 3, source_step_name: '钻孔',
+        source_steps: [{ source_operation_id: 11, source_step_order: 3, source_step_name: '钻孔' }] }],
+    })) as any
+    const a = buildTemplateStepRefs(operations[0])[0]!
+    const b = buildTemplateStepRefs(operations[1])[0]!
+    const mapping = createTemplateStepMapping(a, tree[0]!.children[1]!)
+    expect(mapping).toHaveProperty('final_targets', [{ process_id: 'turn-a', step_id: 'turn-a.s1' }])
+    const record = { [stepMappingKey(mapping)]: mapping }
+    expect(confirmedMappingsForStep(record, a)).toEqual([mapping])
+    expect(confirmedMappingsForStep(record, b)).toEqual([])
+    expect(unresolvedTemplateSteps([a, b], record)).toEqual([b])
+    const other = createTemplateStepMapping(b, tree[0]!.children[1]!)
+    expect(stepMappingKey(other)).not.toBe(stepMappingKey(mapping))
+    const { final_targets, ...legacy } = mapping as any
+    expect(confirmedMappingsForStep({ legacy }, b)).toEqual([legacy])
+    expect(buildSourceSuggestionOperations(operations, new Set([a.step_key, b.step_key]))[0]!.step_items).toEqual(['', '', '钻孔'])
   })
 })

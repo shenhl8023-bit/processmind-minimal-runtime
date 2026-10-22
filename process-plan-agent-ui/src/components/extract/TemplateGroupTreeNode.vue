@@ -34,6 +34,7 @@
           已配置 {{ mappedCount }}
         </span>
         <span v-else-if="showMetadata && featureLeaf && unconfiguredLeafKeys.includes(node.key)" class="tgtn-status is-unconfigured">未配置</span>
+        <span v-if="showMappingStatus && featureLeaf && unconfiguredLeafKeys.includes(node.key)" class="tgtn-status is-unconfigured">待映射</span>
       </button>
 
       <div
@@ -83,6 +84,7 @@
         :selected-feature-keys="selectedFeatureKeys"
         :show-selected-features="showSelectedFeatures"
         :show-feature-details="showFeatureDetails"
+        :show-mapping-status="showMappingStatus"
         :readonly="readonly"
         :depth="depth + 1"
         @select="$emit('select', $event)"
@@ -110,6 +112,7 @@ const props = withDefaults(defineProps<{
   selectedFeatureKeys?: string[]
   showSelectedFeatures?: boolean
   showFeatureDetails?: boolean
+  showMappingStatus?: boolean
   readonly?: boolean
   depth?: number
 }>(), {
@@ -122,6 +125,7 @@ const props = withDefaults(defineProps<{
   selectedFeatureKeys: () => [],
   showSelectedFeatures: false,
   showFeatureDetails: false,
+  showMappingStatus: false,
   readonly: false,
   depth: 0,
 })

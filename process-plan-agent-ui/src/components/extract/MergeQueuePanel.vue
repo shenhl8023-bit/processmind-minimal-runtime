@@ -34,7 +34,21 @@
               <div v-if="sourceLabel(group) && sourceLabel(group) !== candidateLabel(group)" class="merge-queue-members">
                 来源工序：{{ sourceLabel(group) }}
               </div>
+              <div class="merge-queue-hint">
+                {{ group.advice_source === 'model' ? '模型建议' : '本地规则建议' }}
+                <span v-if="group.advice_source === 'model' && group.advice_confidence != null"> · 建议置信度 {{ Math.round(group.advice_confidence * 100) }}%</span>
+              </div>
               <div class="merge-queue-hint">{{ suggestionLabel(group) }}</div>
+              <template v-if="selectedGroupId === group.id">
+                <div v-if="group.advice_source === 'model' && group.recommended_target_name" class="merge-queue-hint">建议名称：{{ group.recommended_target_name }}</div>
+                <div v-if="group.advice_action === 'keep_separate'" class="merge-queue-hint">建议保持独立；如采纳，请点击“不合并”。</div>
+                <details v-if="group.matched_detail_rows?.length" class="merge-queue-evidence" @click.stop>
+                  <summary>来源证据（{{ group.matched_detail_rows.length }}）</summary>
+                  <div v-for="(row, index) in group.matched_detail_rows" :key="index" class="merge-queue-hint">
+                    {{ row.pdf_name || '来源文档' }} · 第 {{ row.page_no || '未知' }} 页 · {{ row.operation_name }}：{{ row.operation_content }}
+                  </div>
+                </details>
+              </template>
               <div v-if="group.equipment_split_applied" class="merge-queue-hint">
                 来自主段 {{ group.parent_segment || '原主段' }} · {{ equipmentLabel(group.equipment_support_result) }}
               </div>
@@ -358,6 +372,9 @@ defineEmits<{
   overflow: visible;
   color: #6366f1;
 }
+
+.merge-queue-evidence { margin-top: 6px; font-size: 12px; color: #64748b; }
+.merge-queue-evidence summary { cursor: pointer; }
 
 /* Meta area (tag) */
 .merge-queue-meta {

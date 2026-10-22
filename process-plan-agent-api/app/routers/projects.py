@@ -4,7 +4,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text, update
-
 from app.core.paths import UPLOAD_DIR
 from app.database import get_db
 from app.models.models import (

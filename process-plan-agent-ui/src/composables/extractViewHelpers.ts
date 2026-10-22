@@ -89,6 +89,7 @@ export function filterRouteMergeNotice(notice?: string | null) {
     text.startsWith('已确认将「')
     || text.startsWith('已确认「')
     || text === '已按系统建议完成全部合并。'
+    || text === '已确认全部候选归并组。'
     || text === '已将全部候选归并组设为不合并。'
   ) {
     return ''
@@ -592,6 +593,10 @@ export function buildRouteMergeGroupsFromSuggestions(
     operation_ids: Array.isArray(item.source_operation_ids) ? item.source_operation_ids.map(id => Number(id)) : [],
     status: mapSuggestionStatus(String(item.status || 'pending')),
     coverageLabel: '',
+    advice_source: item.advice_source || 'local_rules',
+    advice_action: item.advice_action,
+    advice_confidence: item.advice_confidence,
+    advice_evidence_ids: item.advice_evidence_ids || [],
     suggestion_type: String(item.suggestion_type || 'single'),
     recommendation_label: String(item.recommendation_label || ''),
     recommendation_reason: String(item.recommendation_reason || ''),

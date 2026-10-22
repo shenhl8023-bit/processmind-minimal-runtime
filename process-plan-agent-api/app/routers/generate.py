@@ -49,6 +49,7 @@ from app.services.generate_route_result_builder import (
     build_generate_output_json,
     build_generate_summary,
 )
+from app.services.finalized_rule_package_helpers import serialize_finalized_rule_package
 from app.services.param_project_context import (
     load_project_resource_bundle,
 )
@@ -64,10 +65,6 @@ from app.services.rule_packages.input_validation import (
 from app.services.rule_packages.planner import RoutePlanningError, plan_route
 from app.services.rule_packages.validator import validate_rule_package
 from app.services.project_workflow_lifecycle import acquire_workflow_revision
-from app.services.project_group_templates import (
-    get_project_group_template,
-    serialize_project_group_template,
-)
 from app.services.route_analysis import get_latest_normalized_route_version
 from app.services.param_json_route_builder import (
     build_param_sample_stages as _build_param_sample_stages,
@@ -983,12 +980,7 @@ async def generate_route(
     project = resources.project
     if not project:
         raise HTTPException(404, "任务不存在")
-    template = await get_project_group_template(db, body.project_id)
-    full_route_structure = (
-        serialize_project_group_template(template).mapping_output
-        if template
-        else []
-    )
+    full_route_structure = []
 
     steps: list[RouteStep] = []
     summary = "当前已基于第二步提炼结果生成路线"
@@ -1007,6 +999,13 @@ async def generate_route(
     finalized_package = await _latest_finalized_rule_package(body.project_id, db)
     if not finalized_package:
         raise HTTPException(409, "当前资料尚未导出有效规则包。请重新完成提炼、审核并导出后再生成。")
+    # Historical V2 packages can still plan routes without three-table metadata.
+    # Never combine their published rules with a live, unpublished mapping.
+    if finalized_package.demo_tables_json:
+        published_snapshot = serialize_finalized_rule_package(finalized_package)
+        if published_snapshot.demo_tables is None:
+            raise HTTPException(status_code=409, detail=published_snapshot.export_error)
+        full_route_structure = published_snapshot.demo_tables["full_route_table"]
     schema_version = "2.0"
     rule_package_id = finalized_package.id
     rule_package_version = finalized_package.version

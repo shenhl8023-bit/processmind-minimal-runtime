@@ -1,0 +1,357 @@
+{
+  "blocks": [
+    {
+      "id": "P001",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P002",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P003",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P004",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P005",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P006",
+      "type": "paragraph",
+      "style": null,
+      "text": "典型工艺说明"
+    },
+    {
+      "id": "P007",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P008",
+      "type": "paragraph",
+      "style": null,
+      "text": "69-JB34-21"
+    },
+    {
+      "id": "P009",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P010",
+      "type": "paragraph",
+      "style": null,
+      "text": "共 5 页"
+    },
+    {
+      "id": "P011",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P012",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P013",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P014",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P015",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P016",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P017",
+      "type": "paragraph",
+      "style": null,
+      "text": "编制：龙集城  2021-10-25"
+    },
+    {
+      "id": "P018",
+      "type": "paragraph",
+      "style": null,
+      "text": "校对：杨一峰  2021-10-25"
+    },
+    {
+      "id": "P019",
+      "type": "paragraph",
+      "style": null,
+      "text": "审核：刘维军  2021-10-25"
+    },
+    {
+      "id": "P020",
+      "type": "paragraph",
+      "style": null,
+      "text": "批准：刘丽丹  2021-10-25"
+    },
+    {
+      "id": "P021",
+      "type": "paragraph",
+      "style": null,
+      "text": "\n"
+    },
+    {
+      "id": "P022",
+      "type": "paragraph",
+      "style": null,
+      "text": "1  适用范围"
+    },
+    {
+      "id": "P023",
+      "type": "paragraph",
+      "style": null,
+      "text": "    本典型工艺规程适用于带槽子、有精密配套要求的镀铬铜衬套的精密加工指导，其余有色金属衬套类零件可参考编制。"
+    },
+    {
+      "id": "P024",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P025",
+      "type": "paragraph",
+      "style": null,
+      "text": "2  典型零件选取及主要特征"
+    },
+    {
+      "id": "P026",
+      "type": "paragraph",
+      "style": null,
+      "text": "    目前，公司军品有色金属类零件较多，结构相似，工艺路线、工艺方法及材料基本一致，经综合分析，选取衬套2176.01.331-1F1为典型零件。主要特征：材料为QA110-4-4，内孔ф15有配套要求，ф40孔需进行镀铬处理的铜件。带两处槽子其中一处为弧形槽。与内孔ф15交接处保持光洁锐边。零件结构图如图1。"
+    },
+    {
+      "id": "P027",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P028",
+      "type": "paragraph",
+      "style": null,
+      "text": "图1"
+    },
+    {
+      "id": "P029",
+      "type": "paragraph",
+      "style": null,
+      "text": "3   典型零件工艺规程设计"
+    },
+    {
+      "id": "P030",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.1  工艺路线如下："
+    },
+    {
+      "id": "P031",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P032",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P033",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.2 工艺路线说明"
+    },
+    {
+      "id": "P034",
+      "type": "paragraph",
+      "style": null,
+      "text": "镀铬铜衬套的加工，一般分为粗加工、半精加工、精加工。衬套2176.01.331-1F1材料为QA110-4-4，工序安排为：棒料→粗加工（含车工、去毛刺等）→去应力→车工→镀铬→半精加工（含磨端面、磨孔、抛光等）→精加工（研磨），在每一阶段的加工（粗加工、半精加工、精加工）完成之后都需安排一道检验工序，确保本阶段的零件加工合格再进行下一阶段的加工。"
+    },
+    {
+      "id": "P035",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P036",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P037",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.3 加工余量说明"
+    },
+    {
+      "id": "P038",
+      "type": "paragraph",
+      "style": null,
+      "text": "根据零件大小，以及考虑尺寸公差，对于需要磨削的外圆和槽，磨外圆粗加工为半精加工留单边0.1mm～0.15mm余量；磨外圆半精加工为精加工留单边0.02mm～0.03mm余量；珩孔半精加工为研孔加工留单边0.005mm～0.01mm余量；磨端面粗加工为精加工留0.04mm～0.08mm余量；车槽工序为磨槽工序留0.05mm～0.1mm余量。"
+    },
+    {
+      "id": "P039",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4 其余技术要求"
+    },
+    {
+      "id": "P040",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4.1锐边要求"
+    },
+    {
+      "id": "P041",
+      "type": "paragraph",
+      "style": null,
+      "text": "   镀铬铜衬套通常要求配套内孔交接处保持光洁锐边，为保证锐边质量，需在最初锐边形成工序开始（如车内孔、钻孔等），后序每道工序都需用箭头标示尖边处，并在技术要求栏注明，加工过程不得损坏箭示处尖边."
+    },
+    {
+      "id": "P042",
+      "type": "paragraph",
+      "style": null,
+      "text": " 3.4.2 热处理要求"
+    },
+    {
+      "id": "P043",
+      "type": "paragraph",
+      "style": null,
+      "text": "\t\t  镀铬铜衬套受内应力影响较大；在加工过程中由于应力影响，需按需进行去应力处理，从而减少应力对零件机加的影响。"
+    },
+    {
+      "id": "P044",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P045",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4.3   精加工配套孔要求"
+    },
+    {
+      "id": "P046",
+      "type": "paragraph",
+      "style": null,
+      "text": "配套孔的加工路线一般为：车--粗珩--精珩--研磨，根据精度要求不同，若珩孔可达到配套要求的不需要研孔。配套孔的精加工根据配套要求不同有以下两种安排方式：1）配套孔精度要求不高，若磨孔或珩孔可达到配套要求的不需要研孔。2) 配套孔精度要求较高，由研孔完成最终加工。配套孔的精加工根据配套方式不同有以下三种安排方式："
+    },
+    {
+      "id": "P047",
+      "type": "paragraph",
+      "style": null,
+      "text": "1.基孔制，即先把配套孔加工到设计要求的最终尺寸，再根据孔的实际尺寸及间隙要求加工活门外圆尺寸；由于衬套2176.01.331-1F1的配套孔加工难度较与之配合的活门困难，故选择基孔制加工较为合适。"
+    },
+    {
+      "id": "P048",
+      "type": "paragraph",
+      "style": null,
+      "text": "2.基轴制，即先加工活门外圆，再根据外圆尺寸及间隙要求加工衬套内孔尺寸；"
+    },
+    {
+      "id": "P049",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.互换制，间隙配合公差大于0.01mm的配套要求可进行，活门和外圆尺寸在单件时根据间隙要求加工，在组件中可任意配套。"
+    },
+    {
+      "id": "P050",
+      "type": "paragraph",
+      "style": null,
+      "text": " 3.4.4标印的安排"
+    },
+    {
+      "id": "P051",
+      "type": "paragraph",
+      "style": null,
+      "text": "     标印零件是为了能让每个零件有个区分，故标印工序应尽量安排在前面工序，即标印处的位置加工出来后就可以进行标印，标印时应按设计图要求规定字深和字高等。"
+    },
+    {
+      "id": "P052",
+      "type": "paragraph",
+      "style": null,
+      "text": "3.4.5镀铬的安排"
+    },
+    {
+      "id": "P053",
+      "type": "paragraph",
+      "style": null,
+      "text": "     铜衬套一般需进行镀铬处理，镀铬的工序安排一般为车工→镀铬→精加工至设计尺寸。内孔铬层厚度计算公式为：内孔铬层厚度=镀前内孔尺寸-镀后内孔最终尺寸2。"
+    },
+    {
+      "id": "P054",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    },
+    {
+      "id": "P055",
+      "type": "paragraph",
+      "style": null,
+      "text": "四  工序编制说明"
+    },
+    {
+      "id": "P056",
+      "type": "paragraph",
+      "style": null,
+      "text": "  工艺规程的编制按Q/14DGL05.106《工艺规程的编制与审批》、69-GZ62《军品机加分厂工艺规程编制指导》，各类工序卡片填写参考05-TY8-15《典型工艺编制与应用指导书》附件1：工艺卡片填写说明。工序的填写按结构化工艺系统内工序术语库相关内容进行。"
+    },
+    {
+      "id": "P057",
+      "type": "paragraph",
+      "style": null,
+      "text": ""
+    }
+  ],
+  "figures": [
+    {
+      "paragraph": "P027",
+      "target": "media/image1.png"
+    },
+    {
+      "paragraph": "P031",
+      "target": "media/image2.png"
+    }
+  ],
+  "extra_parts": {}
+}

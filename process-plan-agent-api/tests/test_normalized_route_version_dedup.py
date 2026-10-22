@@ -115,6 +115,36 @@ def test_identical_content_reuses_version_without_bump(route_version_db):
     asyncio.run(run())
 
 
+def test_legacy_domain_package_context_does_not_force_a_new_route_version(route_version_db):
+    session_factory = route_version_db
+    route = _sample_route()
+
+    async def run():
+        async with session_factory() as db:
+            first = await save_normalized_route_version(
+                project_id=1,
+                db=db,
+                source_signature="sig-a",
+                total_docs=3,
+                normalized_route=route,
+            )
+            first.knowledge_package_json = '{"package_id":"legacy","version":1}'
+            await db.commit()
+
+            second = await save_normalized_route_version(
+                project_id=1,
+                db=db,
+                source_signature="sig-a",
+                total_docs=3,
+                normalized_route=route,
+            )
+
+            assert second.id == first.id
+            assert second.version == 1
+
+    asyncio.run(run())
+
+
 def test_changed_content_bumps_version(route_version_db):
     session_factory = route_version_db
 

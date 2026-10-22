@@ -247,6 +247,7 @@ export async function saveRuleConditionDraft(body: {
   expected_workflow_revision: number
   segment_id: string
   source_text: string
+  knowledge_suggestion_id?: number
 }) {
   const { data } = await api.post('/api/extract/finalized-rule-packages/rule-conditions/draft', body)
   return data as RuleConditionReviewResponse

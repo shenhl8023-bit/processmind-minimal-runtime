@@ -70,7 +70,7 @@ def _normalize_settings_payload(payload: dict[str, dict[str, str]]) -> list[dict
             {
                 "id": idx,
                 "key": key,
-                "value": str(row.get("value") or _env_value(key)),
+                "value": str(row.get("value") if row.get("value") is not None else _env_value(key)),
                 "description": str(row.get("description") or description),
                 "updated_at": str(row.get("updated_at") or datetime.now(timezone.utc).isoformat()),
             }
@@ -167,6 +167,24 @@ def update_setting_value(key: str, value: str) -> dict[str, str]:
             updated = row
             break
         row["value"] = value
+        row["updated_at"] = now
+        updated = row
+        break
+    if updated is None:
+        raise KeyError(key)
+    save_settings(settings)
+    return updated
+
+
+def clear_setting_value(key: str) -> dict[str, str]:
+    """Explicitly clear a setting, including secret values."""
+    settings = load_settings()
+    updated: dict[str, str] | None = None
+    now = datetime.now(timezone.utc).isoformat()
+    for row in settings:
+        if row["key"] != key:
+            continue
+        row["value"] = ""
         row["updated_at"] = now
         updated = row
         break

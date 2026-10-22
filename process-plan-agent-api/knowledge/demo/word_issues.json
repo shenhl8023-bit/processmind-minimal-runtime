@@ -1,0 +1,192 @@
+[
+  {
+    "id": "WD01-hardness",
+    "record_ids": [
+      "WD01-58-quality-03",
+      "WD01-image3.png-quality"
+    ],
+    "source_ids": [
+      "WD01"
+    ],
+    "original_values": [
+      "22—32HRC",
+      "27—35HRC"
+    ],
+    "description": "钢衬套正文调质硬度与附件工艺卡示例不一致，双方保留。",
+    "locations": [
+      "P058",
+      "P083 image3"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "WD01-score",
+    "record_ids": [
+      "WD01-65-reference"
+    ],
+    "source_ids": [
+      "WD01"
+    ],
+    "original_values": [
+      "37/50",
+      "37/45≈82.2%"
+    ],
+    "description": "正文成熟度37分/82%与表格标准50分、NA不计入的有效分母口径存在差异。",
+    "locations": [
+      "P065",
+      "T01R03-R16"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "WD01-numeric",
+    "record_ids": [
+      "WD01-53-allowance-02",
+      "WD01-58-quality"
+    ],
+    "source_ids": [
+      "WD01"
+    ],
+    "original_values": [
+      "0.02—0.4mm",
+      "0.04—0.8mm"
+    ],
+    "description": "钢衬套0.4mm跳动上限及0.8mm槽边余量原文可疑，需核对，不擅改小数点。",
+    "locations": [
+      "P053",
+      "P058"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "WD06-material",
+    "record_ids": [
+      "WD06-24-scope"
+    ],
+    "source_ids": [
+      "WD06"
+    ],
+    "original_values": [
+      "QAL10-4-4"
+    ],
+    "description": "材料牌号QAL10-4-4原文照录，标准拼写待核。",
+    "locations": [
+      "P027"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "WD07-material",
+    "record_ids": [
+      "WD07-23-scope"
+    ],
+    "source_ids": [
+      "WD07"
+    ],
+    "original_values": [
+      "QA110-4-4"
+    ],
+    "description": "材料牌号QA110-4-4原文照录，标准拼写待核。",
+    "locations": [
+      "P026"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "WD08-wording",
+    "record_ids": [
+      "WD08-50-quality"
+    ],
+    "source_ids": [
+      "WD08"
+    ],
+    "original_values": [
+      "精密钢件淬火类活门"
+    ],
+    "description": "锐边段落写“精密钢件淬火类活门”，与本文件氮化/氰化标题和典型对象关系需复核。",
+    "locations": [
+      "P050"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "WD04-route",
+    "record_ids": [
+      "WD04-58-stage_overview"
+    ],
+    "source_ids": [
+      "WD04"
+    ],
+    "original_values": [
+      "P058与P071/P043"
+    ],
+    "description": "P058阶段概要未列硬质阳极化，P071写在半精去铬酸层后进行；图形XML按形状提取不能还原箭头顺序。",
+    "locations": [
+      "P031",
+      "P043",
+      "P058",
+      "P071"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "WD05-route",
+    "record_ids": [
+      "WD05-image2.png-route"
+    ],
+    "source_ids": [
+      "WD05"
+    ],
+    "original_values": [
+      "P032与P030/P041"
+    ],
+    "description": "P032阶段概要未列硬质阳极化；P030图示及P041文字显示该处理步骤。完整图示序列保留，概要差异待人工核对。",
+    "locations": [
+      "P030",
+      "P032",
+      "P041"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "WD03-route",
+    "record_ids": [
+      "WD03-32-stage_overview",
+      "WD03-image2.png-route"
+    ],
+    "source_ids": [
+      "WD03"
+    ],
+    "original_values": [
+      "正文与图片顺序差异"
+    ],
+    "description": "组件正文末尾概述与P030路线图低温试验后清洗、检验顺序存在差异；图示路线与文字阶段概述分开保留。",
+    "locations": [
+      "P030",
+      "P032",
+      "P054"
+    ],
+    "status": "pending"
+  },
+  {
+    "id": "WD08-check-semantics",
+    "record_ids": [
+      "WD08-54-quality",
+      "WD08-image2.png-route"
+    ],
+    "source_ids": [
+      "WD08"
+    ],
+    "original_values": [
+      "路线图虚拟",
+      "每道磨削首件必检",
+      "末道之后额外检查按需"
+    ],
+    "description": "P041图将烧伤检查标为虚拟，而P054要求渗氮后每道磨削首件做烧伤检查，末道额外检查才按需。两者语境需人工确认。",
+    "locations": [
+      "P041 image2.png",
+      "P054"
+    ],
+    "status": "pending"
+  }
+]
