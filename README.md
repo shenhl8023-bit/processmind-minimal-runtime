@@ -161,10 +161,35 @@ powershell -File scripts\pack-offline-windows.ps1
 
 打包脚本只复制明确允许的源码、便携运行时、前端依赖和示例配置，并在压缩前扫描运行时数据库、上传文件、`.env`、`process_settings.json` 与疑似真实密钥。扫描命中时会以非零退出码停止，且不会生成交付包。真实密钥请在目标机部署时通过环境变量或设置页单独注入；可从不含真实值的 `.env.example` 开始配置。
 
+## Windows 7 SP1 x64 交付包
+
+Win7 交付使用独立的 CPython 3.8.10 x64 运行时。开发和构建环境仍保持当前项目的 Python 3.13.5、Node.js 24.x；目标机不安装 Python，目标机不需要 Node.js，也不执行 `npm install`。前端在构建机生成 `process-plan-agent-ui\dist`，由同一个 FastAPI 进程提供页面和 `/api`。
+
+目标机需要预装 Chrome 109 或 Edge 109，并允许启动包调用系统浏览器。包内不包含 CEF/Qt 或其他浏览器壳，IE11 不在支持范围内；Chrome 109 和 Edge 109 是验收基线。服务只监听 `127.0.0.1:8000`。
+
+在有网络的 Windows 构建机上，先准备带 pip 的 CPython 3.8.10 x64 目录和对应的 Windows x64 wheelhouse，再执行：
+
+```bat
+npm run build
+python -m pip download --only-binary=:all: --platform win_amd64 --python-version 38 --implementation cp -r requirements-win7-py38.txt -d C:\wheelhouse\processmind-py38
+powershell -File scripts\pack-win7-windows.ps1 -PythonRuntime C:\tools\cpython-3.8.10 -Wheelhouse C:\wheelhouse\processmind-py38
+```
+
+脚本会检查 Python 版本、离线依赖、后端导入和 Python 3.8 源码兼容性，然后生成 `dist-win7\processmind-win7-windows-YYYYMMDD.zip`、`manifest.json` 和 `SHA256SUMS.txt`。压缩前只复制后端源码、知识/config 资源、前端 `dist`、Win7 启动器和 `.runtime\python`，并拒绝 `node_modules`、`.runtime\node`、数据库、上传文件、日志、`.env` 和凭据。
+
+将 ZIP 解压到目标机后：
+
+1. 双击 `start-win7.cmd` 启动 API 并打开浏览器
+2. 双击 `status-win7.cmd` 查看健康状态
+3. 双击 `stop-win7.cmd` 停止由本包启动的 API
+4. 可在解压目录运行 `.runtime\python\python.exe scripts\verify-win7-package.py .` 检查清单和 SHA-256
+
+数据库、上传文件、日志、缓存和 PID 状态默认写入 `%LOCALAPPDATA%\ProcessMind`；可用同名环境变量 `PROCESSMIND_RUNTIME_DIR` 指向其他可写目录。关闭浏览器不会停止 API，重新启动不会复用失效 PID。端口被无关进程占用时启动器会失败并保留无关进程。
+
 
 ## 备注
 
 1. 前端开发模式下，默认会请求 `http://当前主机:8000`
 2. 后端默认会在当前包内创建并读取 `data/` 目录；离线交付包不会携带开发机现有的 `data/`
 3. 不要直接分发开发目录或手工压缩包；其中可能包含数据库、上传文档和运行时密钥
-4. 内网交付应使用 `scripts\pack-offline-windows.ps1` 生成并通过安全扫描的离线包
+4. Node-capable 开发离线包使用 `scripts\pack-offline-windows.ps1`；Win7 交付包使用 `scripts\pack-win7-windows.ps1`

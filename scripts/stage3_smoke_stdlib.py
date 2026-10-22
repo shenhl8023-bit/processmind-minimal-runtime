@@ -71,13 +71,13 @@ def check_symbols() -> None:
     checks = {
         UI / "src/utils/finalizeRulePackage.ts": [
             "buildCompileRequestFromCards",
-            "buildV2InputFields",
+            "exportBlockingCards",
             "buildRuleReportFromV2Package",
         ],
         UI / "src/composables/useFinalizeRulePackageExport.ts": [
             "compileRulePackage",
             "schema_version: '2.0'",
-            "downloadRuleDocumentV1Compat",
+            "downloadRuleDocument",
         ],
         UI / "src/composables/useGenerateInputFields.ts": [
             "export function nestFactorValues",
@@ -85,16 +85,16 @@ def check_symbols() -> None:
             "schema_version",
         ],
         UI / "src/views/FinalizeView.vue": [
-            "downloadRuleDocumentV1Compat",
-            "FINALIZE_VIEW_COPY.exportDocument",
+            "downloadRuleDocument",
+            "FINALIZE_VIEW_COPY",
         ],
         UI / "src/config/finalizeRulePresentation.ts": [
-            "exportDocument: '导出 V2 规则包'",
-            "exportDocumentV1",
+            "exportDocument: '发布规则包'",
+            "FINALIZE_EXPORT_COPY",
         ],
         UI / "src/views/GenerateView.vue": [
             "packageMetaLabel",
-            "packageSchemaVersion",
+            "displayedPackageVersion",
         ],
         API / "app/routers/generate.py": [
             "finalized_rule_package_v2",

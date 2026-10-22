@@ -251,19 +251,19 @@
 - Consumes: the completed launcher, build, staging, and manifest contracts.
 - Produces: documented Win7 install/start/stop/recovery steps and a standard-library verifier that checks manifest hashes and required package paths.
 
-- [ ] **Step 1: Write failing documentation/verifier tests**
+- [x] **Step 1: Write failing documentation/verifier tests**
 
   Assert README describes CPython 3.8.10, no target Node, Chrome/Edge 109, `start-win7.cmd`, `stop-win7.cmd`, `%LOCALAPPDATA%\\ProcessMind`, and the IE11 boundary. Assert the verifier rejects a missing required file and a modified hash.
 
-- [ ] **Step 2: Run the focused tests to verify they fail**
+- [x] **Step 2: Run the focused tests to verify they fail**
 
   Expected: FAIL because the documentation and verifier do not yet describe or validate the new package.
 
-- [ ] **Step 3: Implement documentation and verifier**
+- [x] **Step 3: Implement documentation and verifier**
 
   Replace the current Win7 section's Node 20 requirement with the new static frontend flow, document the prerequisite browser and external-service boundary, and implement `verify-win7-package.py` using only the standard library for manifest paths, SHA-256 values, runtime version, and forbidden artifacts.
 
-- [ ] **Step 4: Run the complete local verification**
+- [x] **Step 4: Run the complete local verification**
 
   Run: `python3 scripts/validate-python38.py process-plan-agent-api/app`
 
@@ -275,13 +275,13 @@
 
   Expected: all existing backend/frontend tests pass, Python 3.8 validation is clean, and the production frontend builds successfully.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```bash
   git add README.md scripts/verify-win7-package.py process-plan-agent-api/tests/test_win7_delivery_docs.py
   git commit -m "docs: document Win7 package verification"
   ```
 
-- [ ] **Step 6: Record target-machine limitations**
+- [x] **Step 6: Record target-machine limitations**
 
   Run the package verifier on the produced ZIP, then record that Win7 SP1 x64 and Chrome/Edge 109 acceptance requires an actual target VM or machine; do not claim the matrix passed from macOS/Linux-only checks.
