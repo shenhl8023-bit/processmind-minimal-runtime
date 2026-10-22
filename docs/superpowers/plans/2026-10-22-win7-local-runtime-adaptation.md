@@ -118,7 +118,7 @@
 **Files:**
 - Modify: `process-plan-agent-ui/vite.config.ts`
 - Modify: `process-plan-agent-ui/index.html`
-- Test: `process-plan-agent-ui/src/win7-build-contract.spec.ts`
+- Test: `process-plan-agent-ui/tests/win7-build-contract.spec.ts`
 
 **Interfaces:**
 - Consumes: the existing Vue router and relative API client.
@@ -130,7 +130,7 @@
 
 - [ ] **Step 2: Run the focused frontend test to verify it fails**
 
-  Run: `cd process-plan-agent-ui && npm test -- --run src/win7-build-contract.spec.ts`
+  Run: `cd process-plan-agent-ui && npm test -- --run tests/win7-build-contract.spec.ts`
 
   Expected: FAIL because the current config has no Chromium 109 build target and the starter title remains.
 
@@ -140,14 +140,14 @@
 
 - [ ] **Step 4: Verify build output**
 
-  Run: `cd process-plan-agent-ui && npm test -- --run src/win7-build-contract.spec.ts && npm run build`
+  Run: `cd process-plan-agent-ui && npm test -- --run tests/win7-build-contract.spec.ts && npm run build`
 
   Expected: PASS and a `dist/index.html` with hashed assets and no unresolved module imports.
 
 - [ ] **Step 5: Commit**
 
   ```bash
-  git add process-plan-agent-ui/vite.config.ts process-plan-agent-ui/index.html process-plan-agent-ui/src/win7-build-contract.spec.ts
+  git add process-plan-agent-ui/vite.config.ts process-plan-agent-ui/index.html process-plan-agent-ui/tests/win7-build-contract.spec.ts docs/superpowers/plans/2026-10-22-win7-local-runtime-adaptation.md
   git commit -m "build: target Chromium 109 for Win7 frontend"
   ```
 

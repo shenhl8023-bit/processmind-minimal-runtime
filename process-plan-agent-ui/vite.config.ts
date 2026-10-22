@@ -28,6 +28,9 @@ export default defineConfig(({ mode }) => {
         }
       }
     },
+    build: {
+      target: 'chrome109'
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, 'src')
