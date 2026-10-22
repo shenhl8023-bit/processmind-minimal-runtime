@@ -90,6 +90,14 @@ def test_verifier_rejects_missing_required_file(tmp_path: Path):
     assert any("index.html" in error for error in errors)
 
 
+def test_verifier_rejects_missing_env_example(tmp_path: Path):
+    verifier = _load_verifier()
+    _make_package(tmp_path)
+    (tmp_path / ".env.example").unlink()
+    errors = verifier.verify_package(tmp_path)
+    assert any(".env.example" in error for error in errors)
+
+
 def test_verifier_rejects_modified_hash(tmp_path: Path):
     verifier = _load_verifier()
     _make_package(tmp_path)

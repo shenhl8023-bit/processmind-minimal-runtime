@@ -21,6 +21,7 @@ REQUIRED_PATHS = (
     "start-win7.cmd",
     "stop-win7.cmd",
     "status-win7.cmd",
+    ".env.example",
     "manifest.json",
 )
 CHECKSUM_LINE = re.compile(r"^(?P<digest>[0-9a-fA-F]{64})\s{2}(?P<path>.+?)\s*$")
