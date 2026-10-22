@@ -30,6 +30,7 @@ dist-ssr/
 # Offline packaging output (large binary parts; keep scripts only if needed)
 # Comment out the next line if you want to version the offline bundle.
 dist-offline/
+dist-win7/
 
 # Local test and agent workspaces
 .test-tmp/
