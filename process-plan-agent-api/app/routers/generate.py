@@ -1,6 +1,8 @@
 """
 工艺路线生成 API —— 基于影响因素匹配规则并输出工序序列
 """
+from __future__ import annotations
+
 import json
 import os
 import re

@@ -1,4 +1,6 @@
 """Portable domain resources. Uploaded prose is data, never instructions."""
+from __future__ import annotations
+
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from app.services.rule_packages.contracts import ConditionNode, InputField

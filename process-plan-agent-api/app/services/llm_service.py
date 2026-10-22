@@ -1,6 +1,8 @@
 """
 大模型调用服务 —— 支持 OpenAI 兼容接口 (NVIDIA NIM / DeepSeek / 硅基流动 等)
 """
+from __future__ import annotations
+
 import json
 import os
 import re

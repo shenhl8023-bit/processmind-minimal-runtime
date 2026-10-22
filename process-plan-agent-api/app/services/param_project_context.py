@@ -8,6 +8,7 @@ from typing import Callable, Generic, TypeVar
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.compat import run_in_thread
 from app.models.models import Document, Project, Reference
 
 StageT = TypeVar("StageT")
@@ -121,7 +122,7 @@ async def build_param_json_context_async(
     build_param_superset_stages: Callable[[list[list[StageT]]], list[StageT]],
     document_id: int | None = None,
 ) -> ParamJsonContext[StageT]:
-    return await asyncio.to_thread(
+    return await run_in_thread(
         build_param_json_context,
         documents,
         upload_dir,

@@ -1,6 +1,8 @@
 """
 LLM 客户端能力：配置解析、请求构造、重试与响应文本提取。
 """
+from __future__ import annotations
+
 import asyncio
 import json
 import logging

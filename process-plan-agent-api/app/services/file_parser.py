@@ -2,6 +2,8 @@
 文件内容提取服务 —— 支持从 PDF / DOCX / XLSX / JSON 中提取文本
 用于第二步规则提炼时，将上传文档的实际内容传给大模型分析。
 """
+from __future__ import annotations
+
 import json
 import os
 from typing import Optional

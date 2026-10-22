@@ -1,4 +1,6 @@
 """Semantic validation in addition to the structural Pydantic contract."""
+from __future__ import annotations
+
 import hashlib
 import re
 from .contracts import DomainKnowledgePackageDraft, RESOURCE_TYPES

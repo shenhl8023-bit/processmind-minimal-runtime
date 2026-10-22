@@ -3,6 +3,8 @@
 第二步严格依赖大模型，但会先把文档压缩成候选工序摘要再送给模型，
 避免一次发送整批长文档导致限流或超时。
 """
+from __future__ import annotations
+
 import asyncio
 from dataclasses import asdict
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile

@@ -1,4 +1,6 @@
 """Bounded UTF-8 Markdown and 7z ingestion, retaining exact source bytes."""
+from __future__ import annotations
+
 import hashlib
 import io
 from pathlib import PurePosixPath

@@ -7,6 +7,8 @@ import os
 from collections.abc import Callable
 from typing import TypeVar
 
+from app.core.compat import run_in_thread
+
 T = TypeVar("T")
 
 _SEM: asyncio.Semaphore | None = None
@@ -34,7 +36,7 @@ def get_extraction_cpu_semaphore() -> asyncio.Semaphore:
 
 async def run_extraction_cpu(func: Callable[..., T], /, *args: object, **kwargs: object) -> T:
     async with get_extraction_cpu_semaphore():
-        return await asyncio.to_thread(func, *args, **kwargs)
+        return await run_in_thread(func, *args, **kwargs)
 
 
 __all__ = [

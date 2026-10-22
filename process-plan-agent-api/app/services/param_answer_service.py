@@ -3,6 +3,8 @@
 
 这里保持为纯函数，避免路由层夹杂答案显示、存储语义和规则表达式格式化。
 """
+from __future__ import annotations
+
 from typing import Any
 
 

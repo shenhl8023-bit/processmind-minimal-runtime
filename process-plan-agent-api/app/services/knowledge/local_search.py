@@ -7,6 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from app.core.compat import remove_suffix
 from app.core.paths import API_ROOT
 from app.services.knowledge.guidance_search import search_guidance, guidance_warnings
 
@@ -355,7 +356,7 @@ def _query_stages(query: str) -> list[str]:
 
 def _stage_matches(value: Any, stages: list[str]) -> bool:
     normalized = str(value or "")
-    return any(normalized in {stage, stage.removesuffix("加工阶段")} for stage in stages)
+    return any(normalized in {stage, remove_suffix(stage, "加工阶段")} for stage in stages)
 
 
 def _entity_query_terms(query: str, records: tuple[dict[str, Any], ...], category: str) -> list[str]:

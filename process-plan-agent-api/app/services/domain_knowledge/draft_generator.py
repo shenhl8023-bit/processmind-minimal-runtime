@@ -1,4 +1,6 @@
 """AI extraction proposes resources; local contracts control acceptance."""
+from __future__ import annotations
+
 import json
 from app.services.llm_service import call_llm, parse_json_from_llm
 from app.services.llm_client import get_llm_config

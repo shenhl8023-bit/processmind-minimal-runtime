@@ -1,6 +1,8 @@
 """
 Pydantic 响应与请求模型
 """
+from __future__ import annotations
+
 from pydantic import BaseModel, Field, model_serializer
 
 from app.services.analysis_drafts import AnalysisRuleDraft
