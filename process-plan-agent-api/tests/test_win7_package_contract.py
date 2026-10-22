@@ -70,9 +70,12 @@ def test_win7_packaging_scripts_have_static_frontend_and_offline_contract():
 
 
 def test_win7_entrypoints_are_present_and_do_not_require_node():
-    for name in ("start-win7.cmd", "stop-win7.cmd", "status-win7.cmd"):
+    for name in ("start-win7.cmd", "start-win7.bat", "stop-win7.cmd", "status-win7.cmd"):
         path = PROJECT_ROOT / name
         assert path.is_file()
         text = path.read_text(encoding="utf-8")
-        assert "win7_launcher.py" in text
+        if name.endswith(".bat"):
+            assert "start-win7.cmd" in text
+        else:
+            assert "win7_launcher.py" in text
         assert "node.exe" not in text.lower()

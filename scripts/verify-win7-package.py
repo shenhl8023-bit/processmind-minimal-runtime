@@ -19,6 +19,7 @@ REQUIRED_PATHS = (
     "docs/配置模板/第三步规则分析-问题树节点配置.template.json",
     "scripts/win7_launcher.py",
     "start-win7.cmd",
+    "start-win7.bat",
     "stop-win7.cmd",
     "status-win7.cmd",
     ".env.example",

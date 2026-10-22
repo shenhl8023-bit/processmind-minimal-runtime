@@ -181,7 +181,7 @@ powershell -File scripts\pack-win7-windows.ps1 -PythonRuntime C:\tools\cpython-3
 
 将 ZIP 解压到目标机后：
 
-1. 双击 `start-win7.cmd` 启动 API 并打开浏览器
+1. 双击 `start-win7.bat`（或 `start-win7.cmd`）启动 API 并打开浏览器
 2. 双击 `status-win7.cmd` 查看健康状态
 3. 双击 `stop-win7.cmd` 停止由本包启动的 API
 4. 可在解压目录运行 `.runtime\python\python.exe scripts\verify-win7-package.py .` 检查清单和 SHA-256

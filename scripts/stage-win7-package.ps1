@@ -98,6 +98,7 @@ Copy-TreeFiltered -Source $PythonRuntime -Target (Join-Path $Destination '.runti
 
 foreach ($file in @(
   'start-win7.cmd',
+  'start-win7.bat',
   'stop-win7.cmd',
   'status-win7.cmd',
   'requirements-win7-py38.txt',
