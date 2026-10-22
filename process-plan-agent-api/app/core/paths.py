@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Optional
 
 
 API_ROOT = Path(__file__).resolve().parents[2]
@@ -32,3 +33,10 @@ _default_settings_path = (
     LEGACY_SETTINGS_FILE if LEGACY_SETTINGS_FILE.exists() else (CONFIG_DIR / "process_settings.json")
 )
 SETTINGS_FILE_PATH = Path(os.getenv("PROCESSMIND_SETTINGS_PATH", str(_default_settings_path)))
+
+_configured_frontend_dir = os.getenv("PROCESSMIND_FRONTEND_DIR", "").strip()
+FRONTEND_DIR: Optional[Path] = (
+    Path(_configured_frontend_dir).expanduser().resolve()
+    if _configured_frontend_dir
+    else None
+)
