@@ -42,27 +42,27 @@
 - Consumes: existing FastAPI routers and `PROCESSMIND_FRONTEND_DIR`.
 - Produces: `create_app(frontend_dir: Optional[Path] = None) -> FastAPI`, `install_frontend(app: FastAPI, frontend_dir: Path) -> None`, and `GET /api/startup-ping` returning `{status: "ok", app: "ProcessMind", kind: "api"}`.
 
-- [ ] **Step 1: Write failing static-serving tests**
+- [x] **Step 1: Write failing static-serving tests**
 
   Add tests that create a temporary `index.html` and asset, build an app with `create_app(frontend_dir)`, assert `/` and `/extract` return the same HTML, assert `/assets/app.js` returns the asset, and assert `/api/startup-ping` remains JSON and is not intercepted by the frontend mount.
 
-- [ ] **Step 2: Run the focused test to verify it fails**
+- [x] **Step 2: Run the focused test to verify it fails**
 
   Run: `cd process-plan-agent-api && pytest tests/test_static_frontend.py -q`
 
   Expected: FAIL because `create_app`, static hosting, and `/api/startup-ping` do not exist.
 
-- [ ] **Step 3: Implement the static frontend boundary**
+- [x] **Step 3: Implement the static frontend boundary**
 
   Add an `SPAStaticFiles` subclass that falls back to `index.html` only for missing `GET` paths, expose `create_app` for isolated tests, keep the existing global `app`, and enable static hosting only when `PROCESSMIND_FRONTEND_DIR` is set or an explicit directory is passed. Preserve a JSON root response when no production frontend directory is configured so current API tests and development behavior remain stable.
 
-- [ ] **Step 4: Run the focused test to verify it passes**
+- [x] **Step 4: Run the focused test to verify it passes**
 
   Run: `cd process-plan-agent-api && pytest tests/test_static_frontend.py -q`
 
   Expected: PASS, with API routes taking precedence over the root static mount.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```bash
   git add process-plan-agent-api/app/web.py process-plan-agent-api/app/core/paths.py process-plan-agent-api/app/main.py process-plan-agent-api/tests/test_static_frontend.py
@@ -84,21 +84,21 @@
 - Consumes: existing synchronous extraction helpers and string normalization behavior.
 - Produces: `async run_in_thread(func, *args, **kwargs)`, `remove_suffix(value: str, suffix: str) -> str`, and a validator that parses every backend module with Python 3.8 grammar and reports unsupported runtime APIs.
 
-- [ ] **Step 1: Write failing compatibility tests**
+- [x] **Step 1: Write failing compatibility tests**
 
   Pin the suffix behavior for both matching and non-matching strings, run a blocking callable through `run_in_thread`, assert the Python 3.8 AST scan covers all `app/**/*.py`, and assert the validator reports no unapproved `removesuffix` or `asyncio.to_thread` usages after the implementation.
 
-- [ ] **Step 2: Run the focused tests to verify they fail**
+- [x] **Step 2: Run the focused tests to verify they fail**
 
   Run: `cd process-plan-agent-api && pytest tests/test_python38_compat.py -q`
 
   Expected: FAIL because the compatibility module and validator do not exist and current code uses Python 3.9-only helpers.
 
-- [ ] **Step 3: Implement the compatibility layer and audit**
+- [x] **Step 3: Implement the compatibility layer and audit**
 
   Implement `run_in_thread` with `loop.run_in_executor` and a `functools.partial`, replace the two `asyncio.to_thread` call sites, replace `str.removesuffix`, and add postponed annotations or `typing` equivalents to every runtime module that currently evaluates PEP 585/604 annotations on import. The validator must use only the standard library, accept an API root argument, parse with `feature_version=(3, 8)`, and fail on the explicitly unsupported API patterns.
 
-- [ ] **Step 4: Run compatibility checks**
+- [x] **Step 4: Run compatibility checks**
 
   Run: `cd process-plan-agent-api && pytest tests/test_python38_compat.py -q`
 
@@ -106,7 +106,7 @@
 
   Expected: PASS with zero syntax/API findings. Run the existing backend test suite afterward to confirm behavior was preserved.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```bash
   git add process-plan-agent-api/app scripts/validate-python38.py process-plan-agent-api/tests/test_python38_compat.py
@@ -124,27 +124,27 @@
 - Consumes: the existing Vue router and relative API client.
 - Produces: a production `dist/` whose Vite build target is `chrome109`, whose API calls stay relative, and whose index title/icon do not refer to the Vite starter template.
 
-- [ ] **Step 1: Write the failing build-contract test**
+- [x] **Step 1: Write the failing build-contract test**
 
   Assert the Vite config contains the `chrome109` build target and the production HTML has the ProcessMind title. Keep the test independent of `dist/` so it runs before a build.
 
-- [ ] **Step 2: Run the focused frontend test to verify it fails**
+- [x] **Step 2: Run the focused frontend test to verify it fails**
 
   Run: `cd process-plan-agent-ui && npm test -- --run tests/win7-build-contract.spec.ts`
 
   Expected: FAIL because the current config has no Chromium 109 build target and the starter title remains.
 
-- [ ] **Step 3: Implement the build contract**
+- [x] **Step 3: Implement the build contract**
 
   Set `build.target: 'chrome109'`, retain the existing Vite proxy for development, keep `VITE_API_BASE_URL` optional so production uses relative `/api`, and replace starter metadata with ProcessMind metadata without introducing a new runtime dependency.
 
-- [ ] **Step 4: Verify build output**
+- [x] **Step 4: Verify build output**
 
   Run: `cd process-plan-agent-ui && npm test -- --run tests/win7-build-contract.spec.ts && npm run build`
 
   Expected: PASS and a `dist/index.html` with hashed assets and no unresolved module imports.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```bash
   git add process-plan-agent-ui/vite.config.ts process-plan-agent-ui/index.html process-plan-agent-ui/tests/win7-build-contract.spec.ts docs/superpowers/plans/2026-10-22-win7-local-runtime-adaptation.md
@@ -164,21 +164,21 @@
 - Consumes: the packaged `.runtime/python/python.exe`, API directory, frontend directory, and Task 1 health endpoint.
 - Produces: `resolve_runtime_dir(env) -> Path`, `find_browser(env) -> Optional[Path]`, `check_port(host, port) -> int`, `health(url, timeout) -> bool`, and CLI commands `start`, `stop`, `status`.
 
-- [ ] **Step 1: Write failing launcher tests**
+- [x] **Step 1: Write failing launcher tests**
 
   Test runtime-directory precedence (`PROCESSMIND_RUNTIME_DIR`, then `LOCALAPPDATA`, then `TEMP`), state round-tripping, valid port checks, browser candidate selection using temporary fake paths, and refusal to stop a PID whose recorded command line does not contain the package API command.
 
-- [ ] **Step 2: Run the focused tests to verify they fail**
+- [x] **Step 2: Run the focused tests to verify they fail**
 
   Run: `cd process-plan-agent-api && pytest tests/test_win7_launcher.py -q`
 
   Expected: FAIL because the launcher module and batch entrypoints do not exist.
 
-- [ ] **Step 3: Implement launcher behavior**
+- [x] **Step 3: Implement launcher behavior**
 
   Use only Python 3.8 standard-library modules. Start Uvicorn with `--host 127.0.0.1 --port 8000`, set `PROCESSMIND_DATA_DIR`, `PROCESSMIND_FRONTEND_DIR`, and `PROCESSMIND_RUNTIME_DIR` before spawning, capture logs, write an atomic JSON state file, poll `/api/startup-ping`, and use WMIC only for Windows process identity checks. Browser discovery tries installed Chrome and Edge paths, then `start`/`os.startfile` fallback; missing browser prints the URL while leaving the API alive. Stop is idempotent and never kills an unrelated process.
 
-- [ ] **Step 4: Verify launcher behavior**
+- [x] **Step 4: Verify launcher behavior**
 
   Run: `cd process-plan-agent-api && pytest tests/test_win7_launcher.py -q`
 
@@ -186,7 +186,7 @@
 
   Expected: PASS and a standard-library-only CLI help response.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```bash
   git add scripts/win7_launcher.py start-win7.cmd stop-win7.cmd status-win7.cmd process-plan-agent-api/tests/test_win7_launcher.py
