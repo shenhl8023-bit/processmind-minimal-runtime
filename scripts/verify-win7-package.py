@@ -16,6 +16,7 @@ REQUIRED_PATHS = (
     ".runtime/python/python.exe",
     "process-plan-agent-api/app/main.py",
     "process-plan-agent-ui/dist/index.html",
+    "docs/配置模板/第三步规则分析-问题树节点配置.template.json",
     "scripts/win7_launcher.py",
     "start-win7.cmd",
     "stop-win7.cmd",
@@ -45,11 +46,15 @@ def _is_forbidden(relative: str) -> bool:
         return True
     if any(part == ".runtime" and index + 1 < len(parts) and parts[index + 1] == "node" for index, part in enumerate(parts)):
         return True
-    if any(part.startswith(".env") for part in parts):
+    if name not in (".env.example", ".env.compose.example") and any(part.startswith(".env") for part in parts):
+        return True
+    if any(part in ("__pycache__", ".pytest_cache") for part in parts) or name.endswith((".pyc", ".pyo")):
         return True
     if any(part in ("upload", "uploads", "log", "logs") for part in parts):
         return True
     if name.endswith((".db", ".sqlite", ".sqlite3", ".db-wal", ".db-shm", ".sqlite-wal", ".sqlite-shm")):
+        return True
+    if name in ("node.exe", "node-license.txt", "npm.cmd", "npx.cmd"):
         return True
     if name in ("process_settings.json", "credentials.json", ".npmrc", ".pypirc"):
         return True
@@ -133,7 +138,7 @@ def _load_checksums(root: Path, relative: str, errors: List[str]) -> Dict[str, s
         return {}
     checksums: Dict[str, str] = {}
     try:
-        lines = path.read_text(encoding="ascii").splitlines()
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
     except (OSError, UnicodeError) as exc:
         errors.append("cannot read %s: %s" % (relative, exc))
         return {}

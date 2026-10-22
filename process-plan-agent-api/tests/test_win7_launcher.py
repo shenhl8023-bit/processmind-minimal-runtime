@@ -75,3 +75,39 @@ def test_stop_process_refuses_an_unrelated_command_line(tmp_path: Path):
 
     assert result is False
     assert terminated == []
+
+
+def test_managed_command_requires_an_exact_package_path(tmp_path: Path):
+    launcher = _load_launcher()
+    package_root = tmp_path / "ProcessMind"
+    windows_root = str(package_root.resolve()).replace("/", "\\")
+    windows_api = windows_root + "\\process-plan-agent-api"
+
+    assert launcher.managed_command_matches(
+        '"%s\\.runtime\\python\\python.exe" -m uvicorn app.main:app '
+        '--app-dir "%s" --host 127.0.0.1 --port 8000' % (windows_root, windows_api),
+        package_root,
+    )
+    assert not launcher.managed_command_matches(
+        '"%sOther\\.runtime\\python\\python.exe" -m uvicorn app.main:app '
+        '--app-dir "%sOther" --host 127.0.0.1 --port 8000' % (windows_root, windows_api),
+        package_root,
+    )
+
+
+def test_build_start_command_has_one_port_argument(tmp_path: Path):
+    launcher = _load_launcher()
+    command = list(launcher.build_start_command(tmp_path / "ProcessMind", 8000))
+
+    assert command.count("--port") == 1
+    assert command[-1] == "8000"
+
+
+def test_status_cleans_malformed_state_port(tmp_path: Path, capsys):
+    launcher = _load_launcher()
+    state_dir = tmp_path / "runtime"
+    launcher.write_state(state_dir, {"pid": 1234, "port": "invalid"})
+
+    assert launcher.status_application(tmp_path / "ProcessMind", state_dir) is False
+    assert launcher.read_state(state_dir) is None
+    assert "端口无效" in capsys.readouterr().out

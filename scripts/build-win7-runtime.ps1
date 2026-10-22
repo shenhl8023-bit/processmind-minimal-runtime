@@ -61,12 +61,25 @@ try {
     throw "Copied runtime is missing python.exe: $PythonExe"
   }
 
-  # The embeddable distribution disables site-packages by default.  The
-  # package is built from a prepared runtime with pip, but enabling site is
-  # harmless for a full CPython installation and makes the archive form
-  # deterministic.
+  # Some existing portable bundles put Node and unrelated native packages
+  # beside CPython. They are not part of the ProcessMind Win7 runtime.
+  foreach ($artifact in @('node.exe', 'node-LICENSE.txt', 'npm.cmd', 'npx.cmd', 'cascadio-unpack')) {
+    $artifactPath = Join-Path $Destination $artifact
+    if (Test-Path -LiteralPath $artifactPath) {
+      Remove-Item -LiteralPath $artifactPath -Recurse -Force
+    }
+  }
+
+  # The embeddable distribution disables site-packages by default. Enabling
+  # site is required for the wheel-only installer below and is harmless for a
+  # full CPython installation. Add an explicit root site-packages entry as
+  # official embeddable ZIPs do not include one by default.
   Get-ChildItem -LiteralPath $Destination -Filter '*._pth' -File -ErrorAction SilentlyContinue | ForEach-Object {
     $pth = Get-Content -LiteralPath $_.FullName -Raw
+    if ($pth -notmatch '(?m)^\s*site-packages\s*$') {
+      Add-Content -LiteralPath $_.FullName -Value "`r`nsite-packages`r`n"
+      $pth = Get-Content -LiteralPath $_.FullName -Raw
+    }
     if ($pth -notmatch '(?m)^\s*import\s+site\s*$') {
       Add-Content -LiteralPath $_.FullName -Value "`r`nimport site`r`n"
     }
@@ -77,20 +90,23 @@ try {
     throw "Expected Python 3.8.10 x64, got: $versionOutput"
   }
 
-  & $PythonExe -m pip --version *> $null
-  if ($LASTEXITCODE -ne 0) {
-    throw 'The supplied CPython 3.8.10 runtime has no pip. Prepare it with pip on the build machine before packaging.'
+  $sitePackages = Join-Path $Destination 'site-packages'
+  $pthFile = Get-ChildItem -LiteralPath $Destination -Filter '*._pth' -File -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($null -eq $pthFile -and (Test-Path -LiteralPath (Join-Path $Destination 'Lib\site-packages'))) {
+    $sitePackages = Join-Path $Destination 'Lib\site-packages'
   }
+  if (Test-Path -LiteralPath $sitePackages) {
+    Remove-Item -LiteralPath $sitePackages -Recurse -Force
+  }
+  New-Item -ItemType Directory -Force -Path $sitePackages | Out-Null
 
   Write-Host 'Installing the pinned Win7 dependencies from the local wheelhouse ...'
-  & $PythonExe -m pip install --disable-pip-version-check --no-cache-dir --no-index --find-links $Wheelhouse --upgrade --requirement $Requirements
+  # The wheel installer is the embedded-runtime equivalent of pip install
+  # --no-index --find-links and works on a clean CPython 3.8 archive without pip.
+  $wheelInstaller = Join-Path $Root 'scripts\install-win7-wheels.py'
+  & $PythonExe $wheelInstaller --requirements $Requirements --wheelhouse $Wheelhouse --target $sitePackages
   if ($LASTEXITCODE -ne 0) {
     throw 'Offline dependency installation failed. Check that the wheelhouse contains CPython 3.8 win_amd64 wheels for every locked package.'
-  }
-
-  & $PythonExe -m pip check
-  if ($LASTEXITCODE -ne 0) {
-    throw 'pip check failed for the Win7 runtime.'
   }
 
   Write-Host 'Checking runtime imports ...'

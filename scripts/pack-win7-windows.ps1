@@ -73,7 +73,7 @@ try {
     $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
     [void] $checksumLines.Add("$hash  $relative")
   }
-  $checksumLines | Set-Content -LiteralPath $checksumPath -Encoding ASCII
+  $checksumLines | Set-Content -LiteralPath $checksumPath -Encoding UTF8
 
   $manifestCopy = Join-Path $OutputDir 'manifest.json'
   $checksumCopy = Join-Path $OutputDir 'SHA256SUMS.txt'

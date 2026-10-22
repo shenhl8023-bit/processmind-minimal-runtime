@@ -8,6 +8,7 @@ from datetime import datetime
 import json
 import os
 from pathlib import Path
+import re
 import socket
 import subprocess
 import sys
@@ -132,7 +133,9 @@ def health(url: str, timeout: float = 2.0) -> bool:
     try:
         response = urlopen(url, timeout=timeout)
         try:
-            status = getattr(response, "status", response.getcode())
+            status = getattr(response, "status", None)
+            if status is None:
+                status = response.getcode()
             body = response.read(4097)
         finally:
             response.close()
@@ -182,18 +185,24 @@ def find_browser(env: Optional[Mapping[str, str]] = None) -> Optional[Path]:
 def open_browser(url: str, env: Optional[Mapping[str, str]] = None) -> bool:
     browser = find_browser(env)
     if browser is not None:
-        subprocess.Popen(
-            [str(browser), url],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        return True
+        try:
+            subprocess.Popen(
+                [str(browser), url],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            return True
+        except OSError:
+            return False
 
     startfile = getattr(os, "startfile", None)
     if startfile is not None:
-        startfile(url)
-        return True
+        try:
+            startfile(url)
+            return True
+        except OSError:
+            return False
 
     try:
         subprocess.Popen(
@@ -274,7 +283,26 @@ def managed_command_matches(commandline: str, package_root: Path) -> bool:
     normalized = (commandline or "").replace("/", "\\").lower()
     root = str(Path(package_root).resolve()).replace("/", "\\").lower().rstrip("\\")
     api_root = str(api_directory(package_root)).replace("/", "\\").lower().rstrip("\\")
-    return "app.main:app" in normalized and (root in normalized or api_root in normalized)
+    if "app.main:app" not in normalized:
+        return False
+    tokens = [
+        token.strip().strip('"').strip("'").replace("/", "\\").lower().rstrip("\\")
+        for token in re.findall(r'"[^"]*"|\'[^\']*\'|\S+', str(commandline or ""))
+    ]
+    return root in tokens or api_root in tokens
+
+
+def _state_belongs_to_package(state: Mapping[str, object], package_root: Path, port: int) -> bool:
+    try:
+        if validate_port(state.get("port")) != port:
+            return False
+        recorded_root = Path(str(state.get("package_root", ""))).expanduser().resolve()
+        pid = int(state.get("pid"))
+    except (OSError, TypeError, ValueError, LauncherError):
+        return False
+    if recorded_root != Path(package_root).resolve() or pid <= 0:
+        return False
+    return managed_command_matches(query_process_commandline(pid), package_root)
 
 
 def terminate_process(pid: int) -> bool:
@@ -339,7 +367,7 @@ def start_application(
 
     existing = read_state(runtime_dir)
     endpoint = "http://%s:%d/api/startup-ping" % (HOST, port)
-    if existing and int(existing.get("port", -1)) == port and health(endpoint):
+    if existing and _state_belongs_to_package(existing, package_root, port) and health(endpoint):
         if should_open_browser and not open_browser("http://%s:%d/" % (HOST, port), env):
             print("浏览器未找到，请手动打开 http://%s:%d/" % (HOST, port))
         return int(existing.get("pid", 0))
@@ -391,7 +419,13 @@ def stop_application(package_root: Path, state_dir: Optional[Path] = None) -> bo
         remove_state(runtime_dir)
         print("ProcessMind 当前未运行")
         return False
-    stopped = stop_process(int(state["pid"]), package_root)
+    try:
+        pid = int(state["pid"])
+    except (TypeError, ValueError):
+        remove_state(runtime_dir)
+        print("ProcessMind 状态文件中的 PID 无效，已清理状态")
+        return False
+    stopped = stop_process(pid, package_root)
     remove_state(runtime_dir)
     if stopped:
         print("ProcessMind 已停止")
@@ -406,7 +440,12 @@ def status_application(package_root: Path, state_dir: Optional[Path] = None) -> 
     if not state:
         print("ProcessMind 未运行")
         return False
-    port = int(state.get("port", DEFAULT_PORT))
+    try:
+        port = validate_port(state.get("port", DEFAULT_PORT))
+    except LauncherError:
+        remove_state(runtime_dir)
+        print("ProcessMind 状态文件中的端口无效，已清理状态")
+        return False
     running = health("http://%s:%d/api/startup-ping" % (HOST, port))
     print(json.dumps({"running": running, "pid": state.get("pid"), "port": port}, ensure_ascii=False))
     return running

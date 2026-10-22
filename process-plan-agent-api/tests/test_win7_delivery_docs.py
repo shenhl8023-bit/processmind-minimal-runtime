@@ -23,10 +23,12 @@ def _make_package(root: Path) -> None:
         ".runtime/python/python.exe",
         "process-plan-agent-api/app/main.py",
         "process-plan-agent-ui/dist/index.html",
+        "docs/配置模板/第三步规则分析-问题树节点配置.template.json",
         "scripts/win7_launcher.py",
         "start-win7.cmd",
         "stop-win7.cmd",
         "status-win7.cmd",
+        ".env.example",
     )
     for relative in required:
         path = root / relative
@@ -55,7 +57,7 @@ def _make_package(root: Path) -> None:
         relative = path.relative_to(root).as_posix()
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         lines.append("%s  %s" % (digest, relative))
-    (root / "SHA256SUMS.txt").write_text("\n".join(lines) + "\n", encoding="ascii")
+    (root / "SHA256SUMS.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def test_readme_documents_win7_runtime_boundary():

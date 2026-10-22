@@ -36,11 +36,12 @@ def test_win7_lock_is_fully_pinned_and_contains_runtime_dependencies():
 
 def test_win7_packaging_scripts_have_static_frontend_and_offline_contract():
     builder = PROJECT_ROOT / "scripts" / "build-win7-runtime.ps1"
+    installer = PROJECT_ROOT / "scripts" / "install-win7-wheels.py"
     packer = PROJECT_ROOT / "scripts" / "pack-win7-windows.ps1"
     packer_cmd = PROJECT_ROOT / "scripts" / "pack-win7-windows.cmd"
     stage = PROJECT_ROOT / "scripts" / "stage-win7-package.ps1"
 
-    for path in (builder, packer, packer_cmd, stage):
+    for path in (builder, installer, packer, packer_cmd, stage):
         assert path.is_file(), path
 
     builder_text = builder.read_text(encoding="utf-8")
@@ -49,13 +50,18 @@ def test_win7_packaging_scripts_have_static_frontend_and_offline_contract():
     assert "--no-index" in builder_text
     assert "--find-links" in builder_text
     assert "3.8.10" in builder_text
+    assert "install-win7-wheels.py" in builder_text
+    assert "site-packages" in builder_text
+    assert "import site" in builder_text
     assert "process-plan-agent-ui\\dist" in packer_text
     assert "manifest.json" in packer_text
     assert "SHA256SUMS.txt" in packer_text
     assert "node_modules" in stage_text
     assert ".runtime/node" in stage_text or ".runtime\\node" in stage_text
+    assert "node.exe" in stage_text
     assert ".env" in stage_text
     assert ".db" in stage_text
+    assert "docs\\配置模板" in stage_text
 
 
 def test_win7_entrypoints_are_present_and_do_not_require_node():

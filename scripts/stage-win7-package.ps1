@@ -26,12 +26,14 @@ function Test-ForbiddenRelativePath {
   param([string] $RelativePath)
   $path = Normalize-RelativePath $RelativePath
   $name = (Split-Path -Leaf $path).ToLowerInvariant()
+  if ($name -in @('.env.example', '.env.compose.example')) { return $false }
   if ($path -match '(^|/)node_modules(?:/|$)') { return $true }
   if ($path -match '^\.runtime/node(?:/|$)') { return $true }
   if ($path -match '(^|/)(?:\.venv|__pycache__|\.pytest_cache|tests)(?:/|$)') { return $true }
   if ($path -match '(^|/)\.env(?:\.|$)') { return $true }
   if ($path -match '(^|/)(?:uploads?|logs?)(?:/|$)') { return $true }
   if ($name -match '\.db$' -or $name -match '\.(?:sqlite|sqlite3)$' -or $name -match '\.(?:db|sqlite|sqlite3)-(?:wal|shm)$') { return $true }
+  if ($name -in @('node.exe', 'node-license.txt', 'npm.cmd', 'npx.cmd')) { return $true }
   if ($name -in @('process_settings.json', 'credentials.json', '.npmrc', '.pypirc', '.ds_store')) { return $true }
   if ($name -match '^(?:credentials?|secrets?|tokens?)(?:\..+)?$') { return $true }
   return $false
@@ -91,6 +93,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $PythonRuntime 'python.exe') -PathTy
 
 Copy-TreeFiltered -Source (Join-Path $SourceRoot 'process-plan-agent-api') -Target (Join-Path $Destination 'process-plan-agent-api') -RelativePath 'process-plan-agent-api'
 Copy-TreeFiltered -Source $frontend -Target (Join-Path $Destination 'process-plan-agent-ui\dist') -RelativePath 'process-plan-agent-ui/dist'
+Copy-TreeFiltered -Source (Join-Path $SourceRoot 'docs\配置模板') -Target (Join-Path $Destination 'docs\配置模板') -RelativePath 'docs/配置模板'
 Copy-TreeFiltered -Source $PythonRuntime -Target (Join-Path $Destination '.runtime\python') -RelativePath '.runtime/python'
 
 foreach ($file in @(
@@ -98,6 +101,7 @@ foreach ($file in @(
   'stop-win7.cmd',
   'status-win7.cmd',
   'requirements-win7-py38.txt',
+  '.env.example',
   'README.md'
 )) {
   Copy-FileIfPresent $file
