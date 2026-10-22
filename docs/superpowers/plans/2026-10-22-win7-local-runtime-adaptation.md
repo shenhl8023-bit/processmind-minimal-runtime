@@ -200,32 +200,32 @@
 - Create: `scripts/build-win7-runtime.ps1`
 - Create: `scripts/pack-win7-windows.ps1`
 - Create: `scripts/pack-win7-windows.cmd`
-- Modify: `scripts/stage-offline-package.ps1`
+- Create: `scripts/stage-win7-package.ps1`
 - Create: `process-plan-agent-api/tests/test_win7_package_contract.py`
 
 **Interfaces:**
 - Consumes: the frontend `dist/`, CPython 3.8.10 x64 source directory or archive, the Python 3.8 lock, and existing offline safety checks.
 - Produces: `dist-win7/processmind-win7-windows-YYYYMMDD.zip`, `manifest.json`, `SHA256SUMS.txt`, and a staging tree without Node artifacts or mutable project data.
 
-- [ ] **Step 1: Write failing package-contract tests**
+- [x] **Step 1: Write failing package-contract tests**
 
   Assert the lock file declares Python 3.8-compatible versions, the pack script requires `dist/` and a Python 3.8 runtime, the staging allowlist includes the new batch files and frontend output, and the package contract rejects `node_modules`, `.runtime/node`, database files, uploads, and `.env` values.
 
-- [ ] **Step 2: Run the focused tests to verify they fail**
+- [x] **Step 2: Run the focused tests to verify they fail**
 
   Run: `cd process-plan-agent-api && pytest tests/test_win7_package_contract.py -q`
 
   Expected: FAIL because the Win7 lock, scripts, and staging rules do not exist.
 
-- [ ] **Step 3: Implement the Win7 lock and runtime builder**
+- [x] **Step 3: Implement the Win7 lock and runtime builder**
 
   Pin a separately verified Python 3.8 dependency set with Windows x64 wheels, exclude development-only Node tooling, and make `build-win7-runtime.ps1` install from a local wheelhouse with `--no-index --find-links`. It must verify `python.exe --version`, import FastAPI/Uvicorn/SQLAlchemy/PyMuPDF/python-docx/openpyxl, run the Python 3.8 validator, and fail before staging on any mismatch.
 
-- [ ] **Step 4: Implement Win7 staging, manifest, and hashes**
+- [x] **Step 4: Implement Win7 staging, manifest, and hashes**
 
-  Stage `process-plan-agent-api`, `process-plan-agent-ui/dist`, the Python runtime, scripts, examples, and required knowledge/config files. Extend the safety scanner and allowlist to include only the new Win7 artifacts, explicitly reject Node and mutable data, write target/version/browser metadata, and generate SHA-256 entries for every staged file.
+  Stage `process-plan-agent-api`, `process-plan-agent-ui/dist`, the Python runtime, Win7 scripts, examples, and required knowledge/config files. Keep this allowlist in the dedicated `stage-win7-package.ps1` so the existing Node-capable staging script remains compatible with development packages. Explicitly reject Node and mutable data, write target/version/browser metadata, and generate SHA-256 entries for every staged file.
 
-- [ ] **Step 5: Run package-contract and staging checks**
+- [x] **Step 5: Run package-contract and staging checks**
 
   Run: `cd process-plan-agent-api && pytest tests/test_win7_package_contract.py -q`
 
@@ -233,10 +233,10 @@
 
   Expected: PASS, with a ZIP that contains no `node_modules`, `.runtime\\node`, database, upload, log, `.env`, or credential files.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
-  git add requirements-win7-py38.txt scripts/build-win7-runtime.ps1 scripts/pack-win7-windows.ps1 scripts/pack-win7-windows.cmd scripts/stage-offline-package.ps1 process-plan-agent-api/tests/test_win7_package_contract.py
+  git add requirements-win7-py38.txt scripts/build-win7-runtime.ps1 scripts/pack-win7-windows.ps1 scripts/pack-win7-windows.cmd scripts/stage-win7-package.ps1 process-plan-agent-api/tests/test_win7_package_contract.py
   git commit -m "build: package a Python 3.8 Win7 runtime"
   ```
 

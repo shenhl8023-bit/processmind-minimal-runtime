@@ -1,0 +1,47 @@
+# ProcessMind Win7 SP1 x64 runtime lock.
+#
+# The delivery runtime is CPython 3.8.10 x64.  Build this file on a
+# networked Windows build machine with a wheelhouse, then install it with
+# --no-index --find-links.  The development lock in
+# process-plan-agent-api/requirements.txt intentionally remains separate.
+# Python 3.8.10
+
+aiosqlite==0.20.0
+annotated-doc==0.0.4
+annotated-types==0.7.0
+anyio==4.4.0
+brotli==1.1.0
+certifi==2024.8.30
+click==8.1.7
+colorama==0.4.6
+et-xmlfile==1.1.0
+fastapi==0.115.6
+greenlet==3.1.1
+h11==0.14.0
+httpcore==1.0.7
+httpx==0.27.2
+idna==3.10
+inflate64==1.0.0
+lxml==5.3.0
+multivolumefile==0.2.3
+openpyxl==3.1.5
+py7zr==0.20.8
+pybcj==1.0.2
+pycryptodomex==3.20.0
+PyMuPDF==1.24.11
+psutil==7.2.2
+pyppmd==1.1.0
+pyzstd==0.16.1
+pydantic==2.9.2
+pydantic-core==2.23.4
+pydantic-settings==2.6.1
+python-docx==1.1.2
+python-dotenv==1.0.1
+python-multipart==0.0.20
+PyYAML==6.0.2
+sniffio==1.3.1
+SQLAlchemy==2.0.36
+starlette==0.41.3
+texttable==1.7.2
+typing-extensions==4.12.2
+uvicorn==0.32.1
