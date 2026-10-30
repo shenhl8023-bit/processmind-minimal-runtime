@@ -213,6 +213,34 @@ def test_preserves_group_traceability_params_and_deduplicates_feature_values():
     assert result.feature_selection_count == 2
 
 
+def test_accepts_features_from_the_latest_feature_dictionary():
+    result = parse_group_template_xml(
+        "template.xml",
+        xml_bytes(
+            feature_selection=(
+                "复杂曲面,外环槽,内环槽,V形环槽,均布齿槽,外螺纹,内螺纹,仿形面,"
+                "斜立面单纯底凹槽,边倒圆"
+            ),
+        ),
+    )
+
+    assert result.can_confirm is True
+    assert result.tree[0]["feature_selections"] == [
+        "复杂曲面",
+        "外环槽",
+        "内环槽",
+        "V形环槽",
+        "均布齿槽",
+        "外螺纹",
+        "内螺纹",
+        "仿形面",
+        "斜立面单纯底凹槽",
+        "边倒圆",
+    ]
+    assert result.feature_selection_count == 10
+    assert not any(issue.code == "unknown_feature_selection" for issue in result.issues)
+
+
 def test_unknown_feature_is_reported_with_its_path_and_value():
     nested = '''<?xml version="1.0" encoding="UTF-8"?>
     <Kmsoft>

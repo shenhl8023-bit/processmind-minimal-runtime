@@ -15,6 +15,8 @@ certifi==2024.8.30
 click==8.1.7
 colorama==0.4.6
 et-xmlfile==1.1.0
+exceptiongroup==1.2.2
+eval-type-backport==0.2.2
 fastapi==0.115.6
 greenlet==3.1.1
 h11==0.14.0
@@ -32,8 +34,9 @@ PyMuPDF==1.24.11
 psutil==7.2.2
 pyppmd==1.1.0
 pyzstd==0.16.1
-pydantic==2.9.2
-pydantic-core==2.23.4
+# pydantic-core 2.27.2 is built with the Win7-compatible Rust toolchain.
+pydantic==2.10.6
+pydantic-core==2.27.2
 pydantic-settings==2.6.1
 python-docx==1.1.2
 python-dotenv==1.0.1

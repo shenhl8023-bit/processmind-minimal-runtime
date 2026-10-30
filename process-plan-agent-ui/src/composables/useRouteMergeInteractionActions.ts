@@ -1,4 +1,4 @@
-import { nextTick, ref, type ComputedRef, type Ref } from 'vue'
+import { nextTick, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { reviewMergeSuggestion, type MergeSuggestion } from '@/api'
 import type { MergeGroupStatus, RouteMergeGroup, RouteMergePreviewItem } from '@/composables/useRouteMergeResultWorkspace'
 
@@ -38,6 +38,11 @@ function escapeAttributeSelector(value: string) {
 export function useRouteMergeInteractionActions(options: UseRouteMergeInteractionActionsOptions) {
   const routeMergeRenameGroupId = ref('')
   const routeMergeRenameDraft = ref('')
+  let projectEpoch = 0
+  watch(options.projectId, () => {
+    projectEpoch += 1
+    cancelRouteMergeRename()
+  }, { flush: 'sync' })
 
   function findPreviewItemByOperationIds(operationIds: number[]) {
     const targetIds = new Set((operationIds || []).map(id => Number(id)).filter(Boolean))
@@ -174,6 +179,7 @@ export function useRouteMergeInteractionActions(options: UseRouteMergeInteractio
   }
 
   async function submitRouteMergeRename(groupId: string) {
+    if (options.routeMergeBatchSubmitting.value) return
     const current = options.routeMergeCandidateGroups.value.find(group => group.id === groupId)
     if (!current || !options.projectId.value || !routeMergeRenameDraft.value.trim()) return
     const suggestion = options.routeMergeSuggestions.value.find(item => item.target_group_id === current.id)
@@ -182,6 +188,11 @@ export function useRouteMergeInteractionActions(options: UseRouteMergeInteractio
       return
     }
     options.routeMergeBatchSubmitting.value = true
+    const projectId = options.projectId.value
+    const workflowRevision = options.workflowRevision.value
+    const epoch = projectEpoch
+    const isCurrent = () => options.projectId.value === projectId
+      && options.workflowRevision.value === workflowRevision && projectEpoch === epoch
     try {
       const nextLabel = routeMergeRenameDraft.value.trim()
       await reviewMergeSuggestion({
@@ -191,19 +202,26 @@ export function useRouteMergeInteractionActions(options: UseRouteMergeInteractio
         action: 'rename',
         manual_label: nextLabel,
       })
+      if (!isCurrent()) return
       options.routeMergeGroups.value = options.routeMergeGroups.value.map(group =>
         group.id === groupId
           ? { ...group, standard_name: nextLabel, source_type: 'manual_adjusted' }
           : group,
       )
       cancelRouteMergeRename()
-      await options.refreshRouteMergeWorkspace(groupId, false)
+      const refreshed = await options.refreshRouteMergeWorkspace(groupId, false)
+      if (!isCurrent()) return
+      if (!refreshed) {
+        options.setError('归并改名已提交，但工作台刷新失败，请手动刷新确认最新状态。')
+        return
+      }
       options.triggerPreviewHighlight({
         groupIds: [groupId],
         operationIds: [...current.operation_ids],
       })
       options.routeMergeNotice.value = `已将候选归并名称改为「${nextLabel}」，待你确认后再执行合并。`
     } catch (error) {
+      if (!isCurrent()) return
       console.error('调用后端保存归并改名失败', error)
       options.setError('保存改名失败，请稍后重试。')
     } finally {

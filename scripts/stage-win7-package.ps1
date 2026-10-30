@@ -94,16 +94,20 @@ if (-not (Test-Path -LiteralPath (Join-Path $PythonRuntime 'python.exe') -PathTy
 Copy-TreeFiltered -Source (Join-Path $SourceRoot 'process-plan-agent-api') -Target (Join-Path $Destination 'process-plan-agent-api') -RelativePath 'process-plan-agent-api'
 Copy-TreeFiltered -Source $frontend -Target (Join-Path $Destination 'process-plan-agent-ui\dist') -RelativePath 'process-plan-agent-ui/dist'
 Copy-TreeFiltered -Source (Join-Path $SourceRoot 'docs\配置模板') -Target (Join-Path $Destination 'docs\配置模板') -RelativePath 'docs/配置模板'
+Copy-TreeFiltered -Source (Join-Path $SourceRoot 'prerequisites') -Target (Join-Path $Destination 'prerequisites') -RelativePath 'prerequisites'
 Copy-TreeFiltered -Source $PythonRuntime -Target (Join-Path $Destination '.runtime\python') -RelativePath '.runtime/python'
 
 foreach ($file in @(
-  'start-win7.cmd',
   'start-win7.bat',
   'stop-win7.cmd',
   'status-win7.cmd',
   'requirements-win7-py38.txt',
   '.env.example',
-  'README.md'
+  'README.md',
+  'docs\用户使用说明.md',
+  'docs\系统简介.md',
+  'docs\Win7功能测试方案-20261025.md',
+  'docs\Win7缺陷清单-20261025.md'
 )) {
   Copy-FileIfPresent $file
 }
@@ -113,10 +117,7 @@ foreach ($file in @(
   'scripts\validate-python38.py',
   'scripts\verify-win7-package.py'
 )) {
-  $source = Join-Path $SourceRoot $file
-  if (Test-Path -LiteralPath $source -PathType Leaf) {
-    Copy-FileIfPresent $file
-  }
+  Copy-FileIfPresent $file
 }
 
 # A second pass protects the package if an allowlisted source directory is

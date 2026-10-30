@@ -35,11 +35,6 @@ export function useAnalysisDocumentTextCache(options: UseAnalysisDocumentTextCac
         })
         .catch((e) => {
           console.warn('加载文档预览文本失败', docId, e)
-          if (generation !== cacheGeneration) return
-          documentPreviewTextMap.value = {
-            ...documentPreviewTextMap.value,
-            [docId]: '',
-          }
         })
         .finally(() => {
           if (pendingDocumentPreviewTexts.get(docId) === request) {

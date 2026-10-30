@@ -191,6 +191,11 @@ def test_document_upload_invalidates_only_the_target_project(route_merge_db, tmp
     upload_dir.mkdir()
     monkeypatch.setattr(documents_router, "UPLOAD_DIR", upload_dir)
     monkeypatch.setattr(route_merge_workspace, "UPLOAD_DIR", upload_dir)
+    monkeypatch.setattr(
+        documents_router,
+        "start_document_detail_cache_prewarm",
+        lambda _project_id: True,
+    )
 
     async def run():
         async with session_factory() as db:
@@ -252,7 +257,10 @@ def test_document_upload_invalidates_only_the_target_project(route_merge_db, tmp
             ]
             assert [row.status for row in project_one_packages] == ["superseded", "superseded"]
             with pytest.raises(HTTPException) as exc_info:
-                await generate_route(GenerateRequest(project_id=1), db=db)
+                await generate_route(
+                    GenerateRequest(project_id=1, expected_workflow_revision=1),
+                    db=db,
+                )
             assert exc_info.value.status_code == 409
             assert "尚未导出有效规则包" in str(exc_info.value.detail)
 
@@ -424,7 +432,7 @@ def test_changed_document_file_version_forces_detail_and_snapshot_rebuild(
     asyncio.run(run())
 
 
-def test_new_document_signature_creates_new_current_route_version_without_deleting_history(route_merge_db):
+def test_new_document_signature_creates_new_current_route_version_and_clears_old_reviews(route_merge_db):
     session_factory = route_merge_db
 
     async def run():
@@ -493,7 +501,7 @@ def test_new_document_signature_creates_new_current_route_version_without_deleti
             ).scalars().all()
             assert [row.version for row in versions] == [1, 2]
             assert versions[0].source_signature == "old-document-signature"
-            assert [row.route_version_id for row in reviews] == [historical_version.id]
+            assert reviews == []
 
     asyncio.run(run())
 

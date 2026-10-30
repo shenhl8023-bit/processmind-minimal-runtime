@@ -90,6 +90,12 @@ export function useRouteMergeResultWorkspace(options: UseRouteMergeResultWorkspa
   const previewHighlightOperationIds = ref<number[]>([])
 
   let previewHighlightTimer: number | null = null
+  let manualItemSequence = 0
+
+  function nextManualItemToken() {
+    manualItemSequence += 1
+    return `${Date.now()}-${manualItemSequence}`
+  }
 
   function buildRoutePreviewStats(group: RouteMergeGroup) {
     const detailRows = Array.isArray(group.matched_detail_rows) ? group.matched_detail_rows : []
@@ -180,40 +186,63 @@ export function useRouteMergeResultWorkspace(options: UseRouteMergeResultWorkspa
   )
 
   function buildNormalizedPreviewItems() {
-    return reindexPreviewItems(options.routeMergeNormalizedSegments.value.map((segment: any, index: number) => ({
-      id: String(segment.id || `normalized-${index + 1}`),
-      groupId: String(segment.id || `normalized-${index + 1}`),
-      sequence: Number(segment.sequence || (index + 1) * 10),
-      name: formatRouteDisplayName(String(segment.normalized_step_name || '未命名工序段')),
-      merged: Array.isArray(segment.source_operation_ids) ? segment.source_operation_ids.length > 1 : false,
-      sourceCount: Array.isArray(segment.source_operation_ids) ? segment.source_operation_ids.length : 0,
-      sourceLabel: normalizeSourceNodes(
-        Array.isArray(segment.source_operation_names) && segment.source_operation_names.length
-          ? segment.source_operation_names
-          : segment.source_nodes,
-        formatRouteDisplayName(String(segment.normalized_step_name || '')),
-      ).join(' / '),
-      parentSegment: formatRouteDisplayName(String(segment.parent_segment || '')),
-      status: (segment.review_status || 'merged') as MergeGroupStatus,
-      coverageLabel: String(segment.coverage_label || ''),
-      evidenceCount: Array.isArray(segment.matched_detail_rows) ? segment.matched_detail_rows.length : 0,
-      operationIds: Array.isArray(segment.source_operation_ids) ? segment.source_operation_ids.map((id: number) => Number(id)).filter(Boolean) : [],
-      sourceNodes: normalizeSourceNodes(segment.source_nodes, formatRouteDisplayName(String(segment.normalized_step_name || ''))),
-      childItems: normalizeSourceNodes(
-        Array.isArray(segment.source_operation_names) && segment.source_operation_names.length
-          ? segment.source_operation_names
-          : segment.source_nodes,
-      ).map((name: string, childIdx: number) => ({
-            id: `${String(segment.id || `normalized-${index + 1}`)}-child-${childIdx + 1}`,
-            groupId: `${String(segment.id || `normalized-${index + 1}`)}-child-${childIdx + 1}`,
-            name: formatRouteDisplayName(String(name || '未命名工序')),
-            operationIds: Array.isArray(segment.source_operation_ids) && segment.source_operation_ids[childIdx]
-              ? [Number(segment.source_operation_ids[childIdx])]
-              : [],
-            sourceNodes: [formatRouteDisplayName(String(name || '未命名工序'))],
-          })),
-      manuallyEdited: /^manual/.test(String(segment.source_type || '')),
-    })))
+    const sourceOperations = options.routeFullSetOperations.value
+    return reindexPreviewItems(options.routeMergeNormalizedSegments.value.map((segment: any, index: number) => {
+      const segmentId = String(segment.id || `normalized-${index + 1}`)
+      const segmentName = formatRouteDisplayName(String(segment.normalized_step_name || '未命名工序段'))
+      const operationIds = Array.isArray(segment.source_operation_ids)
+        ? segment.source_operation_ids.map((id: number) => Number(id)).filter(Boolean)
+        : []
+      const segmentSourceNodes = normalizeSourceNodes(segment.source_nodes, segmentName)
+      const explicitSourceNames = normalizeSourceNodes(segment.source_operation_names)
+      const childItems = operationIds.length
+        ? operationIds.map((operationId: number, childIdx: number) => {
+          const sourceOperation = sourceOperations.find(operation => Number(operation.id) === operationId)
+          const name = formatRouteDisplayName(
+            explicitSourceNames[childIdx]
+              || String(sourceOperation?.name || '')
+              || segmentSourceNodes[childIdx]
+              || segmentName,
+          )
+          return {
+            id: `${segmentId}-child-${childIdx + 1}`,
+            groupId: `${segmentId}-child-${childIdx + 1}`,
+            name,
+            operationIds: [operationId],
+            sourceNodes: normalizeSourceNodes(sourceOperation?.source_nodes, name),
+          }
+        })
+        : normalizeSourceNodes(
+          explicitSourceNames.length ? explicitSourceNames : segmentSourceNodes,
+        ).map((name: string, childIdx: number) => ({
+          id: `${segmentId}-child-${childIdx + 1}`,
+          groupId: `${segmentId}-child-${childIdx + 1}`,
+          name: formatRouteDisplayName(String(name || '未命名工序')),
+          operationIds: [],
+          sourceNodes: [formatRouteDisplayName(String(name || '未命名工序'))],
+        }))
+
+      return {
+        id: segmentId,
+        groupId: segmentId,
+        sequence: Number(segment.sequence || (index + 1) * 10),
+        name: segmentName,
+        merged: operationIds.length > 1,
+        sourceCount: operationIds.length,
+        sourceLabel: normalizeSourceNodes(
+          explicitSourceNames.length ? explicitSourceNames : segmentSourceNodes,
+          segmentName,
+        ).join(' / '),
+        parentSegment: formatRouteDisplayName(String(segment.parent_segment || '')),
+        status: (segment.review_status || 'merged') as MergeGroupStatus,
+        coverageLabel: String(segment.coverage_label || ''),
+        evidenceCount: Array.isArray(segment.matched_detail_rows) ? segment.matched_detail_rows.length : 0,
+        operationIds,
+        sourceNodes: segmentSourceNodes,
+        childItems,
+        manuallyEdited: /^manual/.test(String(segment.source_type || '')),
+      }
+    }))
   }
 
   function buildBasePreviewItems() {
@@ -490,7 +519,7 @@ export function useRouteMergeResultWorkspace(options: UseRouteMergeResultWorkspa
       uniqueNames.join(' / '),
     )
     return {
-      id: `preview-manual-${operationIds.join('-')}-${Date.now()}`,
+      id: `preview-manual-${operationIds.join('-')}-${nextManualItemToken()}`,
       groupId: `manual-${operationIds.join('-')}`,
       sequence: mergedPreviewSequence(parts),
       name: uniqueNames.join(' / ') || '未命名工序段',
@@ -568,7 +597,7 @@ export function useRouteMergeResultWorkspace(options: UseRouteMergeResultWorkspa
       const index = items.findIndex(item => item.id === itemId)
       if (index < 0) return
       const base = items[index]
-      const timestamp = Date.now()
+      const timestamp = nextManualItemToken()
       const inserted: RouteMergePreviewItem = {
         id: `preview-manual-insert-${timestamp}`,
         groupId: `manual-insert-${timestamp}`,
@@ -612,6 +641,9 @@ export function useRouteMergeResultWorkspace(options: UseRouteMergeResultWorkspa
       if (!target) return
       target.name = payload.name
       target.name = formatRouteDisplayName(target.name)
+      if (target.childItems?.length === 1) {
+        target.childItems = target.childItems.map(child => ({ ...child, name: target.name }))
+      }
       target.manuallyEdited = true
       return { nextSelectedId: payload.itemId, highlightOperationIds: target.operationIds }
     })

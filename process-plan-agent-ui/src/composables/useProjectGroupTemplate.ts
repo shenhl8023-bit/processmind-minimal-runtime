@@ -1,4 +1,5 @@
 import { computed, ref, type MaybeRef, unref, watch } from 'vue'
+import { isWorkflowRevisionConflict } from './workflowResetState'
 
 import {
   commitGroupTemplate,
@@ -144,6 +145,7 @@ function errorMessage(error: unknown) {
 export function useProjectGroupTemplate(
   projectId: MaybeRef<number>,
   legacyAliases: MaybeRef<Record<string, LegacyGroupTemplateAlias | undefined>>,
+  workflowRevision: MaybeRef<number> = 0,
 ) {
   const state = ref<GroupTemplateDialogState>('empty')
   const template = ref<ProjectGroupTemplate | null>(null)
@@ -158,16 +160,19 @@ export function useProjectGroupTemplate(
   let selectedFile: File | null = null
   let legacyMigrationProjectId: number | null = null
   let requestId = 0
+  let workflowStale = false
 
   function beginRequest(kind: 'loading' | 'saving') {
     const currentRequestId = ++requestId
     const currentProjectId = unref(projectId)
+    const currentWorkflowRevision = unref(workflowRevision)
     loading.value = kind === 'loading'
     saving.value = kind === 'saving'
     return () => currentRequestId === requestId && currentProjectId === unref(projectId)
+      && currentWorkflowRevision === unref(workflowRevision)
   }
 
-  watch(() => unref(projectId), () => {
+  watch(() => [unref(projectId), unref(workflowRevision)], () => {
     requestId += 1
     state.value = 'empty'
     template.value = null
@@ -180,6 +185,7 @@ export function useProjectGroupTemplate(
     error.value = ''
     loading.value = false
     saving.value = false
+    workflowStale = false
   }, { flush: 'sync' })
 
   function applyTemplate(snapshot: ProjectGroupTemplate) {
@@ -190,6 +196,7 @@ export function useProjectGroupTemplate(
   }
 
   async function load(options: { preserveError?: boolean } = {}) {
+    if (workflowStale) return false
     const currentProjectId = unref(projectId)
     const isCurrent = beginRequest('loading')
     if (!options.preserveError) error.value = ''
@@ -229,6 +236,7 @@ export function useProjectGroupTemplate(
   }
 
   async function selectFile(file: File) {
+    if (workflowStale) return
     const isCurrent = beginRequest('loading')
     error.value = ''
     state.value = 'preview'
@@ -250,7 +258,7 @@ export function useProjectGroupTemplate(
   }
 
   function beginReplacement() {
-    if (!template.value) return
+    if (workflowStale || !template.value) return
     requestId += 1
     loading.value = false
     saving.value = false
@@ -262,6 +270,7 @@ export function useProjectGroupTemplate(
   }
 
   function cancelPreview() {
+    if (workflowStale) return
     requestId += 1
     loading.value = false
     saving.value = false
@@ -272,7 +281,16 @@ export function useProjectGroupTemplate(
     error.value = ''
   }
 
-  async function recoverFromConflict() {
+  async function recoverFromConflict(cause: unknown) {
+    if (isWorkflowRevisionConflict(cause)) {
+      workflowStale = true
+      template.value = null
+      draftMappings.value = []
+      draftStepMappings.value = []
+      state.value = 'empty'
+      error.value = '工艺路线已更新，请重新加载页面后再导入模板、保存映射。'
+      return
+    }
     error.value = '分组模板已在其他页面更新，正在重新加载最新内容。'
     const reloading = load({ preserveError: true })
     const reloadRequestId = requestId
@@ -281,7 +299,7 @@ export function useProjectGroupTemplate(
   }
 
   async function confirmTemplate() {
-    if (!preview.value?.can_confirm || !selectedFile) return false
+    if (workflowStale || !preview.value?.can_confirm || !selectedFile) return false
     const isCurrent = beginRequest('saving')
     error.value = ''
     try {
@@ -290,6 +308,7 @@ export function useProjectGroupTemplate(
         selectedFile,
         preview.value.content_hash,
         templateRevision.value,
+        unref(workflowRevision),
       )
       if (!isCurrent()) return false
       applyTemplate(committed)
@@ -305,7 +324,7 @@ export function useProjectGroupTemplate(
     } catch (cause) {
       if (!isCurrent()) return false
       if (errorStatus(cause) === 409) {
-        await recoverFromConflict()
+        await recoverFromConflict(cause)
       } else {
         error.value = errorMessage(cause)
       }
@@ -316,7 +335,7 @@ export function useProjectGroupTemplate(
   }
 
   async function saveMappings() {
-    if (!template.value || template.value.project_id !== unref(projectId)) return false
+    if (workflowStale || !template.value || template.value.project_id !== unref(projectId)) return false
     const isCurrent = beginRequest('saving')
     error.value = ''
     try {
@@ -324,6 +343,7 @@ export function useProjectGroupTemplate(
         unref(projectId),
         templateRevision.value,
         draftMappings.value,
+        unref(workflowRevision),
       )
       if (!isCurrent()) return false
       applyTemplate(saved)
@@ -331,7 +351,7 @@ export function useProjectGroupTemplate(
     } catch (cause) {
       if (!isCurrent()) return false
       if (errorStatus(cause) === 409) {
-        await recoverFromConflict()
+        await recoverFromConflict(cause)
       } else {
         error.value = errorMessage(cause)
       }
@@ -342,7 +362,7 @@ export function useProjectGroupTemplate(
   }
 
   async function saveStepMappings(operations: TemplateGroupMappingOperationInput[] = []) {
-    if (!template.value || template.value.project_id !== unref(projectId)) return false
+    if (workflowStale || !template.value || template.value.project_id !== unref(projectId)) return false
     const isCurrent = beginRequest('saving')
     error.value = ''
     try {
@@ -351,6 +371,7 @@ export function useProjectGroupTemplate(
         templateRevision.value,
         draftStepMappings.value,
         operations,
+        unref(workflowRevision),
       )
       if (!isCurrent()) return false
       applyTemplate(saved)
@@ -358,7 +379,7 @@ export function useProjectGroupTemplate(
     } catch (cause) {
       if (!isCurrent()) return false
       if (errorStatus(cause) === 409) {
-        await recoverFromConflict()
+        await recoverFromConflict(cause)
       } else {
         error.value = errorMessage(cause)
       }

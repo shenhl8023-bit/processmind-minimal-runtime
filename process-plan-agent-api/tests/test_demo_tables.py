@@ -8,11 +8,12 @@ from pathlib import Path
 
 import pytest
 
-from app.services.rule_packages.contracts import RulePackageV2
+from app.services.rule_packages.contracts import ProcessConfigurationV2, ProcessRelationV2, RulePackageV2
 from app.services.rule_packages.demo_tables import (
     DemoTableError,
     compile_demo_tables,
     validate_demo_tables,
+    validate_publication_input_constraints,
 )
 from app.services.rule_packages.condition_registry import condition_field_map
 from app.services.rule_packages.planner import plan_route
@@ -23,11 +24,11 @@ def package(*, fields=None, processes=None, rules=None, relations=None):
         "manifest": {"package_name": "test", "project_id": 1, "scope": {"key": "1"}},
         "input_schema": {"fields": fields or []},
         "route_catalog": {"processes": processes or [
-            {"process_id": "clean_before", "display_name": "清洗", "main": True},
-            {"process_id": "turn", "display_name": "车削", "steps": [
+            {"process_id": "clean_before", "display_name": "清洗", "main": True, "default_sequence": 1},
+            {"process_id": "turn", "display_name": "车削", "default_sequence": 2, "steps": [
                 {"step_id": "turn_outer", "name": "车外圆"},
             ]},
-            {"process_id": "clean_after", "display_name": "清洗", "main": True},
+            {"process_id": "clean_after", "display_name": "清洗", "main": True, "default_sequence": 3},
         ]},
         "route_rules": {"rules": rules or [], "process_relations": relations or []},
     })
@@ -116,19 +117,25 @@ def test_material_binding_and_manual_factors_use_real_scalar_prefill_paths():
     }
     assert factors[1]["source"] == "manual_defaults.surface.roughness_ra"
     assert factors[1]["visible"] is True
-    assert factors[2]["key"] == "feature_type"
-    assert factors[2]["source"] == "input_json[].features[].feature_select"
-    assert factors[2]["type"] == "enum"
-    assert factors[2]["visible"] is False
+    assert factors[2]["key"] == "cad.features"
+    assert factors[2]["source"] == "manual_defaults.cad.features"
+    assert factors[2]["type"] == "multi_enum"
+    assert factors[2]["visible"] is True
     assert factors[3]["source"] == "manual_defaults.project_factor.manual_process_a"
     assert factors[3]["type"] == "bool"
-    assert all("default" not in f for f in factors)
+    assert factors[3]["default"] is None
+    assert all("default" not in f for f in factors[:3])
+    legacy_factor = compile_demo_tables(value, route_for(value), _legacy_snapshot=True)["factor_table"][2]
+    assert legacy_factor == {
+        "key": "feature_type", "label": "粗分类特征", "type": "enum",
+        "source": "input_json[].features[].feature_select", "visible": False,
+    }
 
 
 def test_rule_fields_are_renamed_with_factors_and_extended_operators_are_lowered():
     value = package(fields=[
         {"key": "material.grade", "label": "材料", "type": "single_select", "options": [{"value": "9Cr18", "label": "9Cr18"}]},
-        {"key": "tags", "label": "标签", "type": "multi_select", "options": [{"value": k, "label": k} for k in ("a", "b", "x", "y")]},
+        {"key": "tags", "label": "标签", "type": "multi_select", "required": True, "options": [{"value": k, "label": k} for k in ("a", "b", "x", "y")]},
         {"key": "rank", "label": "等级", "type": "number"},
     ], rules=[rule("choose", {"all": [leaf("material.grade", "9Cr18"),
         leaf("tags", ["a", "b"], "contains_all"), leaf("rank", [5, 9], "between"),
@@ -189,6 +196,48 @@ def test_trigger_dependencies_use_ids_and_keep_the_final_route_order():
         "target": "clean_after", "when": leaf("selected_processes", "turn", "contains")}
 
 
+def test_optional_required_process_diagnostic_uses_names_and_points_to_configured_relation():
+    value = package(
+        fields=[bool_field("needs_quench")],
+        processes=[
+            {"process_id": "split-900025", "display_name": "淬火", "main": False, "default_sequence": 1},
+            {"process_id": "segment-nondestructive_inspection_merge", "display_name": "无损检查", "main": True, "default_sequence": 2},
+        ],
+        rules=[rule("quench-if-needed", leaf("needs_quench"), include=["split-900025"])],
+    )
+    value.route_rules.process_configurations = [ProcessConfigurationV2(
+        process_id="segment-nondestructive_inspection_merge",
+        occurrence="always",
+        relations=[{
+            "relation_type": "requires",
+            "source_process_ids": ["split-900025"],
+            "target_process_ids": ["segment-nondestructive_inspection_merge"],
+        }],
+    )]
+
+    with pytest.raises(DemoTableError) as caught:
+        compile_demo_tables(value, route_for(value))
+
+    issue = next(item for item in caught.value.issues if item["code"] == "unsupported_requires")
+    assert issue["process_id"] == "segment-nondestructive_inspection_merge"
+    assert issue["process_name"] == "无损检查"
+    assert issue["prerequisite_process_ids"] == ["split-900025"]
+    assert issue["prerequisite_process_names"] == ["淬火"]
+    assert issue["relation_index"] == 0
+    assert "第 1 项" in issue["message"]
+    assert "split-900025" not in issue["message"]
+
+
+def test_unknown_required_constraint_returns_a_diagnostic_instead_of_raising_key_error():
+    value = package()
+    value.route_catalog.processes[1].constraints.requires = ["missing_process"]
+
+    with pytest.raises(DemoTableError) as caught:
+        compile_demo_tables(value, route_for(value))
+
+    assert any(issue["code"] == "unknown_process_dependency" for issue in caught.value.issues)
+
+
 @pytest.mark.parametrize("constraint,code", [
     ({"requires": ["turn"]}, "unsupported_requires"),
     ({"conflicts_with": ["turn"]}, "unsupported_conflicts"),
@@ -215,6 +264,44 @@ def test_route_identity_is_not_guessed_from_names():
     with pytest.raises(DemoTableError) as caught:
         compile_demo_tables(value, route)
     assert any(i["code"] == "stale_catalog_identity" for i in caught.value.issues)
+
+
+@pytest.mark.parametrize("sequences", [(20, 10), (10, 10)])
+def test_stale_mapping_process_order_cannot_publish_a_different_native_order(sequences):
+    value = package(processes=[
+        {"process_id": "custom_b", "display_name": "准备", "main": True, "default_sequence": sequences[0]},
+        {"process_id": "custom_a", "display_name": "处理", "main": True, "default_sequence": sequences[1]},
+    ])
+    route = route_for(value)
+    assert plan_route(value, {}).selected_process_ids == ["custom_a", "custom_b"]
+    with pytest.raises(DemoTableError) as caught:
+        compile_demo_tables(value, route)
+    assert any(i["code"] == "stale_catalog_order" for i in caught.value.issues)
+
+
+@pytest.mark.parametrize("ordering", ["constraint", "legacy_relation", "configuration_relation"])
+def test_valid_dependency_order_overrides_base_sequence_in_published_mapping(downstream_engine, ordering):
+    value = package(processes=[
+        {"process_id": "custom_before", "display_name": "前置", "main": True, "default_sequence": 20},
+        {"process_id": "custom_after", "display_name": "后置", "main": True, "default_sequence": 10,
+         "constraints": {"must_run_after": ["custom_before"]} if ordering == "constraint" else {}},
+    ])
+    if ordering != "constraint":
+        relation = {"relation_type": "order_after", "source_process_ids": ["custom_before"], "target_process_ids": ["custom_after"]}
+        if ordering == "legacy_relation":
+            value.route_rules.process_relations = [
+                ProcessRelationV2(relation_id="sequence", **relation)
+            ]
+        else:
+            value.route_rules.process_configurations = [
+                ProcessConfigurationV2(
+                    process_id="custom_after", occurrence="always", relations=[relation],
+                )
+            ]
+    assert plan_route(value, {}).selected_process_ids == ["custom_before", "custom_after"]
+    tables = compile_demo_tables(value, route_for(value))
+    engine = downstream_engine(tables["factor_table"], tables["full_route_table"], tables["rule_table"])
+    assert [p["process_name"] for p in engine.run({"input_json": []})["route"]] == ["前置", "后置"]
 
 
 def test_auxiliary_process_has_no_steps_even_if_other_fields_are_valid():
@@ -442,8 +529,8 @@ def test_cad_feature_categories_are_a_reviewed_closed_enum_for_lossless_demo_exp
     }], rules=[rule("feature", leaf(definition.key, "槽类特征", "contains"), include=["turn"])])
     tables = compile_demo_tables(data, route_for(data))
     compiled = next(item for item in tables["rule_table"] if item["target"] == "turn")["when"]
-    assert match(compiled, {"feature_type": ["槽类特征"]})
-    assert not match(compiled, {"feature_type": ["复杂槽类特征"]})
+    assert match(compiled, {"cad.features": ["槽类特征"]})
+    assert not match(compiled, {"cad.features": ["复杂槽类特征"]})
 
 
 def test_static_requirement_enums_are_closed_and_export_as_exact_membership():
@@ -499,7 +586,7 @@ def test_same_priority_enum_aliases_cannot_be_mistaken_for_disjoint_conditions()
 @pytest.mark.parametrize("op,value", [("neq", " 9cr18 "), ("in", ["9cr18"]), ("contains", "CR")])
 def test_controlled_scalar_enum_operators_preserve_normalized_v2_semantics(op, value):
     data = package(fields=[
-        {"key": "material", "label": "材料", "type": "single_select",
+        {"key": "material", "label": "材料", "type": "single_select", "required": True,
          "options": [{"value": "9Cr18", "label": "9Cr18"}, {"value": "6061", "label": "6061"}]},
     ], rules=[rule("choose", leaf("material", value, op), include=["turn"])])
     tables = compile_demo_tables(data, route_for(data))
@@ -520,6 +607,75 @@ def downstream_engine():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module.ConfigRouteEngine
+
+
+@pytest.mark.parametrize('field,allowed,rejected', [
+    ({'key': 'precision.hole_it', 'label': '内孔 IT', 'type': 'number',
+      'validation': {'min': 5, 'max': 10}}, 5, 11),
+    ({'key': 'text', 'label': '文本', 'type': 'string',
+      'validation': {'min_length': 1, 'max_length': 3}}, '中文', '中文测试'),
+    ({'key': 'choices', 'label': '多选', 'type': 'multi_select',
+      'options': [{'value': v, 'label': v} for v in ['A', 'B', 'C']],
+      'validation': {'min_length': 1, 'max_length': 2}}, ['A', 'B'], ['A', 'B', 'C']),
+])
+def test_exported_constraints_are_executed_by_actual_downstream_engine(downstream_engine, field, allowed, rejected):
+    value = package(fields=[field])
+    tables = compile_demo_tables(value, route_for(value))
+    factor = tables['factor_table'][0]
+    assert factor['validation'] == field['validation']
+    validate_publication_input_constraints(value, tables)
+    engine = downstream_engine(tables['factor_table'], tables['full_route_table'], tables['rule_table'])
+    assert engine.run({'factor_overrides': {factor['key']: allowed}})['factors'][factor['key']] == allowed
+    with pytest.raises(ValueError):
+        engine.run({'factor_overrides': {factor['key']: rejected}})
+
+
+def test_export_limits_follow_active_input_schema_instead_of_dictionary():
+    value = package(fields=[{'key': 'length', 'label': '长度', 'type': 'number', 'validation': {'min': 0, 'max': 100}}])
+    value.input_schema.fields[0].validation.max = 10
+    tables = compile_demo_tables(value, route_for(value))
+    assert tables['factor_table'][0]['validation'] == {'min': 0, 'max': 10}
+    assert value.factor_dictionary.fields[0].validation.max == 100
+    validate_publication_input_constraints(value, tables)
+    tables['factor_table'][0]['validation']['max'] = 100
+    with pytest.raises(DemoTableError, match='不能无损导出'):
+        validate_publication_input_constraints(value, tables)
+
+
+@pytest.mark.parametrize('kind,limits', [
+    ('number', {'min': 0, 'max': 10}), ('int', {'min': -2.5}),
+    ('string', {'min_length': 0, 'max_length': 3}),
+    ('enum', {'min_length': 1}), ('multi_enum', {'max_length': 2}),
+])
+def test_public_factor_validator_accepts_typed_constraints(kind, limits):
+    validate_demo_tables({'factor_table': [{'key': 'x', 'label': 'x', 'type': kind,
+        'source': 'manual_defaults.x', 'visible': True, 'validation': limits}],
+        'full_route_table': [], 'rule_table': []})
+
+
+@pytest.mark.parametrize('kind,limits', [
+    ('number', None), ('number', []), ('number', {'unknown': 1}),
+    ('number', {'min': True}), ('number', {'max': float('inf')}),
+    ('number', {'min': 10, 'max': 5}), ('number', {'min_length': 1}),
+    ('bool', {'min': 1}), ('string', {'max': 1}),
+    ('string', {'min_length': -1}), ('string', {'max_length': 1.5}),
+    ('multi_enum', {'min_length': 3, 'max_length': 1}),
+])
+def test_public_factor_validator_rejects_invalid_constraint_metadata(kind, limits):
+    with pytest.raises(DemoTableError) as exc:
+        validate_demo_tables({'factor_table': [{'key': 'x', 'label': 'x', 'type': kind,
+            'source': 'manual_defaults.x', 'visible': True, 'validation': limits}],
+            'full_route_table': [], 'rule_table': []})
+    assert any(issue['code'] == 'invalid_factor_validation' for issue in exc.value.issues)
+
+
+def test_public_factor_validator_rejects_default_outside_constraints():
+    with pytest.raises(DemoTableError) as exc:
+        validate_demo_tables({'factor_table': [{'key': 'it', 'label': 'IT', 'type': 'number',
+            'source': 'manual_defaults.it', 'visible': True,
+            'validation': {'min': 5, 'max': 10}, 'default': 11}],
+            'full_route_table': [], 'rule_table': []})
+    assert any(issue['code'] == 'invalid_factor_default' for issue in exc.value.issues)
 
 
 def public_route(route):
@@ -577,17 +733,73 @@ def test_actual_downstream_feature_category_uses_exact_membership(downstream_eng
         "slot-feature", leaf("cad.features", "槽类特征", "contains"), include=["turn"],
     )])
     route = route_for(value)
-    route[1]["steps"][0]["candidates"] = {"槽": ["槽类特征"]}
+    route[1]["steps"][0]["candidates"] = {"A侧/外圆": ["外圆柱面"]}
     tables = compile_demo_tables(value, route)
     engine = downstream_engine(tables["factor_table"], tables["full_route_table"], tables["rule_table"])
 
-    def route_for_feature(feature):
-        return engine.run({"input_json": [{
-            "group_path": "槽/", "features": [{"feature_select": feature}],
-        }]})["route"]
+    def route_for_feature(category):
+        return engine.run({
+            "input_json": [{"group_path": "A侧/外圆", "features": [{"feature_select": "外圆柱面"}]}],
+            "manual_defaults": {"cad": {"features": [category]}},
+        })["route"]
 
     assert "车削" in [process["process_name"] for process in route_for_feature("槽类特征")]
     assert "车削" not in [process["process_name"] for process in route_for_feature("复杂槽类特征")]
+
+
+@pytest.mark.parametrize("real_feature_factor", [False, True])
+@pytest.mark.parametrize("categories,expected,expected_names", [
+    (["普通孔/辅助孔"], ["base", "drill"], ["准备", "钻孔"]),
+    (["扁位/平面"], ["base"], ["准备"]),
+])
+def test_abstract_cad_categories_coexist_with_real_geometry_in_actual_engine(
+    downstream_engine, real_feature_factor, categories, expected, expected_names,
+):
+    definition = condition_field_map()["cad.features"]
+    fields = [{
+        "key": definition.key, "label": definition.label, "type": definition.type,
+        "source": definition.source, "options": definition.options,
+        "required": True, "allow_custom": False,
+    }]
+    condition = leaf("cad.features", "普通孔/辅助孔", "contains")
+    inputs = {"cad.features": categories}
+    if real_feature_factor:
+        fields.append({
+            "key": "feature_type", "label": "实际几何特征", "type": "multi_select",
+            "source": "input_json[].features[].feature_select", "required": True,
+            "options": [{"value": name, "label": name} for name in ("孔", "外圆柱面")],
+        })
+        condition = {"all": [condition, leaf("feature_type", "孔", "contains")]}
+        inputs["feature_type"] = ["孔", "外圆柱面"]
+    value = package(fields=fields, processes=[
+        {"process_id": "base", "display_name": "准备", "main": True, "default_sequence": 1},
+        {"process_id": "drill", "display_name": "钻孔", "default_sequence": 2, "steps": [
+            {"step_id": "drill_hole", "name": "钻辅助孔"},
+        ]},
+    ], rules=[rule("auxiliary-hole", condition, include=["drill"])])
+    route = route_for(value)
+    route[1]["steps"][0]["candidates"] = {"A侧/孔": ["孔"]}
+    tables = {key: json.loads(json.dumps(table, ensure_ascii=False))
+              for key, table in compile_demo_tables(value, route).items()}
+    category_factor = next(factor for factor in tables["factor_table"] if factor["key"] == "cad.features")
+    assert category_factor["source"] == "manual_defaults.cad.features"
+    assert category_factor["type"] == "multi_enum"
+    assert category_factor["visible"] is True
+    engine = downstream_engine(tables["factor_table"], tables["full_route_table"], tables["rule_table"])
+    result = engine.run({
+        "input_json": [
+            {"group_path": "A侧/孔", "features": [{"feature_select": "孔"}]},
+            {"group_path": "A侧/外圆", "features": [{"feature_select": "外圆柱面"}]},
+        ],
+        "manual_defaults": {"cad": {"features": categories}},
+    })
+    assert plan_route(value, inputs).selected_process_ids == expected
+    assert [process["process_name"] for process in result["route"]] == expected_names
+    assert result["factors"]["cad.features"] == categories
+    if "drill" in expected:
+        assert result["route"][1]["steps"][0]["candidates"] == {"A侧/孔": ["孔"]}
+    if real_feature_factor:
+        assert result["factors"]["feature_type"] == ["孔", "外圆柱面"]
 
 
 def test_actual_downstream_some_does_not_combine_different_features(downstream_engine):
@@ -617,3 +829,151 @@ def test_actual_downstream_is_last_is_true_if_any_bound_feature_is_last(downstre
         {"feature_select": "外圆柱面"}, {"feature_select": "回转面倒圆"},
     ]}]})["route"]
     assert [p["steps"][0]["is_last"] for p in actual] == [True, True]
+
+
+@pytest.mark.parametrize("ordering", ["constraint", "legacy_relation", "configuration_relation"])
+@pytest.mark.parametrize("choose,expected", [(False, ["c", "a"]), (True, ["c", "b", "a"])])
+def test_optional_predecessor_keeps_native_route_in_published_parent_order(downstream_engine, ordering, choose, expected):
+    value = package(fields=[bool_field("choose")], processes=[
+        {"process_id": "a", "display_name": "后置", "main": True, "default_sequence": 1,
+         "constraints": {"must_run_after": ["b"]} if ordering == "constraint" else {}},
+        {"process_id": "b", "display_name": "可选前置", "default_sequence": 3},
+        {"process_id": "c", "display_name": "准备", "main": True, "default_sequence": 2},
+    ], rules=[rule("choose-b", leaf("choose"), include=["b"])])
+    if ordering != "constraint":
+        relation = {"relation_type": "order_after", "source_process_ids": ["b"], "target_process_ids": ["a"]}
+        if ordering == "legacy_relation":
+            value.route_rules.process_relations = [ProcessRelationV2(relation_id="order", **relation)]
+        else:
+            value.route_rules.process_configurations = [ProcessConfigurationV2(process_id="a", occurrence="always", relations=[relation])]
+    route = route_for(value)
+    tables = compile_demo_tables(value, [route[2], route[1], route[0]])
+    engine = downstream_engine(tables["factor_table"], tables["full_route_table"], tables["rule_table"])
+    assert plan_route(value, {"choose": choose}).selected_process_ids == expected
+    names = {p.process_id: p.display_name for p in value.route_catalog.processes}
+    actual = engine.run({"input_json": [], "manual": {"factor_overrides": {"choose": choose}}})
+    assert [p["process_name"] for p in actual["route"]] == [names[pid] for pid in expected]
+
+
+def test_optional_boolean_uses_active_schema_requiredness_instead_of_dictionary(downstream_engine):
+    value = package(fields=[bool_field("choose")], processes=[
+        {"process_id": "base", "display_name": "准备", "main": True, "default_sequence": 1},
+        {"process_id": "optional", "display_name": "可选", "default_sequence": 2},
+    ], rules=[rule("false-choice", leaf("choose", False), include=["optional"])])
+    value.factor_dictionary.fields[0].required = True
+    tables = compile_demo_tables(value, route_for(value))
+    engine = downstream_engine(tables["factor_table"], tables["full_route_table"], tables["rule_table"])
+    assert plan_route(value, {}).selected_process_ids == ["base"]
+    assert [p["process_name"] for p in engine.run({"input_json": []})["route"]] == ["准备"]
+    assert tables["factor_table"][0].get("required", False) is False
+
+
+def test_active_schema_can_require_a_factor_optional_in_dictionary():
+    value = package(fields=[bool_field("choose", required=True)])
+    value.factor_dictionary.fields[0].required = False
+    tables = compile_demo_tables(value, route_for(value))
+    assert tables["factor_table"][0].get("required") is True
+
+
+def test_required_boolean_rejects_missing_input_but_accepts_explicit_false(downstream_engine):
+    value = package(fields=[bool_field("choose", required=True)], processes=[
+        {"process_id": "base", "display_name": "准备", "main": True, "default_sequence": 1},
+        {"process_id": "optional", "display_name": "可选", "default_sequence": 2},
+    ], rules=[rule("false-choice", leaf("choose", False), include=["optional"])])
+    tables = compile_demo_tables(value, route_for(value))
+    engine = downstream_engine(tables["factor_table"], tables["full_route_table"], tables["rule_table"])
+    with pytest.raises(ValueError, match="required factor is empty"):
+        engine.run({"input_json": []})
+    result = engine.run({"input_json": [], "manual": {"factor_overrides": {"choose": False}}})
+    assert [p["process_name"] for p in result["route"]] == ["准备", "可选"]
+
+
+@pytest.mark.parametrize("op,wanted,expected", [
+    ("gt", 9007199254740992, True),
+    ("lte", 9007199254740992, False),
+    ("between", [9007199254740992, 9007199254740992], False),
+])
+def test_integer_numeric_boundaries_do_not_lose_precision_in_native_route(downstream_engine, op, wanted, expected):
+    value = package(fields=[{"key": "quantity", "label": "数量", "type": "number"}], processes=[
+        {"process_id": "base", "display_name": "准备", "main": True, "default_sequence": 1},
+        {"process_id": "optional", "display_name": "可选", "default_sequence": 2},
+    ], rules=[rule("boundary", leaf("quantity", wanted, op), include=["optional"])])
+    tables = compile_demo_tables(value, route_for(value))
+    engine = downstream_engine(tables["factor_table"], tables["full_route_table"], tables["rule_table"])
+    inputs = {"quantity": 9007199254740993}
+    assert ("optional" in plan_route(value, inputs).selected_process_ids) is expected
+    actual = engine.run({"input_json": [], "factor_overrides": inputs})
+    assert ("可选" in [process["process_name"] for process in actual["route"]]) is expected
+
+
+@pytest.mark.parametrize("location", ["default", "condition"])
+def test_extreme_numeric_json_reports_validation_issue_without_overflow(location):
+    tables = demo_tables()
+    if location == "default":
+        tables["factor_table"][1].update(type="number", default=10 ** 1000)
+    else:
+        tables["rule_table"][0]["when"] = leaf("feature_rank", 10 ** 1000, "gte")
+    with pytest.raises(DemoTableError) as caught:
+        validate_demo_tables(tables)
+    assert any(issue["code"] in {"invalid_factor_default", "invalid_condition_type"} for issue in caught.value.issues)
+
+
+def test_custom_feature_collection_uses_scalar_items_for_repeated_cad_source(downstream_engine):
+    value = package(fields=[{
+        "key": "project_factor.feature_kinds", "label": "特征", "type": "multi_select",
+        "source": "input_json[].features[].feature_select",
+        "options": [{"value": name, "label": name} for name in ("孔", "外圆柱面")],
+    }], processes=[
+        {"process_id": "base", "display_name": "准备", "main": True, "default_sequence": 1},
+        {"process_id": "optional", "display_name": "可选", "default_sequence": 2},
+    ], rules=[rule("hole", leaf("project_factor.feature_kinds", "孔", "contains"), include=["optional"])])
+    tables = compile_demo_tables(value, route_for(value))
+    engine = downstream_engine(tables["factor_table"], tables["full_route_table"], tables["rule_table"])
+    assert plan_route(value, {"project_factor.feature_kinds": ["孔"]}).selected_process_ids == ["base", "optional"]
+    result = engine.run({"input_json": [{"features": [{"feature_select": "孔"}]}]})
+    assert [process["process_name"] for process in result["route"]] == ["准备", "可选"]
+
+
+@pytest.mark.parametrize("source,option", [
+    ("input_json[].features[].feature_select", "孔(盲孔)"),
+    ("input_json[].features[].feature_select", "孔(通孔)"),
+    ("input_json[].group_path", "/A侧/孔/"),
+    ("input_json[].group_path", "A侧\\孔"),
+])
+def test_lossy_downstream_source_normalization_cannot_publish_distinct_enum_values(source, option):
+    value = package(fields=[{
+        "key": "project_factor.cad_items", "label": "CAD枚举", "type": "multi_select",
+        "source": source, "options": [{"value": option, "label": option}],
+    }], rules=[rule("choose-cad", leaf("project_factor.cad_items", option, "contains"), include=["turn"])])
+    with pytest.raises(DemoTableError) as caught:
+        compile_demo_tables(value, route_for(value))
+    assert any(issue["code"] == "unsupported_source_normalization" for issue in caught.value.issues)
+
+
+@pytest.mark.parametrize("active,supplied,allowed", [
+    (["A"], "B", False),
+    ([], "C", True),
+])
+def test_export_uses_active_schema_option_domain(downstream_engine, active, supplied, allowed):
+    from app.services.rule_packages.input_validation import validate_inputs
+    from app.services.rule_packages.validator import validate_rule_package
+
+    value = package(fields=[{
+        "key": "choice", "label": "类别", "type": "single_select", "required": True,
+        "options": [{"value": item, "label": item} for item in ["A", "B"]],
+    }], processes=[{"process_id": "clean", "display_name": "清洗", "main": True}])
+    value.input_schema.fields[0].options = [
+        option for option in value.input_schema.fields[0].options if option.value in active
+    ]
+    value = RulePackageV2.model_validate(value.model_dump(mode="json", by_alias=True))
+    assert validate_rule_package(value).valid
+    assert bool(validate_inputs(value.input_schema, {"choice": supplied})) == (not allowed)
+    tables = compile_demo_tables(value, route_for(value))
+    engine = downstream_engine(tables["factor_table"], tables["full_route_table"], tables["rule_table"])
+    request = {"factor_overrides": {"choice": supplied}}
+    if allowed:
+        assert [p["process_name"] for p in engine.run(request)["route"]] == ["清洗"]
+    else:
+        with pytest.raises(ValueError, match="unknown option"):
+            engine.run(request)
+        assert [p["process_name"] for p in engine.run({"factor_overrides": {"choice": "A"}})["route"]] == ["清洗"]

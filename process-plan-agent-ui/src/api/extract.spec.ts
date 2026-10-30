@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const apiMocks = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
+  put: vi.fn(),
 }))
 
 vi.mock('@/api/client', () => ({
@@ -12,11 +13,24 @@ vi.mock('@/api/client', () => ({
 
 import {
   getRouteMergeWorkspace,
+  commitGroupTemplate,
+  saveGroupTemplateMappings,
+  saveGroupTemplateStepMappings,
   reviewMergeSuggestion,
   saveNormalizedSupersetRoute,
 } from './extract'
 
 describe('extract API route merge contracts', () => {
+  it('sends workflow revision with every template write including multipart import', async () => {
+    apiMocks.put.mockResolvedValue({ data: {} })
+    await saveGroupTemplateMappings(28, 1, [], 12)
+    expect(apiMocks.put).toHaveBeenLastCalledWith('/api/extract/group-templates/mappings', expect.objectContaining({ expected_workflow_revision: 12 }))
+    await saveGroupTemplateStepMappings(28, 1, [], [], 12)
+    expect(apiMocks.put).toHaveBeenLastCalledWith('/api/extract/group-templates/step-mappings', expect.objectContaining({ expected_workflow_revision: 12 }))
+    await commitGroupTemplate(28, new File(['xml'], 'template.xml'), 'hash', 1, 12)
+    const form = apiMocks.put.mock.calls[apiMocks.put.mock.calls.length - 1]?.[1] as FormData
+    expect(form.get('expected_workflow_revision')).toBe('12')
+  })
   beforeEach(() => {
     apiMocks.get.mockReset()
     apiMocks.post.mockReset()

@@ -12,7 +12,7 @@ from app.services.rule_packages import template_mapping_requirements as subject
     ('removed_candidate', False), ('other_process_source', False), ('auxiliary_target', False),
 ])
 async def test_final_mapping_must_still_belong_to_current_route(monkeypatch, change, ready):
-    process = SimpleNamespace(process_id='final_turning', source_operation_ids=[7], template_group_aliases=[],
+    process = SimpleNamespace(process_id='final_turning', display_name='车削', source_operation_ids=[7], template_group_aliases=[],
                               steps=[SimpleNamespace(step_id='final_hole')])
     package = SimpleNamespace(manifest=SimpleNamespace(project_id=1),
                               route_catalog=SimpleNamespace(processes=[process]))

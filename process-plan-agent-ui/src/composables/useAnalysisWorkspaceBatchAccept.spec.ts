@@ -153,4 +153,86 @@ describe('useAnalysisWorkspace batch accept all', () => {
       }),
     )
   })
+
+  it('stops an old batch before it saves the next segment into a switched task', async () => {
+    let finish!: (value: any) => void
+    mocks.saveSegmentRuleReview.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    mocks.saveSegmentRuleReview.mockImplementation(async (args: any) => ({
+      project_id: args.project_id, route_id: args.route_id, segment_id: args.segment_id,
+      analysis_status: 'reviewed', rule_review: { decision: 'accepted' },
+    }))
+    const workspace = useAnalysisWorkspace()
+    const segments = ['seg-1', 'seg-2'].map(id => ({
+      id, normalized_step_name: '标记', source_nodes: ['标记'], source_operation_ids: [],
+      matched_detail_rows: [], doc_coverage: { hit_docs: 1, total_docs: 2, ratio: 0.5 },
+      detail_coverage: { matched_rows: 1 }, factor_reviews: [], rule_review: null,
+    }))
+    workspace.projectId.value = 1
+    workspace.savedRoute.value = { project_id: 1, route_id: 10, workflow_revision: 5, segments } as any
+    workspace.selectedSegmentId.value = 'seg-1'
+    const pending = workspace.acceptAllRecommendedForAllSegments()
+    await vi.waitFor(() => expect(mocks.saveSegmentRuleReview).toHaveBeenCalledTimes(1))
+    workspace.projectId.value = 2
+    workspace.savedRoute.value = { project_id: 2, route_id: 20, workflow_revision: 1, segments } as any
+    finish({
+      project_id: 1, route_id: 10, segment_id: 'seg-1',
+      analysis_status: 'reviewed', rule_review: { decision: 'accepted' },
+    })
+    await pending
+
+    expect(mocks.saveSegmentRuleReview).toHaveBeenCalledTimes(1)
+    expect(workspace.savedRoute.value!.segments.every(segment => !segment.rule_review)).toBe(true)
+  })
+
+  it('saves a completed reanswer even when the previous decision was already accepted', async () => {
+    mocks.saveSegmentRuleReview.mockImplementation(async (args: any) => ({
+      project_id: 1, route_id: 10, segment_id: args.segment_id, analysis_status: 'reviewed',
+      rule_review: { decision: 'accepted', note: args.note, question_trail: args.question_trail, summary_lines: args.summary_lines },
+    }))
+    const workspace = useAnalysisWorkspace()
+    workspace.projectId.value = 1
+    workspace.savedRoute.value = {
+      project_id: 1, route_id: 10, workflow_revision: 5, segments: [{
+        id: 'mark', normalized_step_name: '标记', source_nodes: ['标记'], source_operation_ids: [],
+        matched_detail_rows: [], doc_coverage: { hit_docs: 1, total_docs: 2, ratio: 0.5 },
+        detail_coverage: { matched_rows: 1 }, factor_reviews: [],
+        rule_review: { decision: 'accepted', note: 'old', question_trail: [], summary_lines: [] },
+      }],
+    } as any
+    workspace.selectedSegmentId.value = 'mark'
+    workspace.resetQuestionTree()
+    workspace.acceptAllRecommendedQuestionTree()
+
+    await vi.waitFor(() => expect(mocks.saveSegmentRuleReview).toHaveBeenCalledTimes(1))
+    expect(workspace.savedRoute.value!.segments[0]!.rule_review!.question_trail.length).toBeGreaterThan(0)
+  })
+
+  it('stops an old batch after returning to the same task and route revision', async () => {
+    let finish!: (value: any) => void
+    mocks.saveSegmentRuleReview.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    mocks.saveSegmentRuleReview.mockImplementation(async (args: any) => ({
+      project_id: args.project_id, route_id: args.route_id, segment_id: args.segment_id,
+      analysis_status: 'reviewed', rule_review: { decision: 'accepted' },
+    }))
+    const workspace = useAnalysisWorkspace()
+    const newSegments = () => ['seg-1', 'seg-2'].map(id => ({
+      id, normalized_step_name: '标记', source_nodes: ['标记'], source_operation_ids: [],
+      matched_detail_rows: [], doc_coverage: { hit_docs: 1, total_docs: 2, ratio: 0.5 },
+      detail_coverage: { matched_rows: 1 }, factor_reviews: [], rule_review: null,
+    }))
+    workspace.projectId.value = 1
+    workspace.savedRoute.value = { project_id: 1, route_id: 10, workflow_revision: 5, segments: newSegments() } as any
+    workspace.selectedSegmentId.value = 'seg-1'
+    const pending = workspace.acceptAllRecommendedForAllSegments()
+    await vi.waitFor(() => expect(mocks.saveSegmentRuleReview).toHaveBeenCalledTimes(1))
+    workspace.projectId.value = 2
+    workspace.savedRoute.value = { project_id: 2, route_id: 20, workflow_revision: 1, segments: newSegments() } as any
+    workspace.projectId.value = 1
+    workspace.savedRoute.value = { project_id: 1, route_id: 10, workflow_revision: 5, segments: newSegments() } as any
+    finish({ project_id: 1, route_id: 10, segment_id: 'seg-1', analysis_status: 'reviewed', rule_review: { decision: 'accepted' } })
+    await pending
+
+    expect(mocks.saveSegmentRuleReview).toHaveBeenCalledTimes(1)
+    expect(workspace.savedRoute.value!.segments.every(segment => !segment.rule_review)).toBe(true)
+  })
 })

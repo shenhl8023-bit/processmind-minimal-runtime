@@ -12,8 +12,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
+from typing import Awaitable, Callable
 
 from fastapi import HTTPException
 from sqlalchemy import select, update

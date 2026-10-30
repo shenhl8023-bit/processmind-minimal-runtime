@@ -12,6 +12,7 @@ from app.database import Base
 from app.database import get_db
 from app.main import app
 from app.models.models import (
+    Document,
     Factor,
     FinalizedRulePackage,
     GeneratedRoute,
@@ -23,11 +24,14 @@ from app.models.models import (
     ProjectGroupTemplate,
     RouteMergeSnapshot,
 )
-from app.services.project_workflow_lifecycle import invalidate_project_workflow
+from app.services.project_workflow_lifecycle import acquire_workflow_revision, invalidate_project_workflow
 from app.services.extraction_pipeline import queue_extraction_job
 from app.services.extraction_tasks import EXTRACTION_JOBS, EXTRACTION_RUNNING, EXTRACTION_TASKS
+from app.services.route_analysis import save_normalized_route_version
 from app.services.rule_packages.confirmation_validation import require_confirmed_user_rule_sources
 from app.services.rule_packages.contracts import RulePackageV2
+from app.services.route_merge.workspace import invalidate_project_document_derived_state
+from app.services.workflow_progress import get_workflow_progress
 
 
 @pytest.fixture
@@ -76,6 +80,35 @@ def workflow_client(tmp_path):
         asyncio.run(engine.dispose())
 
 
+@pytest.mark.parametrize("expected_revision", [0, 1])
+def test_workflow_lock_refreshes_projects_already_cached_by_another_session(workflow_db, expected_revision):
+    async def scenario():
+        async with workflow_db() as seed:
+            seed.add(Project(id=91, name="revision identity map", workflow_revision=0))
+            await seed.commit()
+        async with workflow_db() as stale:
+            cached = await stale.get(Project, 91)
+            assert cached.workflow_revision == 0
+            # Keep the ORM identity map while ending its prior read transaction.
+            await stale.commit()
+            async with workflow_db() as current:
+                project = await current.get(Project, 91)
+                await invalidate_project_workflow(current, project, from_step=3, expected_workflow_revision=0)
+                await current.commit()
+            if expected_revision == 0:
+                with pytest.raises(HTTPException) as caught:
+                    await acquire_workflow_revision(stale, 91, expected_revision)
+                assert caught.value.status_code == 409
+                assert caught.value.detail["workflow_revision"] == 1
+            else:
+                acquired = await acquire_workflow_revision(stale, 91, expected_revision)
+                assert acquired is cached
+                assert acquired.workflow_revision == 1
+            await stale.rollback()
+
+    asyncio.run(scenario())
+
+
 def _candidate(source: str = "system", target_process_id: str = "process_prepare") -> str:
     return json.dumps({
         "kind": "condition",
@@ -111,7 +144,7 @@ async def _seed_project(db: AsyncSession, project_id: int) -> Project:
         source_xml="<Kmsoft />",
         tree_json="[]",
         validation_json="[]",
-        mappings_json="[]",
+        mappings_json=json.dumps([{"source_operation_id": project_id * 100}]),
         step_mappings_json=json.dumps([
             {"source_step_key": f"op_{project_id * 100}_s01"},
             {"source_step_key": f"op_{project_id * 100}_s02"},
@@ -201,12 +234,74 @@ def test_step_two_invalidation_unlinks_packages_before_deleting_route_versions(w
             assert not (await db.execute(select(GeneratedRoute))).scalars().all()
             assert project.workflow_revision == 8
             assert result.archived_rule_package_versions == [1]
-            template = (await db.execute(select(ProjectGroupTemplate))).scalar_one()
             assert result.deleted_template_step_mappings == 2
-            assert json.loads(template.step_mappings_json) == []
-            assert json.loads(template.mapping_output_json) == []
-            assert template.source_xml == "<Kmsoft />"
-            assert template.template_revision == 5
+            assert not (await db.execute(select(ProjectGroupTemplate))).scalars().all()
+
+    asyncio.run(run())
+
+
+def test_document_change_invalidates_saved_route_and_downstream_steps(workflow_db):
+    async def run():
+        async with workflow_db() as db:
+            project = await _seed_project(db, 12)
+            db.add(Document(
+                project_id=project.id,
+                filename="additional.pdf",
+                original_name="additional.pdf",
+                file_type=".pdf",
+                file_size=128,
+                status="parsed",
+            ))
+            await db.flush()
+
+            await invalidate_project_document_derived_state(db, project.id)
+            await db.commit()
+
+            progress = await get_workflow_progress(db, project.id)
+            assert progress == {
+                "project_id": project.id,
+                "completed_steps": 1,
+                "max_available_step": 2,
+                "workflow_revision": 8,
+            }
+            assert not (await db.execute(select(NormalizedRouteVersion))).scalars().all()
+            assert not (await db.execute(select(NormalizedRouteSegmentRuleReview))).scalars().all()
+            assert not (await db.execute(select(ProjectGroupTemplate))).scalars().all()
+            package = (await db.execute(select(FinalizedRulePackage))).scalar_one()
+            assert package.status == "superseded"
+            assert package.route_version_id is None
+
+    asyncio.run(run())
+
+
+def test_changed_route_version_invalidates_analysis_mapping_and_published_package(workflow_db):
+    async def run():
+        async with workflow_db() as db:
+            project = await _seed_project(db, 22)
+            prior_route = (await db.execute(select(NormalizedRouteVersion))).scalar_one()
+
+            saved_route = await save_normalized_route_version(
+                project_id=project.id,
+                db=db,
+                source_signature=prior_route.source_signature or "sig",
+                total_docs=0,
+                normalized_route=[{
+                    "id": "seg-1",
+                    "normalized_step_name": "新路线工序",
+                    "source_operation_ids": [2200],
+                }],
+            )
+
+            assert saved_route.version == 2
+            assert project.workflow_revision == 8
+            assert not (await db.execute(select(NormalizedRouteSegmentRuleReview))).scalars().all()
+            assert not (await db.execute(select(ProjectGroupTemplate))).scalars().all()
+            package = (await db.execute(select(FinalizedRulePackage))).scalar_one()
+            assert package.status == "archived"
+            assert package.route_version_id == prior_route.id
+            progress = await get_workflow_progress(db, project.id)
+            assert progress["completed_steps"] == 2
+            assert progress["max_available_step"] == 3
 
     asyncio.run(run())
 
@@ -227,9 +322,8 @@ def test_step_three_invalidation_preserves_route_but_clears_answers_and_downstre
             assert result.deleted_factor_reviews == 1
             assert result.deleted_rule_reviews == 1
             assert project.workflow_revision == 8
-            template = (await db.execute(select(ProjectGroupTemplate))).scalar_one()
-            assert len(json.loads(template.step_mappings_json)) == 2
-            assert template.template_revision == 4
+            assert result.deleted_template_step_mappings == 2
+            assert not (await db.execute(select(ProjectGroupTemplate))).scalars().all()
 
     asyncio.run(run())
 
@@ -286,6 +380,39 @@ def test_step_four_invalidation_preserves_source_and_manual_boolean_rules(workfl
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("from_step", [3, 4])
+def test_rerecognition_preserves_valid_confirmed_rule_only_without_upstream_change(workflow_db, from_step):
+    from app.services.rule_packages.condition_reviews import condition_source_hash
+
+    async def run():
+        async with workflow_db() as db:
+            project = await _seed_project(db, 23)
+            route = (await db.execute(select(NormalizedRouteVersion))).scalar_one()
+            route.route_json = json.dumps([{
+                "id": "seg-1", "export_process_id": "process_mark", "normalized_step_name": "标记",
+            }])
+            review = (await db.execute(select(NormalizedRouteSegmentRuleReview))).scalar_one()
+            review.condition_source_hash = condition_source_hash(review.condition_source_text)
+            review.condition_candidate_json = _candidate(target_process_id="process_mark")
+            review.condition_confirmed_json = _candidate(target_process_id="process_mark")
+            await db.commit()
+
+            result = await invalidate_project_workflow(db, project, from_step=from_step)
+            await db.commit()
+            reviews = (await db.execute(select(NormalizedRouteSegmentRuleReview))).scalars().all()
+            if from_step == 4:
+                assert len(reviews) == 1
+                assert reviews[0].condition_status == "confirmed"
+                assert json.loads(reviews[0].condition_confirmed_json)["then"]["include_process_ids"] == ["process_mark"]
+                assert result.reset_condition_reviews == 0
+                assert result.preserved_manual_condition_reviews == 1
+            else:
+                assert reviews == []
+                assert result.preserved_manual_condition_reviews == 0
+
+    asyncio.run(run())
+
+
 def test_workflow_reset_endpoint_returns_new_revision_and_counts(workflow_client):
     response = workflow_client.post("/api/extract/workflow/reset", json={
         "project_id": 9,
@@ -297,6 +424,7 @@ def test_workflow_reset_endpoint_returns_new_revision_and_counts(workflow_client
     body = response.json()
     assert body["workflow_revision"] == 8
     assert body["deleted_rule_reviews"] == 1
+    assert body["deleted_template_step_mappings"] == 2
     assert body["archived_rule_package_versions"] == [1]
 
 
@@ -307,7 +435,7 @@ def test_saved_route_response_includes_current_workflow_revision(workflow_client
     )
 
     assert response.status_code == 200
-    assert response.json()["workflow_revision"] == 7
+    assert response.json()["workflow_revision"] == 8
 
 
 def test_route_merge_workspace_endpoint_returns_combined_step_two_payload(workflow_client):
@@ -589,6 +717,13 @@ def test_confirmed_manual_boolean_true_and_false_rules_are_accepted(
         }
         async with workflow_db() as db:
             await _seed_project(db, 13)
+            # This fixture exercises only the manual switch below. The generic
+            # seed's unrelated confirmed rule must not be omitted from a package.
+            seeded_review = (await db.execute(select(NormalizedRouteSegmentRuleReview).where(
+                NormalizedRouteSegmentRuleReview.project_id == 13,
+                NormalizedRouteSegmentRuleReview.segment_id == "seg-1",
+            ))).scalar_one()
+            await db.delete(seeded_review)
             db.add(NormalizedRouteSegmentRuleReview(
                 project_id=13,
                 route_version_id=130,

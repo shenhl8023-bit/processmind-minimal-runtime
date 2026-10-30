@@ -102,6 +102,7 @@ async def ensure_project_schema(conn):
             mappings_json TEXT NOT NULL DEFAULT '[]',
             step_mappings_json TEXT NOT NULL DEFAULT '[]',
             mapping_output_json TEXT NOT NULL DEFAULT '[]',
+            mapping_output_mode VARCHAR(30) NOT NULL DEFAULT 'unknown',
             template_revision INTEGER NOT NULL DEFAULT 1,
             group_count INTEGER NOT NULL DEFAULT 0,
             feature_selection_count INTEGER NOT NULL DEFAULT 0,
@@ -123,6 +124,11 @@ async def ensure_project_schema(conn):
         "project_group_templates",
         "mapping_output_json",
         "mapping_output_json TEXT NOT NULL DEFAULT '[]'",
+    )
+    await ensure_column(
+        "project_group_templates",
+        "mapping_output_mode",
+        "mapping_output_mode VARCHAR(30) NOT NULL DEFAULT 'unknown'",
     )
     await conn.execute(text("""
         CREATE TABLE IF NOT EXISTS schema_migrations (

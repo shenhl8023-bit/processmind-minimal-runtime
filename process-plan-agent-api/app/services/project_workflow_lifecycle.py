@@ -59,7 +59,9 @@ async def acquire_workflow_revision(
     ).scalar_one_or_none()
     if locked_revision is None:
         project = (
-            await db.execute(select(Project).where(Project.id == project_id))
+            await db.execute(
+                select(Project).where(Project.id == project_id).execution_options(populate_existing=True)
+            )
         ).scalar_one_or_none()
         if not project:
             raise HTTPException(404, "任务不存在")
@@ -68,7 +70,9 @@ async def acquire_workflow_revision(
             "workflow_revision": int(project.workflow_revision or 0),
         })
     project = (
-        await db.execute(select(Project).where(Project.id == project_id))
+        await db.execute(
+            select(Project).where(Project.id == project_id).execution_options(populate_existing=True)
+        )
     ).scalar_one()
     return project
 
@@ -115,6 +119,39 @@ def _is_manual_boolean_review(review: NormalizedRouteSegmentRuleReview) -> bool:
     )
 
 
+def _is_current_confirmed_review(
+    review: NormalizedRouteSegmentRuleReview,
+    route: NormalizedRouteVersion | None,
+) -> bool:
+    # Import lazily: condition review writes also acquire the workflow lock.
+    from app.services.rule_packages.condition_contracts import RuleConditionProcessOption
+    from app.services.rule_packages.condition_reviews import (
+        _current_confirmed_candidate,
+        _route_items,
+    )
+
+    if route is None or not str(review.condition_source_text or "").strip():
+        return False
+    items = _route_items(route)
+    current = next((item for item in items if str(item.get("id") or "") == review.segment_id), None)
+    if current is None:
+        return False
+    processes = {}
+    for item in items:
+        for key in ("id", "export_process_id"):
+            process_id = str(item.get(key) or "").strip()
+            if process_id:
+                processes[process_id] = RuleConditionProcessOption(
+                    process_id=process_id,
+                    display_name=str(item.get("normalized_step_name") or process_id),
+                )
+    catalog = list(processes.values())
+    current_process_id = str(current.get("export_process_id") or current.get("id") or "").strip()
+    return _current_confirmed_candidate(
+        review, review.condition_source_text, catalog, current_process_id,
+    ) is not None
+
+
 def _reset_machine_condition(review: NormalizedRouteSegmentRuleReview) -> None:
     review.condition_status = "draft"
     review.condition_candidate_json = None
@@ -152,7 +189,7 @@ async def invalidate_project_workflow(
     next_revision = await _claim_next_workflow_revision(db, project_id, expected_revision)
     project.workflow_revision = next_revision
     deleted_template_step_mappings = 0
-    if from_step == 2:
+    if from_step <= 3:
         template = (
             await db.execute(
                 select(ProjectGroupTemplate).where(ProjectGroupTemplate.project_id == project_id)
@@ -168,9 +205,7 @@ async def invalidate_project_workflow(
                 if isinstance(stored_step_mappings, list)
                 else 0
             )
-            template.step_mappings_json = "[]"
-            template.mapping_output_json = "[]"
-            template.template_revision = int(template.template_revision or 0) + 1
+            await db.delete(template)
     packages = await _rows(db, FinalizedRulePackage, project_id)
     archived_versions: list[int] = []
     for package in packages:
@@ -199,6 +234,9 @@ async def invalidate_project_workflow(
         for review in rule_reviews:
             await db.delete(review)
     else:
+        saved_routes = {
+            route.id: route for route in await _rows(db, NormalizedRouteVersion, project_id)
+        }
         for review in rule_reviews:
             has_condition_state = bool(
                 str(review.condition_source_text or "").strip()
@@ -207,7 +245,9 @@ async def invalidate_project_workflow(
             )
             if not has_condition_state:
                 continue
-            if _is_manual_boolean_review(review):
+            if _is_manual_boolean_review(review) or _is_current_confirmed_review(
+                review, saved_routes.get(review.route_version_id),
+            ):
                 preserved_manual_condition_reviews += 1
                 continue
             _reset_machine_condition(review)

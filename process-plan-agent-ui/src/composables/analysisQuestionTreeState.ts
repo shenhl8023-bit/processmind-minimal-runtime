@@ -11,6 +11,7 @@ export interface TreeAnswer {
 export interface SegmentTreeState {
   answers: Record<string, TreeAnswer>
   note: string
+  rejudging?: boolean
 }
 
 const LEGACY_NODE_ID_MAP: Record<string, string> = {
@@ -88,6 +89,7 @@ export function loadPersistedTreeState(storageKey: string) {
       acc[segmentId] = {
         answers: normalizeAnswersRecord(state?.answers),
         note: String(state?.note || ''),
+        rejudging: state?.rejudging === true,
       }
       return acc
     }, {})

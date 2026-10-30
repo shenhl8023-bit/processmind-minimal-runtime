@@ -23,34 +23,42 @@ describe('workflow reset state', () => {
     storage.setItem('processmind_analysis_question_tree_v10_17', '{}')
     storage.setItem('processmind_finalize_drafts_v4_17', '{}')
     storage.setItem('processmind_finalize_drafts_v4_18', '{}')
+    storage.setItem('template_step_mapping_draft:17', '{"mappings":["old"]}')
+    storage.setItem('template_step_mapping_draft:18', '{"mappings":["keep"]}')
 
     clearProjectWorkflowLocalState(17, 3, storage)
 
     expect(storage.getItem('processmind_analysis_question_tree_v10_17')).toBeNull()
     expect(storage.getItem('processmind_finalize_drafts_v4_17')).toBeNull()
     expect(storage.getItem('processmind_finalize_drafts_v4_18')).toBe('{}')
+    expect(storage.getItem('template_step_mapping_draft:17')).toBeNull()
+    expect(storage.getItem('template_step_mapping_draft:18')).toBe('{"mappings":["keep"]}')
   })
 
   it('clears analysis and finalize local state for step two reset', () => {
     const storage = new MemoryStorage()
     storage.setItem('processmind_analysis_question_tree_v10_17', '{"tree":1}')
     storage.setItem('processmind_finalize_drafts_v4_17', '{"draft":1}')
+    storage.setItem('template_step_mapping_draft:17', '{"mappings":["old"]}')
 
     clearProjectWorkflowLocalState(17, 2, storage)
 
     expect(storage.getItem('processmind_analysis_question_tree_v10_17')).toBeNull()
     expect(storage.getItem('processmind_finalize_drafts_v4_17')).toBeNull()
+    expect(storage.getItem('template_step_mapping_draft:17')).toBeNull()
   })
 
   it('preserves user text drafts when only step four recognition is reset', () => {
     const storage = new MemoryStorage()
     storage.setItem('processmind_analysis_question_tree_v10_17', '{"answers":1}')
     storage.setItem('processmind_finalize_drafts_v4_17', '{"conditionText":"用户原文"}')
+    storage.setItem('template_step_mapping_draft:17', '{"mappings":["keep"]}')
 
     clearProjectWorkflowLocalState(17, 4, storage)
 
     expect(storage.getItem('processmind_analysis_question_tree_v10_17')).not.toBeNull()
     expect(storage.getItem('processmind_finalize_drafts_v4_17')).toContain('用户原文')
+    expect(storage.getItem('template_step_mapping_draft:17')).toBe('{"mappings":["keep"]}')
   })
 
   it('publishes the latest project reset revision for mounted views', () => {

@@ -1,5 +1,5 @@
 <template>
-  <div v-if="embedded || modelValue" class="tgmd-page">
+  <div v-if="embedded || modelValue" ref="workspaceRoot" class="tgmd-page">
     <div v-if="!model.template.value && model.loading.value" class="tgmd-page-loading" role="status">
       <span class="tgmd-spinner" />
       <span>正在加载项目分组模板...</span>
@@ -14,7 +14,7 @@
               </span>
               <span v-if="model.template.value" class="tgmd-title-tag">Kmsoft XML</span>
               <div class="tgmd-review-guidance tgmd-header-guidance" role="note">
-                只映射依赖零件特征、需要按特征判断适用性的工步；右侧选择适用的部分特征即可。其余工步无需映射，最终是否纳入由所属工序规则决定。
+                加工工步只有完成有效特征映射才参与三表交付；无映射加工工步不导出；辅助工序按规则保留。右侧选择适用的部分特征进行关联即可。
               </div>
             </div>
             </div>
@@ -23,6 +23,7 @@
               v-if="showMappingWorkspace"
               class="tgmd-command"
               type="button"
+              :disabled="mappingEditsLocked"
               @click="startReplacement"
             ><RefreshRight />更换模板</button>
           </div>
@@ -42,10 +43,14 @@
                   <span v-else class="tgmd-pane-subtitle">点击选中工步，勾选右侧特征后关联</span>
                 </div>
                 <div class="tgmd-operation-tools">
+                  <button class="tgmd-smart-button" type="button"
+                    :disabled="precisionLoading || recognizing || model.loading.value || model.saving.value || !missingPrecisionOperations.length"
+                    title="根据工序、工步和路线顺序补全未填写的精度，已有选择保持不变"
+                    @click="suggestPrecisions"><MagicStick />{{ precisionLoading ? '正在判定精度…' : '智能判定精度' }}</button>
                   <div v-if="recognizing" class="tgmd-operation-status" aria-live="polite">
                     <span class="tgmd-status-pill is-live"><span class="tgmd-spinner tgmd-spinner-mini" />正在智能推荐...</span>
                   </div>
-                  <button v-if="!recognizing" class="tgmd-smart-button" type="button" @click="suggestAllSteps"><MagicStick />智能推荐</button>
+                  <button v-if="!recognizing" class="tgmd-smart-button" type="button" :disabled="precisionLoading || model.loading.value || model.saving.value" @click="suggestAllSteps"><MagicStick />智能推荐</button>
                 </div>
               </header>
               <div class="tgmd-operation-scroll">
@@ -61,17 +66,23 @@
                       </div>
                       <span class="tgmd-op-summary">{{ operationMappingSummary(operation) }}</span>
                     </button>
-                    <label v-if="operation.process_type === '加工工序'" class="tgmd-precision-field">
+                    <label v-if="operation.process_type === '加工工序'" class="tgmd-precision-field"
+                      :class="{ 'is-invalid': precisionValidationAttempted && !machiningPrecisions.includes(operationPrecision(operation)) }">
                       <span>精度</span>
                       <select
+                        :data-precision-process-id="operation.process_id"
                         :aria-label="`${operation.name}工序精度`"
+                        :aria-invalid="precisionValidationAttempted && !machiningPrecisions.includes(operationPrecision(operation))"
                         :value="operationPrecision(operation)"
+                        :disabled="mappingEditsLocked"
                         @click.stop
                         @change="setOperationPrecision(operation, ($event.target as HTMLSelectElement).value)"
                       >
                         <option value="">待确认</option>
                         <option v-for="precision in machiningPrecisions" :key="precision" :value="precision">{{ precision }}</option>
                       </select>
+                      <span v-if="precisionSuggestions[operation.process_id || '']" class="tgmd-precision-suggestion"
+                        :title="precisionSuggestions[operation.process_id || '']">模型建议</span>
                     </label>
                     <span v-else class="tgmd-auxiliary-precision">辅助工序</span>
                   </div>
@@ -86,14 +97,14 @@
                       <span class="tgmd-step-order">{{ String(step.display_order || step.step_order).padStart(2, '0') }}</span>
                       <div class="tgmd-step-content">
                         <strong class="tgmd-step-name">{{ step.step_name }}</strong>
-                        <small v-if="operation.process_type !== '辅助工序' && !eligibleStepKeys.has(step.step_key)" class="tgmd-step-eligibility">无需特征映射</small>
-                        <small v-else-if="!stepFeatureMappings(step).length" class="tgmd-step-eligibility">未映射，随工序规则处理</small>
+                        <small v-if="operation.process_type === '辅助工序'" class="tgmd-step-eligibility">辅助工步，按工序规则保留</small>
+                        <small v-else-if="!stepFeatureMappings(step).length" class="tgmd-step-eligibility">未映射，不导出</small>
                         <small v-if="displayStepMappings(step).length && activeStepKey !== step.step_key" class="tgmd-step-mapping-summary">{{ compactMappingSummary(step) }}</small>
                         <small v-else-if="displayStepMappings(step).length" class="tgmd-step-count-text">{{ displayStepMappings(step).length }} 个已关联特征</small>
                         <div v-if="displayStepMappings(step).length && activeStepKey === step.step_key" class="tgmd-step-mappings">
                           <span v-for="association in displayStepMappings(step)" :key="association.key" class="tgmd-chip-tag">
                             {{ association.label }}
-                            <button type="button" title="解除关联" aria-label="解除关联" @click.stop="removeStepMapping(association.mapping, step)"><Close /></button>
+                            <button type="button" title="解除关联" aria-label="解除关联" :disabled="mappingEditsLocked" @click.stop="removeStepMapping(association.mapping, step)"><Close /></button>
                           </span>
                         </div>
                       </div>
@@ -113,11 +124,12 @@
                     <button v-if="treeSearchQuery" class="tgmd-search-clear" type="button" @click="treeSearchQuery = ''"><Close /></button>
                   </div>
                   <button v-if="activeGroupFeatures.length > 1" class="tgmd-toggle-group-selection" type="button"
+                    :disabled="mappingEditsLocked"
                     :title="isAllActiveGroupFeaturesSelected ? '清空当前节点所有特征' : '全选当前节点所有特征'" @click="toggleSelectAllActiveGroupFeatures">
                     <Select v-if="!isAllActiveGroupFeaturesSelected" /><Close v-else />
                     {{ isAllActiveGroupFeaturesSelected ? '清空本组' : '全选本组' }}
                   </button>
-                  <button class="tgmd-clear-selection" type="button" :disabled="!selectedFeatures.length" title="清空已勾选的分组节点" @click="clearSelectedFeatures"><Close />清空勾选</button>
+                  <button class="tgmd-clear-selection" type="button" :disabled="mappingEditsLocked || !selectedFeatures.length" title="清空已勾选的分组节点" @click="clearSelectedFeatures"><Close />清空勾选</button>
                   <div class="tgmd-link-wrapper" @mouseenter="showLinkTooltip = true" @mouseleave="showLinkTooltip = false">
                     <button class="tgmd-link-btn" type="button" :disabled="!canLinkActiveStep" :class="{ 'is-active': canLinkActiveStep }" @click="linkActiveStep">
                       <ArrowLeft />关联<span v-if="selectedFeatures.length" class="tgmd-link-count">{{ selectedFeatures.length }}</span>
@@ -133,7 +145,7 @@
                       </div>
                     </Transition>
                   </div>
-                  <button class="tgmd-current-suggest" type="button" :disabled="recognizing || !selectedFeatures.length" title="按已选特征推荐匹配工步" @click="suggestActiveLeaf"><MagicStick />推荐</button>
+                  <button class="tgmd-current-suggest" type="button" :disabled="mappingEditsLocked || precisionLoading || recognizing || !selectedFeatures.length" title="按已选特征推荐匹配工步" @click="suggestActiveLeaf"><MagicStick />推荐</button>
                 </div>
               </header>
               <div class="tgmd-tree-scroll">
@@ -142,6 +154,7 @@
                   :unconfigured-leaf-keys="unconfiguredLeafKeys" :show-metadata="false" multi-select
                   :show-mapping-status="true"
                   :selected-feature-keys="selectedFeatureKeys" show-selected-features show-feature-details
+                  :readonly="mappingEditsLocked"
                   @select="activeGroupKey = $event" @toggle-feature="toggleSelectedFeature" />
                 <div v-if="!displayTemplateTree.length" class="tgmd-empty">没有匹配的模板特征或分组</div>
               </div>
@@ -149,7 +162,7 @@
           </main>
 
           <footer class="tgmd-footer">
-            <button class="tgmd-clear-all" type="button" :disabled="!Object.keys(draftStepMappings).length || model.saving.value" @click="clearMappings">
+            <button class="tgmd-clear-all" type="button" :disabled="!Object.keys(draftStepMappings).length || mappingEditsLocked" @click="clearMappings">
               <Delete />清空所有映射
             </button>
             <div v-if="mappingStatusMessages.length" class="tgmd-footer-status" role="status">
@@ -157,7 +170,7 @@
                 :class="{ 'is-warning': notice.includes('失败') || notice.includes('未完成') }">{{ notice }}</span>
             </div>
             <div class="tgmd-footer-actions">
-              <button class="btn btn-outline" type="button" :disabled="model.saving.value" @click="handleCancel">取消</button>
+              <button class="btn btn-outline" type="button" :disabled="mappingEditsLocked" @click="handleCancel">取消</button>
               <button class="btn btn-primary" type="button" :disabled="primaryActionDisabled" @click="handlePrimaryAction">
                 <ArrowRight v-if="canContinue && !dirty" />
                 <Link v-else />{{ primaryActionLabel }}
@@ -169,7 +182,7 @@
       <div class="tgmd-empty-icon"><UploadFilled /></div>
       <h2>还没有导入分组模板</h2>
       <p>导入 Kmsoft XML 分组模板，再在映射工作区建立工步与分组的对应关系。</p>
-      <button class="btn btn-primary" type="button" :disabled="model.loading.value" @click="openTemplateDialog">
+      <button class="btn btn-primary" type="button" :disabled="mappingEditsLocked" @click="openTemplateDialog">
         <UploadFilled />导入模板
       </button>
       <span class="tgmd-empty-hint">支持 .xml 格式</span>
@@ -191,7 +204,7 @@
             </div>
             <p class="tgmd-subtitle-hint">{{ isReplacing ? '确认后更新当前模板，映射影响会在此提前列出。' : '解析并检查文件结构，确认后进入映射工作区。' }}</p>
           </div>
-          <button class="tgmd-icon-button" type="button" title="关闭" aria-label="关闭" @click="dismissImportDialog"><Close /></button>
+          <button class="tgmd-icon-button" type="button" title="关闭" aria-label="关闭" :disabled="mappingEditsLocked" @click="dismissImportDialog"><Close /></button>
         </header>
 
         <div v-if="visibleError" class="tgmd-inline-error" role="alert">
@@ -206,14 +219,14 @@
 
         <template v-else-if="showUploadState">
           <main class="tgmd-upload-state">
-            <input ref="fileInput" class="tgmd-file-input" type="file" accept=".xml,application/xml,text/xml" @change="onFileInput">
+            <input ref="fileInput" class="tgmd-file-input" type="file" accept=".xml,application/xml,text/xml" :disabled="mappingEditsLocked" @change="onFileInput">
 
             <!-- Drop Zone -->
             <button
               class="tgmd-dropzone"
               :class="{ 'tgmd-dropzone-ready': pendingFile, 'tgmd-dropzone-loading': model.loading.value }"
               type="button"
-              :disabled="model.loading.value"
+              :disabled="mappingEditsLocked"
               @click="openFilePicker"
               @dragover.prevent
               @drop.prevent="onDrop"
@@ -234,7 +247,7 @@
             <!-- Actions -->
             <div class="tgmd-upload-actions">
               <button class="btn btn-outline" type="button" :disabled="model.loading.value || model.saving.value" @click="dismissImportDialog">{{ isReplacing ? '取消更换' : '取消' }}</button>
-              <button v-if="pendingFile && visibleError" class="btn btn-primary" type="button" @click="parsePendingFile">重新解析</button>
+              <button v-if="pendingFile && visibleError" class="btn btn-primary" type="button" :disabled="mappingEditsLocked" @click="parsePendingFile">重新解析</button>
             </div>
           </main>
         </template>
@@ -373,7 +386,7 @@
 
         <div v-else-if="model.state.value === 'workspace'" class="tgmd-modal-notice">
           <p>模板已刷新，可以返回映射工作区继续操作。</p>
-          <button class="btn btn-primary" type="button" @click="dismissImportDialog">返回映射工作区</button>
+          <button class="btn btn-primary" type="button" :disabled="mappingEditsLocked" @click="dismissImportDialog">返回映射工作区</button>
         </div>
       </section>
     </div>
@@ -381,7 +394,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onDeactivated, ref, watch } from 'vue'
 import { getTemplateMappingStatus } from '@/composables/projectGroupTemplateCheck'
 import {
   ArrowLeft,
@@ -400,6 +413,7 @@ import {
 
 import {
   suggestTemplateStepMappings,
+  suggestTemplateProcessPrecisions,
   type GroupTemplateNode,
   type GroupTemplateStepMapping,
   type GroupTemplateStepMappingInput,
@@ -444,6 +458,7 @@ import { formatGroupTemplateIssueDetail, useProjectGroupTemplate } from '@/compo
 const props = defineProps<{
   modelValue: boolean
   projectId: number
+  workflowRevision?: number
   operations: TemplateOperation[]
   embedded?: boolean
   legacyAliases: Record<string, TemplateAliasBinding>
@@ -460,8 +475,11 @@ const emit = defineEmits<{
 const model = useProjectGroupTemplate(
   computed(() => props.projectId),
   computed(() => props.legacyAliases),
+  computed(() => props.workflowRevision ?? 0),
 )
+const mappingEditsLocked = computed(() => model.loading.value || model.saving.value)
 const dialogRoot = ref<HTMLElement | null>(null)
+const workspaceRoot = ref<HTMLElement | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const pendingFile = ref<File | null>(null)
 const transientError = ref('')
@@ -481,7 +499,16 @@ const mappingWarnings = ref<string[]>([])
 const treeSearchQuery = ref('')
 const showLinkTooltip = ref(false)
 
-const visibleError = computed(() => transientError.value || model.error.value)
+const precisionLoading = ref(false)
+const precisionValidationAttempted = ref(false)
+const precisionSuggestions = ref<Record<string, string>>({})
+const precisionWarnings = ref<string[]>([])
+const precisionEdits = ref<Record<string, number>>({})
+let precisionRequestId = 0
+const visibleError = computed(() => transientError.value || model.error.value
+  || (precisionValidationAttempted.value && missingPrecisionOperations.value.length
+    ? `请先填写以下 ${missingPrecisionOperations.value.length} 道加工工序的精度，再保存映射：${missingPrecisionOperations.value.map(operation => operation.name).join('、')}。可点击“智能判定精度”，或在各工序右侧手动选择。`
+    : ''))
 const isReplacing = computed(() => Boolean(model.template.value))
 const showMappingWorkspace = computed(() => Boolean(model.template.value) && (props.embedded || model.state.value === 'workspace'))
 const showEmptyState = computed(() => Boolean(props.embedded) && !model.template.value && !model.loading.value)
@@ -523,7 +550,7 @@ const activeStep = computed(() => stepRefs.value.find(step => step.step_key === 
 const featureGroupCount = computed(() => leafConfiguration.value.configured.length + leafConfiguration.value.unconfigured.length)
 const coveredFeatureGroupCount = computed(() => leafConfiguration.value.configured.length)
 const uncoveredFeatureGroupCount = computed(() => leafConfiguration.value.unconfigured.length)
-const canLinkActiveStep = computed(() => Boolean(activeStep.value && canDecideStep(activeStep.value) && selectedFeatures.value.some(selection => (
+const canLinkActiveStep = computed(() => !mappingEditsLocked.value && Boolean(activeStep.value && canDecideStep(activeStep.value) && selectedFeatures.value.some(selection => (
   !isFeatureLinkedToStep(activeStep.value!, selection.leaf, selection.feature)
 ))))
 const activeGroupNode = computed(() => findTemplateGroupByKey(model.template.value?.tree || [], activeGroupKey.value))
@@ -532,9 +559,12 @@ const activeGroupFeatures = computed(() => activeGroupNode.value && isFeatureLea
 const isAllActiveGroupFeaturesSelected = computed(() => Boolean(activeGroupFeatures.value.length && activeGroupFeatures.value.every(feature => (
   selectedFeatureKeys.value.includes(templateFeatureSelectionKey(activeGroupKey.value, feature))
 ))))
-const mappingStatusMessages = computed(() => [...new Set(mappingWarnings.value.map(notice => notice.trim()).filter(Boolean))])
+const mappingStatusMessages = computed(() => [...new Set([...mappingWarnings.value, ...precisionWarnings.value].map(notice => notice.trim()).filter(Boolean))])
 const visibleMappingOperations = computed(() => mappingOperations.value)
 const machiningPrecisions = ['粗加工', '半精加工', '精加工']
+const missingPrecisionOperations = computed(() => props.operations.filter(operation =>
+  operation.process_type === '加工工序' && !machiningPrecisions.includes(operationPrecision(operation)),
+))
 const mappingsByLeaf = computed(() => groupConfirmedMappingsByLeaf(
   Object.values(draftStepMappings.value),
   model.template.value?.tree || [],
@@ -557,12 +587,13 @@ const draftStatus = computed(() => getTemplateMappingStatus(model.template.value
   ...model.template.value, step_mappings: Object.values(draftStepMappings.value) as GroupTemplateStepMapping[],
 } : null, props.operations))
 const savedStatus = computed(() => getTemplateMappingStatus(model.template.value, props.operations))
-const canContinue = computed(() => savedStatus.value.validCount > 0 && savedStatus.value.missingFeatureGroups.length === 0)
+const canContinue = computed(() => savedStatus.value.validCount > 0 && savedStatus.value.missingFeatureGroups.length === 0
+  && !missingPrecisionOperations.value.length)
 const dirty = computed(() => savedSignature.value !== JSON.stringify(Object.values(draftStepMappings.value))
   || savedPrecisionSignature.value !== JSON.stringify(precisionOverrides.value))
 const primaryActionLabel = computed(() => model.saving.value
   ? '正在保存'
-  : dirty.value
+  : dirty.value || missingPrecisionOperations.value.length
     ? '保存工步映射'
     : canContinue.value
       ? '进入规则定稿'
@@ -571,7 +602,8 @@ const primaryActionDisabled = computed(() => (
   model.saving.value
   || model.loading.value
   || recognizing.value
-  || (!dirty.value && !canContinue.value)
+  || precisionLoading.value
+  || (!dirty.value && !canContinue.value && !missingPrecisionOperations.value.length)
 ))
 watch(() => props.modelValue, (visible) => {
   if (!props.embedded) importDialogOpen.value = visible
@@ -582,18 +614,21 @@ watch(importDialogOpen, async (visible) => {
     dialogRoot.value?.focus()
   }
 }, { immediate: true })
-watch([draftStatus, savedStatus, dirty, recognizing, model.saving, model.loading], () => {
+watch([draftStatus, savedStatus, dirty, recognizing, precisionLoading, model.saving, model.loading], () => {
   emit('status', {
     validCount: draftStatus.value.validCount, savedValidCount: savedStatus.value.validCount,
     invalidCount: draftStatus.value.invalidCount, candidateCount: 0,
-    dirty: dirty.value, busy: recognizing.value || model.saving.value || model.loading.value,
+    dirty: dirty.value, busy: recognizing.value || precisionLoading.value || model.saving.value || model.loading.value,
   })
 }, { immediate: true, deep: true })
 
 defineExpose({ save: saveStepMappings })
+onBeforeUnmount(invalidatePrecisionSuggestions)
+onDeactivated(invalidatePrecisionSuggestions)
 
 watch(() => [props.modelValue, props.projectId] as const, async ([visible]) => {
   dialogRunId.value += 1
+  invalidatePrecisionSuggestions()
   recognizing.value = false
   recommendationProgress.value = '正在推荐'
   transientError.value = ''
@@ -619,6 +654,8 @@ function stepRefsForOperation(operation: TemplateOperation) {
 }
 
 function syncDraftFromTemplate() {
+  precisionSuggestions.value = {}
+  precisionValidationAttempted.value = false
   const template = model.template.value
   if (!template) {
     draftStepMappings.value = {}
@@ -666,6 +703,7 @@ function formatBytes(size: number) {
 }
 
 function openFilePicker() {
+  if (mappingEditsLocked.value) return
   openTemplateGroupFilePicker(fileInput.value)
 }
 
@@ -677,6 +715,7 @@ function openTemplateDialog() {
 }
 
 async function acceptFile(file: File | undefined) {
+  if (mappingEditsLocked.value) return
   transientError.value = ''
   if (!file) return
   pendingFile.value = file
@@ -694,19 +733,21 @@ function onDrop(event: DragEvent) {
 }
 
 async function parsePendingFile() {
-  if (!pendingFile.value) return
+  if (mappingEditsLocked.value || !pendingFile.value) return
   transientError.value = ''
   await model.selectFile(pendingFile.value)
 }
 
 function invalidateRecommendations() {
   dialogRunId.value += 1
+  invalidatePrecisionSuggestions()
   recognizing.value = false
   recommendationProgress.value = '正在推荐'
   mappingWarnings.value = []
 }
 
 async function startReplacement() {
+  if (mappingEditsLocked.value) return
   invalidateRecommendations()
   pendingFile.value = null
   transientError.value = ''
@@ -715,6 +756,7 @@ async function startReplacement() {
 }
 
 function cancelReplacement() {
+  if (mappingEditsLocked.value) return
   pendingFile.value = null
   transientError.value = ''
   model.cancelPreview()
@@ -724,6 +766,7 @@ function cancelReplacement() {
 }
 
 function resetPreviewSelection() {
+  if (mappingEditsLocked.value) return
   pendingFile.value = null
   transientError.value = ''
   if (model.template.value) model.beginReplacement()
@@ -732,6 +775,7 @@ function resetPreviewSelection() {
 }
 
 async function confirmPreview() {
+  if (mappingEditsLocked.value) return
   invalidateRecommendations()
   const runId = dialogRunId.value
   const confirmed = await model.confirmTemplate()
@@ -775,13 +819,12 @@ function operationTypeLabel(operation: TemplateOperation) {
 }
 
 function operationMappingSummary(operation: TemplateOperation) {
+  if (operation.process_type === '辅助工序') return '辅助工序，按规则保留'
   const allSteps = stepRefsForOperation(operation)
-  if (!allSteps.length) return '无工步'
-  const steps = allSteps.filter(step => eligibleStepKeys.value.has(step.step_key))
-  if (!steps.length) return '无需关联'
-  const mapped = steps.filter(step => stepFeatureMappings(step).length > 0).length
-  const unmapped = Math.max(0, steps.length - mapped)
-  return `已关联 ${mapped} · 未映射 ${unmapped}（随工序规则处理）`
+  if (!allSteps.length) return '无工步，不导出'
+  const mapped = allSteps.filter(step => stepFeatureMappings(step).length > 0).length
+  const unmapped = Math.max(0, allSteps.length - mapped)
+  return `已关联 ${mapped} · 未映射 ${unmapped}（不导出）`
 }
 
 function compactMappingSummary(step: TemplateStepRef) {
@@ -833,6 +876,7 @@ function isFeatureLinkedToStep(step: TemplateStepRef, leaf: GroupTemplateNode, f
 }
 
 function toggleSelectedFeature(selection: { leafKey: string; feature: string }) {
+  if (mappingEditsLocked.value) return
   const candidate = findTemplateGroupByKey(model.template.value?.tree || [], selection.leafKey)
   if (!candidate || !isFeatureLeaf(candidate) || !candidate.feature_selections.includes(selection.feature)) return
   const key = templateFeatureSelectionKey(selection.leafKey, selection.feature)
@@ -844,6 +888,7 @@ function toggleSelectedFeature(selection: { leafKey: string; feature: string }) 
 }
 
 function toggleSelectAllActiveGroupFeatures() {
+  if (mappingEditsLocked.value) return
   const leaf = activeGroupNode.value
   if (!leaf || !isFeatureLeaf(leaf) || !leaf.feature_selections.length) return
   const next = new Set(selectedFeatureKeys.value)
@@ -857,10 +902,12 @@ function toggleSelectAllActiveGroupFeatures() {
 }
 
 function clearSelectedFeatures() {
+  if (mappingEditsLocked.value) return
   selectedFeatureKeys.value = []
 }
 
 function linkActiveStep() {
+  if (mappingEditsLocked.value) return
   const step = activeStep.value
   if (!step || !canLinkActiveStep.value || !canDecideStep(step)) return
   clearLegacyGeneralStepDecision(step)
@@ -889,6 +936,7 @@ function linkActiveStep() {
 }
 
 function removeStepMapping(mapping: GroupTemplateStepMappingInput, step?: TemplateStepRef) {
+  if (mappingEditsLocked.value) return
   const mappings = step
     ? stepMappings(step).filter(item => JSON.stringify(item.template_group_path) === JSON.stringify(mapping.template_group_path))
     : [mapping]
@@ -925,6 +973,7 @@ function sourceRefsForSuggestion(step: TemplateStepRef, suggestionKey: string) {
 }
 
 function clearMappings() {
+  if (mappingEditsLocked.value) return
   draftStepMappings.value = {}
   persistStepDraft()
 }
@@ -945,14 +994,84 @@ function operationPrecision(operation: TemplateOperation) {
 }
 
 function setOperationPrecision(operation: TemplateOperation, precision: string) {
+  if (mappingEditsLocked.value) return
   if (!operation.process_id || operation.process_type !== '加工工序') return
+  precisionEdits.value[operation.process_id] = (precisionEdits.value[operation.process_id] || 0) + 1
   precisionOverrides.value = { ...precisionOverrides.value, [operation.process_id]: precision }
+  delete precisionSuggestions.value[operation.process_id]
+}
+
+function invalidatePrecisionSuggestions() {
+  precisionRequestId += 1
+  precisionLoading.value = false
+  precisionWarnings.value = []
+  precisionSuggestions.value = {}
+  precisionValidationAttempted.value = false
+}
+
+async function focusMissingPrecision() {
+  const first = missingPrecisionOperations.value[0]
+  if (!first) return
+  expandedOperationIds.value = [...new Set([...expandedOperationIds.value, operationId(first)])]
+  await nextTick()
+  const selector = Array.from(workspaceRoot.value?.querySelectorAll<HTMLSelectElement>('[data-precision-process-id]') || [])
+    .find(element => element.dataset.precisionProcessId === first.process_id)
+  selector?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  selector?.focus({ preventScroll: true })
+}
+
+async function suggestPrecisions() {
+  if (precisionLoading.value || recognizing.value || model.saving.value || model.loading.value
+    || !model.template.value || !missingPrecisionOperations.value.length) return
+  const requestId = ++precisionRequestId
+  const runId = dialogRunId.value
+  const projectId = props.projectId
+  const revision = model.templateRevision.value
+  const fingerprint = routeFingerprint.value
+  const initialEdits = { ...precisionEdits.value }
+  const initialValues = new Map(props.operations.map(operation => [operation.process_id, operationPrecision(operation)]))
+  const isCurrent = () => requestId === precisionRequestId && runId === dialogRunId.value
+    && props.modelValue && projectId === props.projectId && revision === model.templateRevision.value
+    && fingerprint === routeFingerprint.value
+  precisionLoading.value = true
+  precisionWarnings.value = []
+  try {
+    const response = await suggestTemplateProcessPrecisions({
+      project_id: projectId, expected_template_revision: revision, operations: mappingOutputOperations(),
+    })
+    if (!isCurrent() || response.project_id !== projectId || response.template_revision !== revision) return
+    let filled = 0
+    for (const suggestion of response.suggestions || []) {
+      const operation = props.operations.find(item => item.process_id === suggestion.process_id && item.process_type === '加工工序')
+      if (!operation || !machiningPrecisions.includes(suggestion.precision)
+        || !Number.isFinite(suggestion.confidence) || suggestion.confidence < 0.85
+        || suggestion.confidence > 1
+        || machiningPrecisions.includes(initialValues.get(operation.process_id) || '')
+        || (precisionEdits.value[suggestion.process_id] || 0) !== (initialEdits[suggestion.process_id] || 0)
+        || operationPrecision(operation) !== initialValues.get(operation.process_id)) continue
+      precisionOverrides.value = { ...precisionOverrides.value, [suggestion.process_id]: suggestion.precision }
+      precisionSuggestions.value[suggestion.process_id] = [suggestion.reason, ...(suggestion.evidence || [])].filter(Boolean).join('；') || '根据当前工序与路线顺序推荐，可手动修改'
+      filled += 1
+    }
+    precisionWarnings.value = [
+      ...(filled ? [`已补全 ${filled} 道工序的精度，请核对后保存。`] : []),
+      ...(response.warnings || []),
+      ...(!filled && !(response.warnings || []).length ? ['没有可用的精度建议，请手动选择待确认项。'] : []),
+    ]
+  } catch (cause: any) {
+    if (!isCurrent()) return
+    precisionWarnings.value = [typeof cause?.response?.data?.detail === 'string'
+      ? cause.response.data.detail : '智能判定暂时不可用，已保留当前填写内容，请重试或手动选择精度。']
+  } finally {
+    if (requestId === precisionRequestId) precisionLoading.value = false
+  }
 }
 
 function applySuggestedMappings(
   suggestions: Awaited<ReturnType<typeof suggestTemplateStepMappings>>['suggestions'],
   targetLeafKeys?: string[],
 ) {
+  if (mappingEditsLocked.value) return { added: 0, supplemented: 0, preserved: 0 }
   const tree = model.template.value?.tree || []
   let added = 0
   let supplemented = 0
@@ -1004,7 +1123,7 @@ function applySuggestedMappings(
 }
 
 async function suggestSteps(targetLeafKeys?: string[]) {
-  if (recognizing.value || !model.template.value) return
+  if (mappingEditsLocked.value || recognizing.value || precisionLoading.value || !model.template.value) return
   if (targetLeafKeys?.length && !selectedFeatures.value.length) return
   const runId = ++dialogRunId.value
   const projectId = props.projectId
@@ -1076,10 +1195,24 @@ async function suggestActiveLeaf() {
 }
 
 async function suggestAllSteps() {
-  await suggestSteps()
+  const projectId = props.projectId
+  const revision = model.templateRevision.value
+  const pending = suggestSteps()
+  const runId = dialogRunId.value
+  await pending
+  if (runId === dialogRunId.value && projectId === props.projectId && revision === model.templateRevision.value && props.modelValue) {
+    await suggestPrecisions()
+  }
 }
 
 async function saveStepMappings() {
+  if (recognizing.value || precisionLoading.value || model.loading.value || model.saving.value) return false
+  precisionValidationAttempted.value = true
+  if (missingPrecisionOperations.value.length) {
+    await focusMissingPrecision()
+    return false
+  }
+  transientError.value = ''
   const confirmed = draftStatus.value.validSteps
   mappingWarnings.value = []
   model.draftStepMappings.value = confirmed
@@ -1109,7 +1242,7 @@ async function saveStepMappings() {
 
 async function handlePrimaryAction() {
   if (primaryActionDisabled.value) return
-  if (dirty.value) {
+  if (dirty.value || missingPrecisionOperations.value.length) {
     await saveStepMappings()
     return
   }
@@ -1117,7 +1250,9 @@ async function handlePrimaryAction() {
 }
 
 function closeDialog() {
+  if (mappingEditsLocked.value) return
   dialogRunId.value += 1
+  invalidatePrecisionSuggestions()
   recognizing.value = false
   recommendationProgress.value = '正在推荐'
   dismissImportDialog()
@@ -1137,11 +1272,13 @@ function dismissImportDialog() {
 }
 
 function handleCancel() {
+  if (mappingEditsLocked.value) return
   if (!props.embedded) {
     closeDialog()
     return
   }
   dialogRunId.value += 1
+  invalidatePrecisionSuggestions()
   recognizing.value = false
   recommendationProgress.value = '正在推荐'
   emit('cancel')
@@ -2583,6 +2720,21 @@ function handleCancel() {
   background: #fff;
   color: #0f172a;
   font-size: 10px;
+}
+
+.tgmd-precision-field.is-invalid {
+  color: #b91c1c;
+}
+
+.tgmd-precision-field.is-invalid select {
+  border-color: #dc2626;
+  background: #fff7f7;
+}
+
+.tgmd-precision-suggestion {
+  color: #4f46e5;
+  font-size: 10px;
+  white-space: nowrap;
 }
 
 .tgmd-auxiliary-precision {

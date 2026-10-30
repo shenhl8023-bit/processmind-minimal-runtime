@@ -28,9 +28,11 @@ export function useAnalysisReviewPersistence(options: UseAnalysisReviewPersisten
   const savingRuleReview = ref(false)
   const autoPersistingRuleSegmentId = ref('')
 
-  function applyRuleReviewUpdate(result: SegmentRuleReviewSaveResult) {
+  function applyRuleReviewUpdate(result: SegmentRuleReviewSaveResult, originalNote: string) {
     options.savedRoute.value = applyRuleReviewUpdateToRoute(options.savedRoute.value, result)
-    options.ruleReviewNote.value = result.rule_review?.note || ''
+    if (options.selectedSegmentId.value === result.segment_id && options.ruleReviewNote.value === originalNote) {
+      options.ruleReviewNote.value = result.rule_review?.note || ''
+    }
     if (result.rule_review) {
       options.clearQuestionTreeRejudging(result.segment_id)
     }
@@ -40,8 +42,17 @@ export function useAnalysisReviewPersistence(options: UseAnalysisReviewPersisten
     decision: 'accepted' | 'rejected' | 'pending',
     persistOptions?: { autoAdvance?: boolean },
   ) {
-    if (!options.projectId.value || !options.savedRoute.value || !options.selectedSegment.value) return
+    if (savingRuleReview.value || !options.projectId.value || !options.savedRoute.value || !options.selectedSegment.value) return
     savingRuleReview.value = true
+    const projectId = options.projectId.value
+    const routeSnapshot = options.savedRoute.value
+    const routeId = options.savedRoute.value.route_id
+    const workflowRevision = options.savedRoute.value.workflow_revision
+    const originalNote = options.ruleReviewNote.value
+    const isCurrent = () => options.projectId.value === projectId
+      && options.savedRoute.value === routeSnapshot
+      && options.savedRoute.value?.route_id === routeId
+      && options.savedRoute.value?.workflow_revision === workflowRevision
     const segmentId = options.selectedSegment.value.id
     try {
       const result = await saveSegmentRuleReview({
@@ -54,7 +65,8 @@ export function useAnalysisReviewPersistence(options: UseAnalysisReviewPersisten
         summary_lines: options.ruleCandidateSummary.value,
         question_trail: options.questionTreeTrail.value,
       })
-      applyRuleReviewUpdate(result)
+      if (!isCurrent()) return
+      applyRuleReviewUpdate(result, originalNote)
       Promise.resolve(options.onRuleReviewSaved?.()).catch((err) => {
         console.warn('保存规则判断后启动规则预处理失败', err)
       })
@@ -62,6 +74,7 @@ export function useAnalysisReviewPersistence(options: UseAnalysisReviewPersisten
         options.goToNextPendingSegment()
       }
     } catch (e) {
+      if (!isCurrent()) return
       console.error('保存规则候选判断失败', e)
       if (isWorkflowRevisionConflict(e)) {
         options.error.value = '当前页面已过期，正在加载最新工作流状态。'

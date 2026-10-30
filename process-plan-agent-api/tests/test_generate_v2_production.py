@@ -27,6 +27,7 @@ from app.schemas.schemas import GenerateRequest
 from app.services.db_schema_maintenance import ensure_project_schema
 from app.services.rule_packages.hashing import rule_package_content_hash
 from app.services.rule_packages.contracts import RulePackageV2
+from app.services.rule_packages.demo_tables import compile_demo_tables
 from app.services.rule_packages.validator import validate_rule_package
 
 
@@ -232,7 +233,17 @@ def test_generate_uses_published_v2_plan_route(generation_context):
 @pytest.mark.parametrize("snapshot_state", ["published", "legacy", "tampered"])
 def test_generate_keeps_template_output_bound_to_published_snapshot(generation_context, snapshot_state):
     client, session_factory = generation_context
-    project_id, _ = asyncio.run(_seed_published_v2(session_factory, "v2-template-output"))
+
+    def snapshot_package(payload):
+        payload["manifest"]["route_version_id"] = None
+        rough = next(process for process in payload["route_catalog"]["processes"]
+                     if process["process_id"] == "process_rough_machine")
+        rough.update(main=True, constraints={})
+        payload["route_catalog"]["processes"] = [rough]
+        payload["route_rules"]["rules"] = []
+        payload["test_cases"][0]["expect"] = {"included_process_ids": ["process_rough_machine"]}
+
+    project_id, payload = asyncio.run(_seed_published_v2(session_factory, "v2-template-output", snapshot_package))
     full_route_structure = [{
         "process_name": "粗加工",
         "process_type": "加工工序",
@@ -270,11 +281,8 @@ def test_generate_keeps_template_output_bound_to_published_snapshot(generation_c
                 feature_selection_count=0,
             ))
             if snapshot_state != "legacy":
-                tables = {
-                    "factor_table": [],
-                    "full_route_table": full_route_structure,
-                    "rule_table": [{"target": "process_rough_machine", "required": True}],
-                }
+                package = RulePackageV2.model_validate(payload)
+                tables = compile_demo_tables(package, full_route_structure)
                 canonical = json.dumps(tables, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
                 snapshot_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
                 row = (await db.execute(
@@ -283,6 +291,8 @@ def test_generate_keeps_template_output_bound_to_published_snapshot(generation_c
                 row.demo_tables_json = json.dumps(tables, ensure_ascii=False)
                 row.export_sources_json = json.dumps({
                     "demo_tables_hash": snapshot_hash if snapshot_state == "published" else "corrupted",
+                    "project_id": project_id, "route_version_id": None,
+                    "rule_package_content_hash": rule_package_content_hash(package),
                 })
             await db.commit()
 
@@ -389,6 +399,35 @@ def test_generate_rejects_example_value_for_required_input(generation_context):
     )
 
     _assert_input_error(response, code="example_input_not_confirmed", field="material.grade", allowed_values=[])
+    _assert_generation_not_persisted(session_factory, project_id)
+
+
+def test_generate_rejects_package_manifest_from_another_project(generation_context):
+    client, session_factory = generation_context
+    project_id, _ = asyncio.run(_seed_published_v2(session_factory, 'mismatched-package-project'))
+
+    async def corrupt_project_binding():
+        async with session_factory() as db:
+            row = (await db.execute(select(FinalizedRulePackage).where(
+                FinalizedRulePackage.project_id == project_id
+            ))).scalar_one()
+            manifest = json.loads(row.manifest_json)
+            manifest['project_id'] = project_id + 100
+            manifest['scope']['key'] = str(project_id + 100)
+            row.manifest_json = json.dumps(manifest)
+            await db.commit()
+
+    asyncio.run(corrupt_project_binding())
+    response = client.post('/api/generate/', json={
+        'project_id': project_id,
+        'factor_values': {
+            'material': {'grade': '9Cr18'}, 'cad': {'features': ['槽类特征']},
+            'target_hardness_hrc': 58,
+        },
+        'input_metadata': CONFIRMED_BASE_INPUT_METADATA,
+    })
+    assert response.status_code == 409, response.text
+    assert '任务' in str(response.json()['detail'])
     _assert_generation_not_persisted(session_factory, project_id)
 
 

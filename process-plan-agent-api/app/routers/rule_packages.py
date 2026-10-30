@@ -35,6 +35,7 @@ from app.services.rule_packages.condition_registry import FIELD_REGISTRY_VERSION
 from app.services.rule_packages.condition_reviews import (
     confirm_condition_review,
     set_manual_condition_review,
+    set_process_configuration_review,
     parse_condition_review,
     save_condition_draft,
 )
@@ -84,6 +85,15 @@ async def set_manual_user_rule_condition(
 ):
     await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
     return await set_manual_condition_review(body, db)
+
+
+@router.post("/rule-conditions/configuration", response_model=RuleConditionReviewResponse)
+async def set_user_process_configuration(
+    body: ManualRuleConditionRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
+    return await set_process_configuration_review(body, db)
 
 
 @router.post("/preprocess/start", response_model=RulePreprocessStatusResponse)

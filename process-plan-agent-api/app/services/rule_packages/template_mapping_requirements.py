@@ -111,6 +111,36 @@ async def validate_rule_package_template_mapping(
         if process.get("process_type") != "辅助工序"
         for step in process.get("steps", [])
     }
+    stale_processes = set()
+    for mapping in template.step_mappings:
+        if mapping.status != "confirmed" or not mapping.candidate_features:
+            continue
+        steps = source_steps.get(mapping.source_operation_id, [])
+        position = mapping.source_step_order - 1
+        source_valid = (0 <= position < len(steps) and
+                        unicodedata.normalize('NFC', steps[position]).strip() ==
+                        unicodedata.normalize('NFC', mapping.source_step_name).strip())
+        targets = getattr(mapping, "final_targets", [])
+        if not targets:
+            # Legacy source-level reviews lack final target IDs. A stale source
+            # must not keep contributing features to an otherwise covered leaf.
+            if mapping.source_operation_id in operation_ids and source_valid:
+                continue
+            targets = [{"process_id": pid, "step_id": sid} for pid, sid in mapped_steps]
+        for target in targets:
+            process = processes_by_id.get(target.get("process_id"))
+            step = mapped_steps.get((target.get("process_id"), target.get("step_id")), {})
+            path = "/".join(path_key(mapping.template_group_path))
+            contributed = set(mapping.candidate_features).intersection(step.get("candidates", {}).get(path, []))
+            if contributed and process is not None and (
+                mapping.source_operation_id not in _source_operation_ids(process) or not source_valid
+            ):
+                stale_processes.add(process.process_id)
+    if stale_processes:
+        return [TemplateMappingBlocker(
+            code="stale_step_mapping", process_id=process.process_id, process_name=process.display_name,
+            message="模板候选仍包含已移除或已变化的来源工步，请按最新最终工艺树重新保存模板映射后发布。",
+        ) for process in processes if process.process_id in stale_processes]
     for mapping in template.step_mappings:
         if mapping.status != "confirmed" or mapping.source_operation_id not in operation_ids:
             continue

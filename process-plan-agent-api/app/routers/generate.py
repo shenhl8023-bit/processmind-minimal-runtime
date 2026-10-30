@@ -8,6 +8,7 @@ import os
 import re
 from collections import Counter
 from pathlib import Path
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -933,7 +934,7 @@ def _build_param_audit_overview(operation_reviews: list[ParamOperationReviewOut]
         pending_operation_count=pending_count,
         data_issue_operation_count=data_issue_count,
     )
-@router.get("/factor-schema", response_model=list[FactorFieldOut])
+@router.get("/factor-schema", response_model=List[FactorFieldOut])
 async def get_factor_schema(
     project_id: int,
     db: AsyncSession = Depends(get_db),
@@ -1014,6 +1015,14 @@ async def generate_route(
     rule_package_hash = finalized_package.content_hash or ""
     try:
         package_v2 = v2_package_from_row(finalized_package)
+        if (
+            package_v2.manifest.project_id is not None
+            and package_v2.manifest.project_id != body.project_id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="已发布规则包的任务信息不一致，请返回第四步重新导出规则包。",
+            )
         package_route_version_id = finalized_package.route_version_id
         manifest_route_version_id = package_v2.manifest.route_version_id
         if (

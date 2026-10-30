@@ -18,6 +18,26 @@ def test_valid_package_runs_embedded_cases(rule_package_v2):
     assert [result.passed for result in report.test_results] == [True]
 
 
+def test_fixed_route_accepts_zero_input_fields(rule_package_v2_payload):
+    payload = deepcopy(rule_package_v2_payload)
+    payload["input_schema"]["fields"] = []
+    payload["route_catalog"]["processes"] = [payload["route_catalog"]["processes"][0]]
+    payload["route_rules"]["rules"] = []
+    payload["test_cases"] = []
+    package = RulePackageV2.model_validate(payload)
+    report = validate_rule_package(package)
+    assert report.valid is True, report.model_dump()
+    assert plan_route(package, {}).selected_process_ids == ["process_prepare"]
+
+
+def test_empty_schema_still_rejects_conditions_referencing_undefined_fields(rule_package_v2_payload):
+    payload = deepcopy(rule_package_v2_payload)
+    payload["input_schema"]["fields"] = []
+    report = validate_rule_package(RulePackageV2.model_validate(payload))
+    assert report.valid is False
+    assert "unknown_input_field" in {issue.code for issue in report.errors}
+
+
 def test_validator_requires_an_action_assertion_for_each_enabled_rule(rule_package_v2_payload):
     payload = deepcopy(rule_package_v2_payload)
     payload["test_cases"][0]["expect"] = {
@@ -156,7 +176,8 @@ def test_validator_requires_main_process(rule_package_v2_payload):
 
 
 def _manual_boolean_pair_payload(payload, process_id="process_nitriding"):
-    manual_field = f"project_factor.manual_process_{process_id.removeprefix('process_')}"
+    suffix = process_id[len("process_"):] if process_id.startswith("process_") else process_id
+    manual_field = f"project_factor.manual_process_{suffix}"
     payload["input_schema"]["fields"].append({
         "key": manual_field,
         "label": "是否需要渗氮",
@@ -203,7 +224,7 @@ def _manual_boolean_pair_payload(payload, process_id="process_nitriding"):
                 "material": {"grade": "其他材料"},
                 "cad": {"features": ["无槽"]},
                 "target_hardness_hrc": 0,
-                "project_factor": {manual_field.removeprefix("project_factor."): True},
+                "project_factor": {manual_field[len("project_factor."):]: True},
             },
             "expect": {"included_process_ids": [process_id], "excluded_process_ids": []},
         },
@@ -213,7 +234,7 @@ def _manual_boolean_pair_payload(payload, process_id="process_nitriding"):
                 "material": {"grade": "其他材料"},
                 "cad": {"features": ["无槽"]},
                 "target_hardness_hrc": 0,
-                "project_factor": {manual_field.removeprefix("project_factor."): False},
+                "project_factor": {manual_field[len("project_factor."):]: False},
             },
             "expect": {"included_process_ids": [], "excluded_process_ids": [process_id]},
         },

@@ -73,6 +73,27 @@ function mount(result: any) {
 }
 
 describe('finalize publish precheck dialog', () => {
+  it('shows exported counts and explains unmapped machining exclusions', async () => {
+    const { app, host } = mount({
+      project_id: 9, ok: true, checklist: [], blockers: [],
+      export_summary: {
+        original_process_count: 3, exported_process_count: 2,
+        original_step_count: 4, exported_step_count: 2,
+        excluded_processes: [{ process_id: 'internal-lap', process_name: '研顶尖孔', reason: '加工工序没有可导出的已映射工步' }],
+        excluded_steps: [{ process_id: 'internal-turn', process_name: '车削', step_id: 'internal-thread', step_name: '攻螺纹', reason: '加工工步没有有效特征映射' }],
+        removed_factor_keys: [],
+      },
+    })
+    await Vue.nextTick()
+    const text = textContent(host)
+    expect(text).toContain('本次交付 2 道工序、2 个工步')
+    expect(text).toContain('研顶尖孔')
+    expect(text).toContain('车削 / 攻螺纹')
+    expect(text).toContain('没有有效特征映射')
+    expect(text).not.toContain('internal-')
+    app.unmount()
+  })
+
   it('shows each blocker once, collapses passed checks, and routes mapping repair', async () => {
     const blocker = {
       code: 'group_template_mapping_missing',
@@ -113,6 +134,34 @@ describe('finalize publish precheck dialog', () => {
     await Vue.nextTick()
 
     const repairButton = findNode(host, node => node.type === 'button' && textContent(node).includes('查看待处理规则'))
+    expect(repairButton).not.toBeNull()
+    repairButton.props.onClick()
+    expect(emitted).toEqual([['open-rule-review', blocker]])
+    app.unmount()
+  })
+
+  it('shows named dependency context and offers to locate its target process', async () => {
+    const blocker = {
+      code: 'unsupported_requires',
+      path: 'route_rules.process_configurations.segment-nondestructive_inspection_merge.relations[0]',
+      process_id: 'segment-nondestructive_inspection_merge',
+      process_name: '无损检查',
+      prerequisite_process_ids: ['split-900025'],
+      prerequisite_process_names: ['淬火'],
+      relation_index: 0,
+      message: '前置工序按当前规则可能不出现，请检查第 1 项“前置要求”关联。',
+    }
+    const { app, emitted, host } = mount({ project_id: 9, ok: false, checklist: [], blockers: [blocker] })
+    await Vue.nextTick()
+
+    const fullText = textContent(host)
+    expect(fullText).toContain('无损检查')
+    expect(fullText).toContain('淬火')
+    expect(fullText).toContain('第 1 项“前置要求”')
+    expect(fullText).not.toContain('segment-nondestructive_inspection_merge')
+    expect(fullText).not.toContain('split-900025')
+
+    const repairButton = findNode(host, node => node.type === 'button' && textContent(node).includes('定位“无损检查”'))
     expect(repairButton).not.toBeNull()
     repairButton.props.onClick()
     expect(emitted).toEqual([['open-rule-review', blocker]])

@@ -7,6 +7,12 @@ import ModelSettingsDrawer from '@/components/settings/ModelSettingsDrawer.vue'
 import {
   resolveCurrentProjectId,
 } from '@/composables/useCurrentProject'
+import {
+  refreshWorkflowNavigation,
+  workflowBlockedNotice,
+  workflowNavigationProgress,
+} from '@/composables/workflowNavigation'
+import { workflowResetSignal } from '@/composables/workflowResetState'
 import { workflowRouteLoaders } from '@/router'
 
 const route = useRoute()
@@ -37,36 +43,71 @@ const hasProjectContext = computed(() => {
   return currentProjectId.value !== null
 })
 
-const maxVisitedStepIndex = ref(0)
-watch(currentStepIndex, (val) => {
-  if (val !== null && val > maxVisitedStepIndex.value) {
-    maxVisitedStepIndex.value = val
+const currentWorkflowProgress = computed(() =>
+  workflowNavigationProgress.value?.project_id === currentProjectId.value
+    ? workflowNavigationProgress.value
+    : null,
+)
+const maxAvailableStep = computed(() => currentWorkflowProgress.value?.max_available_step || 1)
+
+watch(currentProjectId, (projectId) => {
+  if (projectId === null) {
+    workflowNavigationProgress.value = null
+    return
   }
+  if (workflowNavigationProgress.value?.project_id !== projectId) {
+    workflowNavigationProgress.value = null
+  }
+  void refreshWorkflowNavigation(projectId).catch(() => {
+    if (currentProjectId.value === projectId) workflowNavigationProgress.value = null
+  })
 }, { immediate: true })
 
-watch(currentProjectId, () => {
-  maxVisitedStepIndex.value = currentStepIndex.value ?? 0
+watch(workflowResetSignal, (signal) => {
+  if (signal?.projectId !== currentProjectId.value || currentProjectId.value === null) return
+  const completedSteps = Math.min(
+    workflowNavigationProgress.value?.project_id === signal.projectId
+      ? workflowNavigationProgress.value.completed_steps
+      : signal.fromStep - 1,
+    signal.fromStep - 1,
+  )
+  workflowNavigationProgress.value = {
+    project_id: signal.projectId,
+    completed_steps: completedSteps,
+    max_available_step: Math.min(6, completedSteps + 1),
+    workflow_revision: signal.workflowRevision,
+  }
+  void refreshWorkflowNavigation(currentProjectId.value).catch(() => {
+    if ((workflowNavigationProgress.value?.workflow_revision || 0) < signal.workflowRevision) {
+      workflowNavigationProgress.value = null
+    }
+  })
 })
+
+watch(workflowBlockedNotice, (message) => {
+  if (!message) return
+  ElMessage.warning(message)
+  workflowBlockedNotice.value = ''
+}, { immediate: true })
 
 const stepStatus = (stepNumber: number) => {
   const index = stepNumber - 1
   if (currentStepIndex.value !== null) {
     if (index === currentStepIndex.value) return 'active'
-    if (index < currentStepIndex.value) return 'completed'
   }
-  if (!hasProjectContext.value) return 'locked'
-  return 'available'
+  if (index < (currentWorkflowProgress.value?.completed_steps || 0)) return 'completed'
+  if (stepNumber <= maxAvailableStep.value && (stepNumber === 1 || hasProjectContext.value)) return 'available'
+  return 'locked'
 }
 
 const stepIsCompleted = (stepNumber: number) => stepStatus(stepNumber) === 'completed'
 
 function navigateToStep(stepNumber: number) {
   const status = stepStatus(stepNumber)
-  if (status === 'active' || status === 'locked') return
-  const targetIndex = stepNumber - 1
-  if (targetIndex > maxVisitedStepIndex.value + 1) {
-    const nextStepName = workflowSteps[maxVisitedStepIndex.value + 1]?.label || ''
-    ElMessage.warning(`请按工作流顺序依次完成前置步骤，建议先推进【${nextStepName}】`)
+  if (status === 'active') return
+  if (status === 'locked') {
+    const requiredStep = workflowSteps[maxAvailableStep.value - 1]
+    ElMessage.warning(`请先完成【${requiredStep?.label || '当前步骤'}】，再进入后续步骤。`)
     return
   }
   const step = workflowSteps[stepNumber - 1]
@@ -108,7 +149,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'knowledge-shell': activeIndex === '/knowledge' }">
     <!-- Top Navigation Bar -->
     <header class="top-bar">
       <div class="brand">
@@ -139,6 +180,16 @@ onMounted(() => {
 
       <div class="top-bar-right">
         <button
+          v-if="activeIndex === '/knowledge'"
+          class="asset-entry"
+          type="button"
+          title="返回第一步：上传资料"
+          @click="navigateToStep(1)"
+        >
+          返回第一步
+        </button>
+        <button
+          v-else
           class="asset-entry knowledge-entry"
           type="button"
           @click="openKnowledge"
@@ -467,6 +518,23 @@ html, body {
   margin: 0 auto;
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+/* The knowledge workspace owns table/answer scrolling. */
+.knowledge-shell .main-area { display: flex; flex-direction: column; overflow: hidden; padding-top: 10px; padding-bottom: 10px; }
+.knowledge-shell .top-bar-right { flex-shrink: 0; }
+.knowledge-shell .asset-entry { white-space: nowrap; border-radius: 6px; }
+@media (min-width: 901px) and (max-width: 1250px) {
+  .knowledge-shell .top-bar { padding-inline: 20px; gap: 18px; }
+  .knowledge-shell .brand-slogan { display: none; }
+  .knowledge-shell .step-indicator { gap: 6px; }
+  .knowledge-shell .step-line { width: 16px; }
+  .knowledge-shell .step { gap: 4px; }
+}
+@media (max-width: 520px) {
+  .knowledge-shell .brand-name { max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .knowledge-shell .brand { gap: 6px; }
+  .knowledge-shell .top-bar-right { gap: 5px; }
 }
 
 /* ===== Footer ===== */

@@ -1,15 +1,21 @@
 import { computed, ref } from 'vue'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   getRouteMergeWorkspace: vi.fn(),
   reviewMergeSuggestion: vi.fn(),
+  saveNormalizedSupersetRoute: vi.fn(),
+  refreshWorkflowNavigation: vi.fn(),
 }))
 
 vi.mock('@/api', () => ({
   getRouteMergeWorkspace: mocks.getRouteMergeWorkspace,
   reviewMergeSuggestion: mocks.reviewMergeSuggestion,
-  saveNormalizedSupersetRoute: vi.fn(),
+  saveNormalizedSupersetRoute: mocks.saveNormalizedSupersetRoute,
+}))
+
+vi.mock('@/composables/workflowNavigation', () => ({
+  refreshWorkflowNavigation: mocks.refreshWorkflowNavigation,
 }))
 
 vi.mock('@/composables/workflowDataCache', () => ({
@@ -70,8 +76,12 @@ function createWorkspace({
 
 describe('useRouteMergeWorkspace merge review feedback', () => {
   beforeEach(() => {
+    vi.stubGlobal('localStorage', { getItem: vi.fn(() => null), setItem: vi.fn() })
     mocks.getRouteMergeWorkspace.mockReset()
     mocks.reviewMergeSuggestion.mockReset()
+    mocks.saveNormalizedSupersetRoute.mockReset()
+    mocks.refreshWorkflowNavigation.mockReset()
+    mocks.refreshWorkflowNavigation.mockResolvedValue({})
     mocks.getRouteMergeWorkspace.mockResolvedValue({
       project_id: 12,
       superset_route: [],
@@ -81,6 +91,26 @@ describe('useRouteMergeWorkspace merge review feedback', () => {
       algo_version: 'v1',
     })
     mocks.reviewMergeSuggestion.mockResolvedValue({ ok: true })
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('refreshes workflow access and uses the new revision after saving a changed route', async () => {
+    mocks.saveNormalizedSupersetRoute.mockResolvedValue({
+      project_id: 12,
+      normalized_superset_route: [],
+      saved_route_version: 2,
+      workflow_revision: 4,
+      source_signature: 'signature',
+      algo_version: 'v1',
+    })
+    const { workspace, options } = createWorkspace()
+    options.routeMergeEditUnlocked = computed(() => true)
+
+    const saved = await workspace.saveRouteMergeWorkspace(vi.fn())
+
+    expect(saved).toBe(true)
+    expect(options.workflowRevision.value).toBe(4)
+    expect(mocks.refreshWorkflowNavigation).toHaveBeenCalledWith(12)
   })
 
   it('reports a missing candidate group without calling the review API', async () => {
@@ -167,5 +197,47 @@ describe('useRouteMergeWorkspace merge review feedback', () => {
     expect(setError).not.toHaveBeenCalled()
     expect(workspace.routeMergeNotice.value).toBe('已确认全部候选归并组。')
     vi.unstubAllGlobals()
+  })
+
+  it('ignores a workspace response after switching tasks', async () => {
+    let finish!: (value: any) => void
+    mocks.getRouteMergeWorkspace.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    const { workspace, options } = createWorkspace()
+    const pending = workspace.loadRouteMergeWorkspaceFromBackend()
+    options.projectId.value = 99
+    options.routes.value = [{ id: 9901, name: '新任务' }]
+    finish({ project_id: 12, superset_route: [{ id: 1201, name: '旧任务' }] })
+
+    expect(await pending).toBe(false)
+    expect(options.routes.value).toEqual([{ id: 9901, name: '新任务' }])
+    expect(options.clearRouteResultDraftStorage).not.toHaveBeenCalled()
+  })
+
+  it('keeps the newer refresh when requests resolve in reverse order', async () => {
+    vi.stubGlobal('localStorage', { getItem: vi.fn(() => null), setItem: vi.fn() })
+    let finishOld!: (value: any) => void
+    mocks.getRouteMergeWorkspace.mockReturnValueOnce(new Promise(resolve => { finishOld = resolve }))
+    mocks.getRouteMergeWorkspace.mockResolvedValueOnce({ project_id: 12, superset_route: [{ id: 2 }] })
+    const { workspace, options } = createWorkspace()
+    const old = workspace.loadRouteMergeWorkspaceFromBackend(true, true)
+    await workspace.loadRouteMergeWorkspaceFromBackend(true, true)
+    finishOld({ project_id: 12, superset_route: [{ id: 1 }] })
+
+    expect(await old).toBe(false)
+    expect(options.routes.value).toEqual([{ id: 2 }])
+    vi.unstubAllGlobals()
+  })
+
+  it('does not clear the new task draft when an old merge review finishes', async () => {
+    let finish!: (value: any) => void
+    mocks.reviewMergeSuggestion.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    const { workspace, options } = createWorkspace()
+    const pending = workspace.applyMergeSuggestionAction('group-1', 'accept', vi.fn())
+    options.projectId.value = 99
+    finish({ ok: true })
+
+    expect(await pending).toBe(false)
+    expect(options.clearRouteResultDraftStorage).not.toHaveBeenCalled()
+    expect(mocks.getRouteMergeWorkspace).not.toHaveBeenCalled()
   })
 })

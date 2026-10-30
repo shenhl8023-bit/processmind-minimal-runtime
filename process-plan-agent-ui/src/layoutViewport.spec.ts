@@ -51,8 +51,10 @@ describe('workflow viewport layout', () => {
     expect(finalizeSource).toMatch(/precheckResult\.value\s*=\s*null/)
   })
 
-  it('shows only actionable precheck status and keeps the resolved-filter empty state compact', () => {
-    expect(finalizeSource).toMatch(/v-if="precheckResult && !precheckResult\.ok && canOpenPrecheck"\s+type="button"\s+class="ash-publish-state ash-publish-state--blocked ash-publish-state--clickable"/s)
+  it('keeps delivery details accessible after precheck and the resolved-filter empty state compact', () => {
+    expect(finalizeSource).toMatch(/v-if="precheckResult && canOpenPrecheck"\s+type="button"\s+class="ash-publish-state ash-publish-state--clickable"/s)
+    expect(finalizeSource).toContain("'ash-publish-state--blocked': !precheckResult.ok")
+    expect(finalizeSource).toContain('查看交付明细')
     expect(finalizeSource).toContain('暂无待处理工序')
     expect(finalizeSource).toContain('查看全部规则')
     expect(finalizeSource).not.toContain('当前规则已全部确认')

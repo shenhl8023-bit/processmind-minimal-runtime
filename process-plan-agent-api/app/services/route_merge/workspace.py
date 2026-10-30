@@ -15,14 +15,20 @@ import copy
 import hashlib
 import json
 import re
-from collections.abc import Awaitable, Callable
+from typing import Awaitable, Callable
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.paths import UPLOAD_DIR
-from app.models.models import Document, DocumentOperationDetail, RouteMergeSnapshot
-from app.services.rule_packages.lifecycle import supersede_published_rule_packages
+from app.models.models import (
+    Document,
+    DocumentOperationDetail,
+    FinalizedRulePackage,
+    Project,
+    RouteMergeSnapshot,
+)
+from app.services.project_workflow_lifecycle import invalidate_project_workflow
 from app.services.route_merge.config import (
     ROUTE_MERGE_ALGO_VERSION,
 )
@@ -163,13 +169,39 @@ async def invalidate_project_document_derived_state(
     *,
     document_ids: list[int] | set[int] | tuple[int, ...] | None = None,
 ) -> dict[str, int]:
-    """Invalidate cached and published state derived from a document set."""
+    """Invalidate every workflow result derived from a changed document set."""
+    project = await db.get(Project, project_id)
+    if project is None:
+        return await invalidate_project_route_merge_cache(
+            db,
+            project_id,
+            document_ids=document_ids,
+        )
+
+    published_packages = (
+        await db.execute(
+            select(FinalizedRulePackage).where(
+                FinalizedRulePackage.project_id == project_id,
+                FinalizedRulePackage.status == "published",
+            )
+        )
+    ).scalars().all()
+    workflow_result = await invalidate_project_workflow(
+        db,
+        project,
+        from_step=2,
+    )
+    for package in published_packages:
+        package.status = "superseded"
+    await db.flush()
+
     result = await invalidate_project_route_merge_cache(
         db,
         project_id,
         document_ids=document_ids,
     )
-    result["finalized_rule_packages"] = await supersede_published_rule_packages(project_id, db)
+    result["route_merge_snapshots"] += workflow_result.deleted_route_merge_snapshots
+    result["finalized_rule_packages"] = len(published_packages)
     return result
 
 

@@ -34,6 +34,27 @@ def test_win7_lock_is_fully_pinned_and_contains_runtime_dependencies():
     assert not any("node" in name for name in _requirement_names())
 
 
+def test_win7_lock_uses_a_pydantic_core_build_that_supports_windows_7():
+    contents = LOCK_FILE.read_text(encoding="utf-8")
+
+    assert "pydantic==2.10.6" in contents
+    assert "pydantic-core==2.27.2" in contents
+    assert "pydantic-core==2.23.4" not in contents
+
+
+def test_win7_lock_includes_anyio_python38_exception_group_dependency():
+    contents = LOCK_FILE.read_text(encoding="utf-8")
+
+    assert "anyio==4.4.0" in contents
+    assert "exceptiongroup==1.2.2" in contents
+
+
+def test_win7_lock_includes_pydantic_python38_annotation_backport():
+    contents = LOCK_FILE.read_text(encoding="utf-8")
+
+    assert "eval-type-backport==0.2.2" in contents
+
+
 def test_win7_packaging_scripts_have_static_frontend_and_offline_contract():
     builder = PROJECT_ROOT / "scripts" / "build-win7-runtime.ps1"
     installer = PROJECT_ROOT / "scripts" / "install-win7-wheels.py"
@@ -51,11 +72,14 @@ def test_win7_packaging_scripts_have_static_frontend_and_offline_contract():
     assert "--find-links" in builder_text
     assert "3.8.10" in builder_text
     assert "install-win7-wheels.py" in builder_text
+    assert "import app.main" in builder_text
     assert "site-packages" in builder_text
     assert "import site" in builder_text
     assert "MSVCP140.dll" in builder_text
     assert "ucrtbase.dll" in builder_text
     assert "api-ms-win-crt-runtime-l1-1-0.dll" in builder_text
+    assert "KB2533623" in packer_text
+    assert "prerequisites" in packer_text
     assert "process-plan-agent-ui\\dist" in packer_text
     assert "manifest.json" in packer_text
     assert "SHA256SUMS.txt" in packer_text
@@ -67,15 +91,26 @@ def test_win7_packaging_scripts_have_static_frontend_and_offline_contract():
     assert ".env" in stage_text
     assert ".db" in stage_text
     assert "docs\\配置模板" in stage_text
+    assert "docs\\用户使用说明.md" in stage_text
+    assert "docs\\系统简介.md" in stage_text
+    assert "docs\\Win7功能测试方案-20261025.md" in stage_text
+    assert "docs\\Win7缺陷清单-20261025.md" in stage_text
+    assert "prerequisites" in stage_text
 
 
 def test_win7_entrypoints_are_present_and_do_not_require_node():
-    for name in ("start-win7.cmd", "start-win7.bat", "stop-win7.cmd", "status-win7.cmd"):
+    assert not (PROJECT_ROOT / "start-win7.cmd").exists()
+    for name in ("start-win7.bat", "stop-win7.cmd", "status-win7.cmd"):
         path = PROJECT_ROOT / name
         assert path.is_file()
-        text = path.read_text(encoding="utf-8")
-        if name.endswith(".bat"):
-            assert "start-win7.cmd" in text
+        data = path.read_bytes()
+        text = data.decode("utf-8")
+        assert b"\r\n" in data
+        assert b"\n" not in data.replace(b"\r\n", b"")
+        if name == "start-win7.bat":
+            assert "win7_launcher.py" in text
+            assert "start-win7.cmd" not in text
+            assert "pause" in text.lower()
         else:
             assert "win7_launcher.py" in text
         assert "node.exe" not in text.lower()

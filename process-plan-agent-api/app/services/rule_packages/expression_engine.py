@@ -43,7 +43,14 @@ def _equals(actual: Any, expected: Any) -> bool:
         and isinstance(actual, (int, float))
         and isinstance(expected, (int, float))
     ):
-        return abs(float(actual) - float(expected)) < 1e-9
+        if isinstance(actual, int) and isinstance(expected, int):
+            return actual == expected
+        if isinstance(actual, int) != isinstance(expected, int):
+            integer, decimal = (actual, expected) if isinstance(actual, int) else (expected, actual)
+            if not decimal.is_integer():
+                return abs(integer - decimal) < 1e-9
+            return integer == int(decimal)
+        return abs(actual - expected) < 1e-9
     return _normalized_scalar(actual) == _normalized_scalar(expected)
 
 
@@ -57,11 +64,11 @@ def _contains(actual: Any, expected: Any) -> bool:
     return False
 
 
-def _number(value: Any) -> float | None:
+def _number(value: Any) -> int | float | None:
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        return float(value)
+        return value
     if isinstance(value, str):
         try:
             return float(value.strip())

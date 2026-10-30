@@ -6,6 +6,7 @@ import heapq
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Any
+from types import SimpleNamespace
 
 from app.services.rule_packages.contracts import (
     PlannedRouteStep,
@@ -178,7 +179,13 @@ def plan_route(package: RulePackageV2, inputs: dict[str, Any]) -> RoutePlan:
             and field.key.startswith("project_factor.manual_process_")
         )
     }
-    selected = {process.process_id for process in package.route_catalog.processes if process.main}
+    configurations = {item.process_id: item for item in package.route_rules.process_configurations if item.enabled}
+    configuration_matches = {
+        pid: config.when is None or evaluate_condition(config.when, inputs).matched
+        for pid, config in configurations.items()
+    }
+    selected = {process.process_id for process in package.route_catalog.processes
+                if process.main and process.process_id not in configurations}
     reasons = {process_id: "主线工序" for process_id in selected}
     decisions: dict[str, _Decision] = {}
     traces: list[RuleExecutionTrace] = []
@@ -189,7 +196,13 @@ def plan_route(package: RulePackageV2, inputs: dict[str, Any]) -> RoutePlan:
     def add_relation(mapping: dict[str, set[str]], target_id: str, source_ids: list[str]) -> None:
         mapping.setdefault(target_id, set()).update(source_ids)
 
-    for relation in package.route_rules.process_relations:
+    configuration_relations = [
+        SimpleNamespace(**relation.model_dump(), enabled=True,
+                        relation_id=f'configuration.{config.process_id}.{index}', reason=config.source_text)
+        for config in configurations.values() for index, relation in enumerate(config.relations)
+    ]
+    all_relations = [*package.route_rules.process_relations, *configuration_relations]
+    for relation in all_relations:
         if not relation.enabled:
             continue
         if relation.relation_type in {"trigger_after", "order_after", "requires"}:
@@ -231,16 +244,39 @@ def plan_route(package: RulePackageV2, inputs: dict[str, Any]) -> RoutePlan:
             ))
 
     for process_id, decision in decisions.items():
-        if decision.action == "include":
+        if decision.action == "include" and process_id not in configurations:
             selected.add(process_id)
             reasons[process_id] = decision.reason
         elif _is_manual_process_override(decision) or not process_map[process_id].main:
             selected.discard(process_id)
             reasons.pop(process_id, None)
 
+    def configuration_eligible(process_id):
+        config = configurations.get(process_id)
+        if config is None:
+            return True
+        trigger_relations = [relation for relation in config.relations if relation.relation_type == "trigger_after"]
+        triggers_match = all(
+            (all(source_id in selected for source_id in relation.source_process_ids)
+             if relation.source_match == "all"
+             else any(source_id in selected for source_id in relation.source_process_ids))
+            for relation in trigger_relations
+        )
+        return configuration_matches[process_id] and triggers_match
+
+    def decision_allows(process_id):
+        decision = decisions.get(process_id)
+        return not (decision and decision.action == "exclude")
+
+    # Gates, triggers and prerequisites share one monotone expansion.
     changed = True
     while changed:
         changed = False
+        for process_id, config in configurations.items():
+            if process_id not in selected and configuration_eligible(process_id) and decision_allows(process_id):
+                selected.add(process_id)
+                reasons[process_id] = config.source_text or "工序规则全部满足"
+                changed = True
         for relation in package.route_rules.process_relations:
             if not relation.enabled or relation.relation_type != "trigger_after":
                 continue
@@ -252,6 +288,9 @@ def plan_route(package: RulePackageV2, inputs: dict[str, Any]) -> RoutePlan:
             if not source_selected:
                 continue
             for target_id in relation.target_process_ids:
+                # A configuration owns every inclusion path for its process.
+                if target_id in configurations:
+                    continue
                 excluded = decisions.get(target_id)
                 if excluded and excluded.action == "exclude":
                     if _is_manual_process_override(excluded):
@@ -264,9 +303,27 @@ def plan_route(package: RulePackageV2, inputs: dict[str, Any]) -> RoutePlan:
                     reasons[target_id] = relation.reason or f"由关联工序 {relation.relation_id} 触发"
                     changed = True
 
-    _expand_required_processes(selected, decisions, process_map, reasons, relation_requires)
+        for process_id in list(selected):
+            dependencies = [*process_map[process_id].constraints.requires, *sorted(relation_requires.get(process_id, set()))]
+            for required_id in dependencies:
+                if required_id not in selected and configuration_eligible(required_id) and decision_allows(required_id):
+                    selected.add(required_id)
+                    reasons[required_id] = f"工序 {process_id} 的前置依赖"
+                    changed = True
+
+    for process_id in sorted(selected):
+        for required_id in [*process_map[process_id].constraints.requires, *sorted(relation_requires.get(process_id, set()))]:
+            if required_id not in selected:
+                if required_id in configurations:
+                    raise RoutePlanningError(f"工序 {process_id} 依赖 {required_id}，但其生成规则条件未满足")
+                decision = decisions.get(required_id)
+                rule_id = decision.rule_id if decision else ""
+                raise RoutePlanningError(f"工序 {process_id} 依赖 {required_id}，但后者被规则 {rule_id} 排除")
     _assert_no_selected_conflicts(selected, process_map, relation_conflicts)
-    ordered_ids = _topological_process_order(selected, process_map, relation_after)
+    # The published three-table route has one fixed parent order. Removing an
+    # optional predecessor must not reorder the surviving operations in preview.
+    parent_order = _topological_process_order(set(process_map), process_map, relation_after)
+    ordered_ids = [process_id for process_id in parent_order if process_id in selected]
     display_names = _route_display_names(ordered_ids, process_map)
 
     steps = []

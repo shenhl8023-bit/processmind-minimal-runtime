@@ -311,6 +311,26 @@ export interface TemplateStepMappingSuggestResponse {
   warnings: string[]
 }
 
+export interface TemplateProcessPrecisionSuggestion {
+  process_id: string
+  precision: '粗加工' | '半精加工' | '精加工'
+  confidence: number
+  evidence: string[]
+  reason: string
+}
+
+export async function suggestTemplateProcessPrecisions(body: {
+  project_id: number
+  expected_template_revision: number
+  operations: TemplateGroupMappingOperationInput[]
+}) {
+  const { data } = await api.post('/api/extract/template-process-precisions/suggest', body)
+  return data as {
+    project_id: number; template_revision: number; model_used: boolean
+    suggestions: TemplateProcessPrecisionSuggestion[]; warnings: string[]
+  }
+}
+
 export interface NormalizedRouteSegment {
   id: string
   export_process_id?: string
@@ -348,6 +368,7 @@ export interface NormalizedSupersetRouteResult {
   project_id: number
   normalized_superset_route: NormalizedRouteSegment[]
   saved_route_version?: number | null
+  workflow_revision?: number
   source_signature: string
   algo_version: string
 }
@@ -506,6 +527,15 @@ export interface RulePackagePrecheckResult {
   ok: boolean
   checklist: RulePackagePrecheckItem[]
   blockers: Array<Record<string, any>>
+  export_summary?: {
+    original_process_count: number
+    exported_process_count: number
+    original_step_count: number
+    exported_step_count: number
+    excluded_processes: Array<{ process_id: string; process_name: string; reason: string }>
+    excluded_steps: Array<{ process_id: string; process_name: string; step_id: string; step_name: string; reason: string }>
+    removed_factor_keys: string[]
+  } | null
 }
 
 export interface FinalizedRulePackageListItem {
@@ -725,12 +755,14 @@ export async function commitGroupTemplate(
   file: File,
   expectedHash: string,
   expectedRevision: number,
+  expectedWorkflowRevision = 0,
 ): Promise<GroupTemplateCommitResult> {
   const form = new FormData()
   form.append('file', file)
   form.append('project_id', String(projectId))
   form.append('expected_content_hash', expectedHash)
   form.append('expected_template_revision', String(expectedRevision))
+  form.append('expected_workflow_revision', String(expectedWorkflowRevision))
   const { data } = await api.put('/api/extract/group-templates/current', form)
   return data as GroupTemplateCommitResult
 }
@@ -739,11 +771,14 @@ export async function saveGroupTemplateMappings(
   projectId: number,
   revision: number,
   mappings: GroupTemplateMappingInput[],
+  expectedWorkflowRevision = 0,
 ): Promise<ProjectGroupTemplate> {
   const { data } = await api.put('/api/extract/group-templates/mappings', {
     project_id: projectId,
     expected_template_revision: revision,
+    expected_workflow_revision: expectedWorkflowRevision,
     mappings,
+    replace_all: true,
   })
   return data as ProjectGroupTemplate
 }
@@ -753,12 +788,15 @@ export async function saveGroupTemplateStepMappings(
   revision: number,
   mappings: GroupTemplateStepMappingInput[],
   operations: TemplateGroupMappingOperationInput[] = [],
+  expectedWorkflowRevision = 0,
 ): Promise<ProjectGroupTemplate> {
   const { data } = await api.put('/api/extract/group-templates/step-mappings', {
     project_id: projectId,
     expected_template_revision: revision,
+    expected_workflow_revision: expectedWorkflowRevision,
     mappings,
     operations,
+    replace_all: true,
   })
   return data as ProjectGroupTemplate
 }

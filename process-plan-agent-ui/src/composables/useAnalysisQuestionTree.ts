@@ -73,7 +73,7 @@ export function useAnalysisQuestionTree(args: {
   function setSegmentState(segmentId: string, state: SegmentTreeState) {
     treeStateMap.value = {
       ...treeStateMap.value,
-      [segmentId]: { ...state },
+      [segmentId]: { ...state, rejudging: !!rejudgingSegmentMap.value[segmentId] },
     }
   }
 
@@ -261,6 +261,8 @@ export function useAnalysisQuestionTree(args: {
     const next = { ...rejudgingSegmentMap.value }
     delete next[id]
     rejudgingSegmentMap.value = next
+    const state = treeStateMap.value[id]
+    if (state) setSegmentState(id, state)
   }
 
   function reset() {
@@ -416,7 +418,10 @@ export function useAnalysisQuestionTree(args: {
     const loaded = loadPersistedTreeState()
     treeStateMap.value = loaded
     hydratedSegmentIds.value = new Set(Object.keys(loaded))
-  }, { immediate: true })
+    rejudgingSegmentMap.value = Object.fromEntries(
+      Object.entries(loaded).filter(([, state]) => state.rejudging).map(([id]) => [id, true]),
+    )
+  }, { immediate: true, flush: 'sync' })
 
   watch(() => args.selectedSegment.value, (segment) => {
     if (!segment?.id) return

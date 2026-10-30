@@ -1,4 +1,4 @@
-import { nextTick, ref, type ComputedRef, type Ref } from 'vue'
+import { nextTick, ref, watch, type ComputedRef, type Ref } from 'vue'
 import {
   getRouteMergeWorkspace,
   reviewMergeSuggestion,
@@ -16,6 +16,7 @@ import {
   getWorkflowDataRevision,
   setWorkflowDataCache,
 } from '@/composables/workflowDataCache'
+import { refreshWorkflowNavigation } from '@/composables/workflowNavigation'
 
 type UseRouteMergeWorkspaceOptions = {
   projectId: Ref<number | null>
@@ -78,6 +79,24 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
   const routeWorkspaceLoading = ref(false)
   const routeMergeBatchSubmitting = ref(false)
   const ROUTE_MERGE_SNAPSHOT_META_VERSION = 'v1'
+  let workspaceRequestId = 0
+  let projectEpoch = 0
+  watch(options.projectId, () => {
+    projectEpoch += 1
+    workspaceRequestId += 1
+  }, { flush: 'sync' })
+
+  function captureWorkspaceContext() {
+    const projectId = options.projectId.value
+    const workflowRevision = options.workflowRevision.value
+    const epoch = projectEpoch
+    return {
+      projectId,
+      isCurrent: () => options.projectId.value === projectId
+        && options.workflowRevision.value === workflowRevision
+        && projectEpoch === epoch,
+    }
+  }
 
   function routeMergeSnapshotMetaStorageKey() {
     if (!options.projectId.value) return ''
@@ -146,6 +165,7 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
   async function applyRouteMergeWorkspaceSnapshot(
     snapshot: RouteMergeWorkspaceSnapshot,
     syncPreviewDraft: boolean,
+    isCurrent: () => boolean,
   ) {
     const previousSnapshotMeta = readRouteMergeSnapshotMeta()
     options.clearLegacyRouteMergeStorage()
@@ -170,6 +190,7 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
     options.routeMergeGroups.value = options.buildRouteMergeGroupsFromSuggestions(options.routeMergeSuggestions.value)
     options.selectedMergeGroupId.value = options.findPreferredMergeGroupId(options.routeMergeGroups.value)
     await nextTick()
+    if (!isCurrent()) return false
     if (syncPreviewDraft) {
       options.syncRouteMergePreviewDraft(
         findPreviewItemIdForGroupId(options.selectedMergeGroupId.value),
@@ -205,20 +226,25 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
   async function loadRouteMergeWorkspaceFromBackend(syncPreviewDraft = true, forceRefresh = false) {
     if (!options.projectId.value) return false
     const projectId = options.projectId.value
+    const context = captureWorkspaceContext()
+    const requestId = ++workspaceRequestId
     const cacheKey = routeMergeWorkspaceCacheKey(projectId)
     const requestRevision = getWorkflowDataRevision()
+    const isCurrent = () => context.isCurrent()
+      && requestId === workspaceRequestId
+      && requestRevision === getWorkflowDataRevision()
     try {
       const cachedSnapshot = forceRefresh
         ? null
         : getWorkflowDataCache<RouteMergeWorkspaceSnapshot>(cacheKey)
       if (cachedSnapshot) {
-        return await applyRouteMergeWorkspaceSnapshot(cachedSnapshot, syncPreviewDraft)
+        return await applyRouteMergeWorkspaceSnapshot(cachedSnapshot, syncPreviewDraft, isCurrent)
       }
 
       const snapshot = await fetchRouteMergeWorkspace(projectId, forceRefresh)
-      if (requestRevision !== getWorkflowDataRevision()) return false
+      if (!isCurrent()) return false
       setWorkflowDataCache(cacheKey, snapshot, requestRevision)
-      return await applyRouteMergeWorkspaceSnapshot(snapshot, syncPreviewDraft)
+      return await applyRouteMergeWorkspaceSnapshot(snapshot, syncPreviewDraft, isCurrent)
     } catch (error) {
       console.error('加载后端路线归并工作台失败', error)
       return false
@@ -259,6 +285,7 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
       return false
     }
     const affectedOperationIds = [...current.operation_ids]
+    const context = captureWorkspaceContext()
     const nextGroupId = options.getNextActionableGroupId(groupId)
 
     try {
@@ -268,9 +295,11 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
         suggestion_id: suggestion.suggestion_id,
         action,
       })
-      clearWorkflowProjectDataCache(options.projectId.value)
+      if (!context.isCurrent()) return false
+      clearWorkflowProjectDataCache(context.projectId)
       options.clearRouteResultDraftStorage()
       const refreshed = await refreshRouteMergeWorkspace(nextGroupId, true)
+      if (!context.isCurrent()) return false
       if (!refreshed) {
         setError('归并审核已提交，但工作台刷新失败，请手动刷新确认最新状态。')
         return false
@@ -280,11 +309,13 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
         operationIds: affectedOperationIds,
       })
       if (options.selectedMergeGroupId.value) await options.focusMergeGroup(options.selectedMergeGroupId.value)
+      if (!context.isCurrent()) return false
       routeMergeNotice.value = action === 'accept'
         ? `已确认将「${options.mergeGroupCandidateLabel(current)}」归并为当前标准化母路线名称。`
         : `已确认「${options.mergeGroupCandidateLabel(current)}」不合并。`
       return true
     } catch (error) {
+      if (!context.isCurrent()) return false
       console.error('调用后端保存归并动作失败', error)
       setError(action === 'accept' ? '保存归并结果失败，请稍后重试。' : '保存不合并结果失败，请稍后重试。')
       return false
@@ -334,6 +365,7 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
   }
 
   async function saveRouteMergeWorkspace(setError: (message: string) => void) {
+    const context = captureWorkspaceContext()
     options.saveRouteResultDraftToStorage()
     routeMergeNotice.value = '正在保存标准化结果路线，保存完成后将进入规则分析。'
     if (options.projectId.value && options.routeMergeEditUnlocked.value) {
@@ -375,11 +407,16 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
           expected_workflow_revision: options.workflowRevision.value,
           normalized_superset_route: payload,
         })
-        clearWorkflowProjectDataCache(options.projectId.value)
+        if (!context.isCurrent()) return false
+        clearWorkflowProjectDataCache(context.projectId)
+        const savedRevision = Number(saved.workflow_revision)
+        if (Number.isInteger(savedRevision)) options.workflowRevision.value = savedRevision
+        void refreshWorkflowNavigation(options.projectId.value).catch(() => undefined)
         options.routeMergeNormalizedSegments.value = saved.normalized_superset_route || []
         routeMergeNotice.value = '第三步结果路线已保存到后端。'
         return true
       } catch (error) {
+        if (!context.isCurrent()) return false
         console.error('调用后端保存结果路线失败', error)
         setError('保存结果路线失败，请稍后重试。')
         return false
@@ -397,10 +434,17 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
           action: 'rename',
           manual_label: current.standard_name,
         })
-        await refreshRouteMergeWorkspace(current.id)
+        if (!context.isCurrent()) return false
+        const refreshed = await refreshRouteMergeWorkspace(current.id)
+        if (!context.isCurrent()) return false
+        if (!refreshed) {
+          setError('归并名称已提交，但工作台刷新失败，请手动刷新确认最新状态。')
+          return false
+        }
         routeMergeNotice.value = '当前路线归并结果已保存到后端工作台状态。'
         return true
       } catch (error) {
+        if (!context.isCurrent()) return false
         console.error('调用后端保存归并名称失败', error)
         setError('保存归并名称失败，请稍后重试。')
         return false

@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import Callable
-from typing import TypeVar
+from typing import Callable, TypeVar
 
 from app.core.compat import run_in_thread
 

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from typing import List
+from urllib.parse import urlsplit
 import httpx
 
 from app.schemas.schemas import SettingOut, SettingUpdate, LLMTestRequest, LLMTestOut, LLMModelOut
@@ -19,6 +20,22 @@ from app.services.settings_store import (
 router = APIRouter(prefix="/api/settings", tags=["Settings"])
 
 
+def _validated_api_url(value: str) -> str:
+    value = value.strip()
+    try:
+        parsed = urlsplit(value)
+        _ = parsed.port
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value)
+        ):
+            raise ValueError("invalid HTTP URL")
+    except ValueError as exc:
+        raise HTTPException(400, "API 地址必须是有效的 HTTP 或 HTTPS URL") from exc
+    return value
+
+
 @router.get("", response_model=List[SettingOut])
 async def get_settings():
     """
@@ -35,6 +52,8 @@ async def update_setting(payload: SettingUpdate):
     """
     更新系统设置
     """
+    if payload.key in {"LLM_API_URL", "KNOWLEDGE_SEARCH_API_URL"}:
+        payload.value = _validated_api_url(payload.value)
     try:
         updated = update_setting_value(payload.key, payload.value)
         return serialize_setting_for_output(updated)
@@ -49,7 +68,7 @@ async def test_llm_connection(payload: LLMTestRequest):
     """
     测试 LLM API 连接是否正常
     """
-    api_url = normalize_llm_api_url(payload.api_url)
+    api_url = normalize_llm_api_url(_validated_api_url(payload.api_url))
     api_key = payload.api_key
     model = (payload.model or "").strip()
 
@@ -131,7 +150,8 @@ async def get_available_models():
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     try:
-        api_url = normalize_llm_api_url(settings.get("LLM_API_URL", ""))
+        configured_url = settings.get("LLM_API_URL", "")
+        api_url = normalize_llm_api_url(_validated_api_url(configured_url)) if configured_url else ""
         api_key = settings.get("LLM_API_KEY", "")
 
         if not api_url or not api_key:
@@ -157,12 +177,18 @@ async def get_available_models():
             resp.raise_for_status()
             data = resp.json()
 
+            if not isinstance(data, dict) or not isinstance(data.get("data"), list):
+                raise ValueError("expected a data array")
             models = []
-            model_list = data.get("data", [])
+            seen = set()
+            model_list = data["data"]
             for m in model_list:
-                model_id = m.get("id", "")
-                if model_id:
+                if not isinstance(m, dict) or not isinstance(m.get("id"), str):
+                    raise ValueError("expected model objects with string ids")
+                model_id = m["id"].strip()
+                if model_id and model_id not in seen:
                     models.append(LLMModelOut(id=model_id, name=model_id))
+                    seen.add(model_id)
 
             # 按名称排序
             models.sort(key=lambda x: x.id)
@@ -171,4 +197,4 @@ async def get_available_models():
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"模型列表获取失败：{exc}") from exc
     except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=500, detail=f"模型列表解析失败：{exc}") from exc
+        raise HTTPException(status_code=502, detail="模型列表响应格式无效，请检查接口是否兼容 OpenAI 协议。") from exc

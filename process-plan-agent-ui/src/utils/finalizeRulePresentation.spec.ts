@@ -25,3 +25,20 @@ describe('finalize readable decisions', () => {
     expect(nextPendingSegmentId(cards, [], 'a')).toBe('')
   })
 })
+
+describe('process configuration summary', () => {
+  it('shows conditions and linked process as requirements for the same appearance decision', async () => {
+    const { formatProcessConfiguration } = await import('./finalizeRulePresentation')
+    const summary = formatProcessConfiguration({ process_id: 'strip', occurrence: 'conditional', when: { field: 'material', op: 'eq', value: 'steel' }, relations: [{ relation_type: 'trigger_after', source_process_ids: ['copper'], target_process_ids: ['strip'], source_match: 'all' }, { relation_type: 'order_after', source_process_ids: ['inspect'], target_process_ids: ['strip'], source_match: 'any' }] }, fields, [{ process_id: 'strip', display_name: '除铜' }, { process_id: 'copper', display_name: '镀铜' }, { process_id: 'inspect', display_name: '检验' }])
+    expect(summary).toContain('全部满足')
+    expect(summary).toContain('材料 等于 钢')
+    expect(summary).toContain('镀铜出现后，生成除铜并排在其后')
+    expect(summary).toContain('两者均出现时，除铜排在检验之后')
+    expect(summary).not.toContain('是否需要除铜')
+  })
+  it('distinguishes an empty conditional from an always process', async () => {
+    const { formatProcessConfiguration } = await import('./finalizeRulePresentation')
+    expect(formatProcessConfiguration({ process_id: 'strip', occurrence: 'conditional', when: null, relations: [] }, [], [])).toContain('待补充')
+    expect(formatProcessConfiguration({ process_id: 'strip', occurrence: 'always', when: null, relations: [] }, [], [])).toContain('始终出现')
+  })
+})

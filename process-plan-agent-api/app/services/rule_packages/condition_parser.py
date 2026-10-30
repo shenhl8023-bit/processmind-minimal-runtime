@@ -111,6 +111,37 @@ def validate_candidate(
     current_process_id: str | None = None,
 ) -> list[str]:
     allowed_ids = {item.process_id for item in processes}
+    if candidate.kind == "process_configuration":
+        config = candidate.configuration
+        if config is None:
+            return ["工序规则缺少配置。"]
+        issues = []
+        if config.process_id not in allowed_ids or (current_process_id and config.process_id != current_process_id):
+            issues.append("规则配置只能控制当前工序。")
+        if config.when is not None:
+            nested = RuleConditionCandidate(when=config.when, then={"include_process_ids": [config.process_id]}, field_definitions=candidate.field_definitions)
+            issues.extend(validate_candidate(nested, processes, current_process_id=config.process_id))
+        elif candidate.field_definitions:
+            issues.append("没有条件时不能保留未引用的动态因素。")
+        if config.occurrence == "manual":
+            # Use the same stable switch identity as the manual editor.
+            value = 0x811C9DC5
+            for char in config.process_id:
+                value = ((value ^ ord(char)) * 0x01000193) & 0xFFFFFFFF
+            key = f"project_factor.manual_process_{value:08x}"
+            fields = candidate.field_definitions
+            if not (config.when and config.when.field == key and config.when.op == "eq" and config.when.value is True
+                    and len(fields) == 1 and fields[0].key == key and fields[0].type == "boolean"
+                    and fields[0].source == "用户直接设定" and fields[0].allow_custom is False):
+                issues.append("人工选择必须使用当前工序固定的 Bool 开关字段。")
+        for relation in config.relations:
+            nested = RuleConditionCandidate(kind="process_relation", relation=relation.model_dump())
+            issues.extend(validate_candidate(nested, processes))
+            if config.process_id not in relation.target_process_ids:
+                issues.append("关联关系必须以当前工序为目标。")
+            if relation.target_process_ids != [config.process_id]:
+                issues.append("关联关系只能控制当前工序。")
+        return list(dict.fromkeys(issues))
     if candidate.kind == "process_relation":
         relation = candidate.relation
         if relation is None:
@@ -539,12 +570,14 @@ def _convert_boolean_fields_to_special_requirements(
     def convert(node: ConditionNode) -> ConditionNode:
         if node.field:
             definition = dynamic_fields.get(node.field)
-            if definition:
-                return ConditionNode(
+            if definition and node.op in {"eq", "neq"} and isinstance(node.value, bool):
+                leaf = ConditionNode(
                     field="special.requirements",
                     op="contains",
                     value=_special_requirement_for_boolean_field(definition),
                 )
+                positive = node.value if node.op == "eq" else not node.value
+                return leaf if positive else ConditionNode(not_condition=leaf)
             return node
         if node.all_conditions is not None:
             return ConditionNode(all_conditions=[convert(child) for child in node.all_conditions])
@@ -555,6 +588,8 @@ def _convert_boolean_fields_to_special_requirements(
         return node
 
     when = convert(candidate.when)
+    if when == candidate.when:
+        return candidate
     referenced_fields = set(iter_condition_fields(when))
     return candidate.model_copy(update={
         "when": when,

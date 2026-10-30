@@ -41,6 +41,31 @@ def _template_xml(*, child_name="孔", feature="孔(盲孔)", source_id="child-1
     </Kmsoft>'''.encode("utf-8")
 
 
+def _template_xml_with_two_feature_groups():
+    return '''<?xml version="1.0" encoding="UTF-8"?>
+    <Kmsoft>
+      <Item type="Part_Template" />
+      <Item type="Group_Template" />
+      <Item type="Part" filename="fixture.prt">
+        <Item type="Group" id="side-a">
+          <Params><param name="名称" value="A侧" /></Params>
+          <Item type="Group" id="hole">
+            <Params>
+              <param name="名称" value="孔" />
+              <param name="特征选择" value="孔(盲孔)" />
+            </Params>
+          </Item>
+          <Item type="Group" id="slot">
+            <Params>
+              <param name="名称" value="槽" />
+              <param name="特征选择" value="通槽" />
+            </Params>
+          </Item>
+        </Item>
+      </Item>
+    </Kmsoft>'''.encode("utf-8")
+
+
 def _parsed(filename, **kwargs):
     parsed = parse_group_template_xml(filename, _template_xml(**kwargs))
     assert parsed.can_confirm is True
@@ -157,7 +182,7 @@ def test_group_template_preview_confirm_load_and_save_mappings(template_api_clie
         },
         files={"file": ("template.xml", payload, "application/xml")},
     )
-    assert created.status_code == 200
+    assert created.status_code == 200, created.text
     assert created.json()["template_revision"] == 1
     assert "source_xml" not in created.json()
 
@@ -215,6 +240,218 @@ def test_step_mapping_save_keeps_legacy_operation_aliases_separate(template_api_
     assert row["template_group_key"].startswith("grp_")
     assert row["candidate_features"] == ["孔(盲孔)"]
     assert saved.json()["mappings"] == []
+
+
+def test_step_mapping_save_keeps_previous_mappings_when_saved_incrementally(template_api_client):
+    client = template_api_client
+    payload = _template_xml_with_two_feature_groups()
+    preview = client.post(
+        "/api/extract/group-templates/preview",
+        files={"file": ("template.xml", payload, "application/xml")},
+    ).json()
+    created = client.put(
+        "/api/extract/group-templates/current",
+        data={
+            "project_id": str(client.project_id),
+            "expected_content_hash": preview["content_hash"],
+            "expected_template_revision": "0",
+        },
+        files={"file": ("template.xml", payload, "application/xml")},
+    )
+    assert created.status_code == 200
+
+    operations = [
+        {
+            "operation_id": 7001,
+            "process_id": "final_hole",
+            "source_operation_ids": [11],
+            "operation_name": "钻孔",
+            "process_type": "加工工序",
+            "precision": "精加工",
+            "steps": [{
+                "step_id": "final_hole_s1",
+                "step_name": "钻孔",
+                "source_operation_id": 11,
+                "source_step_order": 1,
+                "source_step_name": "钻孔",
+            }],
+        },
+        {
+            "operation_id": 7002,
+            "process_id": "final_slot",
+            "source_operation_ids": [12],
+            "operation_name": "铣槽",
+            "process_type": "加工工序",
+            "precision": "粗加工",
+            "steps": [{
+                "step_id": "final_slot_s1",
+                "step_name": "铣槽",
+                "source_operation_id": 12,
+                "source_step_order": 1,
+                "source_step_name": "铣槽",
+            }],
+        },
+    ]
+    first = client.put(
+        "/api/extract/group-templates/step-mappings",
+        json={
+            "project_id": client.project_id,
+            "expected_template_revision": 1,
+            "operations": operations,
+            "mappings": [_step_mapping()],
+        },
+    )
+    assert first.status_code == 200
+    assert len(first.json()["step_mappings"]) == 1
+
+    second_mapping = {
+        **_step_mapping(),
+        "source_operation_id": 12,
+        "source_operation_name": "铣槽",
+        "source_step_name": "铣槽",
+        "template_group_path": ["A侧", "槽"],
+        "candidate_features": ["通槽"],
+    }
+    second = client.put(
+        "/api/extract/group-templates/step-mappings",
+        json={
+            "project_id": client.project_id,
+            "expected_template_revision": first.json()["template_revision"],
+            "operations": operations,
+            "mappings": [second_mapping],
+        },
+    )
+
+    assert second.status_code == 200
+    assert {
+        tuple(mapping["template_group_path"])
+        for mapping in second.json()["step_mappings"]
+    } == {("A侧", "孔"), ("A侧", "槽")}
+    assert {
+        path
+        for process in second.json()["mapping_output"]
+        for step in process["steps"]
+        for path in step["candidates"]
+    } == {"A侧/孔", "A侧/槽"}
+
+    replaced = client.put(
+        "/api/extract/group-templates/step-mappings",
+        json={
+            "project_id": client.project_id,
+            "expected_template_revision": second.json()["template_revision"],
+            "operations": operations,
+            "mappings": [second_mapping],
+            "replace_all": True,
+        },
+    )
+
+    assert replaced.status_code == 200
+    assert [
+        tuple(mapping["template_group_path"])
+        for mapping in replaced.json()["step_mappings"]
+    ] == [("A侧", "槽")]
+
+
+def test_legacy_mapping_incremental_save_keeps_previous_groups(template_api_client):
+    client = template_api_client
+    payload = _template_xml_with_two_feature_groups()
+    preview = client.post(
+        "/api/extract/group-templates/preview",
+        files={"file": ("template.xml", payload, "application/xml")},
+    ).json()
+    created = client.put(
+        "/api/extract/group-templates/current",
+        data={
+            "project_id": str(client.project_id),
+            "expected_content_hash": preview["content_hash"],
+            "expected_template_revision": "0",
+        },
+        files={"file": ("template.xml", payload, "application/xml")},
+    )
+    assert created.status_code == 200
+
+    first = client.put(
+        "/api/extract/group-templates/mappings",
+        json={
+            "project_id": client.project_id,
+            "expected_template_revision": 1,
+            "mappings": [_mapping()],
+        },
+    )
+    assert first.status_code == 200
+
+    second_mapping = {
+        **_mapping(["A侧", "槽"]),
+        "source_operation_id": 12,
+        "alias": "铣槽（A侧/槽）",
+    }
+    second = client.put(
+        "/api/extract/group-templates/mappings",
+        json={
+            "project_id": client.project_id,
+            "expected_template_revision": first.json()["template_revision"],
+            "mappings": [second_mapping],
+        },
+    )
+
+    assert second.status_code == 200
+    assert {
+        tuple(mapping["template_group_path"])
+        for mapping in second.json()["mappings"]
+    } == {("A侧", "孔"), ("A侧", "槽")}
+
+
+def test_legacy_mapping_incremental_save_keeps_sibling_groups_for_one_operation(template_api_client):
+    client = template_api_client
+    payload = _template_xml_with_two_feature_groups()
+    preview = client.post(
+        "/api/extract/group-templates/preview",
+        files={"file": ("template.xml", payload, "application/xml")},
+    ).json()
+    created = client.put(
+        "/api/extract/group-templates/current",
+        data={
+            "project_id": str(client.project_id),
+            "expected_content_hash": preview["content_hash"],
+            "expected_template_revision": "0",
+        },
+        files={"file": ("template.xml", payload, "application/xml")},
+    )
+    assert created.status_code == 200
+
+    first = client.put(
+        "/api/extract/group-templates/mappings",
+        json={
+            "project_id": client.project_id,
+            "expected_template_revision": 1,
+            "mappings": [
+                _mapping(),
+                {
+                    **_mapping(["A侧", "槽"]),
+                    "alias": "钻孔（A侧/槽）",
+                },
+            ],
+        },
+    )
+    assert first.status_code == 200
+
+    second = client.put(
+        "/api/extract/group-templates/mappings",
+        json={
+            "project_id": client.project_id,
+            "expected_template_revision": first.json()["template_revision"],
+            "mappings": [{
+                **_mapping(),
+                "alias": "钻孔（A侧/孔）更新",
+            }],
+        },
+    )
+
+    assert second.status_code == 200
+    assert {
+        tuple(mapping["template_group_path"])
+        for mapping in second.json()["mappings"]
+    } == {("A侧", "孔"), ("A侧", "槽")}
 
 
 def test_step_mapping_save_rejects_parent_targets_and_forged_features(template_api_client):
@@ -640,6 +877,59 @@ async def test_schema_maintenance_is_idempotent_and_preserves_existing_template(
     assert row == ("preserved.xml", 1, "[]", "[]", "[]")
 
 
+@pytest.mark.asyncio
+async def test_legacy_template_schema_defaults_ambiguous_saved_route_to_protected_mode(template_store):
+    engine, sessions = template_store
+    project_id = await _create_project(sessions, name="legacy-template")
+    async with engine.begin() as conn:
+        await conn.execute(text("DROP TABLE project_group_templates"))
+        await conn.execute(text("""
+            CREATE TABLE project_group_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL UNIQUE,
+                original_filename VARCHAR(255) NOT NULL,
+                source_encoding VARCHAR(32) NOT NULL,
+                part_filename VARCHAR(255) NOT NULL,
+                content_hash VARCHAR(64) NOT NULL,
+                feature_dictionary_version VARCHAR(64) NOT NULL,
+                source_xml TEXT NOT NULL,
+                tree_json TEXT NOT NULL,
+                validation_json TEXT NOT NULL DEFAULT '[]',
+                mappings_json TEXT NOT NULL DEFAULT '[]',
+                mapping_output_json TEXT NOT NULL DEFAULT '[]',
+                template_revision INTEGER NOT NULL DEFAULT 1,
+                group_count INTEGER NOT NULL DEFAULT 0,
+                feature_selection_count INTEGER NOT NULL DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        await conn.execute(text("""
+            INSERT INTO project_group_templates (
+                project_id, original_filename, source_encoding, part_filename,
+                content_hash, feature_dictionary_version, source_xml, tree_json,
+                mapping_output_json
+            ) VALUES (
+                :project_id, 'legacy.xml', 'UTF-8', 'legacy.prt', 'hash', 'dict',
+                '<Kmsoft />', '[]',
+                '[{"process_id":"op_7001","process_name":"历史路线","steps":[]}]'
+            )
+        """), {"project_id": project_id})
+        await ensure_project_schema(conn)
+
+    async with sessions() as db:
+        with pytest.raises(HTTPException) as error:
+            await replace_project_group_step_mappings(
+                db, project_id, [], expected_revision=1, operations=None, replace_all=False,
+            )
+        assert error.value.status_code == 422
+        assert "无法判定" in error.value.detail
+        row = await get_project_group_template(db, project_id)
+        assert row.template_revision == 1
+        assert row.mapping_output_json == '[{"process_id":"op_7001","process_name":"历史路线","steps":[]}]'
+        assert row.mapping_output_mode == "unknown"
+
+
 def _create_template(client):
     payload = _template_xml()
     preview = client.post('/api/extract/group-templates/preview',
@@ -712,6 +1002,202 @@ def test_final_tree_save_discards_mapping_to_removed_source_step(template_api_cl
     assert [process['process_id'] for process in current['mapping_output']] == [
         'final_turning', 'final_cleaning', 'final_cleaning_2',
     ]
+
+
+def test_empty_incremental_step_save_preserves_existing_decisions(template_api_client):
+    client = template_api_client
+    _create_template(client)
+    operations = _final_mapping_operations()
+    first = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'operations': operations, 'mappings': [_step_mapping()],
+    })
+    assert first.status_code == 200, first.text
+    saved = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 2,
+        'operations': operations, 'mappings': [], 'replace_all': False,
+    })
+    assert saved.status_code == 200, saved.text
+    assert saved.json()['step_mappings'] == first.json()['step_mappings']
+    assert saved.json()['mapping_output'] == first.json()['mapping_output']
+
+
+def test_incremental_save_cannot_downgrade_a_final_tree_when_operations_are_omitted(template_api_client):
+    client = template_api_client
+    _create_template(client)
+    first = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'operations': _final_mapping_operations(), 'mappings': [_step_mapping()],
+    })
+    assert first.status_code == 200, first.text
+    result = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 2,
+        'mappings': [_step_mapping()], 'replace_all': False,
+    })
+    assert result.status_code == 422, result.text
+    current = client.get('/api/extract/group-templates/current', params={'project_id': client.project_id}).json()
+    assert current['template_revision'] == 2
+    assert current['mapping_output'] == first.json()['mapping_output']
+    assert current['step_mappings'] == first.json()['step_mappings']
+
+
+def test_incremental_save_cannot_downgrade_final_tree_with_legacy_shaped_process_id(template_api_client):
+    client = template_api_client
+    _create_template(client)
+    operations = _final_mapping_operations()[:1]
+    operations[0]['process_id'] = 'op_7001'
+    first = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'operations': operations, 'mappings': [], 'replace_all': False,
+    })
+    assert first.status_code == 200, first.text
+    assert [process['process_id'] for process in first.json()['mapping_output']] == ['op_7001']
+
+    result = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 2,
+        'mappings': [], 'replace_all': False,
+    })
+
+    assert result.status_code == 422, result.text
+    current = client.get('/api/extract/group-templates/current', params={'project_id': client.project_id}).json()
+    assert current['template_revision'] == 2
+    assert current['mapping_output'] == first.json()['mapping_output']
+    assert current['step_mappings'] == first.json()['step_mappings']
+
+
+def test_incremental_final_tree_save_rejects_partial_operations(template_api_client):
+    client = template_api_client
+    _create_template(client)
+    operations = _final_mapping_operations()
+    first = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'operations': operations, 'mappings': [],
+    })
+    assert first.status_code == 200, first.text
+    saved_route = first.json()['mapping_output']
+
+    result = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 2,
+        'operations': operations[:1], 'mappings': [], 'replace_all': False,
+    })
+
+    assert result.status_code == 422, result.text
+    assert '完整最终路线' in result.text
+    current = client.get('/api/extract/group-templates/current', params={'project_id': client.project_id}).json()
+    assert current['template_revision'] == 2
+    assert current['mapping_output'] == saved_route
+
+
+def test_incremental_save_cannot_upgrade_legacy_snapshot_with_partial_final_route(template_api_client):
+    client = template_api_client
+    _create_template(client)
+    legacy = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'mappings': [_step_mapping()], 'replace_all': True,
+    })
+    assert legacy.status_code == 200, legacy.text
+    saved_route = legacy.json()['mapping_output']
+
+    result = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 2,
+        'operations': _final_mapping_operations()[:1], 'mappings': [], 'replace_all': False,
+    })
+
+    assert result.status_code == 422, result.text
+    assert '全量替换' in result.text
+    current = client.get('/api/extract/group-templates/current', params={'project_id': client.project_id}).json()
+    assert current['template_revision'] == 2
+    assert current['mapping_output'] == saved_route
+
+
+def test_empty_incremental_group_save_preserves_existing_decisions(template_api_client):
+    client = template_api_client
+    _create_template(client)
+    first = client.put('/api/extract/group-templates/mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'mappings': [_mapping()],
+    })
+    assert first.status_code == 200, first.text
+    saved = client.put('/api/extract/group-templates/mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 2,
+        'mappings': [], 'replace_all': False,
+    })
+    assert saved.status_code == 200, saved.text
+    assert saved.json()['mappings'] == first.json()['mappings']
+
+
+@pytest.mark.parametrize('endpoint', ['current', 'mappings', 'step-mappings'])
+def test_template_writes_reject_old_workflow_even_when_template_revision_is_reused(template_api_client, endpoint):
+    client = template_api_client
+    _create_template(client)
+
+    async def restart_workflow():
+        from app.services.project_workflow_lifecycle import invalidate_project_workflow
+
+        async with client.template_sessions() as db:
+            project = await db.get(Project, client.project_id)
+            await invalidate_project_workflow(db, project, from_step=3)
+            await db.commit()
+
+    asyncio.run(restart_workflow())
+    payload = _template_xml()
+    preview = client.post('/api/extract/group-templates/preview',
+                          files={'file': ('new.xml', payload, 'application/xml')}).json()
+    fresh = client.put('/api/extract/group-templates/current', data={
+        'project_id': client.project_id, 'expected_content_hash': preview['content_hash'],
+        'expected_template_revision': 0, 'expected_workflow_revision': 1,
+    }, files={'file': ('new.xml', payload, 'application/xml')})
+    assert fresh.status_code == 200, fresh.text
+    assert fresh.json()['template_revision'] == 1
+    if endpoint == 'current':
+        result = client.put('/api/extract/group-templates/current', data={
+            'project_id': client.project_id, 'expected_content_hash': preview['content_hash'],
+            'expected_template_revision': 1, 'expected_workflow_revision': 0,
+        }, files={'file': ('obsolete.xml', payload, 'application/xml')})
+    else:
+        result = client.put(f'/api/extract/group-templates/{endpoint}', json={
+            'project_id': client.project_id, 'expected_template_revision': 1,
+            'expected_workflow_revision': 0, 'mappings': [_mapping()] if endpoint == 'mappings' else [_step_mapping()],
+            **({'operations': _final_mapping_operations()} if endpoint == 'step-mappings' else {}),
+        })
+    assert result.status_code == 409, result.text
+    assert result.json()['detail']['workflow_revision'] == 1
+    current = client.get('/api/extract/group-templates/current', params={'project_id': client.project_id}).json()
+    assert current['template_revision'] == 1
+    assert current['original_filename'] == 'new.xml'
+    assert current['mappings'] == [] and current['step_mappings'] == [] and current['mapping_output'] == []
+
+
+@pytest.mark.parametrize('change', ['remove_step', 'move_step', 'change_source'])
+def test_incremental_final_tree_save_discards_decisions_outside_current_targets(template_api_client, change):
+    client = template_api_client
+    _create_template(client)
+    operations = _final_mapping_operations()
+    first = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'operations': operations, 'mappings': [_step_mapping()],
+    })
+    assert first.status_code == 200, first.text
+    if change == 'remove_step':
+        operations[0]['steps'].pop(0)
+    elif change == 'move_step':
+        moved = operations[0]['steps'].pop(0)
+        operations[0]['steps'][0]['source_operation_id'] = 12
+        operations.append({
+            'operation_id': 7004, 'process_id': 'moved_process', 'operation_name': '粗车',
+            'process_type': '加工工序', 'precision': '粗加工', 'steps': [moved],
+        })
+    else:
+        operations[0]['steps'][0]['source_step_name'] = '新的来源工步'
+    second_mapping = dict(_step_mapping(step_order=2, step_name='铰孔'), source_operation_id=12)
+    saved = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 2,
+        'operations': operations, 'mappings': [second_mapping], 'replace_all': False,
+    })
+    assert saved.status_code == 200, saved.text
+    assert [mapping['source_operation_id'] for mapping in saved.json()['step_mappings']] == [12]
+    current = client.get('/api/extract/group-templates/current', params={'project_id': client.project_id})
+    assert current.json()['step_mappings'] == saved.json()['step_mappings']
 
 
 def test_final_tree_ids_and_names_survive_template_replacement(template_api_client):
@@ -798,8 +1284,26 @@ def test_final_tree_unknown_machining_precision_is_not_guessed_from_step_word(te
         'project_id': client.project_id, 'expected_template_revision': 1,
         'operations': operations, 'mappings': [_step_mapping()],
     })
-    assert result.status_code == 200
-    assert result.json()['mapping_output'][0]['precision'] == ''
+    assert result.status_code == 422
+    assert '车削加工' in result.json()['detail']
+    assert '精度' in result.json()['detail']
+    current = client.get('/api/extract/group-templates/current', params={'project_id': client.project_id}).json()
+    assert current['template_revision'] == 1
+    assert current['mapping_output'] == []
+
+
+@pytest.mark.parametrize('precision', ['精密', '辅助工序', 'unknown'])
+def test_final_tree_rejects_invalid_machining_precision_before_saving(template_api_client, precision):
+    client = template_api_client
+    _create_template(client)
+    operations = _final_mapping_operations()
+    operations[0]['precision'] = precision
+    result = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'operations': operations, 'mappings': [_step_mapping()],
+    })
+    assert result.status_code == 422
+    assert '精车（合并后）' in result.json()['detail']
 
 
 def test_final_tree_precision_is_preserved_and_auxiliary_precision_is_explicit(template_api_client):
@@ -815,6 +1319,41 @@ def test_final_tree_precision_is_preserved_and_auxiliary_precision_is_explicit(t
     rows = result.json()['mapping_output']
     assert rows[0]['precision'] == '半精加工'
     assert rows[1]['precision'] == '辅助工序'
+
+
+@pytest.mark.parametrize('precision', ['精加工', 'unknown'])
+def test_final_tree_rejects_invalid_auxiliary_precision_before_mutating_snapshot(template_api_client, precision):
+    client = template_api_client
+    _create_template(client)
+    operations = _final_mapping_operations()
+    operations[1]['precision'] = precision
+    result = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'operations': operations, 'mappings': [_step_mapping()],
+    })
+    assert result.status_code == 422, result.text
+    current = client.get('/api/extract/group-templates/current', params={'project_id': client.project_id}).json()
+    assert current['template_revision'] == 1
+    assert current['mapping_output'] == []
+
+
+@pytest.mark.parametrize('identity', ['process_name', 'step_name'])
+def test_final_tree_rejects_whitespace_only_names_without_dropping_nodes(template_api_client, identity):
+    client = template_api_client
+    _create_template(client)
+    operations = _final_mapping_operations()
+    if identity == 'process_name':
+        operations[0]['operation_name'] = '  '
+    else:
+        operations[0]['steps'][0]['step_name'] = '  '
+    result = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': client.project_id, 'expected_template_revision': 1,
+        'operations': operations, 'mappings': [_step_mapping()],
+    })
+    assert result.status_code == 422, result.text
+    current = client.get('/api/extract/group-templates/current', params={'project_id': client.project_id}).json()
+    assert current['template_revision'] == 1
+    assert current['mapping_output'] == []
 
 
 def test_user_confirmed_precision_survives_mapping_reload(template_api_client):
@@ -878,7 +1417,8 @@ def test_split_final_nodes_have_independent_deduplication_and_status(template_ap
 
 
 @pytest.mark.parametrize('explicit_target', [True, False])
-def test_merged_final_step_rejects_conflicting_status_across_source_aliases(template_api_client, explicit_target):
+@pytest.mark.parametrize('incremental', [True, False])
+def test_merged_final_step_rejects_conflicting_status_across_source_aliases(template_api_client, explicit_target, incremental):
     client = template_api_client
     _create_template(client)
     operations = _final_mapping_operations()
@@ -897,14 +1437,22 @@ def test_merged_final_step_rejects_conflicting_status_across_source_aliases(temp
     if explicit_target:
         for mapping in mappings:
             mapping['final_targets'] = [{'process_id': 'final_turning', 'step_id': 'merged_hole'}]
+    revision = 1
+    if incremental:
+        first = client.put('/api/extract/group-templates/step-mappings', json={
+            'project_id': client.project_id, 'expected_template_revision': revision,
+            'operations': operations, 'mappings': mappings[:1], 'replace_all': False,
+        })
+        assert first.status_code == 200, first.text
+        revision = first.json()['template_revision']
     result = client.put('/api/extract/group-templates/step-mappings', json={
-        'project_id': client.project_id, 'expected_template_revision': 1,
-        'operations': operations, 'mappings': mappings,
+        'project_id': client.project_id, 'expected_template_revision': revision,
+        'operations': operations, 'mappings': mappings[1:] if incremental else mappings, 'replace_all': not incremental,
     })
     assert result.status_code == 422, result.text
     current = client.get('/api/extract/group-templates/current', params={'project_id': client.project_id}).json()
-    assert current['template_revision'] == 1
-    assert current['step_mappings'] == []
+    assert current['template_revision'] == revision
+    assert len(current['step_mappings']) == (1 if incremental else 0)
 
 
 @pytest.mark.parametrize('target', [

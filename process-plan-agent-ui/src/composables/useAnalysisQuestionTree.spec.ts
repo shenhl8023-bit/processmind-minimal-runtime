@@ -1,7 +1,68 @@
-import { computed, ref } from 'vue'
-import { describe, expect, it } from 'vitest'
+import { computed, effectScope, nextTick, ref } from 'vue'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { useAnalysisQuestionTree } from './useAnalysisQuestionTree'
+
+describe('question tree reanswer draft persistence', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  function setup() {
+    const entries = new Map<string, string>()
+    const localStorage = {
+      getItem: (key: string) => entries.get(key) ?? null,
+      setItem: (key: string, value: string) => entries.set(key, value),
+      removeItem: (key: string) => entries.delete(key),
+    }
+    vi.stubGlobal('window', { localStorage })
+    const projectId = ref(17)
+    const segment = ref<any>({
+      id: 'process_mark', normalized_step_name: '标记', source_nodes: ['标记'],
+      matched_detail_rows: [], doc_coverage: { hit_docs: 1, total_docs: 2, ratio: 0.5 },
+      detail_coverage: { matched_rows: 1 },
+      rule_review: { decision: 'accepted', note: 'saved', question_trail: [] },
+    })
+    const create = () => useAnalysisQuestionTree({
+      projectId: computed(() => projectId.value), selectedSegment: computed(() => segment.value),
+      detailRows: computed(() => []), selectedSegmentMatchedDocIds: computed(() => new Set<number>()),
+      matchedDocumentTexts: computed(() => []),
+    })
+    return { create, projectId }
+  }
+
+  it('restores an unfinished reanswer after a page reload', async () => {
+    const { create } = setup()
+    const scope = effectScope()
+    const tree = scope.run(create)!
+    tree.resetQuestionTree()
+    tree.updateQuestionTreeNote('unfinished new answer')
+    const question = tree.questionTreeCurrentQuestion.value!
+    tree.chooseQuestionTreeOption(question.options[0]!)
+    await nextTick()
+    const trail = tree.questionTreeTrail.value
+    scope.stop()
+
+    const restoredScope = effectScope()
+    const restored = restoredScope.run(create)!
+    expect(restored.questionTreeIsRejudging.value).toBe(true)
+    expect(restored.questionTreeVisible.value).toBe(true)
+    expect(restored.questionTreeTrail.value).toEqual(trail)
+    expect(restored.questionTreeNoteDraft.value).toBe('unfinished new answer')
+    restoredScope.stop()
+  })
+
+  it('does not carry reanswer mode into another task with matching segment ids', async () => {
+    const { create, projectId } = setup()
+    const scope = effectScope()
+    const tree = scope.run(create)!
+    tree.resetQuestionTree()
+    projectId.value = 18
+    await nextTick()
+
+    expect(tree.questionTreeIsRejudging.value).toBe(false)
+    expect(tree.questionTreeVisible.value).toBe(false)
+    scope.stop()
+  })
+})
 
 describe('analysis question tree reset', () => {
   it('clears all mounted question-tree answers after an upstream reset', () => {

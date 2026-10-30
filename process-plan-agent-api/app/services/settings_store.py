@@ -156,6 +156,11 @@ def save_settings(settings: list[dict[str, str]]) -> None:
 
 
 def update_setting_value(key: str, value: str) -> dict[str, str]:
+    with _SETTINGS_LOCK:
+        return _update_setting_value_unlocked(key, value)
+
+
+def _update_setting_value_unlocked(key: str, value: str) -> dict[str, str]:
     settings = load_settings()
     updated: dict[str, str] | None = None
     now = datetime.now(timezone.utc).isoformat()
@@ -178,6 +183,11 @@ def update_setting_value(key: str, value: str) -> dict[str, str]:
 
 def clear_setting_value(key: str) -> dict[str, str]:
     """Explicitly clear a setting, including secret values."""
+    with _SETTINGS_LOCK:
+        return _clear_setting_value_unlocked(key)
+
+
+def _clear_setting_value_unlocked(key: str) -> dict[str, str]:
     settings = load_settings()
     updated: dict[str, str] | None = None
     now = datetime.now(timezone.utc).isoformat()

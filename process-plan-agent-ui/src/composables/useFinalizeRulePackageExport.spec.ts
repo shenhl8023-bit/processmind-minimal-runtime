@@ -147,6 +147,102 @@ async function readStoredZip(blob: Blob) {
 }
 
 describe('useFinalizeRulePackageExport', () => {
+  it('deduplicates repeated publication clicks while compilation is pending', async () => {
+    let finish!: (value: any) => void
+    mocks.compileRulePackage.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    mocks.getCurrentGroupTemplate.mockResolvedValue(validTemplate(fullRouteStructure))
+    mocks.saveFinalizedRulePackage.mockResolvedValue({
+      version: 4, schema_version: '2.0', status: 'published', project_id: 12, route_version_id: 99,
+      content_hash: 'second', demo_tables: frozenTables,
+    })
+    const exporter = createExport()
+    const first = exporter.downloadRuleDocument()
+    await exporter.downloadRuleDocument()
+    finish(compiled(firstPackage))
+    await first
+    expect(mocks.compileRulePackage).toHaveBeenCalledTimes(1)
+    expect(mocks.saveFinalizedRulePackage).toHaveBeenCalledTimes(1)
+    expect(mocks.downloadBlob).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops publication if a precheck callback changes the active project', async () => {
+    mocks.compileRulePackage.mockResolvedValue(compiled(firstPackage))
+    mocks.getCurrentGroupTemplate.mockResolvedValue(validTemplate(fullRouteStructure))
+    const projectId = ref(12)
+    await createExport({ projectId, onPrecheck: () => { projectId.value = 88 } }).downloadRuleDocument()
+    expect(mocks.saveFinalizedRulePackage).not.toHaveBeenCalled()
+    expect(mocks.downloadBlob).not.toHaveBeenCalled()
+  })
+
+  it.each(['project', 'route', 'revision', 'draft'])('stops a pending publication if the %s changes', async change => {
+    let finish!: (value: any) => void
+    mocks.compileRulePackage.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    mocks.getCurrentGroupTemplate.mockResolvedValue(validTemplate(fullRouteStructure))
+    const projectId = ref(12)
+    const savedRoute = ref({ route_id: 99, workflow_revision: 3 })
+    const drafts = ref<any[]>([])
+    const exporter = createExport({ projectId, savedRoute, unsavedCards: computed(() => drafts.value) })
+    const pending = exporter.downloadRuleDocument()
+    if (change === 'project') projectId.value = 88
+    if (change === 'route') savedRoute.value = { route_id: 100, workflow_revision: 3 }
+    if (change === 'revision') savedRoute.value = { route_id: 99, workflow_revision: 4 }
+    if (change === 'draft') drafts.value = [{ segment: { id: 'custom_process' } }]
+    finish(compiled(firstPackage))
+    await pending
+    expect(mocks.precheckFinalizedRulePackage).not.toHaveBeenCalled()
+    expect(mocks.saveFinalizedRulePackage).not.toHaveBeenCalled()
+    expect(mocks.downloadBlob).not.toHaveBeenCalled()
+    expect(exporter.exportingRulePackage.value).toBe(false)
+  })
+
+  it('does not resume an obsolete publication when the user switches away and back', async () => {
+    let finish!: (value: any) => void
+    mocks.compileRulePackage.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    mocks.getCurrentGroupTemplate.mockResolvedValue(validTemplate(fullRouteStructure))
+    const projectId = ref(12)
+    const exporter = createExport({ projectId })
+    const pending = exporter.downloadRuleDocument()
+    projectId.value = 88
+    projectId.value = 12
+    finish(compiled(firstPackage))
+    await pending
+    expect(mocks.precheckFinalizedRulePackage).not.toHaveBeenCalled()
+    expect(mocks.saveFinalizedRulePackage).not.toHaveBeenCalled()
+    expect(mocks.downloadBlob).not.toHaveBeenCalled()
+  })
+
+  it('does not place stale mapping errors on a different project after navigation', async () => {
+    mocks.compileRulePackage.mockResolvedValue(compiled(firstPackage))
+    let finish!: (value: any) => void
+    mocks.getCurrentGroupTemplate.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    const projectId = ref(12)
+    const onExportIssue = vi.fn()
+    const exporter = createExport({ projectId, onExportIssue })
+    const pending = exporter.downloadRuleDocument()
+    await Promise.resolve()
+    projectId.value = 88
+    finish({ tree: [], mappings: [], step_mappings: [] })
+    await pending
+    expect(onExportIssue).not.toHaveBeenCalled()
+    expect(mocks.saveFinalizedRulePackage).not.toHaveBeenCalled()
+  })
+  it('blocks export and locates a locally edited card even if its saved rule is confirmed', async () => {
+    const card = { segment: { id: 'remove_copper' } }
+    const onBlockedCards = vi.fn()
+    const onExportIssue = vi.fn()
+    await createExport({ unsavedCards: computed(() => [card]), onBlockedCards, onExportIssue }).downloadRuleDocument()
+    expect(mocks.compileRulePackage).not.toHaveBeenCalled()
+    expect(onBlockedCards).toHaveBeenCalledWith([card])
+    expect(onExportIssue.mock.calls[0]?.[0].summary).toContain('未保存')
+  })
+
+  it('does not compile while an individual rule save is still in flight', async () => {
+    const onExportIssue = vi.fn()
+    await createExport({ savingRuleIds: ref(new Set(['remove_copper'])), onExportIssue }).downloadRuleDocument()
+    expect(mocks.compileRulePackage).not.toHaveBeenCalled()
+    expect(onExportIssue.mock.calls[0]?.[0].summary).toContain('保存')
+  })
+
   it('blocks publication when every saved mapping is invalid', async () => {
     mocks.compileRulePackage.mockResolvedValueOnce(compiled(firstPackage))
     mocks.getCurrentGroupTemplate.mockResolvedValue({ ...validTemplate(), tree: [] })
@@ -176,6 +272,7 @@ describe('useFinalizeRulePackageExport', () => {
     mocks.getCurrentGroupTemplate.mockResolvedValue(validTemplate([{ process_name: '实时映射已经改变' }]))
     mocks.saveFinalizedRulePackage.mockResolvedValue({
       version: 3,
+      project_id: 12, route_version_id: 99, content_hash: 'second',
       schema_version: '2.0',
       status: 'published',
       manifest: secondPackage.manifest,
@@ -217,11 +314,23 @@ describe('useFinalizeRulePackageExport', () => {
     expect(archive.files['full_route_table.json']).toContain('粗加工')
   })
 
+  it('keeps the downloaded ZIP filename safe for Windows while preserving Chinese project names', async () => {
+    mocks.compileRulePackage.mockResolvedValue(compiled(firstPackage))
+    mocks.getCurrentGroupTemplate.mockResolvedValue(validTemplate(fullRouteStructure))
+    mocks.saveFinalizedRulePackage.mockResolvedValue({
+      version: 4, schema_version: '2.0', status: 'published', project_id: 12, route_version_id: 99,
+      content_hash: 'second', demo_tables: frozenTables,
+    })
+    await createExport({ projectName: ref('零件/试验\n批次:*?') }).downloadRuleDocument()
+    expect(mocks.downloadBlob.mock.calls[0]?.[1]).toBe('零件_试验_批次____第四步规则定稿包_v4.zip')
+  })
+
   it('does not download a package without a frozen three-table snapshot', async () => {
     mocks.compileRulePackage.mockResolvedValueOnce(compiled(firstPackage))
     mocks.getCurrentGroupTemplate.mockResolvedValue(validTemplate())
     mocks.saveFinalizedRulePackage.mockResolvedValue({
       version: 3,
+      project_id: 12, route_version_id: 99, content_hash: 'second',
       schema_version: '2.0',
       status: 'published',
       manifest: firstPackage.manifest,
@@ -250,11 +359,48 @@ describe('useFinalizeRulePackageExport', () => {
     mocks.getCurrentGroupTemplate.mockResolvedValue(validTemplate(fullRouteStructure))
     mocks.saveFinalizedRulePackage.mockResolvedValue({
       version: 4, schema_version: '2.0', status: 'published', ...firstPackage,
+      project_id: 12, route_version_id: 99, content_hash: 'second',
       demo_tables: { ...frozenTables, full_route_table: [] },
     })
     await createExport().downloadRuleDocument()
     expect(mocks.createZipBlob).not.toHaveBeenCalled()
     expect(mocks.downloadBlob).not.toHaveBeenCalled()
+  })
+
+  it.each(['draft', 'project', 'route', 'content'])('rejects a saved snapshot with mismatched %s identity', async mismatch => {
+    mocks.compileRulePackage.mockResolvedValue(compiled(firstPackage))
+    mocks.getCurrentGroupTemplate.mockResolvedValue(validTemplate(fullRouteStructure))
+    mocks.saveFinalizedRulePackage.mockResolvedValue({
+      version: 4, schema_version: '2.0', status: mismatch === 'draft' ? 'draft' : 'published',
+      project_id: mismatch === 'project' ? 88 : 12,
+      route_version_id: mismatch === 'route' ? 100 : 99,
+      content_hash: mismatch === 'content' ? 'another-package' : 'second',
+      demo_tables: frozenTables,
+    })
+    const onExportedVersion = vi.fn()
+    const onExportIssue = vi.fn()
+    await createExport({ onExportedVersion, onExportIssue }).downloadRuleDocument()
+    expect(mocks.downloadBlob).not.toHaveBeenCalled()
+    expect(onExportedVersion).not.toHaveBeenCalled()
+    expect(onExportIssue).toHaveBeenCalled()
+  })
+
+  it('reports a local ZIP download failure without reporting export success or a service outage', async () => {
+    mocks.compileRulePackage.mockResolvedValue(compiled(firstPackage))
+    mocks.getCurrentGroupTemplate.mockResolvedValue(validTemplate(fullRouteStructure))
+    mocks.saveFinalizedRulePackage.mockResolvedValue({
+      version: 4, schema_version: '2.0', status: 'published', project_id: 12, route_version_id: 99,
+      content_hash: 'second', demo_tables: frozenTables,
+    })
+    mocks.downloadBlob.mockImplementationOnce(() => { throw new Error('Browser download unavailable') })
+    const onExportedVersion = vi.fn()
+    const onExportIssue = vi.fn()
+    await createExport({ onExportedVersion, onExportIssue }).downloadRuleDocument()
+    expect(onExportedVersion).not.toHaveBeenCalled()
+    const issue = onExportIssue.mock.calls[0]?.[0]
+    expect(issue.title).toContain('下载失败')
+    expect(issue.summary).not.toContain('无法连接本地服务')
+    expect(issue.details).toContain('Browser download unavailable')
   })
 
   it('blocks unconfirmed candidates before compilation, saving or downloading', async () => {
@@ -358,6 +504,56 @@ describe('useFinalizeRulePackageExport', () => {
       summary: '规则包尚未发布，请先完成必要的分组模板映射后再试。',
     }))
     expect(issue?.details).toContain('淬火：请先完成分组模板映射。')
+  })
+
+  it.each([
+    ['compileRulePackage', '编译规则包'],
+    ['getCurrentGroupTemplate', '读取模板映射'],
+    ['precheckFinalizedRulePackage', '发布预检'],
+    ['saveFinalizedRulePackage', '发布规则包'],
+  ] as const)('reports HTTP 503 at %s without blaming template mappings and allows a retry', async (request, stage) => {
+    mocks.compileRulePackage.mockResolvedValue(compiled(secondPackage))
+    mocks.getCurrentGroupTemplate.mockResolvedValue(validTemplate(fullRouteStructure))
+    mocks.saveFinalizedRulePackage.mockResolvedValue({
+      version: 1, schema_version: '2.0', status: 'published', demo_tables: frozenTables,
+      project_id: 12, route_version_id: 99, content_hash: 'second',
+    })
+    mocks[request].mockRejectedValueOnce({
+      response: { status: 503, data: '<html>Service Unavailable</html>' },
+      message: 'Request failed with status code 503',
+    })
+    const onExportIssue = vi.fn()
+    const exporter = createExport({ onExportIssue })
+
+    await exporter.downloadRuleDocument()
+
+    const issue = onExportIssue.mock.calls[0]?.[0]
+    expect(issue.summary).toContain('503')
+    expect(issue.summary).toContain('服务暂不可用')
+    expect(issue.details).toContain(stage)
+    expect(issue.summary).not.toContain('完成必要的分组模板映射')
+    expect(exporter.exportingRulePackage.value).toBe(false)
+    expect(mocks.downloadBlob).not.toHaveBeenCalled()
+
+    await exporter.downloadRuleDocument()
+    expect(mocks.downloadBlob).toHaveBeenCalledTimes(1)
+  })
+
+  it('surfaces rule confirmation conflicts without sending the user back to mapping', async () => {
+    mocks.compileRulePackage.mockResolvedValue(compiled(secondPackage))
+    mocks.getCurrentGroupTemplate.mockResolvedValue(validTemplate(fullRouteStructure))
+    mocks.saveFinalizedRulePackage.mockRejectedValue({
+      response: { status: 409, data: { detail: {
+        message: '规则包中的用户规则与数据库中的已确认规则不一致，请重新审核。',
+        rule_ids: ['user.remove_copper'],
+      } } },
+    })
+    const onExportIssue = vi.fn()
+    await createExport({ onExportIssue }).downloadRuleDocument()
+    const issue = onExportIssue.mock.calls[0]?.[0]
+    expect(issue.summary).toContain('已确认规则不一致')
+    expect(issue.summary).not.toContain('分组模板映射')
+    expect(issue.details).toContain('user.remove_copper')
   })
 
   it('runs the publish precheck before saving and surfaces its checklist blockers', async () => {

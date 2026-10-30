@@ -14,7 +14,7 @@ from app.services.rule_packages.contracts import (
     ValidationIssue,
 )
 from app.services.rule_packages.expression_engine import evaluate_condition, iter_condition_fields
-from app.services.rule_packages.input_validation import validate_inputs
+from app.services.rule_packages.input_validation import canonicalize_inputs, validate_inputs
 from app.services.rule_packages.planner import RoutePlanningError, plan_route
 
 
@@ -146,11 +146,47 @@ def validate_rule_package(package: RulePackageV2) -> RulePackageValidationReport
     }
     process_set = set(process_ids)
     process_map = {process.process_id: process for process in package.route_catalog.processes}
+    configurations = package.route_rules.process_configurations
+    configuration_relations = [relation for config in configurations if config.enabled for relation in config.relations]
+    for process_id in sorted(_duplicates([config.process_id for config in configurations])):
+        error("duplicate_process_configuration", f"工序配置重复：{process_id}", "route_rules.process_configurations")
+    for index, config in enumerate(configurations):
+        path = f"route_rules.process_configurations[{index}]"
+        if config.process_id not in process_set:
+            error("unknown_configuration_process", f"工序配置引用未知工序 {config.process_id}", path)
+        elif config.enabled and process_map[config.process_id].main != (config.occurrence == "always"):
+            error("configuration_main_mismatch", f"工序 {config.process_id} 的主工序标记与生成方式不一致", path)
+        if config.source == "user_confirmed" and not all([config.source_segment_id, config.source_text, config.confirmed_by, config.confirmed_at]):
+            error("missing_configuration_audit", f"工序 {config.process_id} 缺少确认记录", path)
+        if config.when is not None:
+            for field_name in iter_condition_fields(config.when):
+                if field_name not in field_set:
+                    error("unknown_input_field", f"工序配置引用未定义字段 {field_name}", path)
+        if config.occurrence == "manual":
+            value = 0x811C9DC5
+            for char in config.process_id:
+                value = ((value ^ ord(char)) * 0x01000193) & 0xFFFFFFFF
+            key = f"project_factor.manual_process_{value:08x}"
+            if not (config.when and config.when.field == key and config.when.op == "eq" and config.when.value is True and key in manual_field_keys):
+                error("invalid_manual_configuration", f"工序 {config.process_id} 的人工选择开关不正确", path)
+        for relation in config.relations:
+            if relation.target_process_ids != [config.process_id]:
+                error("configuration_relation_target", "工序关联只能控制当前工序", path)
+            if set(relation.source_process_ids) & set(relation.target_process_ids):
+                error("self_process_reference", "工序关联不能引用自身", path)
+            for referenced_id in [*relation.source_process_ids, *relation.target_process_ids]:
+                if referenced_id not in process_set:
+                    error("unknown_relation_process", f"工序关联引用未知工序 {referenced_id}", path)
 
     for field_key in sorted(_duplicates(field_keys)):
         error("duplicate_field", f"输入字段重复：{field_key}", "input_schema.fields")
     for process_id in sorted(_duplicates(process_ids)):
         error("duplicate_process", f"工序 ID 重复：{process_id}", "route_catalog.processes")
+    # Process and step targets share one namespace in the exported rule table.
+    node_ids = [*process_ids, *[step.step_id for process in package.route_catalog.processes for step in process.steps]]
+    for node_id in sorted(_duplicates(node_ids)):
+        if node_id not in _duplicates(process_ids):
+            error("duplicate_node_id", f"工序与工步节点 ID 必须全局唯一：{node_id}", "route_catalog.processes")
     for rule_id in sorted(_duplicates(rule_ids)):
         error("duplicate_rule", f"规则 ID 重复：{rule_id}", "route_rules.rules")
     for relation_id in sorted(_duplicates(relation_ids)):
@@ -158,8 +194,8 @@ def validate_rule_package(package: RulePackageV2) -> RulePackageValidationReport
     for case_id in sorted(_duplicates(case_ids)):
         error("duplicate_test_case", f"测试用例 ID 重复：{case_id}", "test_cases")
 
-    if not package.input_schema.fields:
-        error("empty_input_schema", "规则包至少需要一个输入字段", "input_schema.fields")
+    # A fixed route can legitimately have no input factors. Conditions that
+    # reference absent fields are rejected independently below.
     if not package.route_catalog.processes:
         error("empty_process_catalog", "规则包至少需要一个工序", "route_catalog.processes")
     elif not any(process.main for process in package.route_catalog.processes):
@@ -184,7 +220,11 @@ def validate_rule_package(package: RulePackageV2) -> RulePackageValidationReport
         for step_id in sorted(_duplicates(step_ids)):
             error("duplicate_step", f"工序 {process.process_id} 的工步 ID 重复：{step_id}", f"{path}.steps")
 
-    cycle = _dependency_cycle(package.route_catalog.processes, package.route_rules.process_relations)
+    from types import SimpleNamespace
+    cycle_relations = [*package.route_rules.process_relations, *[
+        SimpleNamespace(**relation.model_dump(), enabled=True) for relation in configuration_relations
+    ]]
+    cycle = _dependency_cycle(package.route_catalog.processes, cycle_relations)
     if cycle:
         error("dependency_cycle", f"工序依赖存在环：{' -> '.join(cycle)}", "route_catalog.processes")
 
@@ -269,6 +309,9 @@ def validate_rule_package(package: RulePackageV2) -> RulePackageValidationReport
                     f"test_cases[{index}].expect",
                 )
 
+    case_inputs = {case.case_id: canonicalize_inputs(package.input_schema, case.input)[0]
+                   for case in package.test_cases}
+
     for (priority, process_id), actions in opposing_actions.items():
         if actions["include"] and actions["exclude"]:
             exact_manual_pair = (
@@ -332,7 +375,7 @@ def validate_rule_package(package: RulePackageV2) -> RulePackageValidationReport
         expected_includes = set(rule.then.include_process_ids)
         expected_excludes = set(rule.then.exclude_process_ids)
         covered = any(
-            evaluate_condition(rule.when, case.input).matched
+            evaluate_condition(rule.when, case_inputs[case.case_id]).matched
             and expected_includes.issubset(case.expect.included_process_ids)
             and expected_excludes.issubset(case.expect.excluded_process_ids)
             for case in package.test_cases
@@ -347,7 +390,7 @@ def validate_rule_package(package: RulePackageV2) -> RulePackageValidationReport
     if not errors:
         for case in package.test_cases:
             try:
-                plan = plan_route(package, case.input)
+                plan = plan_route(package, case_inputs[case.case_id])
                 selected = set(plan.selected_process_ids)
                 missing = sorted(set(case.expect.included_process_ids) - selected)
                 unexpected = sorted(set(case.expect.excluded_process_ids) & selected)

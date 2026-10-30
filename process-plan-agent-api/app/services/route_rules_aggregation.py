@@ -8,7 +8,7 @@ import asyncio
 import logging
 import os
 from collections import defaultdict
-from collections.abc import Callable
+from typing import Callable
 
 from app.core.paths import UPLOAD_DIR
 from app.models.models import Document, DocumentOperationDetail

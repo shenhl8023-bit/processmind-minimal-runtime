@@ -22,6 +22,14 @@ import zipfile
 TARGET_PYTHON = (3, 8)
 TARGET_PLATFORM = "win_amd64"
 WHEEL_SUFFIX = ".whl"
+WIN7_UNSUPPORTED_PYDANTIC_CORE_IMPORTS = (
+    # pydantic-core wheels built with newer Rust toolchains import this
+    # Windows 10-only bcrypt primitive.  Search for the exact NUL-terminated
+    # import names; newer Win7-compatible wheels may retain WaitOnAddress in
+    # Rust runtime strings without importing it.
+    b"bcryptprimitives.dll\x00",
+    b"ProcessPrng\x00",
+)
 _REQUIREMENT_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s;#]+)$")
 _METADATA_FIELD_RE = re.compile(r"^(Name|Version):\s*(.+?)\s*$", re.MULTILINE)
 _TAG_RE = re.compile(r"^([A-Za-z0-9.]+)-([A-Za-z0-9.]+)-([A-Za-z0-9_]+)$")
@@ -116,6 +124,28 @@ def _wheel_identity(archive: zipfile.ZipFile) -> Tuple[str, str]:
     return normalize_name(name), version
 
 
+def _validate_win7_native_wheel(archive: zipfile.ZipFile, identity: Tuple[str, str]) -> None:
+    """Reject known Windows 10-only pydantic-core imports before staging."""
+    if identity[0] != "pydantic-core":
+        return
+
+    for member in archive.namelist():
+        if not member.lower().endswith((".pyd", ".dll")):
+            continue
+        payload = archive.read(member)
+        unsupported = [
+            marker.decode("ascii")
+            for marker in WIN7_UNSUPPORTED_PYDANTIC_CORE_IMPORTS
+            if marker in payload
+        ]
+        if unsupported:
+            raise WheelInstallError(
+                "pydantic-core wheel %s imports Windows 10-only symbols (%s); "
+                "use a Windows 7-compatible pydantic-core build"
+                % (identity[1], ", ".join(unsupported))
+            )
+
+
 def _safe_member_name(name: str) -> Path:
     normal = name.replace("\\", "/")
     parts = normal.split("/")
@@ -180,6 +210,7 @@ def _select_wheels(requirements: Sequence[Tuple[str, str]], wheelhouse: Path) ->
             with zipfile.ZipFile(str(wheel), "r") as archive:
                 identity = _wheel_identity(archive)
                 tags = _wheel_tags(archive)
+                _validate_win7_native_wheel(archive, identity)
         except (OSError, zipfile.BadZipFile, UnicodeError, WheelInstallError) as exc:
             raise WheelInstallError("cannot inspect wheel %s: %s" % (wheel.name, exc))
         if any(is_compatible_tag(tag) for tag in tags):

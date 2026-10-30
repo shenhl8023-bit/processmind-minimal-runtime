@@ -3,6 +3,9 @@
 """
 from __future__ import annotations
 
+from typing import List
+import unicodedata
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text, update
@@ -24,9 +27,10 @@ from app.models.models import (
     Reference,
     RouteMergeSnapshot,
 )
-from app.schemas.schemas import ProjectCreate, ProjectOut
+from app.schemas.schemas import ProjectCreate, ProjectOut, ProjectWorkflowProgressOut
 from app.services.extraction_tasks import cancel_extraction_task, delete_extraction_task_state
 from app.services.document_detail_cache_prewarm import cancel_document_detail_cache_prewarm
+from app.services.workflow_progress import get_workflow_progress
 
 router = APIRouter(prefix="/api/projects", tags=["项目管理"])
 
@@ -100,21 +104,32 @@ async def _delete_legacy_rule_asset_rows(project_id: int, db: AsyncSession) -> N
         )
 
 
-@router.get("/", response_model=list[ProjectOut])
+@router.get("/", response_model=List[ProjectOut])
 async def list_projects(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Project).order_by(Project.updated_at.desc(), Project.id.desc()))
     return result.scalars().all()
 
 
+@router.get("/{project_id}/workflow-progress", response_model=ProjectWorkflowProgressOut)
+async def project_workflow_progress(project_id: int, db: AsyncSession = Depends(get_db)):
+    progress = await get_workflow_progress(db, project_id)
+    if progress is None:
+        raise HTTPException(404, "任务不存在")
+    return progress
+
+
 @router.post("/", response_model=ProjectOut)
 async def create_project(body: ProjectCreate, db: AsyncSession = Depends(get_db)):
+    name = body.name.strip()
+    if not name or len(name) > 255 or any(unicodedata.category(char) == "Cc" for char in name):
+        raise HTTPException(422, "任务名称必须为 1 至 255 个字符，且不能包含控制字符")
     sequence_result = await db.execute(
         text("INSERT INTO project_id_sequence DEFAULT VALUES RETURNING id")
     )
     project_id = int(sequence_result.scalar_one())
     project = Project(
         id=project_id,
-        name=body.name,
+        name=name,
         status="CREATED",
     )
     db.add(project)

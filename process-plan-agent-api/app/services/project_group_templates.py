@@ -9,10 +9,10 @@ import re
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import Project, ProjectGroupTemplate
+from app.models.models import GeneratedRoute, Project, ProjectGroupTemplate
 from app.services.group_template_xml import (
     GroupTemplateParseResult,
     is_feature_mapping_target,
@@ -200,6 +200,8 @@ def _final_mapping_targets(operations: list[object]) -> dict[tuple[int, int, str
         process_id = normalize_name(_mapping_value(operation, "process_id", ""))
         if not process_id or process_id in seen_ids:
             raise HTTPException(422, "最终路线工序 ID 缺失或重复，请重新加载规则分析结果。")
+        if not _operation_name(operation):
+            raise HTTPException(422, "最终路线工序名称不能为空，请填写名称后再保存映射。")
         seen_ids.add(process_id)
         steps = _mapping_value(operation, "steps", []) or []
         process_type = normalize_name(_mapping_value(operation, "process_type", "")) or _process_type(
@@ -209,6 +211,8 @@ def _final_mapping_targets(operations: list[object]) -> dict[tuple[int, int, str
             step_id = normalize_name(_mapping_value(step, "step_id", ""))
             if not step_id or step_id in seen_ids:
                 raise HTTPException(422, "最终路线工步 ID 缺失或重复，请重新加载规则分析结果。")
+            if not normalize_name(_mapping_value(step, "step_name", "")):
+                raise HTTPException(422, "最终路线工步名称不能为空，请填写名称后再保存映射。")
             seen_ids.add(step_id)
             if process_type != "加工工序":
                 continue
@@ -531,6 +535,98 @@ def _step_mapping_dicts(mappings: list[ProjectGroupStepMapping]) -> list[dict[st
     return [asdict(mapping) for mapping in mappings]
 
 
+def _merge_group_mappings(
+    current: list[ProjectGroupMapping],
+    incoming: list[ProjectGroupMapping],
+) -> list[ProjectGroupMapping]:
+    """Apply an incremental legacy save without dropping sibling group mappings."""
+    merged: list[ProjectGroupMapping] = []
+    positions: dict[tuple[int, str], int] = {}
+    for mapping in current:
+        key = (mapping.source_operation_id, _canonical_path(mapping.template_group_path))
+        positions.setdefault(key, len(merged))
+        merged.append(mapping)
+    for mapping in incoming:
+        key = (mapping.source_operation_id, _canonical_path(mapping.template_group_path))
+        if key in positions:
+            merged[positions[key]] = mapping
+        else:
+            positions[key] = len(merged)
+            merged.append(mapping)
+    return merged
+
+
+def _step_mapping_targets_key(mapping: object) -> tuple[tuple[str, str], ...]:
+    targets = _mapping_value(mapping, "final_targets", []) or []
+    return tuple(sorted(
+        (
+            normalize_name(_mapping_value(target, "process_id", "")),
+            normalize_name(_mapping_value(target, "step_id", "")),
+        )
+        for target in targets
+        if normalize_name(_mapping_value(target, "process_id", ""))
+        and normalize_name(_mapping_value(target, "step_id", ""))
+    ))
+
+
+def _step_mapping_scope_key(mapping: object) -> tuple[str, tuple[tuple[str, str], ...]]:
+    operation_id = int(_mapping_value(mapping, "source_operation_id", 0) or 0)
+    step_order = int(_mapping_value(mapping, "source_step_order", 0) or 0)
+    source_key = str(_mapping_value(mapping, "source_step_key", "") or "") or stable_step_key(
+        operation_id, step_order,
+    )
+    return source_key, _step_mapping_targets_key(mapping)
+
+
+def _step_mapping_path_key(mapping: object) -> str:
+    path = _mapping_value(mapping, "template_group_path", [])
+    return _canonical_path(path if isinstance(path, list) else [])
+
+
+def _merge_step_mappings(
+    current: list[ProjectGroupStepMapping],
+    incoming: list[ProjectGroupStepMapping],
+) -> list[ProjectGroupStepMapping]:
+    """Merge added decisions without making a later partial save destructive.
+
+    A confirmed mapping replaces the same source/target/group entry and clears a
+    prior ``not_applicable`` decision for that source/target.  A not-applicable
+    decision clears all entries for that source/target.  Other confirmed groups
+    remain available for the same source step.
+    """
+    merged = list(current)
+    for candidate in incoming:
+        candidate_scope = _step_mapping_scope_key(candidate)
+        candidate_path = _step_mapping_path_key(candidate)
+        if candidate.status == "not_applicable":
+            merged = [
+                mapping for mapping in merged
+                if _step_mapping_scope_key(mapping) != candidate_scope
+            ]
+        else:
+            previous_features: list[str] = []
+            for mapping in merged:
+                if (
+                    mapping.status == "confirmed"
+                    and _step_mapping_scope_key(mapping) == candidate_scope
+                    and _step_mapping_path_key(mapping) == candidate_path
+                ):
+                    previous_features.extend(mapping.candidate_features)
+            merged = [
+                mapping for mapping in merged
+                if _step_mapping_scope_key(mapping) != candidate_scope
+                or (
+                    mapping.status != "not_applicable"
+                    and _step_mapping_path_key(mapping) != candidate_path
+                )
+            ]
+            candidate.candidate_features = list(dict.fromkeys(
+                [*previous_features, *candidate.candidate_features]
+            ))
+        merged.append(candidate)
+    return merged
+
+
 def serialize_project_group_template(row: ProjectGroupTemplate) -> ProjectTemplateSnapshot:
     return ProjectTemplateSnapshot(
         project_id=int(row.project_id),
@@ -596,6 +692,14 @@ async def _fresh_snapshot(db: AsyncSession, project_id: int) -> ProjectTemplateS
     return serialize_project_group_template(row)
 
 
+async def _invalidate_template_dependent_outputs(db: AsyncSession, project_id: int) -> None:
+    from app.services.rule_packages.lifecycle import supersede_published_rule_packages
+
+    await supersede_published_rule_packages(project_id, db)
+    await db.execute(delete(GeneratedRoute).where(GeneratedRoute.project_id == project_id))
+    await db.flush()
+
+
 async def commit_project_group_template(
     db: AsyncSession,
     project_id: int,
@@ -633,6 +737,7 @@ async def commit_project_group_template(
             if project_exists is None:
                 raise HTTPException(404, "任务不存在")
             raise _conflict()
+        await _invalidate_template_dependent_outputs(db, project_id)
         snapshot = await _fresh_snapshot(db, project_id)
         return TemplateCommitResult(**snapshot.__dict__)
 
@@ -695,6 +800,7 @@ async def commit_project_group_template(
     ).scalar_one_or_none()
     if revision is None:
         raise _conflict()
+    await _invalidate_template_dependent_outputs(db, project_id)
     snapshot = await _fresh_snapshot(db, project_id)
     return TemplateCommitResult(
         **snapshot.__dict__,
@@ -710,6 +816,7 @@ async def replace_project_group_mappings(
     project_id: int,
     mappings: list[object],
     expected_revision: int,
+    replace_all: bool = True,
 ) -> ProjectTemplateSnapshot:
     current = await get_project_group_template(db, project_id)
     if current is None or int(current.template_revision) != expected_revision:
@@ -721,13 +828,18 @@ async def replace_project_group_mappings(
         if server_mapping is None:
             raise HTTPException(422, "映射的分组路径不存在于当前模板。")
         resolved.append(server_mapping)
+    if not replace_all:
+        current_mappings = [
+            _mapping_snapshot(mapping)
+            for mapping in _json_list(current.mappings_json)
+        ]
+        resolved = _merge_group_mappings(current_mappings, resolved)
 
     revision = (
         await db.execute(
             text("""
                 UPDATE project_group_templates
                 SET mappings_json = :mappings_json,
-                    mapping_output_json = '[]',
                     template_revision = template_revision + 1,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE project_id = :project_id AND template_revision = :expected_revision
@@ -742,6 +854,7 @@ async def replace_project_group_mappings(
     ).scalar_one_or_none()
     if revision is None:
         raise _conflict()
+    await _invalidate_template_dependent_outputs(db, project_id)
     return await _fresh_snapshot(db, project_id)
 
 
@@ -751,6 +864,7 @@ async def replace_project_group_step_mappings(
     mappings: list[object],
     expected_revision: int,
     operations: list[object] | None = None,
+    replace_all: bool = True,
 ) -> ProjectTemplateSnapshot:
     current = await get_project_group_template(db, project_id)
     if current is None or int(current.template_revision) != expected_revision:
@@ -758,9 +872,37 @@ async def replace_project_group_step_mappings(
     index = _path_index(_json_list(current.tree_json))
     resolved: list[ProjectGroupStepMapping] = []
     seen_targets: set[tuple[str, tuple[tuple[str, str], ...], str]] = set()
-    statuses: dict[tuple[str, str, str], set[str]] = {}
     explicit_final_tree = any(_mapping_value(operation, "process_id", "") for operation in operations or [])
+    saved_output = _json_list(current.mapping_output_json)
+    saved_output_mode = str(getattr(current, "mapping_output_mode", "unknown") or "unknown")
+    saved_final_tree = any(
+        _mapping_value(mapping, "final_targets", [])
+        for mapping in _json_list(current.step_mappings_json)
+    ) or any(
+        not re.fullmatch(r"op_[0-9]+", str(_mapping_value(process, "process_id", "")))
+        for process in saved_output
+    ) or saved_output_mode == "final_tree"
+    if saved_final_tree and not explicit_final_tree:
+        raise HTTPException(422, "当前映射已关联最终工艺树，请提交完整最终路线后再保存，不能改用旧版来源工序。")
+    if saved_output and saved_output_mode != "legacy" and not explicit_final_tree:
+        raise HTTPException(422, "当前保存路线格式无法判定，请重新加载并提交完整最终路线后再保存映射。")
     final_targets = _final_mapping_targets(list(operations or [])) if explicit_final_tree else {}
+    if not replace_all and explicit_final_tree and saved_output:
+        if saved_output_mode != "final_tree":
+            raise HTTPException(422, "当前路线快照格式无法用于增量升级，请使用全量替换提交完整最终路线。")
+        saved_process_ids = {
+            normalize_name(_mapping_value(process, "process_id", ""))
+            for process in saved_output
+            if normalize_name(_mapping_value(process, "process_id", ""))
+        }
+        incoming_process_ids = {
+            normalize_name(_mapping_value(operation, "process_id", ""))
+            for operation in operations or []
+            if normalize_name(_mapping_value(operation, "process_id", ""))
+        }
+        missing_process_ids = saved_process_ids - incoming_process_ids
+        if missing_process_ids:
+            raise HTTPException(422, "增量保存的最终路线必须包含当前已保存的全部工序，请提交完整最终路线。")
     for mapping in mappings:
         source_ref = (int(_mapping_value(mapping, "source_operation_id", 0) or 0),
                       int(_mapping_value(mapping, "source_step_order", 0) or 0),
@@ -778,11 +920,6 @@ async def replace_project_group_step_mappings(
         if explicit_final_tree:
             server_mapping.final_targets = requested_targets if requested_targets is not None else allowed_targets
         target_ids = tuple(sorted((target["process_id"], target["step_id"]) for target in server_mapping.final_targets))
-        status_keys = [("final", process_id, step_id) for process_id, step_id in target_ids]
-        if not status_keys:
-            status_keys = [("source", server_mapping.source_step_key, "")]
-        for status_key in status_keys:
-            statuses.setdefault(status_key, set()).add(server_mapping.status)
         target_key = _canonical_path(server_mapping.template_group_path)
         dedupe_key = (server_mapping.source_step_key, target_ids, target_key)
         if dedupe_key in seen_targets:
@@ -790,16 +927,56 @@ async def replace_project_group_step_mappings(
         seen_targets.add(dedupe_key)
         resolved.append(server_mapping)
 
+    if not replace_all:
+        current_mappings = [
+            _step_mapping_snapshot(mapping)
+            for mapping in _json_list(current.step_mappings_json)
+        ]
+        if explicit_final_tree:
+            retained_mappings = []
+            for mapping in current_mappings:
+                source_ref = (mapping.source_operation_id, mapping.source_step_order,
+                              normalize_name(mapping.source_step_name))
+                allowed_targets = final_targets.get(source_ref, [])
+                retained_targets = [target for target in mapping.final_targets if target in allowed_targets]
+                if not mapping.final_targets:
+                    retained_targets = allowed_targets
+                if retained_targets:
+                    mapping.final_targets = retained_targets
+                    retained_mappings.append(mapping)
+            current_mappings = retained_mappings
+        resolved = _merge_step_mappings(current_mappings, resolved)
+
+    statuses: dict[tuple[str, str, str], set[str]] = {}
+    for mapping in resolved:
+        status_keys = [("final", target["process_id"], target["step_id"]) for target in mapping.final_targets]
+        if not status_keys:
+            status_keys = [("source", mapping.source_step_key, "")]
+        for status_key in status_keys:
+            statuses.setdefault(status_key, set()).add(mapping.status)
     if any(len(step_statuses) > 1 for step_statuses in statuses.values()):
         raise HTTPException(422, "同一工步不能同时确认映射和标记为不依赖模板特征。")
 
     mapping_output = _build_mapping_output(operations, resolved)
+    if explicit_final_tree:
+        invalid_precision = [process for process in mapping_output
+                             if process["process_type"] == "加工工序"
+                             and process["precision"] not in {"粗加工", "半精加工", "精加工"}]
+        if invalid_precision:
+            names = "、".join(str(process["process_name"]) for process in invalid_precision)
+            raise HTTPException(422, f"请先填写以下加工工序的精度（粗加工、半精加工或精加工）再保存映射：{names}")
+        invalid_auxiliary = [process for process in mapping_output
+                             if process["process_type"] == "辅助工序" and process["precision"] != "辅助工序"]
+        if invalid_auxiliary:
+            names = "、".join(str(process["process_name"]) for process in invalid_auxiliary)
+            raise HTTPException(422, f"以下辅助工序的精度必须为辅助工序：{names}")
     revision = (
         await db.execute(
             text("""
                 UPDATE project_group_templates
                 SET step_mappings_json = :step_mappings_json,
                     mapping_output_json = :mapping_output_json,
+                    mapping_output_mode = :mapping_output_mode,
                     template_revision = template_revision + 1,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE project_id = :project_id AND template_revision = :expected_revision
@@ -810,9 +987,11 @@ async def replace_project_group_step_mappings(
                 "expected_revision": expected_revision,
                 "step_mappings_json": _json_dump(_step_mapping_dicts(resolved)),
                 "mapping_output_json": _json_dump(mapping_output),
+                "mapping_output_mode": "final_tree" if explicit_final_tree else "legacy",
             },
         )
     ).scalar_one_or_none()
     if revision is None:
         raise _conflict()
+    await _invalidate_template_dependent_outputs(db, project_id)
     return await _fresh_snapshot(db, project_id)

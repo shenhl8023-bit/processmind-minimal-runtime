@@ -59,4 +59,16 @@ describe('useAnalysisDocumentTextCache', () => {
     await currentEnsure
     expect(cache.documentPreviewTextMap.value).toEqual({ 1: 'new' })
   })
+
+  it('retries a failed evidence preview instead of caching a permanent empty result', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    getDocumentPreviewMock.mockRejectedValueOnce(new Error('offline'))
+    getDocumentPreviewMock.mockResolvedValueOnce({ id: 1, original_name: 'one.pdf', preview_text: '材料 45钢' })
+    const cache = useAnalysisDocumentTextCache({ selectedDocIds: computed(() => new Set([1])) })
+    await cache.ensureMatchedDocumentPreviewTexts()
+    await cache.ensureMatchedDocumentPreviewTexts()
+
+    expect(cache.documentPreviewTextMap.value).toEqual({ 1: '材料 45钢' })
+    warn.mockRestore()
+  })
 })

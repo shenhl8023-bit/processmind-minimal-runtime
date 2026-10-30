@@ -85,9 +85,9 @@ _FIELDS = [
         key="cad.features", label="CAD 特征集合", category="结构特征", type="multi_select",
         operators=["contains", "contains_any", "contains_all"], aliases=["CAD特征", "结构特征", "槽", "孔", "扁位"], source="CAD",
         options=[{"value": value, "label": value} for value in ["扁位/平面", "槽类特征", "普通孔/辅助孔", "铰孔/精孔", "型孔/割扁", "顶尖孔"]], required=True,
-        # CAD feature_select is normalized to these reviewed categories before
-        # publication; custom values must be classified before they can affect
-        # a route rule.
+        # These reviewed categories need an explicit human classification. The
+        # downstream CAD engine reads geometric names and has no classifier for
+        # these values, so publication exposes a manual multi-select input.
         allow_custom=False,
     ),
     CanonicalConditionField(

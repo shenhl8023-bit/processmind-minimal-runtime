@@ -2,10 +2,18 @@
 <FeatureSelect>
     <Item name='六面'/>
     <Item name='平面'/>
+    <Item name='复杂曲面'/>
     <Item name='轴端面'/>
     <Item name='外圆柱面'/>
     <Item name='U形外环槽'/>
     <Item name='U形内环槽'/>
+    <Item name='外环槽'/>
+    <Item name='内环槽'/>
+    <Item name='V形环槽'/>
+    <Item name='均布齿槽'/>
+    <Item name='外螺纹'/>
+    <Item name='内螺纹'/>
+    <Item name='仿形面'/>
 	<Item name='各类孔特征'>
 		<Item name='孔'/>
 		<Item name='孔(盲孔)'/>
@@ -16,6 +24,7 @@
 	</Item>
 	<Item name='凹槽特征'>
 		<Item name='单纯底凹槽'/>
+		<Item name='斜立面单纯底凹槽'/>
 		<Item name='矩形底凹槽'/>
 		<Item name='通槽'/>
 		<Item name='同回转面下陷通槽'/>
@@ -34,6 +43,7 @@
 		<Item name='内倒角'/>
 		<Item name='外倒角'/>
 		<Item name='倒角'/>
+		<Item name='边倒圆'/>
 		<Item name='倒圆'/>
 		<Item name='回转面倒圆'/>
 	</Item>

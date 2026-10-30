@@ -2,6 +2,7 @@
 import { computed, onActivated, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import KnowledgeGuidanceCard from '@/components/knowledge/KnowledgeGuidanceCard.vue'
+import KnowledgeCatalogPanel from '@/components/knowledge/KnowledgeCatalogPanel.vue'
 import {
   saveKnowledgeEvidence,
   searchKnowledge,
@@ -18,7 +19,14 @@ import {
 defineOptions({ name: 'KnowledgeView' })
 
 const route = useRoute()
+const workspace = ref<'qa' | 'knowledge' | 'resources'>('qa')
+const openedCatalogs = ref({ knowledge: false, resources: false })
+function selectWorkspace(value: 'qa' | 'knowledge' | 'resources') {
+  workspace.value = value
+  if (value !== 'qa') openedCatalogs.value[value] = true
+}
 const query = ref(firstQueryValue(route.query.q))
+const submittedQuery = ref('')
 const topK = ref(8)
 const loading = ref(false)
 const error = ref('')
@@ -36,6 +44,7 @@ const savedEvidenceIds = ref<Record<string, number>>({})
 const savingItemId = ref('')
 const contextGeneration = ref(0)
 const searchRequestId = ref(0)
+const pendingSearchKey = ref('')
 const showAllSampleQuestions = ref(false)
 
 // Render emphasis as Vue text nodes so model output can never inject HTML.
@@ -293,9 +302,11 @@ function askSampleQuestion(question: string) {
 }
 
 async function runSearch() {
+  const text = query.value.trim()
+  const searchKey = JSON.stringify([text, topK.value, projectId.value, operationContext.value])
+  if (loading.value && pendingSearchKey.value === searchKey) return
   const generation = ++contextGeneration.value
   const requestId = ++searchRequestId.value
-  const text = query.value.trim()
   savingItemId.value = ''
   if (!text) {
     loading.value = false
@@ -305,6 +316,7 @@ async function runSearch() {
   hasSearched.value = true
   savedEvidenceIds.value = {}
   loading.value = true
+  pendingSearchKey.value = searchKey
   error.value = ''
   message.value = ''
   answerText.value = ''
@@ -319,6 +331,7 @@ async function runSearch() {
       context: operationContext.value,
     })
     if (generation !== contextGeneration.value || requestId !== searchRequestId.value) return
+    submittedQuery.value = text
     status.value = result.status
     message.value = result.message
     answerText.value = result.answer
@@ -332,11 +345,15 @@ async function runSearch() {
     status.value = 'idle'
     items.value = []
   } finally {
-    if (generation === contextGeneration.value && requestId === searchRequestId.value) loading.value = false
+    if (generation === contextGeneration.value && requestId === searchRequestId.value) {
+      loading.value = false
+      pendingSearchKey.value = ''
+    }
   }
 }
 
 async function adoptEvidence(item: KnowledgeSearchItem) {
+  if (savingItemId.value || savedEvidenceIds.value[item.id]) return
   const generation = contextGeneration.value
   const currentProjectId = projectId.value
   savingItemId.value = item.id
@@ -348,7 +365,7 @@ async function adoptEvidence(item: KnowledgeSearchItem) {
       segment_id: typeof operationContext.value?.segment_id === 'string'
         ? operationContext.value.segment_id || undefined
         : undefined,
-      query: query.value.trim(),
+      query: submittedQuery.value,
       item_id: item.id,
       content: item.content,
       document_id: item.source.document_id,
@@ -372,11 +389,13 @@ onMounted(() => {
 })
 
 watch(() => route.fullPath, () => {
+  if (firstQueryValue(route.query.q).trim() || route.query.operation_context) workspace.value = 'qa'
   contextGeneration.value += 1
   searchRequestId.value += 1
   savingItemId.value = ''
   loading.value = false
   query.value = firstQueryValue(route.query.q)
+  submittedQuery.value = ''
   items.value = []
   savedEvidenceIds.value = {}
   status.value = 'idle'
@@ -403,7 +422,7 @@ onActivated(() => {
           <h1 id="knowledge-title">轴套工艺知识库</h1>
           <span class="local-badge">本地样例库</span>
         </div>
-        <p>从工艺说明、历史工艺与能力数据中，找到有据可查的参考答案。</p>
+        <p>查阅工艺知识与资源资料，或通过问答找到有据可查的参考答案。</p>
       </div>
       <div class="hero-note">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6l-8-3Z"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg>
@@ -411,6 +430,18 @@ onActivated(() => {
       </div>
     </section>
 
+    <div class="knowledge-workspace">
+      <nav class="knowledge-sidebar" aria-label="知识库导航">
+        <span class="knowledge-nav-label">知识库</span>
+        <button type="button" :class="{ active: workspace === 'qa' }" :aria-pressed="workspace === 'qa'" @click="selectWorkspace('qa')"><span>知识问答</span><small>带着问题查依据</small></button>
+        <button type="button" :class="{ active: workspace === 'knowledge' }" :aria-pressed="workspace === 'knowledge'" @click="selectWorkspace('knowledge')"><span>工艺知识</span><small>要求、条件与能力参考</small></button>
+        <button type="button" :class="{ active: workspace === 'resources' }" :aria-pressed="workspace === 'resources'" @click="selectWorkspace('resources')"><span>工艺资源</span><small>设备、刀具与量具</small></button>
+        <p>本地资料 · 只读查看<br />每条记录保留来源</p>
+      </nav>
+      <div class="knowledge-main">
+      <KnowledgeCatalogPanel v-if="openedCatalogs.knowledge" v-show="workspace === 'knowledge'" section="knowledge" />
+      <KnowledgeCatalogPanel v-if="openedCatalogs.resources" v-show="workspace === 'resources'" section="resources" />
+      <div v-show="workspace === 'qa'" class="knowledge-qa">
     <section class="knowledge-query card">
       <div class="query-heading">
         <label class="query-label" for="knowledge-query-input">你想了解什么？</label>
@@ -672,7 +703,7 @@ onActivated(() => {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
             已采纳 <small>#{{ savedEvidenceIds[item.id] }}</small>
           </span>
-          <button v-else class="btn btn-outline btn-sm" :disabled="savingItemId === item.id" @click="adoptEvidence(item)">
+          <button v-else class="btn btn-outline btn-sm" :disabled="Boolean(savingItemId)" @click="adoptEvidence(item)">
             {{ savingItemId === item.id ? '保存中…' : '采纳为依据' }}
           </button>
           </div>
@@ -691,42 +722,66 @@ onActivated(() => {
         </button>
       </div>
     </section>
+      </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.knowledge-view { max-width: var(--page-max-width); margin: 0 auto; padding: 12px 0 32px; }
-.knowledge-hero { display: flex; justify-content: space-between; gap: 24px; align-items: center; margin-bottom: 22px; }
-.hero-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
-.knowledge-hero h1 { font-size: 24px; line-height: 1.4; font-weight: 650; letter-spacing: -.025em; }
-.knowledge-hero p { color: var(--text-secondary); font-size: 14px; line-height: 1.7; }
+.knowledge-view { --text-muted: #64748b; --radius-md: 8px; --knowledge-border: #dce3ed; --knowledge-control-height: 38px; --knowledge-control-radius: 6px; width: 100%; max-width: var(--page-max-width); margin: 0 auto; padding: 0; flex: 1; min-height: 0; display: flex; flex-direction: column; font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif; }
+.knowledge-workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: 184px minmax(0, 1fr); gap: 12px; }
+.knowledge-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.knowledge-qa { min-width: 0; min-height: 0; overflow-y: auto; padding: 0 4px 16px 0; scrollbar-gutter: stable; }
+.hero-main { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
+.knowledge-sidebar { align-self: start; padding: 8px 6px; border: 1px solid var(--knowledge-border); border-radius: var(--radius-md); background: var(--bg-card); }
+.knowledge-nav-label { display: block; padding: 3px 10px 8px; font-size: 12px; color: var(--text-secondary); font-weight: 600; }
+.knowledge-sidebar button { display: block; width: 100%; text-align: left; border: 1px solid transparent; border-radius: 6px; padding: 9px 10px; margin-bottom: 3px; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; }
+.knowledge-sidebar button:hover { background: #f5f7fc; }
+.knowledge-sidebar button.active { background: #eef2ff; color: var(--accent); border-color: #c7d2fe; }
+.knowledge-sidebar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.knowledge-sidebar button span { display: block; font-size: 14px; font-weight: 600; }
+.knowledge-sidebar button small { display: block; font-size: 12px; line-height: 1.45; margin-top: 3px; }
+.knowledge-sidebar p { margin: 9px 10px 3px; padding-top: 9px; border-top: 1px solid var(--border-light); color: var(--text-secondary); font-size: 12px; line-height: 1.65; }
+@media (max-width: 900px) {
+  .knowledge-workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: 12px; }
+  .knowledge-sidebar { display: flex; gap: 4px; padding: 5px; }
+  .knowledge-nav-label, .knowledge-sidebar p, .knowledge-sidebar button small { display: none; }
+  .knowledge-sidebar button { margin: 0; text-align: center; padding: 10px 6px; }
+  .hero-main { display: block; }
+  .knowledge-hero p { white-space: normal; }
+}
+.knowledge-hero { display: flex; justify-content: space-between; gap: 16px; align-items: center; margin-bottom: 10px; flex-shrink: 0; }
+.hero-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; flex-shrink: 0; }
+.knowledge-hero h1 { font-size: 22px; line-height: 1.35; font-weight: 650; letter-spacing: -.025em; }
+.knowledge-hero p { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 14px; line-height: 1.5; }
 .local-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border: 1px solid var(--border-light); border-radius: 6px; background: var(--bg-card); color: var(--text-secondary); font-size: 12px; font-weight: 500; }
 .local-badge::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
 .hero-note { display: flex; align-items: center; gap: 7px; flex-shrink: 0; color: var(--text-secondary); font-size: 12px; }
 .hero-note svg { width: 17px; height: 17px; color: var(--accent); }
 .card { background: var(--bg-card); border: 1px solid var(--border-light); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); }
 .card:hover { box-shadow: var(--shadow-sm); }
-.knowledge-query { padding: 22px 24px; margin-bottom: 20px; }
-.query-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 13px; }
+.knowledge-query { padding: 14px 16px; margin-bottom: 12px; }
+.query-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
 .query-label { color: var(--text-primary); font-size: 16px; font-weight: 600; }
 .query-heading > span { color: var(--text-secondary); font-size: 12px; }
-.query-row { display: flex; gap: 10px; }
-.query-field { display: flex; align-items: center; flex: 1; min-width: 0; border: 1px solid var(--border-light); border-radius: 8px; background: var(--bg-primary); transition: border-color .15s, box-shadow .15s; }
+.query-row { display: flex; gap: 6px; }
+.query-field { display: flex; align-items: center; flex: 1; min-width: 0; height: var(--knowledge-control-height); box-sizing: border-box; border: 1px solid var(--border-light); border-radius: var(--knowledge-control-radius); background: var(--bg-primary); transition: border-color .15s, box-shadow .15s; }
 .query-field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-light); background: var(--bg-card); }
 .search-icon { flex: 0 0 18px; width: 18px; height: 18px; margin-left: 14px; color: var(--text-secondary); }
-.query-input { flex: 1; min-width: 0; width: 100%; background: transparent; color: var(--text-primary); border: 0; padding: 14px 12px; font: inherit; font-size: 15px; outline: none; }
+.query-input { flex: 1; min-width: 0; width: 100%; height: 100%; box-sizing: border-box; background: transparent; color: var(--text-primary); border: 0; padding: 0 12px; font: inherit; font-size: 14px; outline: none; }
 .query-input::placeholder { color: #64748b; }
-.query-limit { border: 1px solid var(--border-light); border-radius: 8px; color: var(--text-secondary); padding: 0 10px; background: var(--bg-card); font: inherit; font-size: 12px; cursor: pointer; }
-.query-submit { justify-content: center; flex-shrink: 0; min-width: 100px; padding: 10px 18px; }
-.query-submit svg { width: 16px; height: 16px; }
-.samples-heading { display: flex; align-items: center; gap: 12px; margin: 21px 0 10px; color: var(--text-secondary); font-size: 13px; }
+.query-limit { height: var(--knowledge-control-height); box-sizing: border-box; border: 1px solid var(--border-light); border-radius: var(--knowledge-control-radius); color: var(--text-secondary); padding: 0 10px; background: var(--bg-card); font: inherit; font-size: 13px; cursor: pointer; }
+.query-submit { justify-content: center; flex-shrink: 0; height: var(--knowledge-control-height); min-height: var(--knowledge-control-height); min-width: 92px; padding: 0 16px; border-radius: var(--knowledge-control-radius); font-size: 13px; }
+.query-submit svg { width: 14px; height: 14px; }
+.samples-heading { display: flex; align-items: center; gap: 12px; margin: 14px 0 7px; color: var(--text-secondary); font-size: 13px; }
 .samples-heading span:first-child { font-weight: 600; }
 .samples-heading span:last-child { font-size: 12px; color: var(--text-secondary); }
-.sample-questions { display: flex; flex-wrap: wrap; gap: 8px; }
-.sample-questions button { display: flex; align-items: center; gap: 9px; min-width: 0; max-width: 100%; min-height: 40px; border: 1px solid var(--border-light); border-radius: 7px; background: var(--bg-card); color: var(--text-secondary); padding: 9px 11px; font: inherit; font-size: 13px; line-height: 1.5; text-align: left; cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
+.sample-questions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.sample-questions button { display: flex; align-items: center; gap: 9px; min-width: 0; max-width: 100%; min-height: 42px; border: 1px solid var(--border-light); border-radius: 6px; background: var(--bg-card); color: var(--text-secondary); padding: 7px 10px; font: inherit; font-size: 13px; line-height: 1.45; text-align: left; cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
 .sample-questions button:hover:not(:disabled) { border-color: #c7d2fe; background: #f5f6ff; color: var(--accent); }
 .sample-questions button:disabled { opacity: .55; cursor: wait; }
-.sample-label { flex-shrink: 0; font-size: 11px; color: var(--accent); background: #eef2ff; padding: 3px 6px; border-radius: 4px; }
+.sample-label { flex-shrink: 0; font-size: 12px; color: var(--text-secondary); background: #f1f4f8; padding: 3px 6px; border-radius: 4px; }
 .sample-text { overflow-wrap: anywhere; }
 .sample-arrow { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 18px; height: 18px; margin-left: auto; color: #64748b; }
 .sample-arrow svg { width: 16px; height: 16px; }
@@ -888,18 +943,20 @@ onActivated(() => {
 }
 @media (max-width: 720px) {
   .knowledge-view { padding-top: 5px; }
-  .knowledge-hero { align-items: flex-start; flex-direction: column; gap: 10px; margin-bottom: 18px; }
+  .knowledge-hero { align-items: flex-start; gap: 8px; margin-bottom: 12px; }
   .knowledge-hero h1 { font-size: 21px; }
-  .hero-note { font-size: 11px; }
-  .knowledge-query { padding: 17px 16px; }
+  .hero-title-row { margin-bottom: 4px; }
+  .knowledge-hero p { white-space: normal; }
+  .hero-note { display: none; }
+  .knowledge-query { padding: 14px; }
   .query-heading { align-items: flex-start; flex-direction: column; gap: 7px; }
   .query-heading > span { font-size: 12px; }
   .query-row { flex-wrap: wrap; }
   .query-field { flex-basis: 100%; }
-  .query-input { font-size: 16px; padding: 12px 10px; }
-  .query-limit { min-height: 42px; flex: 1; }
-  .query-submit { min-height: 42px; flex: 2; }
-  .sample-questions { flex-direction: column; }
+  .query-input { font-size: 16px; padding: 0 10px; }
+  .query-limit { height: 40px; flex: 1; }
+  .query-submit { height: 40px; min-height: 40px; flex: 2; }
+  .sample-questions { grid-template-columns: minmax(0, 1fr); }
   .sample-questions button { width: 100%; gap: 7px; min-height: 44px; padding: 10px; }
   .sample-label { font-size: 11px; }
   .sample-toggle { min-height: 40px; }

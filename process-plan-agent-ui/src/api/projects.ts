@@ -17,6 +17,13 @@ export interface Project {
   updated_at: string
 }
 
+export interface ProjectWorkflowProgress {
+  project_id: number
+  completed_steps: number
+  max_available_step: number
+  workflow_revision: number
+}
+
 export async function listProjects(forceRefresh = false) {
   if (!forceRefresh) {
     const cached = getWorkflowDataCache<Project[]>(PROJECT_LIST_CACHE_KEY)
@@ -27,6 +34,11 @@ export async function listProjects(forceRefresh = false) {
   const projects = data as Project[]
   setWorkflowDataCache(PROJECT_LIST_CACHE_KEY, projects, requestRevision)
   return projects
+}
+
+export async function getProjectWorkflowProgress(projectId: number) {
+  const { data } = await api.get(`/api/projects/${projectId}/workflow-progress`)
+  return data as ProjectWorkflowProgress
 }
 
 export async function createProject(name: string) {

@@ -187,6 +187,40 @@ class RuleV2(StrictModel):
 ProcessRelationType = Literal["trigger_after", "order_after", "requires", "conflicts"]
 
 
+class ProcessRelationSpec(StrictModel):
+    relation_type: ProcessRelationType
+    source_process_ids: list[str] = Field(min_length=1)
+    target_process_ids: list[str] = Field(min_length=1)
+    source_match: Literal["any", "all"] = "all"
+
+
+class ProcessConfiguration(StrictModel):
+    process_id: str = Field(min_length=1)
+    occurrence: Literal["always", "manual", "conditional"]
+    when: ConditionNode | None = None
+    relations: list[ProcessRelationSpec] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_occurrence(self):
+        triggers = [r for r in self.relations if r.relation_type == "trigger_after"]
+        if self.occurrence == "always" and (self.when is not None or triggers):
+            raise ValueError("always occurrence cannot contain conditions or triggers")
+        if self.occurrence == "manual" and self.when is None:
+            raise ValueError("manual occurrence requires a boolean condition")
+        if self.occurrence == "conditional" and self.when is None and not triggers:
+            raise ValueError("conditional occurrence requires a condition or trigger")
+        return self
+
+
+class ProcessConfigurationV2(ProcessConfiguration):
+    enabled: bool = True
+    source: Literal["system_static", "user_confirmed"] = "system_static"
+    source_segment_id: str = ""
+    source_text: str = ""
+    confirmed_by: str = ""
+    confirmed_at: str = ""
+
+
 class ProcessRelationV2(StrictModel):
     relation_id: str = Field(min_length=1)
     relation_type: ProcessRelationType
@@ -213,6 +247,14 @@ class RouteRulesV2(StrictModel):
     schema_version: Literal["2.0"] = "2.0"
     rules: list[RuleV2] = Field(default_factory=list)
     process_relations: list[ProcessRelationV2] = Field(default_factory=list)
+    process_configurations: list[ProcessConfigurationV2] = Field(default_factory=list)
+
+    @model_serializer(mode="wrap")
+    def serialize_legacy_compatible(self, handler):
+        payload = handler(self)
+        if not self.process_configurations:
+            payload.pop("process_configurations", None)
+        return payload
 
 
 class Applicability(StrictModel):
@@ -309,6 +351,7 @@ class CompileRulePackageRequest(StrictModel):
     processes: list[ProcessV2]
     rules: list[RuleV2] = Field(default_factory=list)
     process_relations: list[ProcessRelationV2] = Field(default_factory=list)
+    process_configurations: list[ProcessConfigurationV2] = Field(default_factory=list)
     test_cases: list[RulePackageTestCase] = Field(default_factory=list)
 
 

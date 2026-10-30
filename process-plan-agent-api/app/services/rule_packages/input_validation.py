@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import math
 from typing import Any
 
 from pydantic import Field
@@ -159,6 +160,13 @@ def validate_inputs(schema: InputSchemaV2, inputs: dict[str, Any]) -> list[Input
         if field.type == "number":
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 add("input_type_mismatch", field, f"输入 {field.label} 必须是数值")
+                continue
+            try:
+                finite = math.isfinite(value)
+            except OverflowError:
+                finite = False
+            if not finite:
+                add("input_number_not_finite", field, f"输入 {field.label} 必须是有限且在支持范围内的数值")
                 continue
             if field.validation and field.validation.min is not None and value < field.validation.min:
                 add("input_below_min", field, f"输入 {field.label} 不能小于 {field.validation.min:g}")

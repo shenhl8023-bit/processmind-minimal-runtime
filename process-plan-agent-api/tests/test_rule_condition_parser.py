@@ -15,6 +15,7 @@ from app.services.rule_packages.condition_contracts import (
     ManualRuleConditionRequest,
     ParseRuleConditionRequest,
     RuleConditionProcessOption,
+    RuleConditionCandidate,
     SaveRuleConditionDraftRequest,
 )
 from app.services.rule_packages.condition_registry import condition_fields, validate_condition_tree
@@ -28,6 +29,48 @@ from app.services.rule_packages.condition_reviews import (
     save_condition_draft,
 )
 from app.services.rule_packages import condition_reviews
+from app.services.rule_packages.expression_engine import evaluate_condition
+
+
+@pytest.mark.parametrize("convert", [
+    condition_reviews._migrate_legacy_boolean_candidate,
+    condition_parser._convert_boolean_fields_to_special_requirements,
+])
+@pytest.mark.parametrize("op,value,positive", [
+    ("eq", True, True), ("eq", False, False),
+    ("neq", True, False), ("neq", False, True),
+])
+@pytest.mark.parametrize("negated", [False, True])
+def test_legacy_requirement_conversion_preserves_boolean_polarity(convert, op, value, positive, negated):
+    leaf = {"field": "custom.requirements.traceability_marking_required", "op": op, "value": value}
+    candidate = RuleConditionCandidate.model_validate({
+        "when": {"not": leaf} if negated else leaf,
+        "then": {"include_process_ids": ["process_mark"]},
+        "field_definitions": [{
+            "key": leaf["field"], "label": "是否需要追溯标识", "category": "特殊要求",
+            "type": "boolean", "operators": ["eq", "neq"], "allow_custom": False,
+        }],
+    })
+    migrated = convert(candidate)
+    assert migrated.field_definitions == []
+    assert evaluate_condition(migrated.when, {"special": {"requirements": ["追溯标印"]}}).matched is (positive != negated)
+    assert evaluate_condition(migrated.when, {"special": {"requirements": []}}).matched is (positive == negated)
+
+
+@pytest.mark.parametrize("convert", [
+    condition_reviews._migrate_legacy_boolean_candidate,
+    condition_parser._convert_boolean_fields_to_special_requirements,
+])
+def test_legacy_requirement_conversion_does_not_reinterpret_presence_check(convert):
+    candidate = RuleConditionCandidate.model_validate({
+        "when": {"field": "custom.requirements.traceability_marking_required", "op": "exists"},
+        "then": {"include_process_ids": ["process_mark"]},
+        "field_definitions": [{
+            "key": "custom.requirements.traceability_marking_required", "label": "是否需要追溯标识",
+            "category": "特殊要求", "type": "boolean", "operators": ["exists"],
+        }],
+    })
+    assert convert(candidate) == candidate
 
 
 PROCESSES = [
@@ -840,6 +883,30 @@ async def test_manual_boolean_rule_is_confirmed_without_model_parsing():
         assert response.review.confirmed.when.field == "project_factor.manual_process_487e1c0a"
         assert response.review.confirmed_by == "用户直接设定"
 
+    async with session_factory() as session:
+        edited_candidate = candidate.model_copy(deep=True)
+        edited_candidate.field_definitions[0].label = "前面出现镀铜时，安排标记"
+        edited_source = "当用户选择“前面出现镀铜时，安排标记”为是时，纳入“标记”工序。"
+        response = await set_manual_condition_review(
+            ManualRuleConditionRequest(
+                project_id=7, route_id=1, segment_id="process_mark", process_id="process_mark",
+                source_text=edited_source, candidate=edited_candidate,
+                processes=[RuleConditionProcessOption(process_id="process_mark", display_name="标记")],
+                confirmed_by="用户直接设定",
+            ),
+            session,
+        )
+        assert response.review.status == "confirmed"
+        assert response.review.confirmed_by == "用户直接设定"
+        assert response.review.parser_version == "manual"
+
+    async with session_factory() as session:
+        row = (await session.execute(select(NormalizedRouteSegmentRuleReview))).scalar_one()
+        assert row.condition_source_text == edited_source
+        assert row.condition_status == "confirmed"
+        assert row.condition_confirmed_by == "用户直接设定"
+        assert json.loads(row.condition_confirmed_json)["field_definitions"][0]["label"] == "前面出现镀铜时，安排标记"
+
     await engine.dispose()
 
 
@@ -1267,6 +1334,145 @@ async def test_parse_review_invalidates_cache_when_parser_version_changes(monkey
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("interference", ["parser_upgrade", "analysis_draft"])
+async def test_repeated_parse_preserves_current_human_confirmation(monkeypatch, interference):
+    from app.services.analysis_drafts import AnalysisRuleDraft
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    request = ParseRuleConditionRequest(
+        project_id=7, route_id=1, segment_id="process_grind_outer",
+        source_text="当外圆尺寸精度达到 IT8 时，纳入磨外圆工序",
+        process_id="process_grind_outer", process_name="磨外圆",
+        processes=[RuleConditionProcessOption(process_id="process_grind_outer", display_name="磨外圆")],
+    )
+    async with sessions() as session:
+        session.add_all([
+            Project(id=7, name="保护人工确认"),
+            NormalizedRouteVersion(id=1, project_id=7, version=1,
+                                   route_json='[{"id":"process_grind_outer"}]'),
+        ])
+        await session.commit()
+        parsed = await parse_condition_review(request, session)
+        edited = parsed.review.candidate.model_copy(deep=True)
+        edited.when.value = 7
+        confirmed = await confirm_condition_review(ConfirmRuleConditionRequest(
+            project_id=7, route_id=1, segment_id=request.segment_id,
+            source_text=request.source_text, source_hash=parsed.review.source_hash,
+            candidate=edited, processes=request.processes, confirmed_by="人工审核员",
+        ), session)
+        if interference == "parser_upgrade":
+            async def upgraded_context():
+                return "new-model-version", {}
+
+            monkeypatch.setattr(condition_reviews, "_active_condition_parser_context", upgraded_context)
+        else:
+            row = (await session.execute(select(NormalizedRouteSegmentRuleReview))).scalar_one()
+            row.analysis_draft_json = AnalysisRuleDraft(
+                condition_text=request.source_text, candidate=parsed.review.candidate,
+                status="confirmed", scope="全部零件", object="外圆",
+            ).model_dump_json()
+            await session.commit()
+
+        repeated = await parse_condition_review(request, session)
+        assert repeated.review.status == "confirmed"
+        assert repeated.review.confirmed.when.value == 7
+        assert repeated.review.candidate.when.value == 7
+        assert repeated.review.confirmed_by == "人工审核员"
+        assert repeated.review.confirmed_at == confirmed.review.confirmed_at
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_parse_completion_preserves_new_same_source_confirmation(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    request = ParseRuleConditionRequest(
+        project_id=7, route_id=1, segment_id="process_grind_outer", source_text="复杂工序条件",
+        process_id="process_grind_outer", process_name="磨外圆",
+        processes=[RuleConditionProcessOption(process_id="process_grind_outer", display_name="磨外圆")],
+    )
+    machine = condition_parser.RuleConditionCandidate.model_validate({
+        "when": {"field": "precision.outer_diameter_it", "op": "lte", "value": 8},
+        "then": {"include_process_ids": ["process_grind_outer"]},
+    })
+    async with sessions() as session:
+        session.add_all([
+            Project(id=7, name="解析回写保护"),
+            NormalizedRouteVersion(id=1, project_id=7, version=1,
+                                   route_json='[{"id":"process_grind_outer"}]'),
+        ])
+        await session.commit()
+
+        async def confirm_while_model_runs(*args, **kwargs):
+            row = (await session.execute(select(NormalizedRouteSegmentRuleReview))).scalar_one()
+            row.condition_status = "pending_confirmation"
+            row.condition_candidate_json = machine.model_dump_json()
+            await session.commit()
+            edited = machine.model_copy(deep=True)
+            edited.when.value = 7
+            await confirm_condition_review(ConfirmRuleConditionRequest(
+                project_id=7, route_id=1, segment_id=request.segment_id,
+                source_text=request.source_text, source_hash=row.condition_source_hash,
+                candidate=edited, processes=request.processes, confirmed_by="较新的人工确认",
+            ), session)
+            return machine, 0.9, []
+
+        monkeypatch.setattr(condition_reviews, "parse_rule_condition", confirm_while_model_runs)
+        result = await parse_condition_review(request, session)
+        assert result.review.status == "confirmed"
+        assert result.review.candidate.when.value == 7
+        assert result.review.confirmed.when.value == 7
+        assert result.review.confirmed_by == "较新的人工确认"
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_older_same_source_parse_preserves_newer_completed_candidate(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    request = ParseRuleConditionRequest(
+        project_id=7, route_id=1, segment_id="process_grind_outer", source_text="复杂工序条件",
+        process_id="process_grind_outer", process_name="磨外圆",
+        processes=[RuleConditionProcessOption(process_id="process_grind_outer", display_name="磨外圆")],
+    )
+    machine = condition_parser.RuleConditionCandidate.model_validate({
+        "when": {"field": "precision.outer_diameter_it", "op": "lte", "value": 8},
+        "then": {"include_process_ids": ["process_grind_outer"]},
+    })
+    async with sessions() as session:
+        session.add_all([
+            Project(id=7, name="同源重复解析"),
+            NormalizedRouteVersion(id=1, project_id=7, version=1,
+                                   route_json='[{"id":"process_grind_outer"}]'),
+        ])
+        await session.commit()
+        first = True
+
+        async def overlapping_parse(*args, **kwargs):
+            nonlocal first
+            if first:
+                first = False
+                await parse_condition_review(request, session)
+                return machine, 0.9, []
+            newer = machine.model_copy(deep=True)
+            newer.when.value = 7
+            return newer, 0.9, []
+
+        monkeypatch.setattr(condition_reviews, "parse_rule_condition", overlapping_parse)
+        result = await parse_condition_review(request, session)
+        assert result.review.status == "pending_confirmation"
+        assert result.review.candidate.when.value == 7
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_parse_review_uses_same_llm_config_for_version_and_inference(monkeypatch):
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
@@ -1407,6 +1613,62 @@ async def test_invalidates_legacy_nondestructive_process_relation_for_re_review(
         assert review.condition_confirmed_json is None
         assert review.condition_source_text == '当零件有无损检测要求时，纳入“无损检查”工序。'
 
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("process_name,parser_version", [
+    ("无损检查", "2026.09.12.2:4b664c3e"),
+    ("磁粉检查", "outdated-parser"),
+    ("裂纹检查", None),
+    ("荧光检查", "manual"),
+    ("超声探伤", "2026.09.12.2"),
+])
+async def test_returning_to_saved_route_preserves_audited_inspection_relation(process_name, parser_version):
+    from app.services.route_analysis import build_saved_normalized_route_response
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    source = f"前面有检验时安排{process_name}"
+    candidate = RuleConditionCandidate.model_validate({
+        "kind": "process_relation",
+        "relation": {"relation_type": "trigger_after", "source_process_ids": ["process_inspect"],
+                     "target_process_ids": ["process_ndt"], "source_match": "any"},
+    })
+    processes = [RuleConditionProcessOption(process_id="process_inspect", display_name="检验", main=True),
+                 RuleConditionProcessOption(process_id="process_ndt", display_name=process_name)]
+    async with sessions() as db:
+        route = NormalizedRouteVersion(id=1, project_id=7, version=1, route_json=json.dumps([
+            {"id": "process_inspect", "sequence": 10, "normalized_step_name": "检验"},
+            {"id": "process_ndt", "sequence": 20, "normalized_step_name": process_name},
+        ], ensure_ascii=False))
+        review = NormalizedRouteSegmentRuleReview(
+            project_id=7, route_version_id=1, segment_id="process_ndt", decision="accepted",
+            condition_status="pending_confirmation", condition_source_text=source,
+            condition_source_hash=condition_source_hash(source),
+            condition_candidate_json=candidate.model_dump_json(by_alias=True),
+            condition_parser_version=parser_version,
+        )
+        db.add_all([Project(id=7, name="返回定稿确认状态"), route, review])
+        await db.commit()
+        confirmed = await confirm_condition_review(ConfirmRuleConditionRequest(
+            project_id=7, route_id=1, segment_id="process_ndt", source_text=source,
+            source_hash=review.condition_source_hash, candidate=candidate,
+            processes=processes, confirmed_by="人工审核员",
+        ), db)
+        persisted = (review.condition_confirmed_json, review.updated_at)
+
+        for _ in range(2):
+            response = await build_saved_normalized_route_response(route, db)
+            restored = response.segments[1].rule_review.condition_review
+            assert restored.status == "confirmed"
+            assert restored.source_text == source
+            assert restored.confirmed == confirmed.review.confirmed
+            assert restored.confirmed_by == "人工审核员"
+            assert restored.confirmed_at == confirmed.review.confirmed_at
+            assert (review.condition_confirmed_json, review.updated_at) == persisted
     await engine.dispose()
 
 

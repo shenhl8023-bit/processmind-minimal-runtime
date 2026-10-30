@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { clearAllWorkflowDataCache } from '@/composables/workflowDataCache'
+import { TEMPLATE_STEP_MAPPING_DRAFT_PREFIX } from '@/composables/templateStepMapping'
 
 export type WorkflowResetStep = 2 | 3 | 4
 
@@ -29,6 +30,7 @@ export function clearProjectWorkflowLocalState(
   if (!target) return
   target.removeItem(`processmind_analysis_question_tree_v10_${projectId}`)
   target.removeItem(`processmind_finalize_drafts_v4_${projectId}`)
+  target.removeItem(`${TEMPLATE_STEP_MAPPING_DRAFT_PREFIX}:${projectId}`)
 }
 
 export function publishWorkflowReset(reset: Omit<WorkflowResetSignal, 'emittedAt'>) {

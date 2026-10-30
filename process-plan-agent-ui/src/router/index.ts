@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { guardWorkflowRoute } from '@/composables/workflowNavigation'
 
 const loadUploadView = () => import('@/views/UploadView.vue')
 const loadExtractView = () => import('@/views/ExtractView.vue')
@@ -68,5 +69,7 @@ const router = createRouter({
     },
   ]
 })
+
+router.beforeEach(guardWorkflowRoute)
 
 export default router

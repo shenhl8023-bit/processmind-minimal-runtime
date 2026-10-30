@@ -119,3 +119,113 @@ async def test_responses_endpoint_accepts_a_non_streaming_json_response(monkeypa
     )
 
     assert result == "pong"
+
+
+@pytest.mark.asyncio
+async def test_chat_completion_accepts_openai_content_parts(monkeypatch):
+    """OpenAI-compatible gateways may return message content as text parts."""
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [{
+                    "message": {
+                        "content": [
+                            {"type": "text", "text": "{\"pong\":"},
+                            {"type": "text", "text": "true}"},
+                        ],
+                    },
+                }],
+            }
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def post(self, *_args, **_kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda **_kwargs: FakeClient())
+
+    result = await llm_client.request_llm_completion(
+        {"url": "https://example.test/v1", "key": "secret", "model": "demo"},
+        "system",
+        "user",
+        max_retries=0,
+    )
+
+    assert result == '{"pong":true}'
+
+
+@pytest.mark.asyncio
+async def test_chat_completion_accepts_completion_text_fallback(monkeypatch):
+    """Older OpenAI-compatible endpoints may expose choices.text instead of message.content."""
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"text": "pong"}]}
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def post(self, *_args, **_kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda **_kwargs: FakeClient())
+
+    result = await llm_client.request_llm_completion(
+        {"url": "https://example.test/v1", "key": "secret", "model": "demo"},
+        "system",
+        "user",
+        max_retries=0,
+    )
+
+    assert result == "pong"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("response_body", [
+    {},
+    {"choices": []},
+    {"choices": [{"message": {"content": "   "}}]},
+])
+async def test_chat_completion_rejects_missing_or_empty_text(response_body, monkeypatch):
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return response_body
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def post(self, *_args, **_kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda **_kwargs: FakeClient())
+
+    with pytest.raises(ValueError, match="did not contain text"):
+        await llm_client.request_llm_completion(
+            {"url": "https://example.test/v1", "key": "secret", "model": "demo"},
+            "system",
+            "user",
+            max_retries=0,
+        )

@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Development and build environment remains Python 3.13.5 and Node.js 24.x; the current Vite toolchain is not downgraded for development.
-- Win7 runtime is CPython 3.8.10 x64 with a separate locked dependency set and the VC/UCRT compatibility DLLs required by its native wheels; the target machine does not run Node.js.
+- Win7 runtime is CPython 3.8.10 x64 with a separate locked dependency set and the VC/UCRT compatibility DLLs required by its native wheels; the target machine does not run Node.js. Win7 SP1 also requires KB2533623 or a later update containing that fix, so the package includes an offline prerequisite installer and reboot guidance.
 - The package does not contain CEF, Qt, or an embedded browser; Chrome 109 or Edge 109 is the acceptance baseline and IE11 is unsupported.
 - The API binds only to `127.0.0.1:8000`; production frontend requests use same-origin relative `/api` paths.
 - Mutable data, uploads, caches, logs, and PID state live under `%LOCALAPPDATA%\\ProcessMind` unless `PROCESSMIND_RUNTIME_DIR` is set.

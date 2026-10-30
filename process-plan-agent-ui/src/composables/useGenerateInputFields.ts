@@ -1,4 +1,5 @@
 import { computed, ref, watch, type Ref } from 'vue'
+import { referencedRequirementOptions } from '@/utils/requirementOptionUsage'
 
 export type GenerateInputField = {
   key: string
@@ -190,10 +191,13 @@ function exampleValueForField(field: GenerateInputField) {
   if (field.allowed_values?.length) return isArrayField(field) ? [field.allowed_values[0]] : field.allowed_values[0]
   if (isBooleanField(field)) return true
   if (isPrecisionItField(field)) return 5
-  if (isNumberField(field)) return field.validation?.min ?? 0
-  if (/material(?:\\.grade)?|材料|牌号/i.test(field.key) || /材料|牌号/.test(field.name || '')) return '9Cr18'
+  if (isNumberField(field)) return field.validation?.min ?? Math.min(0, field.validation?.max ?? 0)
   if (isArrayField(field)) return ['示例特征']
-  return '示例值'
+  const minLength = Math.max(0, field.validation?.min_length ?? 0)
+  const maxLength = field.validation?.max_length
+  const base = /material(?:\\.grade)?|材料|牌号/i.test(field.key) || /材料|牌号/.test(field.name || '') ? '9Cr18' : '示例值'
+  const example = base.padEnd(minLength, '例')
+  return typeof maxLength === 'number' ? example.slice(0, maxLength) : example
 }
 
 function isReusableFieldValue(field: GenerateInputField, value: any) {
@@ -201,8 +205,11 @@ function isReusableFieldValue(field: GenerateInputField, value: any) {
 
   if (isArrayField(field)) {
     if (!Array.isArray(value)) return false
+    if (value.some(item => typeof item !== 'string')) return false
     const normalized = value.map(item => String(item ?? '').trim()).filter(Boolean)
     if (normalized.length !== value.length) return false
+    if (typeof field.validation?.min_length === 'number' && value.length < field.validation.min_length) return false
+    if (typeof field.validation?.max_length === 'number' && value.length > field.validation.max_length) return false
     if (field.allowed_values?.length && field.allow_custom === false) {
       return normalized.every(item => field.allowed_values!.includes(item))
     }
@@ -239,6 +246,7 @@ function isReusableFieldValue(field: GenerateInputField, value: any) {
 
 export function useGenerateInputFields(args: {
   inputSchema: Ref<Record<string, any> | null>
+  rulePackageRules?: Ref<Record<string, any> | null>
   hasRulePackage: Ref<boolean>
   projectId: Ref<number | null>
   schemaLoading?: Ref<boolean>
@@ -253,7 +261,20 @@ export function useGenerateInputFields(args: {
     const schema = args.inputSchema.value
     if (!schema) return []
     if (String(schema.schema_version || '') === '2.0' && Array.isArray(schema.fields)) {
-      return normalizeV2Fields(schema.fields)
+      const fields = normalizeV2Fields(schema.fields)
+      const rules = args.rulePackageRules?.value
+      if (!rules || (!Array.isArray(rules.rules) && !Array.isArray(rules.process_configurations))) return fields
+      const requirements = referencedRequirementOptions([
+        ...(Array.isArray(rules.rules) ? rules.rules : []),
+        ...(Array.isArray(rules.process_configurations) ? rules.process_configurations : []),
+      ].filter(rule => rule.enabled !== false).map(rule => rule.when))
+      if (requirements === null) return fields
+      // Display old packages safely without changing their audited schema/hash.
+      return fields.flatMap(field => {
+        if (field.key !== 'special.requirements' || !isArrayField(field)) return [field]
+        const options = (field.allowed_values || []).filter(value => requirements.has(value))
+        return options.length ? [{ ...field, allowed_values: options, examples: options.slice(0, 3) }] : []
+      })
     }
     const factorDictionary = normalizeFactorDictionary(schema.factor_dictionary)
     const required = normalizeSchemaFields(schema.required_inputs, true)
@@ -307,8 +328,11 @@ export function useGenerateInputFields(args: {
       args.projectId.value
       && args.hasRulePackage.value
       && !args.schemaLoading?.value
-      && inputFields.value.length
-      && requiredFields.value.every(field => hasConfirmedFieldValue(field)),
+      && (schemaVersion.value === '2.0'
+        ? Array.isArray(args.inputSchema.value?.fields)
+        : Array.isArray(args.inputSchema.value?.required_inputs) || Array.isArray(args.inputSchema.value?.optional_inputs))
+      && requiredFields.value.every(field => hasConfirmedFieldValue(field))
+      && inputFields.value.every(field => !hasFieldValue(field.key) || hasConfirmedFieldValue(field)),
     ),
   )
 
@@ -463,7 +487,14 @@ export function useGenerateInputFields(args: {
     const nextValues: Record<string, any> = {}
     inputFields.value.forEach((field) => {
       if (isArrayField(field)) {
-        const preferred = (field.allowed_values || []).slice(0, Math.min(2, (field.allowed_values || []).length))
+        const count = Math.min(
+          Math.max(2, field.validation?.min_length ?? 0),
+          field.validation?.max_length ?? Infinity,
+        )
+        const preferred = (field.allowed_values || []).slice(0, count)
+        if (!field.allowed_values?.length || field.allow_custom) {
+          while (preferred.length < count) preferred.push(`示例特征${preferred.length + 1}`)
+        }
         nextValues[field.key] = preferred.length ? preferred : exampleValueForField(field)
         return
       }
@@ -471,6 +502,7 @@ export function useGenerateInputFields(args: {
     })
     fieldValues.value = nextValues
     fieldOrigins.value = Object.fromEntries(inputFields.value.map(field => [field.key, 'manual' as const]))
+    customInputValues.value = {}
   }
 
   function resetFieldValues() {

@@ -14,6 +14,7 @@ export function useAnalysisDocumentPreview() {
   const documentPreview = ref<DocumentPreview | null>(null)
   const documentPreviewVisible = ref(false)
   const documentPreviewPdfPageUrls = ref<string[]>([])
+  let previewRequestId = 0
 
   const documentPreviewFileUrl = computed(() => {
     return documentPreview.value
@@ -22,6 +23,8 @@ export function useAnalysisDocumentPreview() {
   })
 
   function clearDocumentPreviewPdfPages() {
+    previewRequestId += 1
+    documentPreviewLoading.value = false
     documentPreviewPdfPageUrls.value = []
   }
 
@@ -30,6 +33,9 @@ export function useAnalysisDocumentPreview() {
     documentPreviewLoading.value = true
     documentPreviewError.value = ''
     clearDocumentPreviewPdfPages()
+    const requestId = ++previewRequestId
+    documentPreviewLoading.value = true
+    const isCurrent = () => requestId === previewRequestId && documentPreviewVisible.value
     documentPreview.value = {
       id: doc.id,
       original_name: doc.original_name,
@@ -39,25 +45,30 @@ export function useAnalysisDocumentPreview() {
     if ((doc.file_type || '').toLowerCase() === 'pdf') {
       try {
         const { page_count } = await getDocumentPdfPageCount(doc.id)
+        if (!isCurrent()) return
         documentPreviewPdfPageUrls.value = Array.from(
           { length: Math.max(0, page_count) },
           (_, idx) => buildDocumentPdfPageUrl(doc.id, idx + 1),
         )
       } catch (e: any) {
+        if (!isCurrent()) return
         console.error('加载 PDF 预览失败', e)
         documentPreviewError.value = e?.response?.data?.detail || '加载 PDF 预览失败，请稍后重试。'
       } finally {
-        documentPreviewLoading.value = false
+        if (isCurrent()) documentPreviewLoading.value = false
       }
       return
     }
     try {
-      documentPreview.value = await getDocumentPreview(doc.id)
+      const result = await getDocumentPreview(doc.id)
+      if (!isCurrent()) return
+      documentPreview.value = result
     } catch (e: any) {
+      if (!isCurrent()) return
       console.error('加载文档预览失败', e)
       documentPreviewError.value = e?.response?.data?.detail || '加载文档预览失败，请稍后重试。'
     } finally {
-      documentPreviewLoading.value = false
+      if (isCurrent()) documentPreviewLoading.value = false
     }
   }
 

@@ -243,6 +243,7 @@ import {
 } from '@/composables/useCurrentProject'
 import {
   listProjects,
+  getSavedNormalizedRoute,
   type OperationItem,
   type MergeSuggestion,
 } from '@/api'
@@ -359,6 +360,7 @@ const templateAliasesHydratedProjectId = ref<number | null>(null)
 const projectGroupTemplate = useProjectGroupTemplate(
   computed(() => Number(projectId.value || 0)),
   computed(() => legacyTemplateGroupAliases.value),
+  workflowRevision,
 )
 const templateOperationFamilyById = computed(() => {
   const families = new Map<number, string>()
@@ -860,6 +862,10 @@ async function openRouteFactorAnalysis() {
   if (routeFactorAnalysisEntering.value) return
   routeFactorAnalysisEntering.value = true
   errorMsg.value = ''
+  const ownerProjectId = projectId.value
+  let expectedWorkflowRevision = workflowRevision.value
+  const isCurrent = () => projectId.value === ownerProjectId
+    && workflowRevision.value === expectedWorkflowRevision
   const routeResultFingerprint = buildRouteResultSaveFingerprint()
   try {
     if (
@@ -877,13 +883,29 @@ async function openRouteFactorAnalysis() {
         routeMergeNotice.value = message
       })
       if (!saved) return
+      if (projectId.value !== ownerProjectId) return
+      expectedWorkflowRevision = workflowRevision.value
       lastSavedRouteResultFingerprint.value = routeResultFingerprint
       lastInitializedDataRevision.value = getWorkflowDataRevision()
     }
+    // A generated workspace can match the preview before a durable route
+    // version exists. Materialize it before the navigation guard checks it.
+    const savedRoute = await getSavedNormalizedRoute(ownerProjectId, true)
+    if (!isCurrent()) return
+    if (savedRoute.project_id !== ownerProjectId
+      || savedRoute.workflow_revision !== expectedWorkflowRevision
+      || !savedRoute.segments.length) {
+      throw new Error('标准化路线尚未保存，请重新加载后重试。')
+    }
     await router.push({
       path: '/analysis',
-      query: { project_id: String(projectId.value) },
+      query: { project_id: String(ownerProjectId) },
     })
+  } catch {
+    if (isCurrent()) {
+      errorMsg.value = '保存标准化路线失败，请重新加载后重试。'
+      routeMergeNotice.value = errorMsg.value
+    }
   } finally {
     routeFactorAnalysisEntering.value = false
   }
@@ -953,7 +975,16 @@ function handleMergeKeydown(e: KeyboardEvent) {
   }
 }
 
+let extractInitializeRequestId = 0
+
 async function initializeExtractView() {
+  const requestId = ++extractInitializeRequestId
+  const routePath = route.path
+  const routeQuery = { ...route.query }
+  let expectedQuerySignature = JSON.stringify(routeQuery)
+  const isCurrent = () => requestId === extractInitializeRequestId
+    && route.path === routePath
+    && JSON.stringify(route.query) === expectedQuerySignature
   const routeProjectId = String(route.query.project_id || '')
   const resumeRouteMerge = String(route.query.resume || '').trim() === 'route_merge' || String(route.query.from || '').trim() === 'analysis'
   const preferredProjectId = resolveCurrentProjectId(routeProjectId)
@@ -975,6 +1006,7 @@ async function initializeExtractView() {
 
   try {
     const projects = await listProjects()
+    if (!isCurrent()) return
     const savedId = resolveAvailableProjectId(routeProjectId, projects)
     if (!savedId) {
       errorMsg.value = '请先创建或选择任务'
@@ -983,10 +1015,13 @@ async function initializeExtractView() {
     }
     projectId.value = Number(savedId)
     if (routeProjectId !== savedId) {
-      void router.replace({
-        path: route.path,
-        query: { ...route.query, project_id: savedId },
+      const canonicalQuery = { ...routeQuery, project_id: savedId }
+      expectedQuerySignature = JSON.stringify(canonicalQuery)
+      await router.replace({
+        path: routePath,
+        query: canonicalQuery,
       })
+      if (!isCurrent()) return
     }
     const current = projects.find((item) => item.id === projectId.value)
     if (!current) {
@@ -999,6 +1034,7 @@ async function initializeExtractView() {
     workflowRevision.value = Number(current.workflow_revision || 0)
     if (resumeRouteMerge) {
       await loadRouteRulesResults()
+      if (!isCurrent()) return
       lastInitializedDataRevision.value = getWorkflowDataRevision()
       if (routeMergePendingCount.value === 0) {
         syncRouteMergePreviewDraftFromNormalizedRoute()
@@ -1019,14 +1055,17 @@ async function initializeExtractView() {
         return
       }
       await loadRouteRulesResults()
+      if (!isCurrent()) return
       lastInitializedDataRevision.value = getWorkflowDataRevision()
       return
     }
   } catch (e) {
+    if (!isCurrent()) return
     console.error('加载任务模式失败', e)
   }
 
   try {
+    if (!isCurrent()) return
     status.value = 'idle'
     lastInitializedDataRevision.value = getWorkflowDataRevision()
   } catch (e) {

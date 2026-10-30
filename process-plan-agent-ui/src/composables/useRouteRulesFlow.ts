@@ -1,4 +1,4 @@
-import { computed, ref, type Ref } from 'vue'
+import { computed, ref, watch, type Ref } from 'vue'
 import {
   getExtractTaskStatus,
   startExtraction as apiStartExtraction,
@@ -32,6 +32,22 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
 
   let extractTaskPollTimer: number | null = null
   let extractTaskPollRetryCount = 0
+  let flowEpoch = 0
+  let resultLoadRequestId = 0
+
+  function captureFlowContext() {
+    const projectId = options.projectId.value
+    const epoch = flowEpoch
+    return () => options.projectId.value === projectId && flowEpoch === epoch
+  }
+
+  watch(options.projectId, () => {
+    stopExtractTaskPolling()
+    status.value = 'idle'
+    errorMsg.value = ''
+    extractTask.value = null
+    options.routeWorkspaceLoading.value = false
+  }, { flush: 'sync' })
 
   const extractTaskProgress = computed(() => Number(extractTask.value?.progress || 0))
   const extractTaskMessage = computed(() => extractTask.value?.message || '')
@@ -74,11 +90,12 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
   })
 
   function resetRouteRulesError() {
+    stopExtractTaskPolling()
     errorMsg.value = ''
     status.value = 'idle'
   }
 
-  function stopExtractTaskPolling() {
+  function clearExtractTaskPollTimer() {
     if (extractTaskPollTimer !== null) {
       window.clearTimeout(extractTaskPollTimer)
       extractTaskPollTimer = null
@@ -86,8 +103,16 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
     options.clearPreviewHighlight()
   }
 
+  function stopExtractTaskPolling() {
+    flowEpoch += 1
+    clearExtractTaskPollTimer()
+  }
+
   async function loadRouteRulesResults(forceRefresh = false) {
     if (!options.projectId.value) return
+    const isCurrentFlow = captureFlowContext()
+    const requestId = ++resultLoadRequestId
+    const isCurrent = () => isCurrentFlow() && requestId === resultLoadRequestId
     options.routeWorkspaceLoading.value = true
     status.value = 'done'
     extractTask.value = {
@@ -111,55 +136,61 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
     }
     try {
       const loaded = await options.loadRouteMergeWorkspaceFromBackend(true, forceRefresh)
+      if (!isCurrent()) return
       if (!loaded) throw new Error('路线归并工作台加载失败，请刷新后重试。')
       extractTask.value = null
     } catch (e: any) {
+      if (!isCurrent()) return
       console.error('加载路线归并结果失败', e)
       errorMsg.value = e?.response?.data?.detail || e?.message || '加载路线归并结果失败'
       status.value = 'error'
     } finally {
-      options.routeWorkspaceLoading.value = false
+      if (isCurrent()) options.routeWorkspaceLoading.value = false
     }
   }
 
   async function pollExtractionTask() {
     if (!options.projectId.value) return
+    const isCurrent = captureFlowContext()
+    const projectId = options.projectId.value
     try {
-      const task = await getExtractTaskStatus(options.projectId.value)
+      const task = await getExtractTaskStatus(projectId)
+      if (!isCurrent()) return
       extractTaskPollRetryCount = 0
       extractTask.value = task
       if (task.task_status === 'completed') {
-        stopExtractTaskPolling()
+        clearExtractTaskPollTimer()
         await loadRouteRulesResults()
         return
       }
       if (task.task_status === 'failed') {
         if (String(task.project_status || '') === 'ROUTE_SET_READY') {
-          stopExtractTaskPolling()
+          clearExtractTaskPollTimer()
           await loadRouteRulesResults()
           return
         }
-        stopExtractTaskPolling()
+        clearExtractTaskPollTimer()
         errorMsg.value = task.error || task.message || '提炼失败'
         status.value = 'error'
         return
       }
       status.value = 'loading'
-      stopExtractTaskPolling()
+      clearExtractTaskPollTimer()
       extractTaskPollTimer = window.setTimeout(() => {
         void pollExtractionTask()
       }, 2000)
     } catch (e: any) {
+      if (!isCurrent()) return
       extractTaskPollRetryCount += 1
       if (extractTaskPollRetryCount <= 8) {
         status.value = 'loading'
-        stopExtractTaskPolling()
+        clearExtractTaskPollTimer()
         extractTaskPollTimer = window.setTimeout(() => {
           void pollExtractionTask()
         }, 2000)
         return
       }
-      stopExtractTaskPolling()
+      clearExtractTaskPollTimer()
       const rawMsg = e?.response?.data?.detail || e?.message || ''
       errorMsg.value = rawMsg === 'Network Error' || !e?.response
         ? '获取提炼进度时网络连接中断或服务响应超时，请点击重试恢复。'
@@ -171,12 +202,16 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
   async function startExtraction(forceReextract: boolean = false) {
     if (status.value === 'loading') return
     if (!options.projectId.value) return
+    stopExtractTaskPolling()
+    const isCurrent = captureFlowContext()
+    const projectId = options.projectId.value
     status.value = 'loading'
     extractTaskPollRetryCount = 0
     extractTask.value = null
     errorMsg.value = ''
     try {
-      const task = await apiStartExtraction(options.projectId.value, forceReextract)
+      const task = await apiStartExtraction(projectId, forceReextract)
+      if (!isCurrent()) return
       if (options.workflowRevision) {
         options.workflowRevision.value = task.workflow_revision
       }
@@ -210,6 +245,7 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
       }
       await pollExtractionTask()
     } catch (e: any) {
+      if (!isCurrent()) return
       const rawMsg = e?.response?.data?.detail || e?.message || ''
       errorMsg.value = rawMsg === 'Network Error' || !e?.response
         ? '网络连接异常或后端服务暂未响应，请检查服务状态后点击重试。'

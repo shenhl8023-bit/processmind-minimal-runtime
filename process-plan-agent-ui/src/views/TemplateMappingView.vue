@@ -6,7 +6,7 @@
       <button class="btn btn-outline" @click="load">重新加载</button>
     </div>
     <TemplateGroupMappingDialog v-else :key="`${projectId}:${workspaceVersion}`"
-      embedded :model-value="true" :project-id="projectId" :operations="operations" :legacy-aliases="{}"
+      embedded :model-value="true" :project-id="projectId" :workflow-revision="workflowRevision" :operations="operations" :legacy-aliases="{}"
       @cancel="go('/analysis')" @continue="continueToFinalize" />
   </div>
 </template>
@@ -25,6 +25,7 @@ const operations = ref<TemplateOperation[]>([])
 const loading = ref(false)
 const error = ref('')
 const workspaceVersion = ref(0)
+const workflowRevision = ref(0)
 let run = 0
 let active = true
 async function load() {
@@ -40,6 +41,7 @@ async function load() {
     if (current !== run) return
     if (!saved.segments.length) throw new Error('尚无已保存路线，请先返回规则分析。')
     operations.value = buildFinalTemplateMappingOperations(saved.segments, superset.superset_route)
+    workflowRevision.value = saved.workflow_revision
     workspaceVersion.value += 1
   } catch (cause: any) {
     if (current === run) error.value = cause?.response?.data?.detail || cause.message || '路线加载失败，请重试。'

@@ -32,20 +32,25 @@ def extract_text_from_pdf(filepath: str) -> str:
 def extract_text_from_docx(filepath: str) -> str:
     """使用 python-docx 提取 DOCX 文本（段落 + 表格）"""
     from docx import Document as DocxDocument
+    from docx.oxml.ns import qn
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
 
     text_parts = []
     try:
         doc = DocxDocument(filepath)
-        # 提取段落
-        for para in doc.paragraphs:
-            if para.text.strip():
-                text_parts.append(para.text)
-        # 提取表格
-        for table in doc.tables:
-            for row in table.rows:
-                row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
-                if row_text:
-                    text_parts.append(row_text)
+        # Paragraph and table collections are separate views. Walk the body
+        # XML so alternating process cards and text retain document order.
+        for child in doc.element.body.iterchildren():
+            if child.tag == qn("w:p"):
+                para = Paragraph(child, doc)
+                if para.text.strip():
+                    text_parts.append(para.text)
+            elif child.tag == qn("w:tbl"):
+                for row in Table(child, doc).rows:
+                    row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+                    if row_text:
+                        text_parts.append(row_text)
     except Exception as e:
         return f"[DOCX 解析失败: {e}]"
 

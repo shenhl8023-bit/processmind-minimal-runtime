@@ -205,6 +205,7 @@ class DocumentOperationGroup:
     page_no: int
     equipment_types: tuple[str, ...]
     row_ids: tuple[int, ...]
+    structured_steps: tuple[str, ...] = ()
 
 
 def normalize_tree_label(name: str, content: str, turning_seen: int) -> tuple[str, int]:
@@ -383,6 +384,7 @@ def group_document_operations(detail_rows: list[DocumentOperationDetail]) -> lis
                 "raw_names": [],
                 "raw_name_seen": set(),
                 "row_ids": [],
+                "structured_steps": [],
             }
             grouped[key] = bucket
             ordered_keys.append(key)
@@ -392,6 +394,16 @@ def group_document_operations(detail_rows: list[DocumentOperationDetail]) -> lis
             bucket["raw_names"].append(raw_name)
 
         text = str(getattr(row, "operation_content", "") or "").strip()
+        if str(getattr(row, "source_type", "")) in {"json_route_extract", "docx_llm_extract", "xlsx_llm_extract"}:
+            # These sources already contain explicit, validated step lists.
+            # Keep their content and occurrence order instead of re-inferring
+            # a small set of generic keyword labels.
+            matches = list(re.finditer(r"(?m)^([0-9]+)\.\s+", text))
+            if matches and [int(match.group(1)) for match in matches] == list(range(1, len(matches) + 1)):
+                steps = [text[match.end():matches[index + 1].start() if index + 1 < len(matches) else len(text)].strip()
+                         for index, match in enumerate(matches)]
+                if all(steps):
+                    bucket["structured_steps"].extend(steps)
         if text and text not in bucket["content_seen"]:
             bucket["content_seen"].add(text)
             bucket["contents"].append(text)
@@ -417,6 +429,7 @@ def group_document_operations(detail_rows: list[DocumentOperationDetail]) -> lis
                 page_no=int(bucket["page_no"] or 0),
                 equipment_types=tuple(sorted(str(item) for item in bucket["equipment_types"] if str(item).strip())),
                 row_ids=tuple(sorted(int(item) for item in bucket["row_ids"] if int(item) > 0)),
+                structured_steps=tuple(bucket["structured_steps"]),
             )
         )
     return groups

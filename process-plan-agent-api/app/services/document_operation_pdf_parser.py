@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import re
-from collections.abc import Iterable
+from typing import Iterable
 
 import fitz
 
@@ -466,10 +466,12 @@ def extract_rows_from_page(page: fitz.Page) -> tuple[int | None, str, list[tuple
     if "工序号" not in normalized:
         return None, "", [], "", ""
 
-    match_no = re.search(r"工序号\s*(\d+)", text)
+    # Some supported PDF runtimes insert spaces between adjacent number
+    # glyphs. Join digits on the same line without swallowing the next row.
+    match_no = re.search(r"工\s*序\s*号\s*[:：]?[ \t]*(\d(?:[ \t]*\d)*)", text)
     if not match_no:
         return None, "", [], "", ""
-    process_no = int(match_no.group(1))
+    process_no = int(compact(match_no.group(1)))
     process_name = extract_operation_name(page, clip, text)
     equipment_types, equipment_models = extract_equipment_details(text)
     page_type = "external"

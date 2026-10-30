@@ -4,7 +4,7 @@
 
 将 ProcessMind 打包为可在 Windows 7 SP1 x64 本机运行的离线交付包。目标机不需要安装 Python、Node.js 或 CEF/Qt；目标机预装 Chrome 109 或 Edge 109，由包内的 Python 服务同时提供前端静态资源和后端 API，启动脚本调用系统浏览器打开应用。
 
-开发和构建环境保持当前项目版本：Python 3.13.5、Node.js 24.x（当前构建机为 24.13.0）。Win7 交付包使用单独的 CPython 3.8.10 x64 运行时；前端在现代构建机完成构建，目标机不运行 Node.js。
+开发和构建环境保持当前项目版本：Python 3.13.5、Node.js 24.x（当前构建机为 24.13.0）。Win7 交付包使用单独的 CPython 3.8.10 x64 运行时；前端在现代构建机完成构建，目标机不运行 Node.js。Win7 SP1 目标机还必须具备 `KB2533623` 或包含该修复的后续更新，交付包携带离线安装文件和管理员安装脚本。
 
 ## 范围与边界
 
@@ -59,7 +59,7 @@ processmind-win7/
 3. 第三方库的 Python 下限、Windows x64 wheel、间接依赖和 C 扩展；目标包只安装在构建机准备好的 wheelhouse，不在 Win7 联网解析依赖。
 4. 文件路径、中文文件名、SQLite WAL、上传临时文件和进程编码行为。
 
-为目标运行时维护独立锁文件（例如 `requirements-win7-py38.txt`），其中的版本必须在 CPython 3.8.10 x64 上实际导入并通过 API 烟测。runtime 还必须携带 native wheel 依赖的 VC/UCRT Win7 兼容 DLL；官方 embeddable ZIP 若缺少这些 DLL，不能直接作为交付 runtime。当前 Python 3.13 锁文件继续服务开发环境和现有 Windows 开发脚本，不直接复用为 Win7 锁文件。
+为目标运行时维护独立锁文件（例如 `requirements-win7-py38.txt`），其中的版本必须在 CPython 3.8.10 x64 上实际导入并通过 API 烟测。Win7 锁固定 `pydantic==2.10.6` 与 `pydantic-core==2.27.2`，避免较旧核心 wheel 导入 Win7 不提供的 `ProcessPrng`；wheel 安装器还会静态拒绝 `ProcessPrng`、`WaitOnAddress` 等 Win10-only 导入。runtime 还必须携带 native wheel 依赖的 VC/UCRT Win7 兼容 DLL；官方 embeddable ZIP 若缺少这些 DLL，不能直接作为交付 runtime。当前 Python 3.13 锁文件继续服务开发环境和现有 Windows 开发脚本，不直接复用为 Win7 锁文件。
 
 ## 前端与浏览器基线
 

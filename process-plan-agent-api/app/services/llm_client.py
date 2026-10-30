@@ -23,6 +23,10 @@ DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS = 180.0
 DEFAULT_LLM_MAX_RETRIES = 2
 
 
+class LLMResponseError(ValueError):
+    """The provider returned a successful response without usable text."""
+
+
 def llm_request_timeout_seconds(override: float | None = None) -> float:
     """Return the provider timeout without allowing an accidental zero value."""
     try:
@@ -128,6 +132,35 @@ def _extract_text_from_responses_sse(lines: list[str]) -> str:
     return done_text or "".join(deltas)
 
 
+def _extract_text_from_chat_completion_json(payload: object) -> str:
+    """Extract text from current and legacy Chat Completions response shapes."""
+    if not isinstance(payload, dict):
+        return ""
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        return ""
+
+    choice = choices[0]
+    message = choice.get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        chunks = [
+            part["text"]
+            for part in content
+            if isinstance(part, dict)
+            and part.get("type") in {None, "text", "output_text"}
+            and isinstance(part.get("text"), str)
+        ]
+        if chunks:
+            return "".join(chunks).strip()
+
+    # Older completion-compatible gateways return choices[].text.
+    legacy_text = choice.get("text")
+    return legacy_text.strip() if isinstance(legacy_text, str) else ""
+
+
 def extract_text_from_responses_json(payload: dict) -> str:
     output = payload.get("output")
     if isinstance(output, list):
@@ -153,23 +186,14 @@ def extract_text_from_responses_json(payload: dict) -> str:
         return output_text.strip()
 
     # A few OpenAI-compatible gateways expose a Responses URL while still
-    # returning the Chat Completions envelope. Treat it as a valid response
-    # instead of turning the successful request into an empty answer.
-    choices = payload.get("choices")
-    if isinstance(choices, list) and choices:
-        message = choices[0].get("message") if isinstance(choices[0], dict) else None
-        content = message.get("content") if isinstance(message, dict) else None
-        if isinstance(content, str):
-            return content.strip()
-        if isinstance(content, list):
-            chunks = [
-                part.get("text", "")
-                for part in content
-                if isinstance(part, dict) and isinstance(part.get("text"), str)
-            ]
-            if chunks:
-                return "".join(chunks).strip()
-    return ""
+    # returning the Chat Completions envelope.
+    return _extract_text_from_chat_completion_json(payload)
+
+
+def _require_response_text(text: str) -> str:
+    if not isinstance(text, str) or not text.strip():
+        raise LLMResponseError("LLM response did not contain text")
+    return text
 
 
 def _extract_text_from_responses_lines(lines: list[str]) -> str:
@@ -265,11 +289,11 @@ async def request_llm_completion(
                     async with client.stream("POST", config["url"], headers=headers, json=payload) as resp:
                         resp.raise_for_status()
                         lines = [line async for line in resp.aiter_lines() if line]
-                    return _extract_text_from_responses_lines(lines)
+                    return _require_response_text(_extract_text_from_responses_lines(lines))
                 resp = await client.post(config["url"], headers=headers, json=payload)
                 resp.raise_for_status()
                 data = resp.json()
-                return data["choices"][0]["message"]["content"]
+                return _require_response_text(_extract_text_from_chat_completion_json(data))
             except httpx.HTTPStatusError as exc:
                 last_error = exc
                 status = exc.response.status_code
@@ -316,7 +340,7 @@ async def request_llm_completion_with_web_search(
                 resp = await client.post(config["url"], headers=headers, json=payload)
                 resp.raise_for_status()
                 data = resp.json()
-                return extract_text_from_responses_json(data)
+                return _require_response_text(extract_text_from_responses_json(data))
             except httpx.HTTPStatusError as exc:
                 last_error = exc
                 if exc.response.status_code in (429, 500, 502, 503, 504) and attempt < 1:

@@ -17,6 +17,11 @@
 4. Python 虚拟环境 `.venv`
 5. 历史发布副本、评测资料、临时输出目录
 
+## 用户文档
+
+- [系统简介](docs/系统简介.md)：了解系统定位、六步工作流、主要产物和使用边界。
+- [用户使用说明](docs/用户使用说明.md)：按步骤完成启动、模型配置、资料上传、路线归并、规则审核、模板映射、规则包发布和路线生成，并查找常见问题。
+
 ## 目录说明
 
 ```text
@@ -167,6 +172,10 @@ Win7 交付使用独立的 CPython 3.8.10 x64 运行时。开发和构建环境�
 
 目标机需要预装 Chrome 109 或 Edge 109，并允许启动包调用系统浏览器。包内不包含 CEF/Qt 或其他浏览器壳，IE11 不在支持范围内；Chrome 109 和 Edge 109 是验收基线。服务只监听 `127.0.0.1:8000`。
 
+Win7 SP1 还必须安装 `KB2533623`，或安装包含该修复的后续更新。交付包包含离线安装文件和脚本：请先以管理员身份运行 `prerequisites\install-kb2533623.bat`，安装完成后重启系统，再运行 `start-win7.bat`。这个更新不能通过复制包内 DLL 代替；缺少时 Python 可能在加载 `_socket.pyd` 时提示“DLL load failed ... 参数错误”。
+
+Win7 运行时锁定 `pydantic==2.10.6` 和 `pydantic-core==2.27.2`。较旧的 `pydantic-core==2.23.4` 会导入 Win7 不提供的 `ProcessPrng`，会在日志中出现 `_pydantic_core: DLL load failed`；构建脚本会在打包前拒绝这类 wheel。由于 Python 3.8 的 AnyIO 还需要 `exceptiongroup==1.2.2`，Pydantic 解析项目中的现代类型注解还需要 `eval-type-backport==0.2.2`，这两个条件依赖都已固定并随包提供。
+
 在有网络的 Windows 构建机上，先准备 CPython 3.8.10 x64 runtime 目录和对应的 Windows x64 wheelhouse，再执行。建议直接使用你提供的 `KmAI-Win7-SP1-x64-20261018-r24\runtime` 目录，或内容等价且包含 VC/UCRT Win7 兼容 DLL 的 CPython runtime；打包脚本会拒绝缺少这些 DLL 的 runtime。runtime 不需要预装 pip，脚本会用包内的标准库 wheel 安装器离线安装锁定依赖：
 
 ```bat
@@ -177,16 +186,24 @@ powershell -File scripts\pack-win7-windows.ps1 -PythonRuntime C:\tools\cpython-3
 
 `-PythonRuntime` 可以指向包含 `python.exe` 的目录；若使用官方 CPython ZIP，需要先补齐 `MSVCP140.dll`、`VCRUNTIME140*.dll`、`ucrtbase.dll` 以及对应的 `api-ms-win-*` 兼容文件。`-Wheelhouse` 必须包含 `requirements-win7-py38.txt` 中每个依赖的 CPython 3.8 / Windows x64 wheel。
 
-脚本会检查 Python 版本、离线依赖、后端导入和 Python 3.8 源码兼容性，然后生成 `dist-win7\processmind-win7-windows-YYYYMMDD.zip`、`manifest.json` 和 `SHA256SUMS.txt`。压缩前只复制后端源码、知识/config 资源、前端 `dist`、Win7 启动器和 `.runtime\python`，并拒绝 `node_modules`、`.runtime\node`、数据库、上传文件、日志、`.env` 和凭据。
+脚本会检查 Python 版本、离线依赖、后端导入和 Python 3.8 源码兼容性，然后生成 `dist-win7\processmind-win7-windows-YYYYMMDD.zip`、`manifest.json` 和 `SHA256SUMS.txt`。压缩前只复制后端源码、知识/config 资源、前端 `dist`、Win7 启动器、前置更新文件和 `.runtime\python`，并拒绝 `node_modules`、`.runtime\node`、数据库、上传文件、日志、`.env` 和凭据。
+
+压缩前必须通过 `scripts/verify-win7-package.py`：它直接核对官方 CPython 3.8.10 x64 核心文件哈希、实际安装依赖版本和必要兼容 DLL，并检查已知不兼容的原生依赖，不能只根据 manifest 判定运行时版本。开发用 `.runtime/python` 可能是 Python 3.13，不能直接复制进 Win7 包。换包请解压到新的空目录，避免覆盖解压残留其他版本文件；最终仍需在 Win7 SP1 x64 上验收。
 
 将 ZIP 解压到目标机后：
 
-1. 双击 `start-win7.bat`（或 `start-win7.cmd`）启动 API 并打开浏览器
+1. 双击唯一的 `start-win7.bat` 启动 API 并打开浏览器；启动窗口会保留，按任意键关闭
 2. 双击 `status-win7.cmd` 查看健康状态
 3. 双击 `stop-win7.cmd` 停止由本包启动的 API
 4. 可在解压目录运行 `.runtime\python\python.exe scripts\verify-win7-package.py .` 检查清单和 SHA-256
 
-数据库、上传文件、日志、缓存和 PID 状态默认写入 `%LOCALAPPDATA%\ProcessMind`；可用同名环境变量 `PROCESSMIND_RUNTIME_DIR` 指向其他可写目录。关闭浏览器不会停止 API，重新启动不会复用失效 PID。端口被无关进程占用时启动器会失败并保留无关进程。
+三个命令执行后均保留窗口，便于查看报错；按任意键只关闭命令窗口。API 在后台运行，启动完成后没有单独的 API 控制台窗口。自动化调用前执行 <code>set "PROCESSMIND_NO_PAUSE=1"</code>，再使用 <code>call start-win7.bat --no-browser</code>、<code>call status-win7.cmd</code>、<code>call stop-win7.cmd</code>。
+
+状态命令只有服务健康且归属当前目录时返回 0，否则返回 1。关闭命令成功停止或确认已退出时返回 0；无法确认归属、权限不足或关闭失败时返回 1 并保留可重试的状态。不要用 <code>taskkill /IM python.exe</code> 关闭系统。自定义端口启动传入 <code>--port 18087</code>；状态和关闭默认读取状态文件里的端口，状态丢失时可显式传入同一端口。不同解压版本共用默认运行目录时，请先从原目录关闭，再启动新包。
+
+启停和状态命令对同一运行目录互斥；提示“另一个命令正在执行”时请等待前一个命令结束后重试。无法读取匹配当前目录的进程命令行时，启动器保留状态并返回失败，不会仅凭端口或健康接口认定进程归属。
+
+数据库、上传文件、日志、缓存和 PID 状态默认写入 `%LOCALAPPDATA%\ProcessMind`；可用同名环境变量 `PROCESSMIND_RUNTIME_DIR` 指向其他可写目录。关闭浏览器不会停止 API；再次双击 `start-win7.bat` 会复用健康的已有服务并重新打开浏览器。需要完全退出时请双击 `stop-win7.cmd`。端口被无关进程占用时启动器会失败并保留无关进程。
 
 
 ## 备注

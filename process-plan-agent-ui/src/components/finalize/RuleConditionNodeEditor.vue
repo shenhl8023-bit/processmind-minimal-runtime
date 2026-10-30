@@ -34,6 +34,7 @@
           :value="String(leafValue ?? '')"
           @change="changeScalarValue"
         >
+          <option v-if="hasUnlistedScalarValue" :value="String(leafValue)">{{ leafValue }}</option>
           <option v-for="option in selectedField.options" :key="option.value" :value="option.value">{{ option.label }}</option>
         </select>
         <input
@@ -58,16 +59,16 @@
 
     <template v-else>
       <div class="logic-heading">
-        <span class="logic-chip">{{ nodeKind === 'all' ? '同时满足' : '满足任一' }}</span>
+        <select class="rule-control logic-select" aria-label="条件满足方式" :value="nodeKind" @change="changeGroupKind">
+          <option value="all">全部满足</option>
+          <option value="any">满足其一</option>
+        </select>
       </div>
       <div class="logic-children">
-        <RuleConditionNodeEditor
-          v-for="(child, index) in groupChildren"
-          :key="index"
-          :model-value="child"
-          :fields="fields"
-          @update:model-value="updateGroupChild(Number(index), $event)"
-        />
+        <div v-for="(child, index) in groupChildren" :key="index" class="logic-child-row">
+          <RuleConditionNodeEditor :model-value="child" :fields="fields" @update:model-value="updateGroupChild(Number(index), $event)" />
+          <button type="button" class="condition-remove" @click="removeGroupChild(Number(index))">删除条件</button>
+        </div>
       </div>
     </template>
   </div>
@@ -103,6 +104,7 @@ const leafOperator = computed(() => {
 })
 const leafValue = computed(() => (props.modelValue as any)?.value)
 const selectedField = computed(() => props.fields.find(field => field.key === leafField.value))
+const hasUnlistedScalarValue = computed(() => leafValue.value !== null && leafValue.value !== undefined && !Array.isArray(leafValue.value) && !selectedField.value?.options?.some(option => option.value === String(leafValue.value)))
 const isNumeric = computed(() => selectedField.value?.type === 'number')
 const isListOperator = computed(() => ['in', 'contains_any', 'contains_all'].includes(leafOperator.value))
 const displayValue = computed(() => Array.isArray(leafValue.value) ? leafValue.value.join('，') : String(leafValue.value ?? ''))
@@ -157,7 +159,7 @@ function changeOperator(event: Event) {
 }
 
 function normalizeValue(value: string) {
-  if (isNumeric.value) return value === '' ? 0 : Number(value)
+  if (isNumeric.value) return value.trim() === '' ? '' : Number(value)
   return value
 }
 
@@ -188,6 +190,13 @@ function updateGroupChild(index: number, value: RulePackageCondition) {
   children[index] = value
   emit('update:modelValue', nodeKind.value === 'all' ? { all: children } : { any: children })
 }
+function changeGroupKind(event: Event) {
+  emit('update:modelValue', (event.target as HTMLSelectElement).value === 'any' ? { any: [...groupChildren.value] } : { all: [...groupChildren.value] })
+}
+function removeGroupChild(index: number) {
+  const children = groupChildren.value.filter((_: RulePackageCondition, position: number) => position !== index)
+  emit('update:modelValue', nodeKind.value === 'all' ? { all: children } : { any: children })
+}
 
 function updateNotChild(value: RulePackageCondition) {
   emit('update:modelValue', { not: value })
@@ -196,13 +205,102 @@ function updateNotChild(value: RulePackageCondition) {
 
 <style scoped>
 .condition-node { width: 100%; }
-.condition-node-leaf { display: grid; grid-template-columns: minmax(180px, 1.45fr) minmax(112px, .7fr) minmax(140px, 1fr); gap: 8px; align-items: center; }
-.rule-control { min-width: 0; height: 34px; padding: 0 10px; border: 1px solid #d9e0e9; border-radius: 7px; background: #fff; color: #253247; font-size: 12px; outline: none; }
-.rule-control:focus { border-color: #5269a8; box-shadow: 0 0 0 3px rgba(82, 105, 168, .1); }
-.between-values { display: grid; grid-template-columns: 1fr auto 1fr; gap: 6px; align-items: center; color: #718096; }
-.logic-heading { margin-bottom: 8px; }
-.logic-chip { display: inline-flex; padding: 3px 8px; border-radius: 999px; background: #e8edf7; color: #40557d; font-size: 11px; font-weight: 700; }
-.logic-chip-not { background: #fff0e7; color: #9a4b22; margin-bottom: 8px; }
-.logic-children { display: grid; gap: 8px; padding-left: 12px; border-left: 2px solid #dce4f0; }
-@media (max-width: 920px) { .condition-node-leaf { grid-template-columns: 1fr; } }
+
+/* ===== Leaf node (field / op / value row) ===== */
+.condition-node-leaf {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.45fr) minmax(112px, .7fr) minmax(140px, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+/* ===== Shared control base ===== */
+.rule-control {
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid #dce3ed;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1e293b;
+  font-size: 12.5px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.rule-control:focus {
+  border-color: #818cf8;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+.rule-control:hover:not(:focus) {
+  border-color: #c7d2fe;
+}
+
+/* ===== Between range values ===== */
+.between-values {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 6px;
+  align-items: center;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+/* ===== Logic group (all / any) ===== */
+.logic-heading {
+  margin-bottom: 10px;
+}
+.logic-select {
+  font-weight: 600;
+  color: #334155;
+}
+.logic-child-row {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+}
+
+/* ===== Delete condition button ===== */
+.condition-remove {
+  border: 0;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 8px 4px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.condition-remove:hover {
+  color: #ef4444;
+}
+
+/* ===== Logic chip (NOT) ===== */
+.logic-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.logic-chip-not {
+  background: linear-gradient(135deg, #fff7ed, #fef3c7);
+  color: #b45309;
+  border: 1px solid #fde68a;
+  margin-bottom: 8px;
+}
+
+/* ===== Nested logic children ===== */
+.logic-children {
+  display: grid;
+  gap: 8px;
+  padding-left: 14px;
+  border-left: 2px solid #e0e7ff;
+}
+
+@media (max-width: 920px) {
+  .condition-node-leaf { grid-template-columns: 1fr; }
+}
 </style>

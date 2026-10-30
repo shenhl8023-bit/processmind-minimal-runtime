@@ -5,6 +5,7 @@ import { transformSync } from 'esbuild'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import source from './KnowledgeView.vue?raw'
 import guidanceSource from '@/components/knowledge/KnowledgeGuidanceCard.vue?raw'
+import catalogSource from '@/components/knowledge/KnowledgeCatalogPanel.vue?raw'
 
 if (typeof document === 'undefined') {
   ;(globalThis as any).document = { activeElement: null }
@@ -13,6 +14,8 @@ if (typeof document === 'undefined') {
 const mocks = vi.hoisted(() => ({
   saveKnowledgeEvidence: vi.fn(),
   searchKnowledge: vi.fn(),
+  listKnowledgeCatalog: vi.fn(),
+  getKnowledgeCatalogRecord: vi.fn(),
 }))
 
 const routeState = vi.hoisted(() => ({ current: null as any }))
@@ -30,6 +33,18 @@ new Function('require', 'module', 'exports', guidanceCode)(
   }, guidanceModule, guidanceModule.exports,
 )
 
+const catalogScript = compileScript(parse(catalogSource).descriptor, { id: 'knowledge-catalog-test', inlineTemplate: true })
+const catalogCode = transformSync(catalogScript.content, { loader: 'ts', format: 'cjs', platform: 'node' }).code
+const catalogModule = { exports: {} as Record<string, any> }
+new Function('require', 'module', 'exports', catalogCode)(
+  (id: string) => {
+    if (id === 'vue') return Vue
+    if (id === '@/api/knowledge') return mocks
+    if (id === '@/components/knowledge/KnowledgeGuidanceCard.vue') return guidanceModule.exports
+    throw new Error(`Unexpected catalog dependency: ${id}`)
+  }, catalogModule, catalogModule.exports,
+)
+
 // Vitest's default Node transform uses the SSR SFC branch. Compile the template
 // for the host renderer so the setup logic is exercised by these behavior tests.
 const { descriptor } = parse(source)
@@ -42,6 +57,7 @@ new Function('require', 'module', 'exports', scriptCode)(
     if (id === 'vue-router') return { useRoute: () => routeState.current }
     if (id === '@/api/knowledge') return mocks
     if (id === '@/components/knowledge/KnowledgeGuidanceCard.vue') return guidanceModule.exports
+    if (id === '@/components/knowledge/KnowledgeCatalogPanel.vue') return catalogModule.exports
     throw new Error(`Unexpected KnowledgeView dependency: ${id}`)
   },
   scriptModule,
@@ -75,6 +91,7 @@ const renderer = createRenderer({
       tagName: type.toUpperCase(),
       props: {},
       children: [],
+      style: {},
       parent: null,
       listeners: {},
       addEventListener(name: string, listener: (event: any) => void) {
@@ -228,6 +245,8 @@ beforeEach(() => {
   mountedApps.splice(0).forEach(app => app.unmount())
   vi.clearAllMocks()
   mocks.searchKnowledge.mockResolvedValue({ status: 'ok', message: '', answer: '', items: [] })
+  mocks.listKnowledgeCatalog.mockReset().mockResolvedValue(catalogFixture())
+  mocks.getKnowledgeCatalogRecord.mockReset().mockResolvedValue(detailFixture())
 })
 
 describe('knowledge presentation', () => {
@@ -751,6 +770,45 @@ describe('knowledge presentation', () => {
 })
 
 describe('knowledge context race behavior', () => {
+  it('does not restart the same pending query on repeated Enter presses', async () => {
+    const pending = deferred<any>()
+    mocks.searchKnowledge.mockReturnValueOnce(pending.promise)
+    const root = mountKnowledge({ q: '重复查询' })
+    const submit = findInput(root, 'knowledge-query-input').props.onKeyup
+    submit({ key: 'Enter' })
+    submit({ key: 'Enter' })
+    expect(mocks.searchKnowledge).toHaveBeenCalledTimes(1)
+    pending.resolve({ status: 'ok', message: '', answer: '当前回答', items: [itemFixture] })
+    await settle()
+    expect(textContent(root)).toContain('当前回答')
+  })
+
+  it('saves evidence with the submitted question after the query draft changes', async () => {
+    mocks.searchKnowledge.mockResolvedValueOnce({ status: 'ok', message: '', answer: '', items: [itemFixture] })
+    mocks.saveKnowledgeEvidence.mockResolvedValueOnce({ id: 91 })
+    const root = mountKnowledge({ project_id: '1', q: '原始检索问题' })
+    await settle()
+    findInput(root, 'knowledge-query-input').props['onUpdate:modelValue']('尚未检索的新问题')
+    await nextTick()
+    findByText(root, 'button', '采纳为依据').props.onClick()
+    await settle()
+    expect(mocks.saveKnowledgeEvidence).toHaveBeenCalledWith(expect.objectContaining({ query: '原始检索问题' }))
+  })
+
+  it('prevents repeated evidence adoption before the save response', async () => {
+    const pending = deferred<any>()
+    mocks.searchKnowledge.mockResolvedValueOnce({ status: 'ok', message: '', answer: '', items: [itemFixture] })
+    mocks.saveKnowledgeEvidence.mockReturnValueOnce(pending.promise)
+    const root = mountKnowledge()
+    await settle()
+    const adopt = findByText(root, 'button', '采纳为依据').props.onClick
+    const first = adopt()
+    const second = adopt()
+    expect(mocks.saveKnowledgeEvidence).toHaveBeenCalledTimes(1)
+    pending.resolve({ id: 91 })
+    await Promise.all([first, second])
+  })
+
   it('does not mark an item adopted when its save resolves after a new search', async () => {
     const firstSearch = deferred<any>()
     const secondSearch = deferred<any>()
@@ -824,5 +882,211 @@ describe('knowledge context race behavior', () => {
     expect(textContent(root)).toContain('已找到本地知识依据，但大模型暂时不可用。')
     expect(textContent(root)).toContain('工序依据内容')
     expect(textContent(root)).toContain('工艺规程')
+  })
+})
+
+function catalogFixture(title = '配套孔加工余量', total = 45) {
+  return { section: 'knowledge', total, raw_count: total, page: 1, page_size: 20,
+    categories: [{ value: 'process_guidance', label: '工艺说明', count: total }],
+    topics: [{ value: 'allowance', label: '加工余量', count: total }],
+    columns: [{ key: 'title', label: '知识条目' }, { key: 'status', label: '核对状态' }],
+    items: [{ id: 'WD/01', title, category: 'process_guidance', source_label: '规程资料',
+      source_kind: 'process_document', verification_status: 'conflict', data_warnings: ['原文数值冲突'],
+      values: { title, status: '存在冲突' } }],
+  }
+}
+function detailFixture() {
+  return { ...catalogFixture().items[0], fields: { '余量下限': 0, '前提条件': '半精加工后' },
+    sources: [{ document_name: '钢件衬套.docx', identity: '第3.3节' }], original_records: [], guidance: null }
+}
+
+describe('read-only knowledge catalog', () => {
+  it('shows only topics that belong to the selected catalog category', async () => {
+    mocks.listKnowledgeCatalog.mockReset()
+      .mockResolvedValueOnce({
+        ...catalogFixture(),
+        categories: [
+          { value: 'process_guidance', label: '工艺说明', count: 1 },
+          { value: 'typical_route', label: '典型路线', count: 1 },
+        ],
+        topics: [
+          { value: 'allowance', label: '加工余量', count: 1 },
+          { value: 'stage_overview', label: '阶段概要', count: 1 },
+        ],
+      })
+      .mockResolvedValueOnce({
+        ...catalogFixture(),
+        categories: [
+          { value: 'process_guidance', label: '工艺说明', count: 1 },
+          { value: 'typical_route', label: '典型路线', count: 1 },
+        ],
+        topics: [
+          { value: 'allowance', label: '加工余量', count: 0 },
+          { value: 'stage_overview', label: '阶段概要', count: 1 },
+        ],
+      })
+    const root = mountKnowledge({ q: '' })
+    findByText(root, 'button', '工艺知识').props.onClick()
+    await settle()
+    findByText(root, 'button', '典型路线').props.onClick()
+    await settle()
+    const topicSelect = elements(root).find(node => node.type === 'select' && node.props['aria-label'] === '工艺主题')!
+    expect(textContent(topicSelect)).toContain('阶段概要')
+    expect(textContent(topicSelect)).not.toContain('加工余量')
+  })
+
+  it('separates ordinary verification notes from actionable warnings', async () => {
+    const note = '已核对原文仅表示提取一致，不代表业务批准。'
+    mocks.getKnowledgeCatalogRecord.mockResolvedValueOnce({ ...detailFixture(), data_warnings: [note, '原文数值冲突'] })
+    const root = mountKnowledge({ q: '' })
+    findByText(root, 'button', '工艺知识').props.onClick()
+    await settle()
+    findByText(root, 'button', '配套孔加工余量').props.onClick()
+    await settle()
+    const warning = elements(root).find(n => n.props.class === 'catalog-detail-warnings')!
+    expect(textContent(warning)).toContain('原文数值冲突')
+    expect(textContent(warning)).not.toContain(note)
+    expect(textContent(root)).toContain(note)
+  })
+
+  it('shows readable resource parameters and retains collapsed original fields and zero values', async () => {
+    mocks.getKnowledgeCatalogRecord.mockResolvedValueOnce({ ...detailFixture(), values: { title: '测试设备', model: 'CA6140', range: '0–100 mm', status: '参考资料' }, fields: { spindle_min: 0, original_model: 'CA6140' } })
+    const root = mountKnowledge({ q: '' })
+    findByText(root, 'button', '工艺资源').props.onClick()
+    await settle()
+    findByText(root, 'button', '配套孔加工余量').props.onClick()
+    await settle()
+    const summary = elements(root).find(n => n.props.class === 'catalog-key-fields')
+    expect(summary).toBeDefined()
+    expect(textContent(summary!)).toContain('型号 / 规格CA6140')
+    expect(textContent(summary!)).toContain('范围 / 能力0–100 mm')
+    const raw = elements(root).find(n => n.type === 'details' && n.props.class === 'catalog-raw-fields')!
+    expect(raw.props.open).toBe(false)
+    expect(textContent(raw)).toContain('spindle_min0')
+    expect(textContent(root)).toContain('钢件衬套.docx')
+  })
+
+  it('opens three sidebar entries and preserves the question while browsing', async () => {
+    const root = mountKnowledge({ q: '' })
+    expect(textContent(root)).toContain('工艺知识')
+    expect(textContent(root)).toContain('工艺资源')
+    const input = findInput(root, 'knowledge-query-input')
+    input.props['onUpdate:modelValue']('尚未提交的问题')
+    findByText(root, 'button', '工艺知识').props.onClick()
+    await settle()
+    expect(textContent(root)).toContain('配套孔加工余量')
+    expect(textContent(root)).toContain('存在冲突')
+    expect(textContent(root)).toContain('原文数值冲突')
+    expect(mocks.searchKnowledge).not.toHaveBeenCalled()
+    findByText(root, 'button', '知识问答').props.onClick()
+    await settle()
+    expect(findInput(root, 'knowledge-query-input').value).toBe('尚未提交的问题')
+  })
+
+  it('paginates, searches and opens literal values with sources', async () => {
+    const root = mountKnowledge({ q: '' })
+    findByText(root, 'button', '工艺知识').props.onClick()
+    await settle()
+    expect(textContent(root)).toContain('45')
+    findByText(root, 'button', '下一页').props.onClick()
+    await settle()
+    expect(mocks.listKnowledgeCatalog).toHaveBeenLastCalledWith(expect.objectContaining({ section: 'knowledge', page: 2, page_size: 20 }))
+    const search = elements(root).find(n => n.type === 'input' && n.props.placeholder === '搜索当前目录')!
+    search.props['onUpdate:modelValue']('内孔')
+    findByText(root, 'button', '搜索').props.onClick({ preventDefault() {} })
+    await settle()
+    expect(mocks.listKnowledgeCatalog).toHaveBeenLastCalledWith(expect.objectContaining({ q: '内孔', page: 1 }))
+    findByText(root, 'button', '配套孔加工余量').props.onClick()
+    await settle()
+    expect(textContent(root)).toContain('钢件衬套.docx')
+    expect(textContent(root)).toContain('第3.3节')
+    expect(textContent(root)).toContain('余量下限0')
+    expect(elements(root).some(n => n.props.contenteditable)).toBe(false)
+  })
+
+  it('ignores a stale list response after a new search', async () => {
+    const old = deferred<any>()
+    mocks.listKnowledgeCatalog.mockReturnValueOnce(old.promise)
+    const root = mountKnowledge({ q: '' })
+    findByText(root, 'button', '工艺知识').props.onClick()
+    await settle()
+    const search = elements(root).find(n => n.type === 'input' && n.props.placeholder === '搜索当前目录')!
+    search.props['onUpdate:modelValue']('新条件')
+    mocks.listKnowledgeCatalog.mockResolvedValueOnce(catalogFixture('新结果'))
+    findByText(root, 'button', '搜索').props.onClick({ preventDefault() {} })
+    await settle()
+    old.resolve(catalogFixture('过期结果'))
+    await settle()
+    expect(textContent(root)).toContain('新结果')
+    expect(textContent(root)).not.toContain('过期结果')
+  })
+
+  it('offers retry after list failure and clears stale detail on errors', async () => {
+    mocks.listKnowledgeCatalog.mockRejectedValueOnce(new Error('offline'))
+    const root = mountKnowledge({ q: '' })
+    findByText(root, 'button', '工艺知识').props.onClick()
+    await settle()
+    expect(textContent(root)).toContain('目录加载失败')
+    findByText(root, 'button', '重试').props.onClick()
+    await settle()
+    mocks.getKnowledgeCatalogRecord.mockRejectedValueOnce(new Error('detail offline'))
+    findByText(root, 'button', '配套孔加工余量').props.onClick()
+    await settle()
+    expect(textContent(root)).toContain('详情加载失败')
+    expect(textContent(root)).not.toContain('钢件衬套.docx')
+  })
+})
+
+
+describe('catalog detail race and category state', () => {
+  it('does not reopen a detail after it was closed while loading', async () => {
+    const pending = deferred<any>()
+    mocks.getKnowledgeCatalogRecord.mockReturnValueOnce(pending.promise)
+    const root = mountKnowledge({ q: '' })
+    findByText(root, 'button', '工艺知识').props.onClick()
+    await settle()
+    findByText(root, 'button', '配套孔加工余量').props.onClick()
+    await settle()
+    findByText(root, 'button', '关闭').props.onClick()
+    pending.resolve(detailFixture())
+    await settle()
+    expect(textContent(root)).not.toContain('钢件衬套.docx')
+    expect(elements(root).some(n => n.props['aria-label'] === '工艺知识记录详情')).toBe(false)
+  })
+
+  it('keeps the selected category and ignores stale detail after filtering', async () => {
+    const pending = deferred<any>()
+    mocks.getKnowledgeCatalogRecord.mockReturnValueOnce(pending.promise)
+    const root = mountKnowledge({ q: '' })
+    findByText(root, 'button', '工艺知识').props.onClick()
+    await settle()
+    findByText(root, 'button', '配套孔加工余量').props.onClick()
+    await settle()
+    findByText(root, 'button', '工艺说明').props.onClick()
+    await settle()
+    pending.resolve(detailFixture())
+    await settle()
+    expect(textContent(root)).not.toContain('钢件衬套.docx')
+    expect(mocks.listKnowledgeCatalog).toHaveBeenLastCalledWith(expect.objectContaining({ category: 'process_guidance', page: 1 }))
+    findByText(root, 'button', '知识问答').props.onClick()
+    findByText(root, 'button', '工艺知识').props.onClick()
+    await settle()
+    expect(findByText(root, 'button', '工艺说明').props['aria-pressed']).toBe(true)
+  })
+})
+
+describe('contextual knowledge navigation', () => {
+  it('reveals QA for an incoming question while retaining catalog filters', async () => {
+    const root = mountKnowledge({ q: '' })
+    findByText(root, 'button', '工艺资源').props.onClick()
+    await settle()
+    const qa = elements(root).find(n => n.props.class === 'knowledge-qa')!
+    expect((qa as any).style.display).toBe('none')
+    routeState.current.query = { project_id: '1', q: '内孔加工', operation_context: JSON.stringify({ segment_id: 'op-2' }) }
+    routeState.current.fullPath = '/knowledge?project_id=1&q=内孔加工'
+    await settle()
+    expect((qa as any).style.display).not.toBe('none')
+    expect(findByText(root, 'button', '知识问答').props['aria-pressed']).toBe(true)
+    expect(mocks.searchKnowledge).toHaveBeenLastCalledWith(expect.objectContaining({ query: '内孔加工' }))
   })
 })

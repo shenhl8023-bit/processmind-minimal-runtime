@@ -18,6 +18,93 @@ from app.services.group_template_xml import parse_group_template_xml
 from app.services.project_group_templates import commit_project_group_template
 
 
+@pytest.mark.asyncio
+async def test_precision_model_fills_only_missing_machining_with_literal_evidence(mapping_store, monkeypatch):
+    from app.schemas.schemas import TemplateProcessPrecisionSuggestRequest
+    from app.services import template_process_precision
+    sessions, _ = mapping_store
+    captured = {}
+    async def suggest(system, user, **options):
+        captured.update(json.loads(user))
+        return json.dumps({'suggestions': [
+            {'process_id': 'rough', 'precision': '粗加工', 'confidence': .95, 'evidence': ['粗车外圆'], 'reason': '本工序为粗车'},
+            {'process_id': 'saved', 'precision': '粗加工', 'confidence': .99, 'evidence': ['精车'], 'reason': '不应覆盖'},
+            {'process_id': 'aux', 'precision': '粗加工', 'confidence': .99, 'evidence': ['清洗'], 'reason': '不应覆盖'},
+        ]}, ensure_ascii=False)
+    monkeypatch.setattr(template_process_precision, 'call_llm', suggest)
+    async with sessions() as db:
+        result = await template_process_precision.suggest_process_precisions(db, TemplateProcessPrecisionSuggestRequest(
+            project_id=7, expected_template_revision=1, operations=[
+                TemplateGroupMappingOperationIn(operation_id=1, process_id='rough', operation_name='车削', process_type='加工工序', step_items=['粗车外圆']),
+                TemplateGroupMappingOperationIn(operation_id=2, process_id='saved', operation_name='精车', process_type='加工工序', precision='精加工'),
+                TemplateGroupMappingOperationIn(operation_id=3, process_id='aux', operation_name='清洗', process_type='辅助工序'),
+            ]))
+    assert [(s.process_id, s.precision) for s in result.suggestions] == [('rough', '粗加工')]
+    assert result.suggestions[0].evidence == ['粗车外圆']
+    assert result.model_used is True
+    assert len(captured['route']) == 3
+    assert captured['pending_process_ids'] == ['rough']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('choice', [
+    {'process_id': 'p', 'precision': '精密', 'confidence': .99, 'evidence': ['钻孔']},
+    {'process_id': 'p', 'precision': '精加工', 'confidence': .5, 'evidence': ['钻孔']},
+    {'process_id': 'p', 'precision': '精加工', 'confidence': .99, 'evidence': ['不存在的公差要求']},
+    {'process_id': 'other', 'precision': '精加工', 'confidence': .99, 'evidence': ['钻孔']},
+    {'process_id': 'p', 'precision': '精加工', 'confidence': float('nan'), 'evidence': ['钻孔']},
+    {'process_id': 'p', 'precision': '精加工', 'confidence': True, 'evidence': ['钻孔']},
+    {'process_id': 'p', 'precision': '精加工', 'confidence': .99, 'evidence': []},
+])
+async def test_precision_rejects_unsupported_model_choices(mapping_store, monkeypatch, choice):
+    from app.schemas.schemas import TemplateProcessPrecisionSuggestRequest
+    from app.services import template_process_precision
+    sessions, _ = mapping_store
+    async def suggest(*args, **kwargs): return json.dumps({'suggestions': [choice]})
+    monkeypatch.setattr(template_process_precision, 'call_llm', suggest)
+    async with sessions() as db:
+        result = await template_process_precision.suggest_process_precisions(db, TemplateProcessPrecisionSuggestRequest(
+            project_id=7, expected_template_revision=1, operations=[TemplateGroupMappingOperationIn(
+                operation_id=1, process_id='p', operation_name='钻孔', process_type='加工工序')]))
+    assert result.suggestions == []
+    assert result.warnings
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('output', ['', 'not json', '{"suggestions":null}', 'timeout'])
+async def test_precision_failure_leaves_inputs_unset(mapping_store, monkeypatch, output):
+    from app.schemas.schemas import TemplateProcessPrecisionSuggestRequest
+    from app.services import template_process_precision
+    sessions, _ = mapping_store
+    async def suggest(*args, **kwargs):
+        if output == 'timeout': raise TimeoutError('private-url-and-key')
+        return output
+    monkeypatch.setattr(template_process_precision, 'call_llm', suggest)
+    async with sessions() as db:
+        result = await template_process_precision.suggest_process_precisions(db, TemplateProcessPrecisionSuggestRequest(
+            project_id=7, expected_template_revision=1, operations=[TemplateGroupMappingOperationIn(
+                operation_id=1, process_id='p', operation_name='钻孔', process_type='加工工序')]))
+    assert result.suggestions == []
+    assert result.warnings
+    assert 'private-url' not in str(result.warnings)
+
+
+@pytest.mark.asyncio
+async def test_precision_suggestions_reject_stale_template_before_calling_model(mapping_store, monkeypatch):
+    from app.schemas.schemas import TemplateProcessPrecisionSuggestRequest
+    from app.services import template_process_precision
+    sessions, _ = mapping_store
+    async def unexpected(*args, **kwargs):
+        pytest.fail('stale requests must not invoke the model')
+    monkeypatch.setattr(template_process_precision, 'call_llm', unexpected)
+    async with sessions() as db:
+        with pytest.raises(HTTPException) as caught:
+            await template_process_precision.suggest_process_precisions(db, TemplateProcessPrecisionSuggestRequest(
+                project_id=7, expected_template_revision=2, operations=[TemplateGroupMappingOperationIn(
+                    operation_id=1, process_id='p', operation_name='钻孔', process_type='加工工序')]))
+    assert caught.value.status_code == 409
+
+
 def _template_xml():
     return '''<?xml version="1.0" encoding="UTF-8"?>
     <Kmsoft>
@@ -347,6 +434,162 @@ async def test_accepts_only_high_confidence_model_choice_from_server_candidates(
 
 
 @pytest.mark.asyncio
+async def test_group_mapping_handles_chat_completion_content_parts_end_to_end(mapping_store, monkeypatch):
+    """Exercise the real LLM client and mapping parser with a compatible gateway response."""
+    from app.services import llm_client, llm_service
+
+    sessions, tree = mapping_store
+    a_hole_key = _node_key(tree, ["A侧", "孔"])
+
+    async def fake_config():
+        return {"url": "https://example.test/v1", "key": "secret", "model": "demo"}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            content = json.dumps({"suggestions": [{
+                "operation_id": 360,
+                "group_id": a_hole_key,
+                "confidence": 0.93,
+                "evidence": ["在A侧钻安装孔"],
+                "reason": "工步明确说明在A侧加工孔。",
+            }]}, ensure_ascii=False)
+            midpoint = len(content) // 2
+            return {"choices": [{"message": {"content": [
+                {"type": "text", "text": content[:midpoint]},
+                {"type": "text", "text": content[midpoint:]},
+            ]}}]}
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def post(self, *_args, **_kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(llm_service, "get_llm_config", fake_config)
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda **_kwargs: FakeClient())
+
+    async with sessions() as db:
+        result = await template_group_mapping.resolve_template_group_mappings(
+            db,
+            _request(step_items=["在A侧钻安装孔"]),
+        )
+
+    assert result.model_used is True
+    assert result.suggestions[0].group_id == a_hole_key
+    assert result.suggestions[0].source == "llm"
+
+
+@pytest.mark.asyncio
+async def test_group_mapping_explains_successful_response_without_text(mapping_store, monkeypatch):
+    from app.services import llm_client, llm_service
+
+    sessions, _ = mapping_store
+
+    async def fake_config():
+        return {"url": "https://example.test/v1", "key": "secret", "model": "demo"}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "   "}}]}
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def post(self, *_args, **_kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(llm_service, "get_llm_config", fake_config)
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda **_kwargs: FakeClient())
+
+    async with sessions() as db:
+        result = await template_group_mapping.resolve_template_group_mappings(
+            db,
+            _request(step_items=["在A侧钻安装孔"]),
+        )
+
+    assert result.model_used is False
+    assert any("没有包含可用文本" in warning for warning in result.warnings)
+    assert result.suggestions[0].candidate_group_ids
+
+
+@pytest.mark.asyncio
+async def test_step_mapping_explains_successful_response_without_text(mapping_store, monkeypatch):
+    from app.services import llm_client, llm_service
+
+    sessions, _ = mapping_store
+
+    async def fake_config():
+        return {"url": "https://example.test/v1", "key": "secret", "model": "demo"}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "   "}}]}
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def post(self, *_args, **_kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(llm_service, "get_llm_config", fake_config)
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", lambda **_kwargs: FakeClient())
+
+    async with sessions() as db:
+        result = await template_group_mapping.resolve_template_step_mappings(
+            db,
+            TemplateStepMappingSuggestRequest(
+                project_id=7,
+                expected_template_revision=1,
+                operations=[TemplateGroupMappingOperationIn(
+                    operation_id=360,
+                    operation_name="加工",
+                    step_items=["精整圆柱表面"],
+                )],
+            ),
+        )
+
+    assert result.model_used is False
+    assert any("没有包含可用文本" in warning for warning in result.warnings)
+    assert result.suggestions[0].candidates
+
+
+@pytest.mark.asyncio
+async def test_group_mapping_does_not_log_request_exception_details(mapping_store, monkeypatch, caplog):
+    sessions, _ = mapping_store
+    secret_url = "https://example.test/v1?api_key=do-not-log"
+
+    async def failed_request(*args, **kwargs):
+        raise RuntimeError(secret_url)
+
+    monkeypatch.setattr(template_group_mapping, "call_llm", failed_request)
+    async with sessions() as db:
+        await template_group_mapping.resolve_template_group_mappings(db, _request())
+
+    assert "do-not-log" not in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_step_suggestions_allow_model_to_select_a_semantic_feature_outside_keyword_matches(mapping_store, monkeypatch):
     sessions, tree = mapping_store
     outer_key = _node_key(tree, ["A侧", "外圆"])
@@ -471,7 +714,7 @@ async def test_model_mapping_allows_slow_provider_response_timeout(mapping_store
     async with sessions() as db:
         await template_group_mapping.resolve_template_group_mappings(db, _request())
 
-    assert request_options["timeout_seconds"] == 30.0
+    assert request_options["timeout_seconds"] == 90.0
     assert request_options["max_retries"] == 1
 
 
@@ -499,7 +742,7 @@ async def test_step_mapping_allows_slow_provider_response_timeout(mapping_store,
             ),
         )
 
-    assert request_options["timeout_seconds"] == 30.0
+    assert request_options["timeout_seconds"] == 90.0
     assert request_options["max_retries"] == 0
 
 

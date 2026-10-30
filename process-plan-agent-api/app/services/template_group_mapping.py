@@ -22,6 +22,7 @@ from app.schemas.schemas import (
     TemplateStepMappingSuggestionOut,
 )
 from app.services.group_template_xml import is_feature_mapping_target
+from app.services.llm_client import LLMResponseError
 from app.services.llm_service import call_llm, parse_json_from_llm
 from app.services.project_group_templates import (
     REVISION_CONFLICT_DETAIL,
@@ -35,8 +36,8 @@ from app.services.project_group_templates import (
 logger = logging.getLogger(__name__)
 MIN_ACCEPTED_CONFIDENCE = 0.90
 CONFIDENCE_EPSILON = 1e-9
-TEMPLATE_GROUP_MAPPING_LLM_TIMEOUT_SECONDS = 30.0
-TEMPLATE_STEP_MAPPING_LLM_TIMEOUT_SECONDS = 30.0
+TEMPLATE_GROUP_MAPPING_LLM_TIMEOUT_SECONDS = 90.0
+TEMPLATE_STEP_MAPPING_LLM_TIMEOUT_SECONDS = 90.0
 
 _FEATURE_ALIASES: dict[str, tuple[str, ...]] = {
     "轴端面": ("端面", "平端面", "车端面"),
@@ -72,6 +73,26 @@ def _clean_text(value: Any) -> str:
 
 def _normalized_text(value: Any) -> str:
     return re.sub(r"[\s，,。；;：:（）()、/_-]+", "", _clean_text(value)).lower()
+
+
+def _llm_failure_warning(exc: Exception) -> str:
+    if isinstance(exc, LLMResponseError):
+        return "模型接口已响应，但响应中没有包含可用文本，已保留程序候选供人工选择。"
+    status_code = getattr(getattr(exc, "response", None), "status_code", None)
+    if isinstance(status_code, int):
+        return f"模型接口请求失败（HTTP {status_code}），已保留程序候选供人工选择。"
+    return f"模型请求未完成（{type(exc).__name__}），已保留程序候选供人工选择；请检查模型配置、网络和服务状态。"
+
+
+def _log_llm_failure(event: str, project_id: int, exc: Exception) -> None:
+    status_code = getattr(getattr(exc, "response", None), "status_code", None)
+    logger.warning(
+        "%s project_id=%s error_type=%s http_status=%s",
+        event,
+        project_id,
+        type(exc).__name__,
+        status_code if isinstance(status_code, int) else "unknown",
+    )
 
 
 def _clean_confidence(value: Any) -> float:
@@ -547,11 +568,15 @@ evidence 必须逐字摘自 operation_name 或 step_items。confidence 范围为
             max_retries=1,
         )
     except Exception as exc:
-        logger.warning("template_group_mapping_llm_failed project_id=%s error=%s", body.project_id, exc)
+        _log_llm_failure("template_group_mapping_llm_failed", body.project_id, exc)
+        warning = _llm_failure_warning(exc)
         return TemplateGroupMappingSuggestResponse(
             project_id=body.project_id,
-            suggestions=[_base_unresolved(operation, candidates) for operation, candidates in prepared],
-            warnings=["模型调用失败，已保留程序候选供人工选择。"],
+            suggestions=[
+                _base_unresolved(operation, candidates, warnings=[warning])
+                for operation, candidates in prepared
+            ],
+            warnings=[warning],
         )
 
     parsed = parse_json_from_llm(raw) if raw else None
@@ -695,7 +720,8 @@ features_by_group 的每个键必须出现在 group_ids 中，每个值必须是
             max_retries=0,
         )
     except Exception as exc:
-        logger.warning("template_step_mapping_llm_failed project_id=%s error=%s", body.project_id, exc)
+        _log_llm_failure("template_step_mapping_llm_failed", body.project_id, exc)
+        warning = _llm_failure_warning(exc)
         return TemplateStepMappingSuggestResponse(
             project_id=body.project_id,
             template_revision=template_revision,
@@ -704,11 +730,11 @@ features_by_group 的每个键必须出现在 group_ids 中，每个值必须是
                 else _step_unresolved(
                     step,
                     candidates,
-                    warnings=["模型调用失败，已保留程序候选供人工选择。"],
+                    warnings=[warning],
                 )
                 for (step, _, candidates), suggestion in zip(prepared, suggestions)
             ],
-            warnings=["模型调用失败，已保留程序候选供人工选择。"],
+            warnings=[warning],
         )
 
     parsed = parse_json_from_llm(raw) if raw else None

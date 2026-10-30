@@ -26,6 +26,13 @@ class ProjectOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
+
+class ProjectWorkflowProgressOut(BaseModel):
+    project_id: int
+    completed_steps: int = 0
+    max_available_step: int = 1
+    workflow_revision: int = 0
+
 # ---------- 文档 ----------
 class DocumentOut(BaseModel):
     id: int
@@ -274,8 +281,12 @@ class GroupTemplateCommitOut(ProjectGroupTemplateOut):
 
 class GroupTemplateMappingsUpdateRequest(BaseModel):
     project_id: int = Field(gt=0)
+    expected_workflow_revision: int = Field(default=0, ge=0)
     expected_template_revision: int = Field(ge=1)
     mappings: List[GroupTemplateMappingIn] = Field(default_factory=list)
+    # Older clients may submit only the mappings added in this save.  The
+    # current UI sends the complete draft and opts into replacement explicitly.
+    replace_all: bool = False
 
 
 class TemplateGroupMappingSourceStepIn(BaseModel):
@@ -306,9 +317,12 @@ class TemplateGroupMappingOperationIn(BaseModel):
 
 class GroupTemplateStepMappingsUpdateRequest(BaseModel):
     project_id: int = Field(gt=0)
+    expected_workflow_revision: int = Field(default=0, ge=0)
     expected_template_revision: int = Field(ge=1)
     mappings: List[GroupTemplateStepMappingIn] = Field(default_factory=list)
     operations: List[TemplateGroupMappingOperationIn] = Field(default_factory=list)
+    # Keep incremental saves from discarding mappings saved by an earlier pass.
+    replace_all: bool = False
 
 
 class TemplateGroupMappingCandidateIn(BaseModel):
@@ -373,6 +387,28 @@ class TemplateStepMappingSuggestResponse(BaseModel):
     template_revision: int
     model_used: bool = False
     suggestions: List[TemplateStepMappingSuggestionOut] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+
+
+class TemplateProcessPrecisionSuggestRequest(BaseModel):
+    project_id: int = Field(gt=0)
+    expected_template_revision: int = Field(ge=1)
+    operations: List[TemplateGroupMappingOperationIn] = Field(default_factory=list, max_length=250)
+
+
+class TemplateProcessPrecisionSuggestionOut(BaseModel):
+    process_id: str
+    precision: Literal["粗加工", "半精加工", "精加工"]
+    confidence: float = Field(ge=0.0, le=1.0)
+    evidence: List[str] = Field(default_factory=list)
+    reason: str = ""
+
+
+class TemplateProcessPrecisionSuggestResponse(BaseModel):
+    project_id: int
+    template_revision: int
+    model_used: bool = False
+    suggestions: List[TemplateProcessPrecisionSuggestionOut] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
 
 
@@ -448,6 +484,7 @@ class NormalizedSupersetRouteOut(BaseModel):
     project_id: int
     normalized_superset_route: List[NormalizedRouteSegmentOut] = []
     saved_route_version: Optional[int] = None
+    workflow_revision: int = 0
     source_signature: str = ""
     algo_version: str = ""
 
@@ -613,6 +650,7 @@ class RulePackagePrecheckOut(BaseModel):
     ok: bool
     checklist: List[RulePackagePrecheckItemOut] = Field(default_factory=list)
     blockers: List[Dict[str, Any]] = Field(default_factory=list)
+    export_summary: Optional[Dict[str, Any]] = None
 
 
 class FinalizedRulePackageOut(BaseModel):

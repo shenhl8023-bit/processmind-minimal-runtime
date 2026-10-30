@@ -33,3 +33,34 @@ export function nextPendingSegmentId(
   const ordered = [...cards.slice(index + 1), ...cards.slice(0, index + 1)]
   return ordered.find(item => pendingIds.has(item.segment.id))?.segment.id || ''
 }
+
+export function formatProcessConfiguration(
+  configuration: import('@/api/rulePackages').ProcessConfiguration,
+  fields: CanonicalConditionField[],
+  processes: Array<{ process_id: string; display_name: string }>,
+): string {
+  const name = (id: string) => processes.find(process => process.process_id === id)?.display_name || id
+  const current = name(configuration.process_id)
+  const triggers = configuration.relations.filter(relation => relation.relation_type === 'trigger_after')
+  const parts: string[] = []
+  if (configuration.occurrence === 'always') parts.push('始终出现（主工序）')
+  else {
+    if (configuration.when) parts.push(formatRuleCondition(configuration.when, fields))
+    triggers.forEach(relation => {
+      const sources = relation.source_process_ids.map(name).join('、')
+      const match = relation.source_process_ids.length > 1 ? (relation.source_match === 'any' ? '任一' : '全部') : ''
+      parts.push(match + sources + '出现后，生成' + current + '并排在其后')
+    })
+    if (!parts.length) parts.push('判断条件待补充')
+  }
+  const appearance = configuration.occurrence === 'conditional' && parts.length > 1
+    ? '全部满足：' + parts.join('；') : parts.join('；')
+  const independent = configuration.relations.filter(relation => relation.relation_type !== 'trigger_after').map(relation => {
+    const sources = relation.source_process_ids.map(name).join('、')
+    const targets = relation.target_process_ids.map(name).join('、')
+    if (relation.relation_type === 'order_after') return '两者均出现时，' + targets + '排在' + sources + '之后'
+    if (relation.relation_type === 'requires') return targets + '出现时，必须先安排' + sources
+    return sources + '与' + targets + '不能同时出现'
+  })
+  return [appearance, ...independent].join('；')
+}

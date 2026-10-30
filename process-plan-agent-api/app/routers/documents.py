@@ -32,6 +32,7 @@ from app.services.route_merge.workspace import (
     invalidate_project_document_derived_state,
 )
 from app.services.rule_packages.lifecycle import supersede_published_rule_packages
+from app.services.extraction_tasks import cancel_extraction_task, delete_extraction_task_state
 
 router = APIRouter(prefix="/api/documents", tags=["文件与资料管理"])
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -251,14 +252,20 @@ async def upload_documents(
         async with get_route_merge_project_lock(project_id):
             cancel_document_detail_cache_prewarm(project_id)
             await invalidate_project_document_derived_state(db, project_id)
+            cancel_extraction_task(project_id)
+            await delete_extraction_task_state(db, project_id)
             project.status = "UPLOADED"
             await db.commit()
-        start_document_detail_cache_prewarm(project_id)
-        return results
     except Exception:
         await db.rollback()
         _cleanup_upload_paths([item.path for item in staged])
         raise
+
+    try:
+        start_document_detail_cache_prewarm(project_id)
+    except Exception:
+        logger.warning("Could not start document detail cache prewarm for project %s", project_id, exc_info=True)
+    return results
 
 
 @router.get("/", response_model=List[DocumentOut])
@@ -303,10 +310,11 @@ async def delete_document(doc_id: int, db: AsyncSession = Depends(get_db)):
                         )
                     )
                 ).scalar_one()
-                if not remaining:
-                    project = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
-                    if project and project.status == "UPLOADED":
-                        project.status = "CREATED"
+                project = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
+                if project:
+                    project.status = "UPLOADED" if remaining else "CREATED"
+                cancel_extraction_task(project_id)
+                await delete_extraction_task_state(db, project_id)
                 await db.commit()
         else:
             await db.delete(doc)

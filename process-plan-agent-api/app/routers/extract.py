@@ -51,6 +51,8 @@ from app.schemas.schemas import (
     TemplateGroupMappingSuggestResponse,
     TemplateStepMappingSuggestRequest,
     TemplateStepMappingSuggestResponse,
+    TemplateProcessPrecisionSuggestRequest,
+    TemplateProcessPrecisionSuggestResponse,
     WorkflowResetOut,
     WorkflowResetRequest,
 )
@@ -121,6 +123,7 @@ from app.services.template_group_mapping import (
     resolve_template_group_mappings,
     resolve_template_step_mappings,
 )
+from app.services.template_process_precision import suggest_process_precisions
 from app.services.group_template_xml import MAX_GROUP_TEMPLATE_BYTES, parse_group_template_xml
 from app.services.project_group_templates import (
     commit_project_group_template,
@@ -147,6 +150,14 @@ async def suggest_template_step_mappings(
     db: AsyncSession = Depends(get_db),
 ):
     return await resolve_template_step_mappings(db, body)
+
+
+@router.post("/template-process-precisions/suggest", response_model=TemplateProcessPrecisionSuggestResponse)
+async def suggest_template_process_precisions(
+    body: TemplateProcessPrecisionSuggestRequest, db: AsyncSession = Depends(get_db),
+):
+    await _ensure_project_exists(body.project_id, db)
+    return await suggest_process_precisions(db, body)
 
 
 async def _ensure_project_exists(project_id: int, db: AsyncSession) -> Project:
@@ -237,6 +248,7 @@ async def save_current_group_template(
     project_id: int = Form(...),
     expected_content_hash: str = Form(...),
     expected_template_revision: int = Form(...),
+    expected_workflow_revision: int = Form(0, ge=0),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
@@ -248,6 +260,7 @@ async def save_current_group_template(
     if parsed.content_hash != expected_content_hash:
         raise HTTPException(422, "确认文件与预览文件内容不一致，请重新预览。")
     try:
+        await acquire_workflow_revision(db, project_id, expected_workflow_revision)
         result = await commit_project_group_template(
             db,
             project_id,
@@ -268,11 +281,13 @@ async def save_group_template_mappings(
 ):
     await _ensure_project_exists(body.project_id, db)
     try:
+        await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
         result = await replace_project_group_mappings(
             db,
             body.project_id,
             body.mappings,
             body.expected_template_revision,
+            replace_all=body.replace_all,
         )
         await db.commit()
         return asdict(result)
@@ -288,12 +303,14 @@ async def save_group_template_step_mappings(
 ):
     await _ensure_project_exists(body.project_id, db)
     try:
+        await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
         result = await replace_project_group_step_mappings(
             db,
             body.project_id,
             body.mappings,
             body.expected_template_revision,
             body.operations,
+            replace_all=body.replace_all,
         )
         await db.commit()
         return asdict(result)
@@ -575,7 +592,7 @@ async def save_normalized_superset_route(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        await acquire_workflow_revision(
+        project = await acquire_workflow_revision(
             db,
             body.project_id,
             body.expected_workflow_revision,
@@ -609,6 +626,7 @@ async def save_normalized_superset_route(
             "project_id": body.project_id,
             "normalized_superset_route": normalized_route,
             "saved_route_version": version_row.version,
+            "workflow_revision": int(project.workflow_revision or 0),
         }
     except Exception:
         await db.rollback()
@@ -640,6 +658,11 @@ async def precheck_finalized_rule_package(
     db: AsyncSession = Depends(get_db),
 ):
     project = await _ensure_project_exists(body.project_id, db)
+    if int(project.workflow_revision or 0) != body.expected_workflow_revision:
+        raise HTTPException(409, {
+            "message": "当前页面已过期，请刷新后再操作。",
+            "workflow_revision": int(project.workflow_revision or 0),
+        })
     if project.status not in {"ROUTE_SET_READY", "GENERATED"}:
         raise HTTPException(409, "当前资料尚未完成路线提炼，请先完成第二步提炼。")
 
@@ -681,6 +704,7 @@ async def precheck_finalized_rule_package(
     if package_v2.manifest.package_name != package_name:
         raise HTTPException(422, "manifest.package_name 与请求 package_name 不一致")
 
+    export_summary = None
     if validation.valid:
         checklist.append({
             "code": "schema_valid",
@@ -750,6 +774,7 @@ async def precheck_finalized_rule_package(
             "message": detail.get("message", "人工规则来源尚未确认。"),
             "severity": "blocking",
             "rule_ids": detail.get("rule_ids", []),
+            "segment_ids": detail.get("segment_ids", []),
         })
 
     template_blockers = await validate_rule_package_template_mapping(db, package_v2)
@@ -773,7 +798,8 @@ async def precheck_finalized_rule_package(
         from app.services.rule_packages.demo_tables import DemoTableError
 
         try:
-            await compile_publication_snapshot(package_v2, project, db)
+            _, sources = await compile_publication_snapshot(package_v2, project, db)
+            export_summary = sources.get("projection_report")
             checklist.append({
                 "code": "demo_tables",
                 "label": "三文件兼容校验",
@@ -794,6 +820,7 @@ async def precheck_finalized_rule_package(
         "ok": not blockers,
         "checklist": checklist,
         "blockers": blockers,
+        "export_summary": export_summary,
     }
 
 

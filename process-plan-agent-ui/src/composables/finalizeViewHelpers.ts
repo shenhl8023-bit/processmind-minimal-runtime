@@ -16,6 +16,31 @@ export type FinalizeDraft = {
   conditionText: string
   userAnswerLabels: string[]
   userAnswerContextLabels: string[]
+  baseReview?: {
+    sourceText: string
+    sourceHash: string
+    confirmedAt: string
+  } | null
+}
+
+export function finalizeDraftReviewBaseline(review: RuleConditionReview | null | undefined): FinalizeDraft['baseReview'] {
+  const sourceText = review?.source_text?.trim() || ''
+  return sourceText ? {
+    sourceText,
+    sourceHash: review?.source_hash || '',
+    confirmedAt: review?.confirmed_at || '',
+  } : null
+}
+
+export function finalizeDraftMatchesReview(draft: FinalizeDraft, review: RuleConditionReview | null | undefined) {
+  const current = finalizeDraftReviewBaseline(review)
+  // Old recovery copies have no saved-source baseline. They are safe only before
+  // a source has been saved; otherwise the server may contain a newer edit.
+  if (!draft.baseReview) return !current
+  return Boolean(current
+    && draft.baseReview.sourceText === current.sourceText
+    && draft.baseReview.sourceHash === current.sourceHash
+    && draft.baseReview.confirmedAt === current.confirmedAt)
 }
 
 export type FinalizeCard = {
@@ -254,7 +279,9 @@ export function buildFinalizeCards(
     const fallbackFactorNames = defaultFactorNames.length
       ? defaultFactorNames
       : availableFactors.slice(0, 3).map(factor => factor.name)
-    const draft = drafts[segment.id]
+    const conditionReview = segment.rule_review?.condition_review || null
+    const storedDraft = drafts[segment.id]
+    const draft = storedDraft && finalizeDraftMatchesReview(storedDraft, conditionReview) ? storedDraft : undefined
     const factorNames = draft?.factorNames?.length ? draft.factorNames : fallbackFactorNames
     const factorLabels = factorNames.map(name => displayFactorLabel(name)).filter(Boolean)
     const { detailLabels, contextLabels } = extractUserAnswerGroups(segment)
@@ -262,7 +289,6 @@ export function buildFinalizeCards(
     const userAnswerContextLabels = draft ? draft.userAnswerContextLabels : contextLabels
     const systemFactorLabels = factorLabels.filter(label => !userAnswerLabels.includes(label))
     const defaultConditionText = buildUserFirstCondition(segment.normalized_step_name, userAnswerLabels, userAnswerContextLabels, factorNames, segment)
-    const conditionReview = segment.rule_review?.condition_review || null
     const analysisDraft = segment.rule_review?.analysis_draft || null
     const analysisDraftContext = analysisDraft
       ? `第三步问答树${analysisDraft.status === 'confirmed' ? '已确认' : '待补充'}：${analysisDraft.scope || '未填写范围'}；${analysisDraft.object || '未填写加工对象'}`
@@ -277,7 +303,8 @@ export function buildFinalizeCards(
       conditionText: (draft?.conditionText || '').trim() || conditionReview?.source_text?.trim() || defaultConditionText,
       defaultConditionText,
       conditionReview,
-      edited: !!draft,
+      edited: !!draft || Boolean(conditionReview?.source_text?.trim()
+        && conditionReview.source_text.trim() !== defaultConditionText.trim()),
       rawRuleLines: buildRawRuleLines(segment, factorNames, userAnswerLabels, userAnswerContextLabels),
       availableFactors,
       analysisDraftContext,

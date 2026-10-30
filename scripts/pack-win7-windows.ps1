@@ -20,6 +20,12 @@ $frontendIndex = Join-Path $Root 'process-plan-agent-ui\dist\index.html'
 if (-not (Test-Path -LiteralPath $frontendIndex -PathType Leaf)) {
   throw 'Missing process-plan-agent-ui\dist\index.html. Run npm run build before packaging.'
 }
+$prerequisitePayload = Join-Path $Root 'prerequisites\Windows6.1-KB2533623-x64.msu'
+$prerequisiteInstaller = Join-Path $Root 'prerequisites\install-kb2533623.bat'
+if (-not (Test-Path -LiteralPath $prerequisitePayload -PathType Leaf) -or
+    -not (Test-Path -LiteralPath $prerequisiteInstaller -PathType Leaf)) {
+  throw 'Missing Win7 prerequisite files. Expected prerequisites\install-kb2533623.bat and Windows6.1-KB2533623-x64.msu.'
+}
 
 $date = Get-Date -Format 'yyyyMMdd'
 $zipName = "processmind-win7-windows-$date.zip"
@@ -41,7 +47,7 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Win7 runtime build failed.' }
 
   $runtimePython = Join-Path $runtimeDestination 'python.exe'
-  & $runtimePython -c "import fastapi, uvicorn, sqlalchemy, fitz, docx, openpyxl, lxml, pydantic, py7zr"
+  & $runtimePython -c "import fastapi, uvicorn, sqlalchemy, fitz, docx, openpyxl, lxml, pydantic, py7zr, eval_type_backport"
   if ($LASTEXITCODE -ne 0) { throw 'Win7 runtime import verification failed.' }
 
   Write-Host 'Staging application and static frontend ...'
@@ -59,6 +65,12 @@ try {
     browser_baseline = @('Chrome 109', 'Edge 109')
     embedded_browser = $false
     node_runtime_included = $false
+    windows_prerequisite = [ordered]@{
+      id = 'KB2533623'
+      installer = 'prerequisites/install-kb2533623.bat'
+      payload = 'prerequisites/Windows6.1-KB2533623-x64.msu'
+      reboot_required = $true
+    }
     created_at_utc = [DateTime]::UtcNow.ToString('o')
     checksum_file = 'SHA256SUMS.txt'
   }
@@ -74,6 +86,11 @@ try {
     [void] $checksumLines.Add("$hash  $relative")
   }
   $checksumLines | Set-Content -LiteralPath $checksumPath -Encoding UTF8
+
+  Write-Host 'Verifying staged runtime binaries, dependency versions and package checksums ...'
+  $packageVerifier = Join-Path $stage 'scripts\verify-win7-package.py'
+  & $runtimePython -B $packageVerifier $stage
+  if ($LASTEXITCODE -ne 0) { throw 'Win7 package verification failed; ZIP was not created.' }
 
   $manifestCopy = Join-Path $OutputDir 'manifest.json'
   $checksumCopy = Join-Path $OutputDir 'SHA256SUMS.txt'

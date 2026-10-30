@@ -487,6 +487,14 @@ export function useAnalysisWorkspace() {
 
     batchAcceptingAll.value = true
     batchAcceptProgress.value = '正在加载样本依据...'
+    const batchProjectId = projectId.value
+    let batchRouteSnapshot = savedRoute.value
+    const batchRouteId = savedRoute.value.route_id
+    const batchWorkflowRevision = savedRoute.value.workflow_revision
+    const isCurrentBatch = () => projectId.value === batchProjectId
+      && savedRoute.value === batchRouteSnapshot
+      && savedRoute.value?.route_id === batchRouteId
+      && savedRoute.value?.workflow_revision === batchWorkflowRevision
 
     try {
       const allTargetDocIds = new Set<number>()
@@ -502,11 +510,13 @@ export function useAnalysisWorkspace() {
         })
       }
       await ensureDocumentPreviewTextsForDocIds(Array.from(allTargetDocIds))
+      if (!isCurrentBatch()) return
 
       acceptAllRecommendedTreeAnswers(segments)
 
       batchAcceptProgress.value = `0/${targets.length}`
       for (let i = 0; i < targets.length; i++) {
+        if (!isCurrentBatch()) return
         const seg = targets[i]
         if (!seg || !savedRoute.value) continue
 
@@ -534,9 +544,9 @@ export function useAnalysisWorkspace() {
         ]
 
         const result = await saveSegmentRuleReview({
-          project_id: projectId.value,
-          route_id: savedRoute.value.route_id,
-          expected_workflow_revision: savedRoute.value.workflow_revision,
+          project_id: batchProjectId,
+          route_id: batchRouteId,
+          expected_workflow_revision: batchWorkflowRevision,
           segment_id: seg.id,
           decision: 'accepted',
           note,
@@ -544,7 +554,9 @@ export function useAnalysisWorkspace() {
           question_trail: trail,
         })
 
+        if (!isCurrentBatch()) return
         savedRoute.value = applyRuleReviewUpdateToRoute(savedRoute.value, result)
+        batchRouteSnapshot = savedRoute.value!
         clearQuestionTreeRejudging(seg.id)
       }
 
@@ -554,6 +566,7 @@ export function useAnalysisWorkspace() {
         console.warn('一键采纳后触发预处理失败', err)
       })
     } catch (err) {
+      if (!isCurrentBatch()) return
       console.error('批量采纳推荐失败', err)
       ElMessage.error('批量采纳部分工步时失败，已保留成功项，请重试。')
     } finally {
@@ -563,11 +576,11 @@ export function useAnalysisWorkspace() {
   }
 
   watch(
-    [selectedSegmentId, autoRuleDecision, currentRuleReview],
+    [selectedSegmentId, autoRuleDecision, currentRuleReview, questionTreeIsRejudging],
     async ([segmentId, nextDecision, review]) => {
       if (!segmentId || !nextDecision) return
       if (savingRuleReview.value || batchAcceptingAll.value) return
-      if (review?.decision === nextDecision) return
+      if (review?.decision === nextDecision && !questionTreeIsRejudging.value) return
       if (autoPersistingRuleSegmentId.value === segmentId) return
       autoPersistingRuleSegmentId.value = segmentId
       try {

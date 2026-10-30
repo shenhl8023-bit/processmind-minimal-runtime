@@ -1,5 +1,5 @@
 import type { OperationItem } from '@/api/extract'
-import { buildRouteFullSetDisplayOperations, normalizeOperationName } from './extractViewHelpers'
+import { normalizeOperationName } from './extractViewHelpers'
 
 export type FinalStepSource = { source_operation_id: number; source_operation_name?: string; source_step_order: number; source_step_name: string }
 export type FinalRouteStep = FinalStepSource & {
@@ -18,12 +18,12 @@ export function finalStepId(processId: string, kind: 'primary' | 'attached', ind
 export function buildFinalRouteSteps(segment: any, sources: OperationItem[]): FinalRouteStep[] {
   const ids = new Set<number>((segment?.source_operation_ids || []).map(Number))
   const originals = new Map(sources.map(source => [Number(source.source_operation_id || source.id), source]))
-  const display = buildRouteFullSetDisplayOperations(sources).filter(source => ids.has(Number(source.source_operation_id || source.id)))
+  const selectedSources = sources.filter(source => ids.has(Number(source.source_operation_id || source.id)))
   return (['primary', 'attached'] as const).flatMap(kind => {
     const nodes: FinalRouteStep[] = []
     const byOccurrence = new Map<string, FinalRouteStep>()
     const occurrences = new Map<number, Map<string, number>>()
-    for (const operation of display) {
+    for (const operation of selectedSources) {
       const sourceId = Number(operation.source_operation_id || operation.id)
       const original = originals.get(sourceId)
       const counts = occurrences.get(sourceId) || new Map<string, number>()

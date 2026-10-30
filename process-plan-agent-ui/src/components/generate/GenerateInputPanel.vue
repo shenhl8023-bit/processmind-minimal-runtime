@@ -150,9 +150,9 @@
     </div>
 
     <div v-if="!hasRulePackage || !inputFields.length" class="schema-empty">
-      <strong>无法配置生成参数</strong>
+      <strong>{{ canGenerate ? '无需填写参数' : '无法配置生成参数' }}</strong>
       <span>{{ schemaStatusText }}</span>
-      <button class="mini-btn schema-action" type="button" @click="emit('go-finalize')">返回第4步</button>
+      <button v-if="!canGenerate" class="mini-btn schema-action" type="button" @click="emit('go-finalize')">返回第5步</button>
     </div>
 
     <div class="generate-submit">

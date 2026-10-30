@@ -7,8 +7,7 @@ from __future__ import annotations
 import asyncio
 import os
 from collections import defaultdict
-from collections.abc import Callable
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +16,8 @@ from app.core.paths import UPLOAD_DIR
 from app.models.models import Document, DocumentOperationDetail
 from app.services.document_operation_details import extract_pdf_operation_details
 from app.services.extraction_parallel import run_extraction_cpu
+from fastapi import HTTPException
+from app.services.document_operation_non_pdf_parser import SUPPORTED_DETAIL_FILE_TYPES, extract_non_pdf_operation_details
 
 
 DETAIL_BUILD_LOCKS: dict[int, asyncio.Lock] = {}
@@ -44,8 +45,14 @@ async def extract_document_operation_details(
 
     async def _parse_document(doc: Document) -> tuple[Document, list]:
         filepath = os.path.join(UPLOAD_DIR, doc.filename)
-        if (doc.file_type or "").lower() != "pdf" or not os.path.exists(filepath):
+        file_type = (doc.file_type or "").lower()
+        if file_type not in SUPPORTED_DETAIL_FILE_TYPES or not os.path.exists(filepath):
             return doc, []
+        if file_type != "pdf":
+            try:
+                return doc, await extract_non_pdf_operation_details(filepath, file_type)
+            except ValueError as exc:
+                raise HTTPException(422, f"文档 {doc.original_name} 工序工步解析失败：{exc}") from exc
         try:
             return doc, await run_extraction_cpu(extract_pdf_operation_details, filepath)
         except Exception:
@@ -129,16 +136,18 @@ async def _ensure_document_operation_details_locked(
         if row.document_id is not None:
             existing_by_doc[int(row.document_id)].append(row)
 
-    valid_pdf_docs: list[Document] = []
-    valid_doc_ids: set[int] = set()
+    available_docs: list[Document] = []
+    supported_doc_ids: set[int] = set()
     for doc in docs:
-        if (doc.file_type or "").lower() != "pdf":
+        if (doc.file_type or "").lower() not in SUPPORTED_DETAIL_FILE_TYPES:
             continue
+        # A missing source file does not invalidate already extracted evidence.
+        # Only removal of the Document (or changing its type) makes it orphaned.
+        supported_doc_ids.add(int(doc.id))
         filepath = os.path.join(UPLOAD_DIR, doc.filename)
         if not os.path.exists(filepath):
             continue
-        valid_pdf_docs.append(doc)
-        valid_doc_ids.add(int(doc.id))
+        available_docs.append(doc)
 
     modified = False
     reusable_rows: list[DocumentOperationDetail] = []
@@ -146,26 +155,26 @@ async def _ensure_document_operation_details_locked(
 
     for row in existing:
         doc_id = int(row.document_id or 0)
-        if doc_id <= 0 or doc_id not in valid_doc_ids:
+        if doc_id <= 0 or doc_id not in supported_doc_ids:
             await db.delete(row)
             modified = True
             continue
         if row not in reusable_rows:
             reusable_rows.append(row)
 
-    for doc in valid_pdf_docs:
+    for doc in available_docs:
         if existing_by_doc.get(int(doc.id)):
             continue
         missing_docs.append(doc)
 
-    total_pdf_docs = len(valid_pdf_docs)
-    reused_count = total_pdf_docs - len(missing_docs)
+    total_docs = len(available_docs)
+    reused_count = total_docs - len(missing_docs)
     if progress_callback:
-        if total_pdf_docs and not missing_docs:
-            progress_callback(f"正在复用已缓存工序明细（{reused_count}/{total_pdf_docs}）...", 38)
-        elif total_pdf_docs:
+        if total_docs and not missing_docs:
+            progress_callback(f"正在复用已缓存工序明细（{reused_count}/{total_docs}）...", 38)
+        elif total_docs:
             progress_callback(
-                f"正在核对工序明细缓存（已复用 {reused_count}/{total_pdf_docs}）...",
+                f"正在核对工序明细缓存（已复用 {reused_count}/{total_docs}）...",
                 30 if reused_count else 28,
             )
 

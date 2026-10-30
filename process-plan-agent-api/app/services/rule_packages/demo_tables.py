@@ -14,12 +14,13 @@ from typing import Any
 
 from app.services.rule_packages.contracts import ConditionNode, RulePackageV2
 from app.services.rule_packages.expression_engine import evaluate_condition
+from app.services.rule_packages.planner import _topological_process_order
 
 
 class DemoTableError(ValueError):
     """A publication failure with locations suitable for the existing precheck."""
 
-    def __init__(self, issues: list[dict[str, str]]):
+    def __init__(self, issues: list[dict[str, Any]]):
         self.issues = issues
         super().__init__("；".join(issue["message"] for issue in issues))
 
@@ -32,12 +33,21 @@ _STEP_KEYS = {"step_name", "candidates", "step_id"}
 _MACHINING_PRECISIONS = {"粗加工", "半精加工", "精加工"}
 
 
-def _issue(issues, code, path, message):
-    issues.append({"code": code, "path": path, "message": message})
+def _issue(issues, code, path, message, **context):
+    issues.append({"code": code, "path": path, "message": message, **context})
 
 
 def _fail(code, path, message):
     raise DemoTableError([{"code": code, "path": path, "message": message}])
+
+
+def _finite_number(value):
+    if type(value) not in (int, float):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def _exact_keys(value, required, optional, path, issues):
@@ -62,12 +72,41 @@ def _value_ok(kind, value):
     if kind == "int":
         return type(value) is int
     if kind == "number":
-        return type(value) in (int, float) and math.isfinite(value)
+        return _finite_number(value)
     if kind in {"string", "enum"}:
         return isinstance(value, str)
     if kind == "multi_enum":
         return isinstance(value, list) and all(isinstance(item, str) for item in value)
     return False
+
+
+def _validation_ok(kind, limits):
+    numeric = kind in ("int", "number")
+    allowed = {"min", "max"} if numeric else (
+        {"min_length", "max_length"} if kind in ("string", "enum", "multi_enum") else set())
+    if not isinstance(limits, dict) or set(limits) - allowed:
+        return False
+    for value in limits.values():
+        if not (_finite_number(value) if numeric else type(value) is int and value >= 0):
+            return False
+    lower, upper = ("min", "max") if numeric else ("min_length", "max_length")
+    return not (lower in limits and upper in limits and limits[lower] > limits[upper])
+
+
+def _within_limits(kind, value, limits):
+    if value is None or value == "" or value == []:
+        return True
+    numeric = kind in ("int", "number")
+    measured = value if numeric else len(value) if kind in ("string", "enum", "multi_enum") else None
+    lower, upper = ("min", "max") if numeric else ("min_length", "max_length")
+    return (lower not in limits or measured >= limits[lower]) and (upper not in limits or measured <= limits[upper])
+
+
+def _input_constraints(field):
+    attributes = ("min", "max") if field.type == "number" else (
+        ("min_length", "max_length") if field.type in {"string", "single_select", "multi_select"} else ())
+    return {name: getattr(field.validation, name) for name in attributes
+            if field.validation is not None and getattr(field.validation, name) is not None}
 
 
 def _validate_condition(c, factors, processes, path, issues):
@@ -114,7 +153,7 @@ def _validate_condition(c, factors, processes, path, issues):
     if op == "exists":
         valid = type(value) is bool
     elif op in {"gt", "gte", "lt", "lte"}:
-        valid = kind in {"int", "number"} and type(value) in (int, float) and math.isfinite(value)
+        valid = kind in {"int", "number"} and _finite_number(value)
     elif op == "in":
         valid = isinstance(value, list) and kind != "multi_enum" and all(_value_ok(kind, x) and x is not None for x in value)
     elif op == "contains":
@@ -140,7 +179,7 @@ def validate_demo_tables(tables: dict) -> None:
     factors = {}
     for i, f in enumerate(tables["factor_table"]):
         path = f"factor_table[{i}]"
-        if not _exact_keys(f, {"key", "label", "type", "source", "visible"}, {"options", "required", "default"}, path, issues):
+        if not _exact_keys(f, {"key", "label", "type", "source", "visible"}, {"options", "required", "default", "validation"}, path, issues):
             continue
         key = f["key"]
         if not isinstance(key, str) or not key.strip():
@@ -164,10 +203,15 @@ def validate_demo_tables(tables: dict) -> None:
             options = f["options"]
             if f["type"] not in ("enum", "multi_enum") or not isinstance(options, list) or not all(isinstance(x, str) for x in options) or len(set(options)) != len(options):
                 _issue(issues, "invalid_factor_options", path, f"因素 {key} options 必须是枚举的唯一字符串数组")
+        valid_limits = _validation_ok(f["type"], f.get("validation", {}))
+        if not valid_limits:
+            _issue(issues, "invalid_factor_validation", path + ".validation", f"因素 {key} validation 必须是与类型匹配的有效范围，数值必须有限，长度必须为非负整数")
         if "default" in f:
             default = f["default"]
             if not _value_ok(f["type"], default):
                 _issue(issues, "invalid_factor_default", path, f"因素 {key} default 类型不正确")
+            elif valid_limits and not _within_limits(f["type"], default, f.get("validation", {})):
+                _issue(issues, "invalid_factor_default", path, f"因素 {key} default 超出输入限制")
             elif f["type"] in ("enum", "multi_enum") and isinstance(f.get("options"), list) and default is not None:
                 defaults = default if isinstance(default, list) else ([default] if default else [])
                 if any(x not in f["options"] for x in defaults):
@@ -274,15 +318,32 @@ _BINDINGS = {
     "marking_methods": ("marking_methods", "manual_defaults.marking_methods", True),
     "shaped_hole_or_cut_flat": ("shaped_hole_or_cut_flat", "manual_defaults.special_process_flags.shaped_hole_or_cut_flat", True),
     "post_stage_added_hole": ("post_stage_added_hole", "manual_defaults.special_process_flags.post_stage_added_hole", True),
-    # The authoring field is a CAD feature collection.  Its registry source
-    # is intentionally descriptive ("CAD"), so bind it to the real repeated
-    # input path used by the downstream engine instead of exposing a manual
-    # text control.
+    # Retained only for v1 frozen snapshots. The authoring field contains
+    # reviewed categories, which are not the engine's geometric feature names.
     "cad.features": ("feature_type", "input_json[].features[].feature_select", False),
     "group_path": ("group_path", "input_json[].group_path", False),
     "feature_type": ("feature_type", "input_json[].features[].feature_select", False),
     "feature_rank": ("feature_rank", "input_json[].features[].feat_rank", False),
 }
+
+
+def validate_publication_input_constraints(package: RulePackageV2, tables: dict) -> None:
+    """Ensure each retained input limit keeps its meaning after source conversion."""
+    retained = {factor["key"]: factor for factor in tables["factor_table"]}
+    issues = []
+    for index, field in enumerate(package.input_schema.fields):
+        public_key = field.key if field.key == "cad.features" else _BINDINGS.get(field.key, (field.key,))[0]
+        if public_key not in retained or field.validation is None:
+            continue
+        constraints = _input_constraints(field)
+        factor = retained[public_key]
+        repeated_length = "[]" in factor["source"] and field.type in {"string", "single_select", "multi_select"}
+        if constraints and (repeated_length or factor.get("validation") != constraints):
+            _issue(issues, "unsupported_input_validation", f"input_schema.fields[{index}].validation",
+                   f"因素“{field.label}”的输入限制在来源转换后无法保持原含义，不能无损导出；请先调整该因素的输入限制或取值来源。",
+                   field=field.key, constraints=constraints)
+    if issues:
+        raise DemoTableError(issues)
 
 
 def _join(branch, expressions):
@@ -396,8 +457,17 @@ def compile_demo_tables(
     full_route_table: list[dict],
     *,
     step_states: dict[str, str] | None = None,
+    _legacy_snapshot: bool = False,
+    _legacy_optional_defaults: bool = False,
+    _v3_snapshot: bool = False,
+    _v4_snapshot: bool = False,
 ) -> dict:
     """Compile a single immutable public snapshot from V2 and the mapped route."""
+    # Read-only v1 snapshot verification needs its original compiler semantics.
+    # New publications never enable this internal compatibility path.
+    # Both observed v1 generations supported process configurations. The later
+    # generation added null defaults for optional scalar factors, while keeping
+    # the same CAD bindings and all other v1 output semantics.
     validate_demo_tables({"factor_table": [], "full_route_table": full_route_table, "rule_table": []})
     if not full_route_table:
         _fail("empty_full_route", "full_route_table", "映射后全集路线为空，不能发布三表")
@@ -414,6 +484,15 @@ def compile_demo_tables(
         if p["process_name"] != expected.display_name or any(s["step_name"] != e.name for s, e in zip(p["steps"], expected.steps)):
             _fail("stale_catalog_identity", f"full_route_table.{p['process_id']}", f"工序 {p['process_id']} 的最终名称与规则目录不一致，请刷新后发布")
     rules = [r for r in package.route_rules.rules if r.enabled]
+    configurations = [c for c in package.route_rules.process_configurations if c.enabled]
+    configuration_map = {}
+    for configuration in configurations:
+        pid = configuration.process_id
+        if pid not in catalog:
+            _fail("unknown_target", "route_rules.process_configurations", f"工序配置引用不存在的工序 {pid}")
+        if pid in configuration_map:
+            _fail("duplicate_process_configuration", "route_rules.process_configurations", f"工序 {pid} 的出现规则配置重复")
+        configuration_map[pid] = configuration
     reviewed_steps = step_states or {}
     known_steps = {s["step_id"] for p in full_route_table for s in p["steps"]}
     if not isinstance(reviewed_steps, dict):
@@ -427,7 +506,17 @@ def compile_demo_tables(
     # geometry filter. Keep it in the full route and let its parent process
     # rule control inclusion; do not force per-step review.
     referenced = {key for r in rules for key in _fields(r.when)}
+    referenced.update(key for c in configurations if c.when is not None for key in _fields(c.when))
     definitions = {f.key: f for f in package.factor_dictionary.fields}
+    # Keep the complete dictionary frozen, but export the active input domain.
+    # V3 snapshots used the dictionary's options and the schema's requiredness.
+    input_fields = {f.key: f for f in package.input_schema.fields}
+    if not _legacy_snapshot:
+        definitions = {key: definition.model_copy(update={
+                           "required": input_fields[key].required,
+                           "options": definition.options if _v3_snapshot else input_fields[key].options,
+                       })
+                       if key in input_fields else definition for key, definition in definitions.items()}
     active_keys = list(dict.fromkeys([f.key for f in package.input_schema.fields] + sorted(referenced)))
     factors, key_map = [], {}
     for key in active_keys:
@@ -435,12 +524,26 @@ def compile_demo_tables(
             _fail("unknown_factor", "factor_table", f"条件因素 {key} 未定义")
         f = definitions[key]
         binding = _BINDINGS.get(key)
-        if binding:
+        if key == "cad.features" and not _legacy_snapshot:
+            # No reviewed classifier maps geometric CAD names to these abstract
+            # categories. Ask for the categories explicitly while leaving the
+            # real CAD features available for geometric conditions and binding.
+            public_key, source, visible = key, "manual_defaults.cad.features", True
+        elif binding:
             public_key, source, visible = binding
         elif _SOURCE.fullmatch(f.source or "") and f.source.startswith(("manual_defaults.", "input_json[].")):
             public_key, source, visible = key, f.source, "[]" not in f.source
         else:
             public_key, source, visible = key, f"manual_defaults.{key}", True
+        normalized_options = []
+        if source == "input_json[].features[].feature_select":
+            normalized_options = [option.value for option in f.options if option.value in {"孔(盲孔)", "孔(通孔)"}]
+        elif source == "input_json[].group_path":
+            normalized_options = [option.value for option in f.options
+                                  if option.value != option.value.replace("\\", "/").strip("/")]
+        if normalized_options and not _legacy_snapshot:
+            _fail("unsupported_source_normalization", f"factor_table.{key}",
+                  f"因素“{f.label}”的选项“{'、'.join(normalized_options)}”会被 Demo 的 CAD 来源归一化，无法保留原判断；请先审定为规范特征或分组路径。")
         if public_key in key_map.values():
             _fail("duplicate_factor", "factor_table", f"因素 {key} 与已有因素映射到同一 key {public_key}")
         key_map[key] = public_key
@@ -448,7 +551,9 @@ def compile_demo_tables(
         # Repeated CAD feature values are scalar enum items collected from
         # input rows.  The downstream Demo engine expects enum here and
         # returns a list because the source path contains [].
-        if key == "cad.features" and source == "input_json[].features[].feature_select":
+        if ((_legacy_snapshot and key == "cad.features" and source == "input_json[].features[].feature_select")
+                or (not _legacy_snapshot and kind == "multi_enum"
+                    and source in {"input_json[].features[].feature_select", "input_json[].group_path"})):
             kind = "enum"
         if source == "input_json[].features[].feat_rank" and kind == "number":
             kind = "int"
@@ -457,28 +562,57 @@ def compile_demo_tables(
             factor["options"] = list(dict.fromkeys(o.value for o in f.options))
         if f.required:
             factor["required"] = True
+            if not _legacy_snapshot and kind == "bool" and "[]" not in source:
+                # The engine's implicit False would count as a supplied answer.
+                factor["default"] = None
+        elif (not _legacy_snapshot or _legacy_optional_defaults) and kind in {"bool", "enum", "string"} and "[]" not in source:
+            # Downstream implicit False/empty-string defaults lose the native
+            # distinction between missing input and an explicitly supplied value.
+            factor["default"] = None
+        if not (_legacy_snapshot or _v3_snapshot or _v4_snapshot) and key in input_fields:
+            # Active input constraints govern native execution. Repeated text
+            # sources can change collection length into per-row text length;
+            # leave those to the post-projection fidelity check, never guess.
+            constraints = _input_constraints(input_fields[key])
+            if constraints and not ("[]" in source and kind in {"string", "enum", "multi_enum"}):
+                factor["validation"] = constraints
         factors.append(factor)
     public_definitions = {key_map[key]: definitions[key] for key in active_keys}
     public_factors = {f["key"]: f for f in factors}
     decisions = defaultdict(list)
     manual_fields = {f.key for f in package.input_schema.fields if f.type == "boolean" and f.source == "用户直接设定" and f.key.startswith("project_factor.manual_process_")}
-    for r in rules:
-        for node in _condition_nodes(r.when):
+    def compile_predicate(root, path, label):
+        for node in _condition_nodes(root):
+            if not _legacy_snapshot and node.not_condition is not None:
+                optional_fields = [key for key in dict.fromkeys(_fields(node.not_condition)) if not definitions[key].required]
+                if optional_fields:
+                    names = '、'.join(definitions[key].label for key in optional_fields)
+                    _fail("unsupported_optional_negation", path,
+                          f"{label} 的取反条件引用非必填因素“{names}”。缺少输入时，Demo 与系统的判断不同，不能无损导出；请将这些因素审定为必填，或改写为明确的正向条件。")
             if node.field and definitions[node.field].type == "multi_select" and node.op in {"eq", "neq", "in"}:
-                _fail("unsupported_collection_equality", f"route_rules.{r.rule_id}.when", f"规则 {r.rule_id} 对多选因素 {node.field} 使用整体相等比较，与 Demo 的逐元素比较不等价，请改用包含条件")
+                _fail("unsupported_collection_equality", path, f"{label} 对多选因素 {node.field} 使用整体相等比较，与 Demo 的逐元素比较不等价，请改用包含条件")
             if node.field and (definitions[node.field].type == "string" or (
                 definitions[node.field].type in {"single_select", "multi_select"}
                 and (not definitions[node.field].options or definitions[node.field].allow_custom)
             )) and node.op not in {"exists", "not_exists"}:
-                _fail("unsupported_text_comparison", f"route_rules.{r.rule_id}.when", f"规则 {r.rule_id} 对开放文本因素“{definitions[node.field].label}”的比较会忽略大小写及首尾空白，Demo 使用精确值，不能无损转换；请先将该因素审定为有明确选项的枚举。")
+                _fail("unsupported_text_comparison", path, f"{label} 对开放文本因素“{definitions[node.field].label}”的比较会忽略大小写及首尾空白，Demo 使用精确值，不能无损转换；请先将该因素审定为有明确选项的枚举。")
             if node.field and public_factors[key_map[node.field]]["type"] == "number" and node.op in {"eq", "neq", "in"}:
-                _fail("unsupported_numeric_equality", f"route_rules.{r.rule_id}.when", f"规则 {r.rule_id} 对数值因素“{definitions[node.field].label}”使用带容差的相等比较，Demo 使用精确值，不能无损转换；请改为明确的数值区间。")
-        condition = _compile_condition(r.when, key_map)
+                _fail("unsupported_numeric_equality", path, f"{label} 对数值因素“{definitions[node.field].label}”使用带容差的相等比较，Demo 使用精确值，不能无损转换；请改为明确的数值区间。")
+            if not _legacy_snapshot and node.field and node.op == "neq" and not definitions[node.field].required:
+                _fail("unsupported_optional_inequality", path,
+                      f"{label} 对非必填因素“{definitions[node.field].label}”使用不等于。缺少输入时，Demo 与系统的判断不同，不能无损导出；请将该因素审定为必填，或改写为明确的正向条件。")
+            if not _legacy_snapshot and node.field and node.op == "contains_all" and not node.value and not definitions[node.field].required:
+                _fail("unsupported_empty_collection_condition", path,
+                      f"{label} 对非必填因素“{definitions[node.field].label}”使用空的全部包含条件，缺少输入时无法无损转换；请至少选择一个值。")
+        condition = _compile_condition(root, key_map)
         condition_issues = []
-        _validate_condition(condition, {f["key"]: f for f in factors}, set(catalog), f"route_rules.{r.rule_id}.when", condition_issues)
+        _validate_condition(condition, public_factors, set(catalog), path, condition_issues)
         if condition_issues:
             raise DemoTableError(condition_issues)
-        condition = _canonical_enum_condition(condition, public_definitions)
+        return _canonical_enum_condition(condition, public_definitions)
+
+    for r in rules:
+        condition = compile_predicate(r.when, f"route_rules.{r.rule_id}.when", f"规则 {r.rule_id}")
         for action, ids in (("include", r.then.include_process_ids), ("exclude", r.then.exclude_process_ids)):
             for pid in ids:
                 if pid not in catalog:
@@ -508,6 +642,24 @@ def compile_demo_tables(
             accepted.append(_negate(higher))
         expressions[pid] = True if p.main and not manual_rejected else _join("any", accepted)
         manual_exclusions[pid] = _join("any", manual_rejected)
+    for pid, configuration in configuration_map.items():
+        path = f"route_rules.process_configurations.{pid}"
+        predicate = (compile_predicate(configuration.when, f"{path}.when", f"工序 {pid} 的出现条件")
+                     if configuration.when is not None else True)
+        triggers = [
+            _join("all" if relation.source_match == "all" else "any", [
+                {"field": "selected_processes", "op": "contains", "value": source}
+                for source in relation.source_process_ids
+            ])
+            for relation in configuration.relations if relation.relation_type == "trigger_after"
+        ]
+        if any(action == "exclude" and not manual for _, action, _, manual in decisions[pid]):
+            _fail("unsupported_configuration_exclusion", path,
+                  f"工序 {pid} 的出现配置与排除规则并存，Demo 无法表达其运行时冲突，请先统一出现规则")
+        trigger_gate = _join("all", triggers) if triggers else None
+        inclusion = _join("all", [predicate, *([trigger_gate] if trigger_gate is not None else [])])
+        expressions[pid] = _join("all", [inclusion, _negate(manual_exclusions[pid])])
+
     positions = {pid: i for i, pid in enumerate(route_ids)}
     issues = []
     def ordered(before, after, path):
@@ -519,42 +671,92 @@ def compile_demo_tables(
         path = f"route_catalog.{pid}.constraints"
         for dependency in p.constraints.requires:
             ordered(dependency, pid, path)
+            if dependency not in catalog:
+                continue
             if expressions.get(dependency) is not True:
-                _issue(issues, "unsupported_requires", path, f"工序 {pid} 依赖可选工序 {dependency}，其排除冲突无法无损转换为 Demo 启用条件")
+                dependency_name = catalog[dependency].display_name
+                _issue(
+                    issues,
+                    "unsupported_requires",
+                    path,
+                    f"前置工序“{dependency_name}”按当前规则可能不出现，导致“{p.display_name}”的前置要求无法保证。请检查该工序规则卡中的前置工序设置。",
+                    process_id=pid,
+                    process_name=p.display_name,
+                    prerequisite_process_ids=[dependency],
+                    prerequisite_process_names=[dependency_name],
+                    relation_label="工序约束",
+                )
         if p.constraints.conflicts_with:
             _issue(issues, "unsupported_conflicts", path, f"工序 {pid} 的互斥约束不能转为自动关闭；请先审定启用规则")
         for before in p.constraints.must_run_after:
             ordered(before, pid, path)
         for after in p.constraints.must_run_before:
             ordered(pid, after, path)
-    for relation in package.route_rules.process_relations:
-        if not relation.enabled:
-            continue
-        path = f"route_rules.process_relations.{relation.relation_id}"
+    relations = [
+        (f"route_rules.process_relations.{relation.relation_id}", relation.relation_id, relation, False, None)
+        for relation in package.route_rules.process_relations if relation.enabled
+    ]
+    relations.extend(
+        (f"route_rules.process_configurations.{configuration.process_id}.relations[{index}]",
+         f"{configuration.process_id}.{index}", relation, True, index)
+        for configuration in configurations for index, relation in enumerate(configuration.relations)
+    )
+    for path, relation_id, relation, configured, relation_index in relations:
         sources, targets = relation.source_process_ids, relation.target_process_ids
         if any(pid not in catalog for pid in sources + targets):
-            _issue(issues, "unknown_process_dependency", path, f"关系 {relation.relation_id} 引用了未知工序")
+            _issue(issues, "unknown_process_dependency", path, f"关系 {relation_id} 引用了未知工序")
             continue
         if relation.relation_type == "conflicts":
-            _issue(issues, "unsupported_conflicts", path, f"互斥关系 {relation.relation_id} 需要运行时冲突报错，Demo 条件不能等价表达")
+            _issue(issues, "unsupported_conflicts", path, f"互斥关系 {relation_id} 需要运行时冲突报错，Demo 条件不能等价表达")
             continue
         for before in sources:
             for after in targets:
                 ordered(before, after, path)
         if relation.relation_type == "requires":
-            if any(expressions[source] is not True for source in sources):
-                _issue(issues, "unsupported_requires", path, f"依赖关系 {relation.relation_id} 含可选前置工序，不能静默改为关闭目标工序")
+            optional_sources = [source for source in sources if expressions[source] is not True]
+            if optional_sources:
+                target_names = [catalog[target].display_name for target in targets]
+                prerequisite_names = [catalog[source].display_name for source in optional_sources]
+                target_label = "、".join(target_names)
+                prerequisite_label = "、".join(prerequisite_names)
+                location = (
+                    f"请检查该工序规则卡第 {relation_index + 1} 项“前置要求”关联。"
+                    if configured and relation_index is not None
+                    else "请检查该工序的前置工序设置。"
+                )
+                _issue(
+                    issues,
+                    "unsupported_requires",
+                    path,
+                    f"前置工序“{prerequisite_label}”按当前规则可能不出现，导致“{target_label}”的前置要求无法保证。{location}",
+                    process_id=targets[0] if len(targets) == 1 else "",
+                    process_name=target_label,
+                    target_process_ids=targets,
+                    target_process_names=target_names,
+                    prerequisite_process_ids=optional_sources,
+                    prerequisite_process_names=prerequisite_names,
+                    relation_index=relation_index,
+                    relation_label="前置要求",
+                )
         elif relation.relation_type == "trigger_after":
             trigger = _join("all" if relation.source_match == "all" else "any", [
                 {"field": "selected_processes", "op": "contains", "value": source} for source in sources])
             for target in targets:
-                if expressions[target] is True:
+                if configured or target in configuration_map or expressions[target] is True:
                     continue
                 if any(action == "exclude" and not manual for _, action, _, manual in decisions[target]):
-                    _issue(issues, "unsupported_trigger_exclusion", path, f"触发关系 {relation.relation_id} 的目标 {target} 含排除条件，Demo 无法表达触发与排除的运行时冲突")
+                    _issue(issues, "unsupported_trigger_exclusion", path, f"触发关系 {relation_id} 的目标 {target} 含排除条件，Demo 无法表达触发与排除的运行时冲突")
                 expressions[target] = _join("all", [_join("any", [expressions[target], trigger]), _negate(manual_exclusions[target])])
     if issues:
         raise DemoTableError(issues)
+    relation_after = defaultdict(set)
+    for _, _, relation, _, _ in relations:
+        if relation.relation_type in {"trigger_after", "order_after", "requires"}:
+            for target in relation.target_process_ids:
+                relation_after[target].update(relation.source_process_ids)
+    expected_order = _topological_process_order(set(catalog), catalog, relation_after)
+    if not _legacy_snapshot and route_ids != expected_order:
+        _fail("stale_catalog_order", "full_route_table", "模板映射的工序顺序与当前规则目录不一致，请按最新最终工艺树重新保存模板映射后发布")
     output_rules = [{"target": pid, **({"required": True} if expressions[pid] is True else {"when": expressions[pid]})} for pid in route_ids]
     tables = {"factor_table": factors, "full_route_table": deepcopy(full_route_table), "rule_table": output_rules}
     validate_demo_tables(tables)

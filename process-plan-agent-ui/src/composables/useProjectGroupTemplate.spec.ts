@@ -109,6 +109,45 @@ function mapping(path = ['A侧', '孔']): GroupTemplateMapping {
 }
 
 describe('useProjectGroupTemplate', () => {
+  it('binds all mapping writes to the loaded workflow revision', async () => {
+    getCurrentGroupTemplateMock.mockResolvedValue(template(5))
+    saveGroupTemplateMappingsMock.mockResolvedValue(template(6))
+    saveGroupTemplateStepMappingsMock.mockResolvedValue(template(7))
+    previewGroupTemplateMock.mockResolvedValue(preview())
+    commitGroupTemplateMock.mockResolvedValue({ ...template(8), kept_source_operation_ids: [], invalidated: [] })
+    const model = useProjectGroupTemplate(ref(28), ref({}), ref(12))
+    await model.load()
+    await model.saveMappings()
+    expect(saveGroupTemplateMappingsMock).toHaveBeenCalledWith(28, 5, [], 12)
+    await model.saveStepMappings([])
+    expect(saveGroupTemplateStepMappingsMock).toHaveBeenCalledWith(28, 6, [], [], 12)
+    model.beginReplacement()
+    await model.selectFile(xmlFile)
+    await model.confirmTemplate()
+    expect(commitGroupTemplateMock).toHaveBeenCalledWith(28, xmlFile, 'preview-hash', 7, 12)
+  })
+
+  it('requires full reload after a workflow conflict instead of adopting a template with old operations', async () => {
+    getCurrentGroupTemplateMock.mockResolvedValue(template(1))
+    saveGroupTemplateStepMappingsMock.mockRejectedValue({ response: { status: 409, data: { detail: {
+      message: '当前页面已过期，请刷新后再操作。', workflow_revision: 13,
+    } } } })
+    const model = useProjectGroupTemplate(ref(28), ref({}), ref(12))
+    await model.load()
+    await model.saveStepMappings([])
+    expect(model.error.value).toContain('工艺路线已更新')
+    expect(model.error.value).toContain('重新加载页面')
+    expect(getCurrentGroupTemplateMock).toHaveBeenCalledTimes(1)
+    await model.saveStepMappings([])
+    await model.load()
+    await model.selectFile(xmlFile)
+    model.beginReplacement()
+    model.cancelPreview()
+    expect(model.error.value).toContain('重新加载页面')
+    expect(previewGroupTemplateMock).not.toHaveBeenCalled()
+    expect(saveGroupTemplateStepMappingsMock).toHaveBeenCalledTimes(1)
+    expect(getCurrentGroupTemplateMock).toHaveBeenCalledTimes(1)
+  })
   beforeEach(() => {
     vi.resetAllMocks()
   })
@@ -436,7 +475,7 @@ describe('useProjectGroupTemplate', () => {
     expect(model.replacementImpact.value).toMatchObject({ kept_source_operation_ids: [11], invalidated: [] })
     await model.confirmTemplate()
 
-    expect(commitGroupTemplateMock).toHaveBeenCalledWith(28, xmlFile, 'preview-hash', 7)
+    expect(commitGroupTemplateMock).toHaveBeenCalledWith(28, xmlFile, 'preview-hash', 7, 0)
     expect(model.replacementImpact.value).toEqual({
       kept_source_operation_ids: [11],
       invalidated: [],
@@ -463,7 +502,7 @@ describe('useProjectGroupTemplate', () => {
       source_operation_id: 11,
       alias: '钻孔（A侧/孔）',
       template_group_path: ['A侧', '孔'],
-    }])
+    }], 0)
     expect(model.templateRevision.value).toBe(6)
     expect(model.template.value?.mappings).toEqual([mapping()])
   })
@@ -504,7 +543,7 @@ describe('useProjectGroupTemplate', () => {
       step_items: ['钻孔'],
       rule_evidence: ['孔'],
       rule_reasons: ['形成孔特征'],
-    }])
+    }], 0)
     expect(model.template.value?.step_mappings).toEqual([stepMapping()])
     expect(model.template.value?.mappings).toEqual([mapping()])
   })

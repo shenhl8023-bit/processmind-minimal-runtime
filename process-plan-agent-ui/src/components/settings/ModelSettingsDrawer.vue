@@ -92,7 +92,7 @@
             </svg>
             已配置密钥，输入新值可更新
           </p>
-          <button v-if="keyConfigured" class="p-clear-key" type="button" :disabled="saving || testing" @click="clearApiKey">
+          <button v-if="keyConfigured" class="p-clear-key" type="button" :disabled="saving || testing || loadingSettings || !settingsLoaded" @click="clearApiKey">
             清空已保存密钥
           </button>
         </div>
@@ -119,7 +119,7 @@
             <button
               class="p-btn-icon-only"
               @click="fetchModels"
-              :disabled="loadingModels || testing || saving"
+              :disabled="loadingModels || testing || saving || loadingSettings || !settingsLoaded"
               title="获取模型列表"
               type="button"
             >
@@ -165,7 +165,7 @@
 
         <div class="p-footer-right">
           <button class="p-btn-plain" @click="handleClose" type="button">取消</button>
-          <button class="p-btn-outline" @click="testConnection" :disabled="testing || saving || loadingModels" type="button">
+          <button class="p-btn-outline" @click="testConnection" :disabled="testing || saving || loadingModels || loadingSettings || !settingsLoaded" type="button">
             <span v-if="testing" class="p-spin">
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg>
             </span>
@@ -174,7 +174,7 @@
             </span>
             测试连接
           </button>
-          <button class="p-btn-primary" @click="saveSettings" :disabled="saving || testing || loadingModels" type="button">
+          <button class="p-btn-primary" @click="saveSettings" :disabled="saving || testing || loadingModels || loadingSettings || !settingsLoaded" type="button">
             <span v-if="saving" class="p-spin">
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg>
             </span>
@@ -187,7 +187,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, onUnmounted } from 'vue'
 import { listSettings, updateSetting, clearSetting, testLLMConnection, getAvailableModels } from '@/api'
 
 const props = defineProps<{
@@ -205,6 +205,30 @@ const showKey = ref(false)
 const saving = ref(false)
 const testing = ref(false)
 const loadingModels = ref(false)
+const loadingSettings = ref(false)
+const settingsLoaded = ref(false)
+let sessionId = 0
+let modelsRequestId = 0
+let closeTimer: ReturnType<typeof setTimeout> | undefined
+let pendingSettingsWrite: Promise<unknown> | null = null
+function resetSession() {
+  sessionId += 1
+  modelsRequestId += 1
+  if (closeTimer) clearTimeout(closeTimer)
+  closeTimer = undefined
+  loadingModels.value = false
+  loadingSettings.value = false
+  testing.value = false
+  settingsLoaded.value = false
+  form.value = { LLM_API_URL: '', LLM_API_KEY: '', LLM_MODEL: '' }
+  showKey.value = false
+  keyConfigured.value = false
+  availableModels.value = []
+  errors.value = { LLM_API_URL: '', LLM_API_KEY: '', LLM_MODEL: '' }
+  activePreset.value = null
+  saveStatus.value = null
+}
+onUnmounted(resetSession)
 const keyConfigured = ref(false)
 const activePreset = ref<string | null>(null)
 const saveStatus = ref<{ type: 'success' | 'error', msg: string } | null>(null)
@@ -242,6 +266,7 @@ const presets = [
 ]
 
 watch(() => props.modelValue, async (val) => {
+  resetSession()
   visible.value = val
   if (val) {
     await loadSettings()
@@ -249,14 +274,22 @@ watch(() => props.modelValue, async (val) => {
 })
 
 watch(visible, (val) => {
+  if (!val) resetSession()
   emit('update:modelValue', val)
 })
+
+function isValidApiUrl(value: string) {
+  try {
+    const url = new URL(value)
+    return ['http:', 'https:'].includes(url.protocol) && Boolean(url.hostname)
+  } catch { return false }
+}
 
 function validateField(field: keyof FormErrors) {
   if (field === 'LLM_API_URL') {
     if (!form.value.LLM_API_URL.trim()) {
       errors.value.LLM_API_URL = '请输入 API 地址'
-    } else if (!/^https?:\/\/.+/.test(form.value.LLM_API_URL.trim())) {
+    } else if (!isValidApiUrl(form.value.LLM_API_URL.trim())) {
       errors.value.LLM_API_URL = '请输入有效的 URL 地址'
     } else {
       errors.value.LLM_API_URL = ''
@@ -296,8 +329,13 @@ function applyPreset(preset: typeof presets[0]) {
 }
 
 async function loadSettings() {
+  const session = sessionId
+  loadingSettings.value = true
   try {
+    if (pendingSettingsWrite) await pendingSettingsWrite.catch(() => undefined)
+    if (session !== sessionId) return
     const settings = await listSettings()
+    if (session !== sessionId) return
     settings.forEach(s => {
       if (s.key in form.value) {
         form.value[s.key as keyof SettingsForm] = s.value
@@ -306,38 +344,48 @@ async function loadSettings() {
         keyConfigured.value = !!s.is_configured
       }
     })
+    settingsLoaded.value = true
 
     // 自动获取可用模型
     if (form.value.LLM_API_URL && keyConfigured.value) {
       await fetchModels()
     }
   } catch (e) {
+    if (session !== sessionId) return
     console.error('加载设置失败', e)
+    saveStatus.value = { type: 'error', msg: '加载设置失败，请关闭后重新打开重试' }
+  } finally {
+    if (session === sessionId) loadingSettings.value = false
   }
 }
 
 async function fetchModels() {
+  const session = sessionId
+  const request = ++modelsRequestId
+  const isCurrent = () => session === sessionId && request === modelsRequestId
   loadingModels.value = true
   try {
     const models = await getAvailableModels()
+    if (!isCurrent()) return
     availableModels.value = models
     if (models.length > 0) {
       saveStatus.value = { type: 'success', msg: `获取到 ${models.length} 个可用模型` }
-      setTimeout(() => { saveStatus.value = null }, 2000)
     } else {
       saveStatus.value = { type: 'error', msg: '未获取到模型列表，请检查配置后手动输入' }
-      setTimeout(() => { saveStatus.value = null }, 3000)
     }
   } catch (e) {
+    if (!isCurrent()) return
     console.error('获取模型列表失败', e)
     saveStatus.value = { type: 'error', msg: '获取模型列表失败' }
-    setTimeout(() => { saveStatus.value = null }, 3000)
   } finally {
-    loadingModels.value = false
+    if (isCurrent()) loadingModels.value = false
   }
 }
 
 async function saveSettings() {
+  if (saving.value || testing.value || loadingSettings.value || !settingsLoaded.value) return
+  const session = sessionId
+  const apiKey = form.value.LLM_API_KEY.trim()
   if (!validateAll()) {
     return
   }
@@ -353,10 +401,21 @@ async function saveSettings() {
     if (form.value.LLM_API_KEY.trim()) {
       tasks.push(updateSetting('LLM_API_KEY', form.value.LLM_API_KEY.trim()))
     }
-    await Promise.all(tasks)
+    const writes = Promise.allSettled(tasks)
+    pendingSettingsWrite = writes
+    let outcomes: Awaited<typeof writes>
+    try { outcomes = await writes } finally { pendingSettingsWrite = null }
+    const failed = outcomes.find(outcome => outcome.status === 'rejected')
+    if (failed?.status === 'rejected') throw failed.reason
+    if (session !== sessionId) return
+    if (apiKey) {
+      keyConfigured.value = true
+      if (form.value.LLM_API_KEY.trim() === apiKey) form.value.LLM_API_KEY = ''
+    }
     saveStatus.value = { type: 'success', msg: '设置已保存' }
-    setTimeout(() => { saveStatus.value = null; visible.value = false }, 1500)
+    closeTimer = setTimeout(() => { if (session === sessionId) visible.value = false }, 1500)
   } catch (e) {
+    if (session !== sessionId) return
     console.error('保存设置失败', e)
     saveStatus.value = { type: 'error', msg: '保存失败，请检查网络' }
   } finally {
@@ -365,6 +424,8 @@ async function saveSettings() {
 }
 
 async function testConnection() {
+  if (testing.value || saving.value || loadingSettings.value || !settingsLoaded.value) return
+  const session = sessionId
   if (!validateAll()) {
     return
   }
@@ -380,6 +441,7 @@ async function testConnection() {
         api_key: '__use_saved__',
         model: form.value.LLM_MODEL.trim(),
       })
+      if (session !== sessionId) return
       saveStatus.value = {
         type: result.success ? 'success' : 'error',
         msg: result.message,
@@ -390,31 +452,37 @@ async function testConnection() {
         api_key: apiKey,
         model: form.value.LLM_MODEL.trim(),
       })
+      if (session !== sessionId) return
       saveStatus.value = {
         type: result.success ? 'success' : 'error',
         msg: result.message,
       }
     }
-    setTimeout(() => { saveStatus.value = null }, 3000)
   } catch (e) {
+    if (session !== sessionId) return
     console.error('测试连接失败', e)
     const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
     saveStatus.value = { type: 'error', msg: detail || '测试请求失败，请检查配置和后端服务' }
   } finally {
-    testing.value = false
+    if (session === sessionId) testing.value = false
   }
 }
 
 async function clearApiKey() {
+  if (saving.value || testing.value || loadingSettings.value || !settingsLoaded.value) return
+  const session = sessionId
   saving.value = true
   saveStatus.value = null
   try {
-    await clearSetting('LLM_API_KEY')
+    pendingSettingsWrite = clearSetting('LLM_API_KEY')
+    try { await pendingSettingsWrite } finally { pendingSettingsWrite = null }
+    if (session !== sessionId) return
     keyConfigured.value = false
     form.value.LLM_API_KEY = ''
     errors.value.LLM_API_KEY = '请输入 API Key'
     saveStatus.value = { type: 'success', msg: '已清空保存的 API Key' }
   } catch (e) {
+    if (session !== sessionId) return
     console.error('清空 API Key 失败', e)
     saveStatus.value = { type: 'error', msg: '清空 API Key 失败，请检查后端服务' }
   } finally {
@@ -423,6 +491,7 @@ async function clearApiKey() {
 }
 
 function handleClose() {
+  resetSession()
   visible.value = false
 }
 </script>

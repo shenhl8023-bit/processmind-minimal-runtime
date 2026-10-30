@@ -4,6 +4,50 @@ import { ref } from 'vue'
 import { useGenerateInputFields } from './useGenerateInputFields'
 
 describe('manual Boolean process inputs', () => {
+  it.each([
+    [{ field: 'special.requirements', op: 'contains', value: '无损检测要求' }, ['无损检测要求']],
+    [{ field: 'special.requirements', op: 'exists' }, ['无损检测要求', '除铜要求']],
+    [{ field: 'special.requirements', op: 'neq', value: '无损检测要求' }, ['无损检测要求', '除铜要求']],
+    [null, ['无损检测要求', '除铜要求']],
+  ])('preserves active requirements and conservatively handles incomplete rule context', (when, expected) => {
+    const fields = useGenerateInputFields({
+      inputSchema: ref({ schema_version: '2.0', fields: [
+        { key: 'special.requirements', type: 'multi_select', options: [{ value: '无损检测要求' }, { value: '除铜要求' }] },
+        { key: 'material.grade', type: 'single_select', options: [{ value: 'A' }, { value: 'B' }] },
+      ] }),
+      rulePackageRules: ref(when ? { rules: [
+        { when }, { when: { field: 'material.grade', op: 'eq', value: 'A' } },
+      ] } : null),
+      hasRulePackage: ref(true),
+      projectId: ref(5),
+    })
+    expect(fields.inputFields.value.find(field => field.key === 'special.requirements')?.allowed_values).toEqual(expected)
+    expect(fields.inputFields.value.find(field => field.key === 'material.grade')?.allowed_values).toEqual(['A', 'B'])
+  })
+  it('omits unused legacy requirement options while keeping the active manual switch', () => {
+    const inputSchema = ref({ schema_version: '2.0', fields: [
+      { key: 'special.requirements', label: '特殊要求', type: 'multi_select', options: [
+        { value: '无损检测要求', label: '无损检测要求' },
+        { value: '除铜要求', label: '除铜要求' },
+        { value: '其他要求', label: '其他要求' },
+      ] },
+      { key: 'project_factor.manual_process_ndt', label: '是否需要无损检查', type: 'boolean' },
+    ] })
+    const rulePackageRules = ref<any>({ rules: [
+      { enabled: false, when: { field: 'special.requirements', op: 'contains', value: '无损检测要求' } },
+    ], process_configurations: [
+      { enabled: true, when: { all: [{ field: 'special.requirements', op: 'contains', value: '除铜要求' }, { not: { field: 'special.requirements', op: 'contains', value: '其他要求' } }] } },
+      { enabled: true, when: { field: 'project_factor.manual_process_ndt', op: 'eq', value: true } },
+    ] })
+    const fields = useGenerateInputFields({ inputSchema, rulePackageRules, hasRulePackage: ref(true), projectId: ref(5) })
+    fields.initializeFieldValues()
+    expect(fields.inputFields.value.find(field => field.key === 'special.requirements')?.allowed_values).toEqual(['除铜要求', '其他要求'])
+    expect(fields.inputFields.value.find(field => field.key === 'project_factor.manual_process_ndt')?.name).toBe('是否需要无损检查')
+    expect(inputSchema.value.fields[0]?.options).toHaveLength(3)
+    fields.setFieldBoolean('project_factor.manual_process_ndt', false)
+    fields.toggleFieldArrayValue('special.requirements', '除铜要求')
+    expect(fields.factorValues.value).toEqual({ special: { requirements: ['除铜要求'] }, project_factor: { manual_process_ndt: false } })
+  })
   it('keeps user-controlled process switches unset until the user chooses', () => {
     const fields = useGenerateInputFields({
       inputSchema: ref({
@@ -87,6 +131,101 @@ function createInputFields(options = ['A', 'B']) {
 }
 
 describe('useGenerateInputFields project isolation', () => {
+  it('allows a loaded fixed-route schema with no fields but blocks missing or malformed schemas', () => {
+    const { fields, inputSchema, schemaLoading, hasRulePackage } = createInputFields()
+    inputSchema.value = { schema_version: '2.0', fields: [] }
+    expect(fields.factorValues.value).toEqual({})
+    expect(fields.canGenerate.value).toBe(true)
+    schemaLoading.value = true
+    expect(fields.canGenerate.value).toBe(false)
+    schemaLoading.value = false
+    hasRulePackage.value = false
+    expect(fields.canGenerate.value).toBe(false)
+    hasRulePackage.value = true
+    for (const schema of [null, {}, { schema_version: '2.0' }]) {
+      inputSchema.value = schema
+      expect(fields.canGenerate.value).toBe(false)
+    }
+  })
+
+  it('preserves generation for legacy schemas containing only optional inputs', () => {
+    const { fields, inputSchema } = createInputFields()
+    inputSchema.value = { optional_inputs: [{ key: 'material', type: 'string' }] }
+    expect(fields.inputFields.value).toHaveLength(1)
+    expect(fields.canGenerate.value).toBe(true)
+  })
+
+  it('creates valid constrained material and custom multi-select examples', () => {
+    const fields = useGenerateInputFields({
+      inputSchema: ref({ schema_version: '2.0', fields: [
+        { key: 'material.grade', type: 'string', required: true, validation: { min_length: 7, max_length: 10 } },
+        { key: 'features', type: 'multi_select', required: true, allow_custom: true, options: [], validation: { min_length: 3, max_length: 3 } },
+      ] }),
+      hasRulePackage: ref(true), projectId: ref(1),
+    })
+    fields.initializeFieldValues()
+    fields.fillExampleValues()
+    expect(fields.fieldValues.value['material.grade'].length).toBeGreaterThanOrEqual(7)
+    expect(fields.fieldValues.value.features).toHaveLength(3)
+    expect(new Set(fields.fieldValues.value.features).size).toBe(3)
+    expect(fields.canGenerate.value).toBe(true)
+  })
+
+  it('blocks generation when an optional input was entered but is invalid', () => {
+    const fields = useGenerateInputFields({
+      inputSchema: ref({ schema_version: '2.0', fields: [
+        { key: 'material.grade', type: 'string', required: true },
+        { key: 'diameter', type: 'number', required: false, validation: { min: 0, max: 50 } },
+      ] }),
+      hasRulePackage: ref(true), projectId: ref(1),
+    })
+    fields.initializeFieldValues()
+    fields.setFieldText('material.grade', '9Cr18')
+    expect(fields.canGenerate.value).toBe(true)
+    fields.setFieldText('diameter', '100')
+    expect(fields.canGenerate.value).toBe(false)
+    fields.setFieldText('diameter', '')
+    expect(fields.canGenerate.value).toBe(true)
+  })
+
+  it('enforces multi-select length before enabling generation', () => {
+    const fields = useGenerateInputFields({
+      inputSchema: ref({ schema_version: '2.0', fields: [
+        { key: 'features', type: 'multi_select', required: true, options: [{ value: 'A' }, { value: 'B' }, { value: 'C' }], validation: { min_length: 2, max_length: 2 } },
+      ] }),
+      hasRulePackage: ref(true), projectId: ref(1),
+    })
+    fields.initializeFieldValues()
+    fields.toggleFieldArrayValue('features', 'A')
+    expect(fields.canGenerate.value).toBe(false)
+    fields.toggleFieldArrayValue('features', 'B')
+    expect(fields.canGenerate.value).toBe(true)
+    fields.toggleFieldArrayValue('features', 'C')
+    expect(fields.canGenerate.value).toBe(false)
+  })
+
+  it('fills examples within maximum and minimum length constraints and clears draft custom values', () => {
+    const fields = useGenerateInputFields({
+      inputSchema: ref({ schema_version: '2.0', fields: [
+        { key: 'temperature', type: 'number', required: true, validation: { max: -5 } },
+        { key: 'description', type: 'string', required: true, validation: { min_length: 6, max_length: 8 } },
+        { key: 'features', type: 'multi_select', required: true, options: ['A', 'B', 'C', 'D'].map(value => ({ value })), validation: { min_length: 3, max_length: 3 } },
+      ] }),
+      hasRulePackage: ref(true), projectId: ref(1),
+    })
+    fields.initializeFieldValues()
+    fields.setCustomInput('features', 'old draft')
+    fields.fillExampleValues()
+    expect(fields.fieldValues.value.temperature).toBe(-5)
+    expect(fields.fieldValues.value.description.length).toBeGreaterThanOrEqual(6)
+    expect(fields.fieldValues.value.features).toEqual(['A', 'B', 'C'])
+    expect(fields.customInputValues.value).toEqual({})
+    expect(fields.canGenerate.value).toBe(true)
+    fields.clearAllFields()
+    expect(fields.factorValues.value).toEqual({})
+    expect(fields.factorMetadata.value).toEqual({})
+    expect(fields.canGenerate.value).toBe(false)
+  })
   it('clears factor and custom values synchronously when the project changes', () => {
     const { fields, projectId } = createInputFields()
     fields.setFieldText('material.grade', 'B')

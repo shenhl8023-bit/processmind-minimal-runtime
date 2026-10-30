@@ -111,8 +111,32 @@ export type RuleConditionProcessOption = {
   main?: boolean
 }
 
+export type ProcessRelationCandidate = {
+  relation_type: ProcessRelationType
+  source_process_ids: string[]
+  target_process_ids: string[]
+  source_match?: 'any' | 'all'
+}
+
+export type ProcessConfiguration = {
+  process_id: string
+  occurrence: 'always' | 'manual' | 'conditional'
+  when: RulePackageCondition | null
+  relations: ProcessRelationCandidate[]
+}
+
+export type RulePackageProcessConfiguration = ProcessConfiguration & {
+  enabled?: boolean
+  source?: 'system_static' | 'user_confirmed'
+  source_segment_id?: string
+  source_text?: string
+  confirmed_by?: string
+  confirmed_at?: string
+}
+
 export type RuleConditionCandidate = {
-  kind?: 'condition' | 'process_relation'
+  kind?: 'condition' | 'process_relation' | 'process_configuration'
+  configuration?: ProcessConfiguration | null
   when?: RulePackageCondition | null
   then?: RulePackageRule['then'] | null
   field_definitions?: CanonicalConditionField[]
@@ -194,6 +218,7 @@ export type CompileRulePackageRequest = {
   processes: RulePackageProcess[]
   rules?: RulePackageRule[]
   process_relations?: RulePackageProcessRelation[]
+  process_configurations?: RulePackageProcessConfiguration[]
   test_cases?: RulePackageTestCase[]
 }
 
@@ -212,6 +237,7 @@ export type RulePackageV2 = {
     schema_version: '2.0'
     rules: RulePackageRule[]
     process_relations?: RulePackageProcessRelation[]
+    process_configurations?: RulePackageProcessConfiguration[]
   }
   test_cases: RulePackageTestCase[]
 }
@@ -294,6 +320,21 @@ export async function setManualRuleCondition(body: {
   confirmed_by?: string
 }) {
   const { data } = await api.post('/api/extract/finalized-rule-packages/rule-conditions/manual', body)
+  return data as RuleConditionReviewResponse
+}
+
+export async function saveProcessConfiguration(body: {
+  project_id: number
+  route_id: number
+  expected_workflow_revision: number
+  segment_id: string
+  process_id: string
+  source_text: string
+  candidate: RuleConditionCandidate
+  processes: RuleConditionProcessOption[]
+  confirmed_by?: string
+}) {
+  const { data } = await api.post('/api/extract/finalized-rule-packages/rule-conditions/configuration', body)
   return data as RuleConditionReviewResponse
 }
 

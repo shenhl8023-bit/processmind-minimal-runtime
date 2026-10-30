@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, model_serializer, model_validator
 
-from app.services.rule_packages.contracts import ConditionNode, ProcessRelationType, RuleAction, StrictModel
+from app.services.rule_packages.contracts import ConditionNode, ProcessRelationType, ProcessConfiguration, RuleAction, StrictModel
 
 
 class CanonicalConditionField(StrictModel):
@@ -38,22 +38,36 @@ class ProcessRelationCandidate(StrictModel):
 
 
 class RuleConditionCandidate(StrictModel):
-    kind: Literal["condition", "process_relation"] = "condition"
+    kind: Literal["condition", "process_relation", "process_configuration"] = "condition"
     when: ConditionNode | None = None
     then: RuleAction | None = None
     relation: ProcessRelationCandidate | None = None
+    configuration: ProcessConfiguration | None = None
     field_definitions: list[CanonicalConditionField] = Field(default_factory=list)
     preview: str = ""
     evidence: str = ""
 
     @model_validator(mode="after")
     def validate_candidate_kind(self):
+        if self.kind == "process_configuration":
+            if self.configuration is None or self.when is not None or self.then is not None or self.relation is not None:
+                raise ValueError("process_configuration requires configuration only")
+            return self
+        if self.configuration is not None:
+            raise ValueError("legacy candidate cannot contain configuration")
         if self.kind == "condition":
             if self.when is None or self.then is None or self.relation is not None:
                 raise ValueError("condition candidate requires when/then only")
         elif self.relation is None or self.when is not None or self.then is not None or self.field_definitions:
             raise ValueError("process_relation candidate requires relation only")
         return self
+
+    @model_serializer(mode="wrap")
+    def serialize_legacy_compatible(self, handler):
+        payload = handler(self)
+        if self.configuration is None:
+            payload.pop("configuration", None)
+        return payload
 
 
 class RuleConditionSourceRequest(StrictModel):

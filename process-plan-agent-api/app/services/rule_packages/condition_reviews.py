@@ -27,13 +27,14 @@ from app.services.rule_packages.condition_contracts import (
     RuleConditionReviewResponse,
     SaveRuleConditionDraftRequest,
 )
-from app.services.rule_packages.contracts import ConditionNode
+from app.services.rule_packages.contracts import ConditionNode, ProcessRelationV2, ProcessV2
 from app.services.rule_packages.condition_parser import (
     CONDITION_PARSER_VERSION,
     parse_rule_condition,
     validate_candidate,
 )
 from app.services.rule_packages.condition_registry import FIELD_REGISTRY_VERSION, condition_preview
+from app.services.rule_packages.expression_engine import iter_condition_fields
 from app.services.project_workflow_lifecycle import acquire_workflow_revision
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,25 @@ def _loads_issues(raw: str | None) -> list[str]:
     except Exception:
         return []
     return [str(item) for item in payload] if isinstance(payload, list) else []
+
+
+def _current_confirmed_candidate(
+    review: NormalizedRouteSegmentRuleReview,
+    source_text: str,
+    processes: list[RuleConditionProcessOption],
+    current_process_id: str,
+) -> RuleConditionCandidate | None:
+    """A valid human confirmation outranks any machine/parser version."""
+    if (
+        review.condition_status != "confirmed"
+        or (review.condition_source_text or "").strip() != source_text.strip()
+        or review.condition_source_hash != condition_source_hash(source_text)
+    ):
+        return None
+    candidate = _loads_candidate(review.condition_confirmed_json)
+    if candidate is None or validate_candidate(candidate, processes, current_process_id=current_process_id):
+        return None
+    return candidate
 
 
 def _route_items(route: NormalizedRouteVersion) -> list[dict]:
@@ -138,12 +158,14 @@ def _migrate_legacy_boolean_candidate(candidate: RuleConditionCandidate) -> Rule
     def convert(node: ConditionNode) -> ConditionNode:
         if node.field:
             definition = legacy_fields.get(node.field)
-            if definition:
-                return ConditionNode(
+            if definition and node.op in {"eq", "neq"} and isinstance(node.value, bool):
+                leaf = ConditionNode(
                     field="special.requirements",
                     op="contains",
                     value=_special_requirement_for_legacy_boolean(definition),
                 )
+                positive = node.value if node.op == "eq" else not node.value
+                return leaf if positive else ConditionNode(not_condition=leaf)
             return node
         if node.all_conditions is not None:
             return ConditionNode(all_conditions=[convert(child) for child in node.all_conditions])
@@ -154,9 +176,12 @@ def _migrate_legacy_boolean_candidate(candidate: RuleConditionCandidate) -> Rule
         return node
 
     when = convert(candidate.when)
+    if when == candidate.when:
+        return candidate
+    referenced_fields = set(iter_condition_fields(when))
     remaining_definitions = [
         field for field in candidate.field_definitions
-        if field.key not in legacy_fields
+        if field.key not in legacy_fields or field.key in referenced_fields
     ]
     migrated = candidate.model_copy(update={"when": when, "field_definitions": remaining_definitions})
     migrated.preview = condition_preview(migrated.when)
@@ -285,7 +310,7 @@ async def invalidate_legacy_nondestructive_relation_reviews(
     route: NormalizedRouteVersion,
     db: AsyncSession,
 ) -> bool:
-    """Retire old NDT rules that were incorrectly confirmed as process relations."""
+    """Retire unaudited legacy NDT relations without undoing human approval."""
     try:
         route_items = json.loads(route.route_json or "[]")
     except Exception:
@@ -310,6 +335,11 @@ async def invalidate_legacy_nondestructive_relation_reviews(
         if not re.search(r"无损|磁粉|裂纹|荧光|探伤", process_name):
             continue
         if not confirmed or confirmed.kind != "process_relation":
+            continue
+        # Current confirmation endpoints record both auditor and timestamp.
+        # A route read must not reinterpret that explicit approval, even when
+        # it came from an older parser or deliberately uses a process relation.
+        if str(review.condition_confirmed_by or "").strip() and review.condition_confirmed_at is not None:
             continue
         source_text = f"当零件有无损检测要求时，纳入“{process_name}”工序。"
         review.condition_source_text = source_text
@@ -485,10 +515,21 @@ async def parse_condition_review(
     if not source_text:
         raise HTTPException(422, "请先填写需要解析的工序条件。")
     source_hash = condition_source_hash(source_text)
+    confirmed = _current_confirmed_candidate(review, source_text, body.processes, body.process_id)
+    if confirmed is not None:
+        # The step-five confirmation may include edits that deliberately differ
+        # from both the source text and the earlier analysis draft.
+        if _loads_candidate(review.condition_candidate_json) != confirmed:
+            review.condition_candidate_json = json.dumps(
+                confirmed.model_dump(mode="json", by_alias=True), ensure_ascii=False,
+            )
+            await db.commit()
+            await db.refresh(review)
+        return _response(body, review)
     parser_version, llm_config = await _active_condition_parser_context()
 
-    # A user-confirmed step-three structured draft is authoritative for the
-    # exact same condition text. Reuse it as a step-four pending candidate so
+    # Without a current step-five confirmation, reuse a confirmed step-three
+    # structured draft for the exact same text as a pending candidate so
     # export remains an explicit confirmation, without calling the parser.
     if review.analysis_draft_json:
         try:
@@ -559,6 +600,10 @@ async def parse_condition_review(
     review.condition_parse_duration_ms = None
     review.condition_confirmed_by = None
     review.condition_confirmed_at = None
+    # Reuse the existing row revision as an optimistic parse token. Two parses
+    # of the same text/version must not both write back after releasing the lock.
+    parse_revision = datetime.now(timezone.utc).replace(tzinfo=None)
+    review.updated_at = parse_revision
     if source_changed:
         review.condition_knowledge_suggestion_id = None
     await db.commit()
@@ -581,6 +626,8 @@ async def parse_condition_review(
     if (
         review.condition_source_hash != source_hash
         or review.condition_parser_version != parser_version
+        or review.condition_status != "parsing"
+        or review.updated_at != parse_revision
     ):
         # A newer draft or parse request superseded this request while the model ran.
         return _response(body, review)
@@ -701,6 +748,66 @@ async def set_manual_condition_review(
     review.condition_parser_version = "manual"
     review.condition_parse_duration_ms = 0
     review.condition_confirmed_by = "用户直接设定"
+    review.condition_confirmed_at = datetime.now(timezone.utc)
+    review.condition_knowledge_suggestion_id = None
+    await db.commit()
+    await db.refresh(review)
+    return _response(body, review)
+
+
+async def set_process_configuration_review(
+    body: ManualRuleConditionRequest,
+    db: AsyncSession,
+) -> RuleConditionReviewResponse:
+    """Confirm an atomic editor configuration without inference or schema loss."""
+    route, review = await _load_route_and_review(body.project_id, body.route_id, body.segment_id, db)
+    _validate_process_catalog(route, body.processes)
+    current_process_id = _current_process_id_for_segment(route, body.segment_id, body.processes)
+    candidate = body.candidate.model_copy(deep=True)
+    if (body.process_id != current_process_id or candidate.kind != "process_configuration"
+            or candidate.configuration is None or candidate.configuration.process_id != current_process_id):
+        raise HTTPException(422, "规则配置必须对应当前保存路线中的工序。")
+    source_text = body.source_text.strip()
+    if not source_text:
+        raise HTTPException(422, "请提供当前工序规则的摘要。")
+    issues = validate_candidate(candidate, body.processes, current_process_id=current_process_id)
+    if issues:
+        raise HTTPException(422, {"message": "工序规则配置校验未通过", "issues": issues})
+    # Validate the replacement against other confirmed rules before mutating
+    # the stored confirmation; a locally valid edge can close a global cycle.
+    from app.services.rule_packages.validator import _dependency_cycle
+
+    confirmed_rows = (await db.execute(select(NormalizedRouteSegmentRuleReview).where(
+        NormalizedRouteSegmentRuleReview.project_id == body.project_id,
+        NormalizedRouteSegmentRuleReview.route_version_id == body.route_id,
+        NormalizedRouteSegmentRuleReview.segment_id != body.segment_id,
+        NormalizedRouteSegmentRuleReview.condition_status == "confirmed",
+    ))).scalars().all()
+    relations = list(candidate.configuration.relations)
+    for row in confirmed_rows:
+        saved = _loads_candidate(row.condition_confirmed_json)
+        if saved and saved.kind == "process_configuration" and saved.configuration:
+            relations.extend(saved.configuration.relations)
+        elif saved and saved.kind == "process_relation" and saved.relation:
+            relations.append(saved.relation)
+    cycle = _dependency_cycle(
+        [ProcessV2(process_id=process_id, display_name=process_id) for process_id in _route_process_ids(route)],
+        [ProcessRelationV2(relation_id=f"configuration.{index}", **relation.model_dump()) for index, relation in enumerate(relations)],
+    )
+    if cycle:
+        raise HTTPException(422, f"工序关联存在循环依赖：{' -> '.join(cycle)}")
+    candidate_json = json.dumps(candidate.model_dump(mode="json", by_alias=True), ensure_ascii=False)
+    review.condition_source_text = source_text
+    review.condition_source_hash = condition_source_hash(source_text)
+    review.condition_status = "confirmed"
+    review.condition_candidate_json = candidate_json
+    review.condition_confirmed_json = candidate_json
+    review.condition_confidence = 1.0
+    review.condition_issues_json = "[]"
+    review.condition_field_registry_version = FIELD_REGISTRY_VERSION
+    review.condition_parser_version = "configuration"
+    review.condition_parse_duration_ms = 0
+    review.condition_confirmed_by = body.confirmed_by.strip() or "用户直接设定"
     review.condition_confirmed_at = datetime.now(timezone.utc)
     review.condition_knowledge_suggestion_id = None
     await db.commit()

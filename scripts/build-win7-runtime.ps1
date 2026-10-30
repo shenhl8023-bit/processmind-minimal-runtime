@@ -130,9 +130,21 @@ try {
   }
 
   Write-Host 'Checking runtime imports ...'
-  & $PythonExe -c "import fastapi, uvicorn, sqlalchemy, fitz, docx, openpyxl, lxml, pydantic, py7zr"
+  & $PythonExe -c "import fastapi, uvicorn, sqlalchemy, fitz, docx, openpyxl, lxml, pydantic, py7zr, eval_type_backport"
   if ($LASTEXITCODE -ne 0) {
     throw 'The Win7 runtime import smoke test failed.'
+  }
+
+  $apiRoot = Join-Path $Root 'process-plan-agent-api'
+  Push-Location $apiRoot
+  try {
+    & $PythonExe -c "import app.main"
+    if ($LASTEXITCODE -ne 0) {
+      throw 'The Win7 application import smoke test failed.'
+    }
+  }
+  finally {
+    Pop-Location
   }
 
   $validator = Join-Path $Root 'scripts\validate-python38.py'

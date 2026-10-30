@@ -116,7 +116,7 @@ async def generate_local_knowledge_answer(
         logger.exception("Failed to generate grounded local knowledge answer")
         answer = ""
 
-    if not answer or not answer.strip():
+    if not isinstance(answer, str) or not answer.strip():
         return {
             "status": "llm_unavailable",
             "message": "已找到本地知识依据，但大模型暂时不可用，请检查大模型配置后重试。",

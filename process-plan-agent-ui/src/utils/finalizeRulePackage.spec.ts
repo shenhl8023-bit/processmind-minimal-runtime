@@ -11,6 +11,7 @@ import {
   finalizeRuleMode,
   hasCurrentConfirmedUserRule,
   isActionableConditionText,
+  isExplicitMainlineInstruction,
   isSafeForBatchRuleConfirmation,
   manualRuleModeActionState,
   requiresManualRuleAttention,
@@ -49,6 +50,161 @@ function baseConditionFields() {
 
 
 describe('V2 compile DTO from finalize cards', () => {
+  it.each(['contains', 'contains_any', 'contains_all'])('keeps positive collection requirements when adding a negative %s test', (op) => {
+    const text = '当有A要求且没有B要求时，安排当前工序'
+    const key = 'special.requirements'
+    const positive = { field: key, op: 'contains', value: 'A要求' }
+    const negative = { not: { field: key, op, value: op === 'contains' ? 'B要求' : ['A要求', 'B要求'].slice(op === 'contains_any' ? 1 : 0) } }
+    const card = { ...finalizeItem({ id: 'process_finish', normalized_step_name: '精整', doc_coverage: { total_docs: 3, hit_docs: 1 } }), conditionText: text, edited: true, conditionReview: { status: 'confirmed', source_text: text, confirmed: { kind: 'condition', when: { all: [positive, negative] }, then: { include_process_ids: ['process_finish'] } } } }
+    const fields = baseConditionFields().map((field: any) => field.key === key ? { ...field, options: [{ value: 'A要求', label: 'A要求' }, { value: 'B要求', label: 'B要求' }] } : field)
+    const request = buildCompileRequestFromCards({ projectId: 12, packageName: 'collection-conjunction', cards: [card], displayName: segment => segment.normalized_step_name, phaseLabel: () => '', primarySteps: () => [], attachedSteps: () => [], conditionFields: fields })
+    const sample = request.test_cases!.find(test => test.case_id !== 'default-smoke')!.input as any
+    expect(sample.special.requirements).toContain('A要求')
+    expect(sample.special.requirements).not.toContain('B要求')
+  })
+  it.each([false, true])('builds conjunction samples independently of negative clause order: %s', (negativeFirst) => {
+    const key = 'special.requirements'
+    const text = '当没有同时要求A和B且有B要求时，安排当前工序'
+    const negative = { not: { field: key, op: 'contains_all', value: ['A要求', 'B要求'] } }
+    const positive = { field: key, op: 'contains', value: 'B要求' }
+    const card = { ...finalizeItem({ id: 'process_finish', normalized_step_name: '精整', doc_coverage: { total_docs: 3, hit_docs: 1 } }), conditionText: text, edited: true, conditionReview: { status: 'confirmed', source_text: text, confirmed: { kind: 'condition', when: { all: negativeFirst ? [negative, positive] : [positive, negative] }, then: { include_process_ids: ['process_finish'] } } } }
+    const fields = baseConditionFields().map((field: any) => field.key === key ? { ...field, options: [{ value: 'A要求', label: 'A要求' }, { value: 'B要求', label: 'B要求' }] } : field)
+    const request = buildCompileRequestFromCards({ projectId: 12, packageName: 'negative-first', cards: [card], displayName: segment => segment.normalized_step_name, phaseLabel: () => '', primarySteps: () => [], attachedSteps: () => [], conditionFields: fields })
+    const sample = request.test_cases!.find(test => test.case_id !== 'default-smoke')!.input as any
+    expect(sample.special.requirements).toEqual(['B要求'])
+  })
+
+  it.each([['special.requirements', false], ['cad.features', true]])('builds a valid negative collection case for %s', (key, required) => {
+    const text = '当零件不包含指定要求时，安排当前工序'
+    const value = key === 'special.requirements' ? '无损检测要求' : '扁位/平面'
+    const card = { ...finalizeItem({ id: 'process_finish', normalized_step_name: '精整', doc_coverage: { total_docs: 3, hit_docs: 1 } }), conditionText: text, edited: true, conditionReview: { status: 'confirmed', source_text: text, confirmed: { kind: 'condition', when: { not: { field: key, op: 'contains', value } }, then: { include_process_ids: ['process_finish'] } } } }
+    const request = buildCompileRequestFromCards({ projectId: 12, packageName: 'negative-collection', cards: [card], displayName: segment => segment.normalized_step_name, phaseLabel: () => '', primarySteps: () => [], attachedSteps: () => [], conditionFields: baseConditionFields() })
+    const field = request.fields.find(field => field.key === key)!
+    const sample = request.test_cases!.find(test => test.case_id !== 'default-smoke')!.input
+    const [category, name] = key.split('.')
+    const values = (sample as any)[category!][name!] as string[]
+    expect(values).not.toContain(value)
+    expect(values.every(item => field.options?.some(option => option.value === item))).toBe(true)
+    if (required) expect(values.length).toBeGreaterThan(0)
+  })
+
+  it.each([
+    ['eq', true, false], ['eq', false, true],
+    ['neq', true, true], ['neq', false, false],
+  ])('preserves legacy requirement polarity for %s %s', (op, value, negated) => {
+    const field = { key: 'custom.requirements.traceability_marking_required', label: '是否需要追溯标识', category: '特殊要求', type: 'boolean', operators: ['eq', 'neq'], options: [] }
+    const text = '当零件有标识条件时，安排标记工序'
+    const card = { ...finalizeItem({ id: 'process_mark', normalized_step_name: '标记', doc_coverage: { total_docs: 3, hit_docs: 1 } }), edited: true, conditionText: text, conditionReview: { status: 'confirmed', source_text: text, confirmed: { kind: 'condition', when: { field: field.key, op, value }, then: { include_process_ids: ['process_mark'] }, field_definitions: [field] } } }
+    const request = buildCompileRequestFromCards({ projectId: 12, packageName: 'legacy-polarity', cards: [card], displayName: segment => segment.normalized_step_name, phaseLabel: () => '', primarySteps: () => [], attachedSteps: () => [], conditionFields: baseConditionFields() })
+    const leaf = { field: 'special.requirements', op: 'contains', value: '追溯标印' }
+    expect(request.rules?.find(rule => rule.source === 'user_confirmed')?.when).toEqual(negated ? { not: leaf } : leaf)
+  })
+
+  it.each(['single_select', 'multi_select'])('preserves the full confirmed legacy %s definition', (type) => {
+    const field = { key: 'project_factor.surface_class', label: '表面类别', category: '项目', type, operators: [type === 'single_select' ? 'eq' : 'contains'], options: [{ value: 'A', label: 'A类' }, { value: 'B', label: 'B类' }], allow_custom: true }
+    const text = '当表面类别为A时，安排当前工序'
+    const card = { ...finalizeItem({ id: 'process_finish', normalized_step_name: '精整', doc_coverage: { total_docs: 3, hit_docs: 1 } }), edited: true, conditionText: text, conditionReview: { status: 'confirmed', source_text: text, confirmed: { kind: 'condition', when: { field: field.key, op: field.operators[0], value: 'A' }, then: { include_process_ids: ['process_finish'] }, field_definitions: [field] } } }
+    const request = buildCompileRequestFromCards({ projectId: 12, packageName: 'legacy-definition', cards: [card], displayName: segment => segment.normalized_step_name, phaseLabel: () => '', primarySteps: () => [], attachedSteps: () => [], conditionFields: baseConditionFields() })
+    expect(request.fields.find(item => item.key === field.key)?.options).toEqual(field.options)
+    expect(request.factor_dictionary?.fields.find(item => item.key === field.key)?.options).toEqual(field.options)
+  })
+
+  it.each([
+    '不得设置为主工序，应当按材料牌号决定。',
+    '设置为主工序，仅当材料牌号为9Cr18时纳入。',
+    '设置为主工序，始终纳入“淬火”工序，但仅在有要求时保留。',
+    '如果客户需要，把该工序改为主线工序。',
+    '此工序不属于必经工序。',
+    '固定为主工序，默认保留。后续按条件排除。',
+  ])('requires confirmation for qualified or negated mainline text: %s', (conditionText) => {
+    const card = {
+      ...finalizeItem({ id: 'process_quench', normalized_step_name: '淬火' }),
+      conditionText,
+      edited: true,
+    }
+    expect(isExplicitMainlineInstruction(conditionText, '淬火')).toBe(false)
+    expect(finalizeRuleMode(card)).not.toBe('mainline')
+    expect(exportBlockingCards([card])).toEqual([card])
+  })
+
+  it('only accepts the canonical mainline instruction for the current process', () => {
+    const conditionText = '设置为主工序，始终纳入“淬火”工序。'
+    expect(isExplicitMainlineInstruction(conditionText, '淬火')).toBe(true)
+    expect(isExplicitMainlineInstruction(conditionText, '除铜')).toBe(false)
+    expect(isExplicitMainlineInstruction(conditionText)).toBe(false)
+    const otherProcess = {
+      ...finalizeItem({ id: 'process_remove_copper', normalized_step_name: '除铜' }),
+      conditionText,
+      edited: true,
+    }
+    expect(finalizeRuleMode(otherProcess)).not.toBe('mainline')
+    expect(exportBlockingCards([otherProcess])).toEqual([otherProcess])
+  })
+
+  it.each([
+    ['真空淬火', '淬火'],
+    ['标印', '标记'],
+    ['车削加工（第1次）', '车削加工（A侧）'],
+  ])('matches canonical mainline names using route display aliases: %s', (routeName, displayName) => {
+    const conditionText = `设置为主工序，始终纳入“${displayName}”工序。`
+    expect(isExplicitMainlineInstruction(conditionText, routeName)).toBe(true)
+    expect(finalizeRuleMode({
+      ...finalizeItem({ normalized_step_name: routeName }), conditionText, edited: true,
+    })).toBe('mainline')
+  })
+
+  it.each([
+    '设置为主工序，始终纳入“淬火”工序',
+    '将其设置为主工序，始终保留在路线中',
+    '把该工序改为主线工序',
+    '作为基础工序无条件进入路线',
+    '此工序属于必经工序',
+    '固定为主工序，默认保留',
+  ])('accepts entire known mainline instructions with optional surrounding whitespace and one period: %s', (text) => {
+    expect(isExplicitMainlineInstruction(` \n${text}\t `, '淬火')).toBe(true)
+    expect(isExplicitMainlineInstruction(` \n${text}。\t `, '淬火')).toBe(true)
+    expect(isExplicitMainlineInstruction(`${text}。。`, '淬火')).toBe(false)
+  })
+
+  it.each([
+    '前面出现镀铜时，安排除铜',
+    '设置为主工序，始终保留',
+    '根据不同结构类型决定是否安排该工序',
+  ])('honors the saved manual switch instead of interpreting its label: %s', (label) => {
+    const card: any = {
+      ...finalizeItem({ id: 'process_remove_copper', normalized_step_name: '除铜' }),
+      conditionText: `当用户选择“${label}”为是时，纳入“除铜”工序。`,
+      edited: true,
+    }
+    const candidate = buildManualBooleanRuleCandidate(card, label)
+    card.conditionReview = {
+      source_text: card.conditionText, status: 'confirmed',
+      confirmed: candidate, candidate, confirmed_by: '用户直接设定',
+      confirmed_at: '2026-10-27T02:00:00Z',
+    }
+
+    expect(finalizeRuleMode(card)).toBe('conditional')
+    expect(hasCurrentConfirmedUserRule(card)).toBe(true)
+    expect(manualRuleModeActionState(card, false).booleanActive).toBe(true)
+    expect(exportBlockingCards([card])).toEqual([])
+    const request = buildCompileRequestFromCards({
+      projectId: 12, packageName: 'manual_switch', cards: [card],
+      displayName: segment => segment.normalized_step_name,
+      phaseLabel: () => 'surface_treatment', primarySteps: () => [], attachedSteps: () => [],
+    })
+    expect(request.processes[0]?.main).toBe(false)
+    expect(request.process_relations).toEqual([])
+    const fieldKey = candidate.field_definitions?.[0]?.key
+    expect(request.rules?.map(rule => rule.when)).toEqual([
+      { field: fieldKey, op: 'eq', value: true },
+      { field: fieldKey, op: 'eq', value: false },
+    ])
+
+    card.conditionText = '前面出现镀铜时，安排除铜'
+    expect(finalizeRuleMode(card)).toBe('relation')
+    expect(hasCurrentConfirmedUserRule(card)).toBe(false)
+  })
+
   it('requires re-review when the confirmed rule kind no longer matches the user text', () => {
     const relationCard: any = {
       ...finalizeItem({ id: 'process_ndt', normalized_step_name: '无损检查', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
@@ -1283,4 +1439,108 @@ describe('V2 compile DTO from finalize cards', () => {
       ],
     }))
   })
+})
+
+describe('atomic process configuration export', () => {
+  function configured(occurrence: string, when: any, relations: any[] = [], definitions: any[] = []) {
+    const card: any = { ...finalizeItem({ id: 'remove_copper', normalized_step_name: '除铜' }), conditionText: '全部样本中稳定出现', edited: true }
+    const candidate = { kind: 'process_configuration', configuration: { process_id: 'remove_copper', occurrence, when, relations }, field_definitions: definitions, preview: '用户配置' }
+    card.conditionReview = { source_text: card.conditionText, source_hash: 'configuration-hash', status: 'confirmed', confirmed: candidate, candidate, issues: [], confidence: 1, confirmed_by: '用户直接设定', confirmed_at: '2026-10-27T08:00:00Z' }
+    return card
+  }
+  const compile = (cards: any[]) => buildCompileRequestFromCards({ projectId: 11, packageName: 'configuration-test', cards, displayName: segment => segment.normalized_step_name, phaseLabel: () => 'surface', primarySteps: () => [], attachedSteps: () => [], conditionFields: baseConditionFields() }) as any
+  it('uses the saved configuration before coverage and prose heuristics', () => {
+    const card = configured('conditional', { field: 'material.grade', op: 'eq', value: '4Cr14Ni14W2Mo' })
+    expect(finalizeRuleMode(card)).toBe('conditional')
+    expect(hasCurrentConfirmedUserRule(card)).toBe(true)
+    expect(requiresManualRuleAttention(card)).toBe(false)
+    expect(requiresServerRuleConditionRefresh(card)).toBe(false)
+    expect(exportBlockingCards([card])).toEqual([])
+  })
+  it('exports condition and trigger rows atomically without a parallel include path', () => {
+    const when = { all: [{ field: 'material.grade', op: 'eq', value: '4Cr14Ni14W2Mo' }, { not: { field: 'special.requirements', op: 'contains', value: '禁止除铜' } }] }
+    const relations = [{ relation_type: 'trigger_after', source_process_ids: ['copper'], target_process_ids: ['remove_copper'], source_match: 'all' }, { relation_type: 'order_after', source_process_ids: ['check'], target_process_ids: ['remove_copper'], source_match: 'any' }]
+    const request = compile([configured('conditional', when, relations)])
+    expect(request.process_configurations).toEqual([{ process_id: 'remove_copper', occurrence: 'conditional', when, relations, enabled: true, source: 'user_confirmed', source_segment_id: 'remove_copper', source_text: '全部样本中稳定出现', confirmed_by: '用户直接设定', confirmed_at: '2026-10-27T08:00:00Z' }])
+    expect(request.processes[0].main).toBe(false)
+    expect(request.rules.flatMap((rule: any) => rule.then.include_process_ids || [])).not.toContain('remove_copper')
+    expect(request.process_relations).toEqual([])
+    expect(request.fields.map((field: any) => field.key)).toEqual(['material.grade', 'special.requirements'])
+    expect(request.fields[0].options).toContainEqual({ value: '4Cr14Ni14W2Mo', label: '4Cr14Ni14W2Mo' })
+  })
+  it('keeps a trigger-only conditional optional even with full sample coverage', () => {
+    const request = compile([configured('conditional', null, [{ relation_type: 'trigger_after', source_process_ids: ['copper'], target_process_ids: ['remove_copper'], source_match: 'all' }])])
+    expect(request.processes[0].main).toBe(false)
+    expect(request.process_configurations[0].when).toBeNull()
+    expect(request.rules).toEqual([])
+  })
+  it('collects manual question definitions without creating legacy include rules', () => {
+    const manual = buildManualBooleanRuleCandidate(finalizeItem({ id: 'remove_copper', normalized_step_name: '除铜' }), '是否需要除铜')
+    const card = configured('manual', manual.when, [], manual.field_definitions)
+    expect(manualRuleModeActionState(card, false).booleanActive).toBe(true)
+    const request = compile([card])
+    expect(request.fields).toHaveLength(1)
+    expect(request.fields[0]).toMatchObject({ type: 'boolean', label: '是否需要除铜', source: '用户直接设定' })
+    expect(request.process_configurations[0].occurrence).toBe('manual')
+    expect(request.rules).toEqual([])
+  })
+  it('retains mainline ordering relations as an audited configuration', () => {
+    const relations = [{ relation_type: 'order_after', source_process_ids: ['copper'], target_process_ids: ['remove_copper'], source_match: 'any' }]
+    const request = compile([configured('always', null, relations)])
+    expect(request.processes[0].main).toBe(true)
+    expect(request.process_configurations[0].relations).toEqual(relations)
+  })
+  it.each([['single_select', 'eq'], ['multi_select', 'contains']])('preserves the confirmed %s options for arbitrary process configurations', (type, op) => {
+    const definition = { key: 'project_factor.surface_class', label: '表面处理类别', category: '项目', type, operators: [op], options: [{ value: 'A', label: 'A类' }, { value: 'B', label: 'B类' }], allow_custom: true, source: '用户直接设定' }
+    const card = configured('conditional', { field: definition.key, op, value: 'A' }, [], [definition])
+    card.segment.id = 'custom_finishing_17'
+    card.segment.normalized_step_name = '表面精整'
+    card.conditionReview.confirmed.configuration.process_id = 'custom_finishing_17'
+    const request = compile([card])
+    expect(request.process_configurations[0].process_id).toBe('custom_finishing_17')
+    expect(request.fields.find((field: any) => field.key === definition.key).options).toEqual([{ value: 'A', label: 'A类' }, { value: 'B', label: 'B类' }])
+    expect(request.factor_dictionary.fields.find((field: any) => field.key === definition.key).options).toEqual([{ value: 'A', label: 'A类' }, { value: 'B', label: 'B类' }])
+  })
+  it('does not alter an authoritative field definition when a custom condition value is used', () => {
+    const definition = { key: 'project_factor.surface_class', label: '表面处理类别', category: '项目', type: 'single_select', operators: ['eq'], options: [{ value: 'A', label: 'A类' }], allow_custom: true, source: '用户直接设定' }
+    const request = compile([configured('conditional', { field: definition.key, op: 'eq', value: 'custom' }, [], [definition])])
+    expect(request.fields.find((field: any) => field.key === definition.key).options).toEqual([{ value: 'A', label: 'A类' }])
+    expect(request.factor_dictionary.fields.find((field: any) => field.key === definition.key).options).toEqual([{ value: 'A', label: 'A类' }])
+  })
+  it('keeps nonmatching registry options available for configuration inputs', () => {
+    const fields = baseConditionFields()
+    fields[0].allow_custom = false
+    fields[0].options = [{ value: '9Cr18', label: '9Cr18' }, { value: 'other', label: '其他' }]
+    const request = buildCompileRequestFromCards({ projectId: 11, packageName: 'generic-config', cards: [configured('conditional', { field: 'material.grade', op: 'eq', value: '9Cr18' })], displayName: segment => segment.normalized_step_name, phaseLabel: () => 'surface', primarySteps: () => [], attachedSteps: () => [], conditionFields: fields })
+    expect(request.fields.find(field => field.key === 'material.grade')?.options).toEqual([{ value: '9Cr18', label: '9Cr18' }, { value: 'other', label: '其他' }])
+  })
+  it('removes unused requirement tags when another process uses a manual switch', () => {
+    const manual = configured('manual', null)
+    manual.segment.id = 'process_ndt'
+    manual.segment.normalized_step_name = '无损检查'
+    const definition = { key: 'project_factor.manual_process_ndt', label: '是否需要无损检查', category: '项目', type: 'boolean', operators: ['eq'], options: [], source: '用户直接设定' }
+    manual.conditionReview.confirmed.configuration = { process_id: 'process_ndt', occurrence: 'manual', when: { field: definition.key, op: 'eq', value: true }, relations: [] }
+    manual.conditionReview.confirmed.field_definitions = [definition]
+    const request = compile([
+      configured('conditional', { not: { field: 'special.requirements', op: 'contains', value: '禁止除铜' } }),
+      manual,
+    ])
+    expect(request.fields.find((field: any) => field.key === 'special.requirements')?.options).toEqual([{ value: '禁止除铜', label: '禁止除铜' }])
+    expect(request.fields.find((field: any) => field.key === definition.key)?.label).toBe('是否需要无损检查')
+    expect(request.factor_dictionary.fields.find((field: any) => field.key === 'special.requirements')?.options).toEqual([{ value: '禁止除铜', label: '禁止除铜' }])
+  })
+  it('rejects confirmation recognition when configuration controls a different process', () => {
+    const card = configured('conditional', { field: 'material.grade', op: 'eq', value: '9Cr18' })
+    card.conditionReview.confirmed.configuration.process_id = 'another-process'
+    expect(hasCurrentConfirmedUserRule(card)).toBe(false)
+    expect(exportBlockingCards([card])).toEqual([card])
+  })
+})
+
+it('includes configured conditions and relationships in the published rule document', async () => {
+  const { buildRuleReportFromV2Package } = await import('./finalizeRulePackage')
+  const report = buildRuleReportFromV2Package({ projectName: '测试', packageName: '规则', contentHash: 'hash', processes: [{ process_id: 'copper', display_name: '镀铜' }, { process_id: 'strip', display_name: '除铜' }], rules: [], processConfigurations: [{ process_id: 'strip', occurrence: 'conditional', when: { field: 'material.grade', op: 'eq', value: '9Cr18' }, relations: [{ relation_type: 'trigger_after', source_process_ids: ['copper'], target_process_ids: ['strip'], source_match: 'all' }] }], conditionFields: baseConditionFields() } as any)
+  expect(report).toContain('工序规则配置：1')
+  expect(report).toContain('材料牌号 等于 9Cr18')
+  expect(report).toContain('镀铜出现后，生成除铜并排在其后')
 })

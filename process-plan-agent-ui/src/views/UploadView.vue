@@ -144,8 +144,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, ref, onMounted, onActivated, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import UploadMainFileCard from '@/components/upload/UploadMainFileCard.vue'
 import UploadProjectBoard from '@/components/upload/UploadProjectBoard.vue'
 import UploadReferenceCard from '@/components/upload/UploadReferenceCard.vue'
@@ -158,6 +158,7 @@ import {
   setStoredCurrentProjectId,
 } from '@/composables/useCurrentProject'
 import { clearProjectQuestionTreeStorage } from '@/composables/analysisQuestionTreeState'
+import { refreshWorkflowNavigation } from '@/composables/workflowNavigation'
 import {
   formatRequestError,
   formatTime,
@@ -172,6 +173,7 @@ defineOptions({
 })
 
 const router = useRouter()
+const route = useRoute()
 const deleteDialogVisible = ref(false)
 const projectToDelete = ref<any>(null)
 const createDialogVisible = ref(false)
@@ -183,6 +185,10 @@ const lastCreateProjectAt = ref(0)
 const uploading = ref(false)
 const uploadingRef = ref(false)
 const deletingProject = ref(false)
+const loadingFiles = ref(false)
+let loadRequestId = 0
+let initializeRequestId = 0
+const resolvingProject = ref(false)
 const showReferencePanel = false
 
 const projects = ref<any[]>([])
@@ -194,52 +200,104 @@ const visibleProjects = computed(() =>
     .filter((project) => !isSystemSeedProject(project))
 )
 
-onMounted(async () => {
-  await ensureProjectReady()
-  await loadData()
+let uploadInitialized = false
+async function initializeUploadView() {
+  const requestId = ++initializeRequestId
+  let routeProjectId = String(route.query.project_id || '')
+  const isCurrent = () => requestId === initializeRequestId
+    && route.path === '/upload' && String(route.query.project_id || '') === routeProjectId
+  resolvingProject.value = true
+  loadingFiles.value = true
+  mainFiles.value = []
+  refFiles.value = []
+  try {
+    await ensureProjectReady(isCurrent, (projectId) => { routeProjectId = projectId })
+    if (!isCurrent()) return
+    await loadData(true)
+  } catch (e) {
+    if (isCurrent()) {
+      selectedProjectId.value = ''
+      clearStoredCurrentProjectId()
+      alert(formatRequestError(e, '加载任务列表失败，请刷新重试'))
+    }
+  } finally {
+    if (requestId === initializeRequestId) {
+      resolvingProject.value = false
+      loadingFiles.value = false
+      uploadInitialized = true
+    }
+  }
+}
+onMounted(initializeUploadView)
+onActivated(() => {
+  if (uploadInitialized && route.path === '/upload') void initializeUploadView()
+})
+watch(() => route.query.project_id, () => {
+  if (route.path !== '/upload') return
+  const target = String(route.query.project_id || '')
+  if (target !== selectedProjectId.value) void initializeUploadView()
 })
 
+async function syncProjectRoute(projectId: string) {
+  if (route.path !== '/upload' || String(route.query.project_id || '') === projectId) return
+  await router.replace({
+    path: '/upload', query: buildProjectRouteQuery(projectId) || {},
+  }).catch((e) => console.error('同步当前任务地址失败', e))
+}
+
+async function refreshProjectMilestones(projectId: string) {
+  if (selectedProjectId.value !== projectId) return
+  try { await refreshWorkflowNavigation(Number(projectId)) }
+  catch (e) { console.error('刷新流程进度失败', e) }
+}
+
 async function loadData(forceRefresh = false) {
-  if (!selectedProjectId.value) {
+  const requestId = ++loadRequestId
+  const projectId = selectedProjectId.value
+  const isCurrent = () => requestId === loadRequestId && selectedProjectId.value === projectId
+  loadingFiles.value = true
+  if (!projectId) {
     mainFiles.value = []
     refFiles.value = []
   }
-
   try {
-    projects.value = sortProjects(await listProjects())
+    const updatedProjects = sortProjects(await listProjects())
+    if (!isCurrent()) return
+    projects.value = updatedProjects
+    if (!projectId) return
+    if (!updatedProjects.some(project => String(project.id) === projectId)) {
+      selectedProjectId.value = ''
+      clearStoredCurrentProjectId()
+      mainFiles.value = []
+      refFiles.value = []
+      return
+    }
+    const [documents, references] = await Promise.all([
+      listDocuments(Number(projectId), forceRefresh),
+      listReferences(Number(projectId), forceRefresh),
+    ])
+    if (!isCurrent()) return
+    mainFiles.value = documents
+    refFiles.value = references
   } catch (e) {
-    console.error('刷新任务状态失败', e)
-  }
-
-  if (!selectedProjectId.value) return
-
-  const current = projects.value.find(project => String(project.id) === selectedProjectId.value)
-  if (!current) {
-    selectedProjectId.value = ''
-    clearStoredCurrentProjectId()
+    if (!isCurrent()) return
+    console.error('加载任务资料失败', e)
     mainFiles.value = []
     refFiles.value = []
-    return
-  }
-
-  try {
-    mainFiles.value = await listDocuments(Number(selectedProjectId.value), forceRefresh)
-  } catch (e) {
-    console.error('加载工艺规程文件失败', e)
-    mainFiles.value = []
-  }
-
-  try {
-    refFiles.value = await listReferences(Number(selectedProjectId.value), forceRefresh)
-  } catch (e) {
-    console.error('加载参考资料失败', e)
-    refFiles.value = []
+    alert(formatRequestError(e, '加载任务资料失败，请重试'))
+  } finally {
+    if (requestId === loadRequestId) loadingFiles.value = false
   }
 }
 
-async function ensureProjectReady() {
-  projects.value = sortProjects(await listProjects())
-  const savedId = getStoredCurrentProjectId()
+async function ensureProjectReady(
+  isCurrent: () => boolean = () => true,
+  expectProjectRoute: (projectId: string) => void = () => {},
+) {
+  const available = sortProjects(await listProjects())
+  if (!isCurrent()) return
+  projects.value = available
+  const savedId = String(route.query.project_id || getStoredCurrentProjectId())
   const current = projects.value.find((project) =>
     String(project.id) === savedId
     && !isSystemSeedProject(project),
@@ -247,10 +305,14 @@ async function ensureProjectReady() {
   if (current) {
     selectedProjectId.value = String(current.id)
     setStoredCurrentProjectId(selectedProjectId.value)
+    expectProjectRoute(selectedProjectId.value)
+    await syncProjectRoute(selectedProjectId.value)
     return
   }
   selectedProjectId.value = ''
   clearStoredCurrentProjectId()
+  expectProjectRoute('')
+  await syncProjectRoute('')
 }
 
 function createNewProject() {
@@ -280,6 +342,7 @@ async function executeCreateProject() {
     ])
     selectedProjectId.value = String(project.id)
     setStoredCurrentProjectId(selectedProjectId.value)
+    syncProjectRoute(selectedProjectId.value)
     mainFiles.value = []
     refFiles.value = []
     try {
@@ -294,6 +357,8 @@ async function executeCreateProject() {
     }
   } catch (e: any) {
     console.error('创建任务失败', e)
+    lastCreateProjectKey.value = ''
+    lastCreateProjectAt.value = 0
     createDialogVisible.value = true
     alert(formatRequestError(e, '创建任务失败，请检查后端服务后重试'))
   } finally {
@@ -303,8 +368,13 @@ async function executeCreateProject() {
 }
 
 async function selectProject(projectId: number) {
+  initializeRequestId += 1
+  resolvingProject.value = false
+  mainFiles.value = []
+  refFiles.value = []
   selectedProjectId.value = String(projectId)
   setStoredCurrentProjectId(selectedProjectId.value)
+  syncProjectRoute(selectedProjectId.value)
   await loadData(true)
 }
 
@@ -320,14 +390,15 @@ async function executeDeleteProject() {
   const projectId = projectToDelete.value.id
   deletingProject.value = true
   try {
-    clearProjectQuestionTreeStorage(projectId)
     await deleteProject(projectId)
+    clearProjectQuestionTreeStorage(projectId)
     deleteDialogVisible.value = false
     projects.value = projects.value.filter(p => p.id !== projectId)
 
     if (selectedProjectId.value === String(projectId)) {
       selectedProjectId.value = ''
       clearStoredCurrentProjectId()
+      syncProjectRoute('')
     }
 
     projects.value = sortProjects(await listProjects())
@@ -342,12 +413,12 @@ async function executeDeleteProject() {
 }
 
 const currentMainTitle = computed(() => '典型工艺规程文件')
-const currentMainDesc = computed(() => '支持 PDF / Word / Excel / JSON，可一次上传多份')
+const currentMainDesc = computed(() => '支持 PDF / DOCX / XLSX / 工艺路线 JSON，可一次上传多份；旧版 DOC / XLS 请先另存为 DOCX / XLSX。')
 const currentRefTitle = computed(() => '参考资料')
 const currentRefDesc = computed(() => '老工艺师经验、背景说明、工艺编制原则等补充知识')
 const canCreateProject = computed(() => Boolean(newProjectName.value.trim()))
 const canEnterExtract = computed(() =>
-  Boolean(selectedProjectId.value) && mainFiles.value.length > 0 && !uploading.value
+  Boolean(selectedProjectId.value) && mainFiles.value.length > 0 && !uploading.value && !loadingFiles.value && !resolvingProject.value
 )
 const uploadNavSummary = computed(() => {
   if (!selectedProjectId.value) return '请先创建或选择任务，再上传工艺规程文件。'
@@ -357,14 +428,14 @@ const uploadNavSummary = computed(() => {
 })
 
 async function doUpload(files: File[]) {
+  const projectId = selectedProjectId.value
+  if (!projectId || uploading.value || resolvingProject.value) return
   uploading.value = true
   try {
-    clearProjectQuestionTreeStorage(selectedProjectId.value)
-    const uploaded = await uploadDocuments(files, Number(selectedProjectId.value))
-    if (Array.isArray(uploaded) && uploaded.length > 0) {
-      mainFiles.value = [...uploaded, ...mainFiles.value]
-    }
-    await loadData()
+    await uploadDocuments(files, Number(projectId))
+    clearProjectQuestionTreeStorage(projectId)
+    await refreshProjectMilestones(projectId)
+    if (selectedProjectId.value === projectId) await loadData(true)
   } catch (e) {
     console.error('上传失败', e)
     alert(formatRequestError(e, '上传失败'))
@@ -374,14 +445,14 @@ async function doUpload(files: File[]) {
 }
 
 async function doRefUpload(files: File[]) {
+  const projectId = selectedProjectId.value
+  if (!projectId || uploadingRef.value || resolvingProject.value) return
   uploadingRef.value = true
   try {
-    clearProjectQuestionTreeStorage(selectedProjectId.value)
-    const uploaded = await uploadReferences(files, Number(selectedProjectId.value))
-    if (Array.isArray(uploaded) && uploaded.length > 0) {
-      refFiles.value = [...uploaded, ...refFiles.value]
-    }
-    await loadData()
+    await uploadReferences(files, Number(projectId))
+    clearProjectQuestionTreeStorage(projectId)
+    await refreshProjectMilestones(projectId)
+    if (selectedProjectId.value === projectId) await loadData(true)
   } catch (e) {
     console.error('上传参考资料失败', e)
     alert(formatRequestError(e, '上传参考资料失败'))
@@ -391,29 +462,42 @@ async function doRefUpload(files: File[]) {
 }
 
 const saveRef = async (payload: { title: string; content: string }) => {
+  const projectId = selectedProjectId.value
   const content = payload.content.trim()
   const title = payload.title.trim() || '补充要求'
-  if (!content) return
-  clearProjectQuestionTreeStorage(selectedProjectId.value)
-  await createReference({
-    project_id: Number(selectedProjectId.value),
-    title: title,
-    content: content,
-    ref_type: 'written'
-  })
-  await loadData()
+  if (!projectId || !content) return
+  try {
+    await createReference({ project_id: Number(projectId), title, content, ref_type: 'written' })
+    clearProjectQuestionTreeStorage(projectId)
+    await refreshProjectMilestones(projectId)
+    if (selectedProjectId.value === projectId) await loadData(true)
+  } catch (e) {
+    alert(formatRequestError(e, '保存参考资料失败'))
+  }
 }
 
 const removeDoc = async (id: number) => {
-  clearProjectQuestionTreeStorage(selectedProjectId.value)
-  await deleteDocument(id)
-  await loadData()
+  const projectId = selectedProjectId.value
+  try {
+    await deleteDocument(id)
+    clearProjectQuestionTreeStorage(projectId)
+    await refreshProjectMilestones(projectId)
+    if (selectedProjectId.value === projectId) await loadData(true)
+  } catch (e) {
+    alert(formatRequestError(e, '删除文件失败，请重试'))
+  }
 }
 
 const removeRef = async (id: number) => {
-  clearProjectQuestionTreeStorage(selectedProjectId.value)
-  await deleteReference(id)
-  await loadData()
+  const projectId = selectedProjectId.value
+  try {
+    await deleteReference(id)
+    clearProjectQuestionTreeStorage(projectId)
+    await refreshProjectMilestones(projectId)
+    if (selectedProjectId.value === projectId) await loadData(true)
+  } catch (e) {
+    alert(formatRequestError(e, '删除参考资料失败，请重试'))
+  }
 }
 
 const goNext = async () => {

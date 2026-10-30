@@ -8,7 +8,8 @@
         <div class="ash-meta-section">
           <span class="ash-meta-item">路线版本 <strong>V{{ savedRoute?.version || '-' }}</strong></span>
           <span class="ash-meta-item" v-if="lastExportedRulePackageVersion">规则包 <strong>V{{ lastExportedRulePackageVersion }}</strong></span>
-          <span class="ash-meta-item ash-meta-stale" v-else-if="outdatedRulePackageVersion">规则包 V{{ outdatedRulePackageVersion }} <strong>已过期</strong></span>
+          <span class="ash-meta-item ash-meta-stale" v-else-if="outdatedRulePackageVersion">规则包 V{{ outdatedRulePackageVersion }} <strong>有未发布修改</strong></span>
+          <span v-if="hasUnsavedEdits" class="ash-meta-item ash-meta-stale"><strong>未保存 {{ unsavedCards.length }} 项</strong></span>
           <span v-if="reviewableRuleCount" class="ash-review-progress">
             <span>已确认 <strong>{{ confirmedRuleCount }}/{{ reviewableRuleCount }}</strong></span>
           </span>
@@ -16,14 +17,16 @@
         </div>
 
         <button
-          v-if="precheckResult && !precheckResult.ok && canOpenPrecheck"
+          v-if="precheckResult && canOpenPrecheck"
           type="button"
-          class="ash-publish-state ash-publish-state--blocked ash-publish-state--clickable"
+          class="ash-publish-state ash-publish-state--clickable"
+          :class="{ 'ash-publish-state--blocked': !precheckResult.ok }"
           title="查看发布预检明细"
           @click="openPrecheckDialog"
         >
           <span class="ash-publish-state-dot" aria-hidden="true"></span>
-          <strong>预检待修复 {{ precheckBlockerCount }} 项</strong>
+          <strong v-if="!precheckResult.ok">预检待修复 {{ precheckBlockerCount }} 项</strong>
+          <strong v-else>查看交付明细</strong>
         </button>
       </div>
 
@@ -34,8 +37,8 @@
         <button
           class="ash-quiet-action"
           type="button"
-          title="重新识别全部工序规则"
-          aria-label="重新识别全部工序规则"
+          title="重新识别尚未确认的工序规则"
+          aria-label="重新识别尚未确认的工序规则"
           @click="openResetDialog"
           :disabled="loading || resettingWorkflow || batchParsing || batchReviewing || exportingRulePackage || !savedRoute"
         >重新识别</button>
@@ -177,13 +180,15 @@
           @toggle-selected="toggleRuleSelection"
           :set-inline-textarea-ref="setInlineTextareaRef"
           @reset="handleResetInlineEdit"
-          @start-edit="startInlineEdit"
+          @start-edit="handleStartInlineEdit"
           @cancel="cancelInlineEdit"
           @save="handleSaveInlineEdit"
           @parse-condition="handleParseCondition"
           @confirm-condition="handleConfirmCondition"
+          @edit-state="setRuleEditState"
           @set-mainline="handleSetMainline"
           @set-boolean="handleSetBoolean"
+          @save-configuration="handleSaveConfiguration"
           @update:inline-editing-text="inlineEditingText = $event"
         />
       </section>
@@ -194,7 +199,7 @@
       previous-label="← 返回模板映射"
       next-label="进入规则包验证 →"
       :previous-disabled="!projectId"
-      :next-disabled="!projectId || !lastExportedRulePackageVersion"
+      :next-disabled="!projectId || !lastExportedRulePackageVersion || hasUnsavedEdits"
       @previous="goToTemplateMapping"
       @next="goToGenerate"
     />
@@ -276,8 +281,8 @@ import { getTemplateMappingStatus } from '@/composables/projectGroupTemplateChec
 import { buildFinalTemplateMappingOperations } from '@/composables/finalTemplateMappingOperations'
 import { ruleFinalizeResetCopy } from '@/composables/workflowResetCopy'
 
-import { computed, nextTick, onActivated, onDeactivated, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import FinalizeRouteNav from '@/components/finalize/FinalizeRouteNav.vue'
 import FinalizePublishPrecheckDialog from '@/components/finalize/FinalizePublishPrecheckDialog.vue'
 import { nextPendingSegmentId } from '@/utils/finalizeRulePresentation'
@@ -304,6 +309,7 @@ import {
   saveRuleConditionDraft,
   startRulePreprocessing,
   setManualRuleCondition,
+  saveProcessConfiguration,
   type CanonicalConditionField,
   type RuleConditionCandidate,
   type RuleConditionProcessOption,
@@ -321,6 +327,7 @@ import {
 import { openFinalizePrecheckDialog } from '@/composables/finalizePrecheckDialog'
 import type { FinalizeCard } from '@/composables/finalizeViewHelpers'
 import { useFinalizeDrafts } from '@/composables/useFinalizeDrafts'
+import { useFinalizeUnsavedEdits } from '@/composables/useFinalizeUnsavedEdits'
 import { useFinalizeRulePackageExport } from '@/composables/useFinalizeRulePackageExport'
 import { useRouteSegmentSteps } from '@/composables/useRouteSegmentSteps'
 import { buildRulePreprocessFailureSummary, buildRulePreprocessingTriggerKey } from '@/composables/rulePreprocessingTrigger'
@@ -338,6 +345,7 @@ import {
   exportBlockedReasonLabel,
   groupExportBlockedCards,
   finalizeRuleMode,
+  isExplicitMainlineInstruction,
   hasCurrentConfirmedUserRule,
   normalizeExportProcessName,
   requiresServerRuleConditionRefresh,
@@ -379,7 +387,8 @@ const preprocessFailureSummary = computed(() => buildRulePreprocessFailureSummar
 const precheckResult = ref<RulePackagePrecheckResult | null>(null)
 const showPrecheckDialog = ref(false)
 let preprocessPollTimer: ReturnType<typeof window.setTimeout> | null = null
-let preprocessRefreshInFlight = false
+let preprocessRefreshInFlight: symbol | null = null
+let preprocessEpoch = 0
 let lastRulePreprocessTriggerKey = ''
 const reviewAndExporting = ref(false)
 const batchNotice = ref('')
@@ -419,14 +428,13 @@ const {
 const {
   cancelInlineEdit,
   clearAllDrafts,
+  clearPersistedDraft,
   drafts,
   inlineEditingSegmentId,
   inlineEditingText,
   persistDrafts,
   readDrafts,
   resetInlineEdit,
-  saveInlineEdit,
-  setConditionTextDraft,
   setInlineTextareaRef,
   startInlineEdit,
 } = useFinalizeDrafts(projectId)
@@ -437,12 +445,22 @@ const segmentCards = computed(() => {
   return buildFinalizeCards(routeData.segments, operations.value, drafts.value)
 })
 
+const { unsavedCards, hasUnsavedEdits, setRuleEditState, clearRuleEditStates } = useFinalizeUnsavedEdits(
+  segmentCards, inlineEditingSegmentId, inlineEditingText,
+)
+
 const conditionalCards = computed(() => segmentCards.value.filter(item => finalizeRuleMode(item) === 'conditional'))
 const relationCards = computed(() => segmentCards.value.filter(item => finalizeRuleMode(item) === 'relation'))
 const reviewableCards = computed(() => [...conditionalCards.value, ...relationCards.value])
 const reviewableRuleCount = computed(() => reviewableCards.value.length)
 const unresolvedRuleCount = computed(() => segmentCards.value.filter(item => finalizeRuleMode(item) === 'unresolved').length)
-const reviewFocusCards = computed(() => exportBlockingCards(segmentCards.value))
+const reviewFocusCards = computed(() => {
+  const pendingIds = new Set([
+    ...exportBlockingCards(segmentCards.value).map(item => item.segment.id),
+    ...unsavedCards.value.map(item => item.segment.id),
+  ])
+  return segmentCards.value.filter(item => pendingIds.has(item.segment.id))
+})
 const visibleSegments = computed(() => onlyPending.value ? reviewFocusCards.value : segmentCards.value)
 const batchEligibleCards = computed(() => reviewableCards.value.filter((item) => {
   return requiresServerRuleConditionRefresh(item)
@@ -450,7 +468,8 @@ const batchEligibleCards = computed(() => reviewableCards.value.filter((item) =>
 const pendingReviewCards = computed(() => reviewableCards.value.filter((item) => {
   const review = item.conditionReview
   const expectedKind = finalizeRuleMode(item) === 'relation' ? 'process_relation' : 'condition'
-  return review?.status === 'pending_confirmation'
+  return !unsavedCards.value.some(card => card.segment.id === item.segment.id)
+    && review?.status === 'pending_confirmation'
     && review.source_text.trim() === item.conditionText.trim()
     && Boolean(review.candidate && review.source_hash)
     && (review.candidate?.kind || 'condition') === expectedKind
@@ -463,7 +482,9 @@ const precheckBlockerCount = computed(() => {
 const canOpenPrecheck = computed(() => publishBlockingCount.value === 0 && Boolean(precheckResult.value))
 const selectedReviewCards = computed(() => pendingReviewCards.value.filter(item => selectedRuleIds.value.has(item.segment.id)))
 const allPendingSelected = computed(() => pendingReviewCards.value.length > 0 && selectedReviewCards.value.length === pendingReviewCards.value.length)
-const confirmedRuleCount = computed(() => reviewableCards.value.filter(hasCurrentConfirmedUserRule).length)
+const confirmedRuleCount = computed(() => reviewableCards.value.filter(item => (
+  hasCurrentConfirmedUserRule(item) && !unsavedCards.value.some(card => card.segment.id === item.segment.id)
+)).length)
 function toggleRuleSelection(item: FinalizeCard) {
   const ids = new Set(selectedRuleIds.value)
   if (ids.has(item.segment.id)) ids.delete(item.segment.id)
@@ -505,6 +526,7 @@ const finalizeNavSummary = computed(() => {
   if (loading.value) return '正在装载第四步定稿结果。'
   if (error.value) return '当前没有可预览的定稿结果，请返回规则分析。'
   if (!segmentCards.value.length) return '当前没有可展示的工序，请先在第三步完成至少一版规则分析结果。'
+  if (hasUnsavedEdits.value) return `有 ${unsavedCards.value.length} 项未保存，请先保存或取消修改后再发布。`
   if (unresolvedRuleCount.value) return `还有 ${unresolvedRuleCount.value} 道工序需要补充具体条件。`
   if (readyRuleCount.value < reviewableRuleCount.value) {
     if (batchParsing.value) {
@@ -514,7 +536,7 @@ const finalizeNavSummary = computed(() => {
   }
   if (reviewFocusCards.value.length) return `已确认 ${confirmedRuleCount.value}/${reviewableRuleCount.value} 条规则，请核对剩余待处理项。`
   if (precheckResult.value && !precheckResult.value.ok) return `发布预检有 ${precheckBlockerCount.value} 项待修复，请查看预检结果并处理。`
-  if (outdatedRulePackageVersion.value) return `规则内容已有变化，原规则包 V${outdatedRulePackageVersion.value} 已过期，请重新完成定稿并发布。`
+  if (outdatedRulePackageVersion.value) return `有未发布修改，当前发布版本仍为 V${outdatedRulePackageVersion.value}，请确认修改后重新发布。`
   if (!lastExportedRulePackageVersion.value) return '规则已全部确认，可发布规则包。'
   return `规则包 V${lastExportedRulePackageVersion.value} 已就绪，可进入规则包验证与路线生成。`
 })
@@ -578,6 +600,14 @@ function hasCurrentConditionText(segmentId: string, sourceText: string) {
   return current?.conditionText.trim() === sourceText.trim()
 }
 
+function isRuleWorkspaceCurrent(requestProject: number, requestRoute: number, requestRevision: number) {
+  const reset = workflowResetSignal.value
+  return projectId.value === requestProject
+    && savedRoute.value?.route_id === requestRoute
+    && savedRoute.value?.workflow_revision === requestRevision
+    && (!reset || reset.projectId !== requestProject || reset.workflowRevision <= requestRevision)
+}
+
 function applyConditionReview(segmentId: string, review: RuleConditionReview) {
   const segment = savedRoute.value?.segments.find(item => item.id === segmentId)
   if (!segment) return
@@ -610,6 +640,10 @@ function isConditionSourceConflict(err: any) {
 
 async function handleWorkflowRevisionConflict(err: any) {
   if (!isWorkflowRevisionConflict(err)) return false
+  if (hasUnsavedEdits.value) {
+    showFinalizeNotice('页面状态已过期', '上游步骤已经重新处理。当前未保存修改仍保留，请先复制备份或取消修改，再刷新结果。')
+    return true
+  }
   showFinalizeNotice('页面状态已过期', '上游步骤已经重新处理，系统正在加载最新结果。')
   if (!workflowConflictReload) {
     workflowConflictReload = loadWorkspace(true).finally(() => {
@@ -629,31 +663,85 @@ function markExportedRulePackageOutdated() {
 }
 
 async function handleSaveInlineEdit(item: ReturnType<typeof buildFinalizeCards>[number]) {
+  if (!projectId.value || !savedRoute.value || conditionBusySegmentIds.value.has(item.segment.id)) return
   const sourceText = inlineEditingText.value.trim()
-  const changed = saveInlineEdit(item)
-  if (!changed) return
-  markExportedRulePackageOutdated()
+  if (sourceText === item.conditionText.trim()) { cancelInlineEdit(); return }
+  if (!sourceText) return
+  const requestProject = projectId.value
+  const requestRoute = savedRoute.value.route_id
+  const requestRevision = savedRoute.value.workflow_revision
+  const requestIsCurrent = () => isRuleWorkspaceCurrent(requestProject, requestRoute, requestRevision)
+  delete conditionErrors.value[item.segment.id]
   setConditionBusy(item.segment.id, true)
   try {
+    const response = await saveRuleConditionDraft({
+      project_id: requestProject,
+      route_id: requestRoute,
+      expected_workflow_revision: requestRevision,
+      segment_id: item.segment.id,
+      source_text: sourceText,
+    })
+    if (!requestIsCurrent()) return
+    markExportedRulePackageOutdated()
+    applyConditionReview(item.segment.id, response.review)
+    clearPersistedDraft(item.segment.id)
+    if (inlineEditingSegmentId.value === item.segment.id && inlineEditingText.value.trim() === sourceText) cancelInlineEdit()
+    if (isExplicitMainlineInstruction(sourceText, normalizeExportProcessName(finalizeSegmentDisplayName(item.segment)))) {
+      setBatchNotice('主线安排已保存，有未发布修改。')
+      return
+    }
     await nextTick()
     const parsed = await parseConditionItem(item, false, sourceText)
-    if (parsed) setBatchNotice('修改已保存并识别，请核对后确认规则。')
+    setBatchNotice(parsed ? '修改已保存并识别，请核对后确认规则。' : '原文已保存，识别尚未完成，请稍后重试。')
   } catch (err: any) {
-    showFinalizeNotice('规则识别失败', '修改内容已保存在本机草稿，请稍后重试识别。', conditionErrorMessage(err))
+    if (!requestIsCurrent()) return
+    if (await handleWorkflowRevisionConflict(err)) return
+    conditionErrors.value[item.segment.id] = `保存失败，修改尚未保存：${conditionErrorMessage(err)}`
+    showFinalizeNotice('规则保存失败', '修改内容仍在编辑框中，请重试保存。', conditionErrorMessage(err))
   } finally {
     setConditionBusy(item.segment.id, false)
   }
 }
 
+async function handleStartInlineEdit(item: FinalizeCard) {
+  const editingAnotherItem = inlineEditingSegmentId.value && inlineEditingSegmentId.value !== item.segment.id
+  if (editingAnotherItem && unsavedCards.value.some(card => card.segment.id === inlineEditingSegmentId.value)) {
+    setBatchNotice('请先保存或取消正在编辑的原文，再修改另一条规则。')
+    await locateBlockedCard(inlineEditingSegmentId.value!)
+    return
+  }
+  startInlineEdit(item)
+}
+
 async function handleResetInlineEdit(item: ReturnType<typeof buildFinalizeCards>[number]) {
-  resetInlineEdit(item)
-  markExportedRulePackageOutdated()
+  if (!projectId.value || !savedRoute.value || conditionBusySegmentIds.value.has(item.segment.id)) return
+  const requestProject = projectId.value
+  const requestRoute = savedRoute.value.route_id
+  const requestRevision = savedRoute.value.workflow_revision
+  const requestIsCurrent = () => isRuleWorkspaceCurrent(requestProject, requestRoute, requestRevision)
   setConditionBusy(item.segment.id, true)
   try {
+    const response = await saveRuleConditionDraft({
+      project_id: requestProject,
+      route_id: requestRoute,
+      expected_workflow_revision: requestRevision,
+      segment_id: item.segment.id,
+      source_text: item.defaultConditionText,
+    })
+    if (!requestIsCurrent()) return
+    resetInlineEdit(item)
+    applyConditionReview(item.segment.id, response.review)
+    markExportedRulePackageOutdated()
+    if (isExplicitMainlineInstruction(item.defaultConditionText, normalizeExportProcessName(finalizeSegmentDisplayName(item.segment)))) {
+      setBatchNotice('默认主线安排已恢复，请重新发布规则包。')
+      return
+    }
     await nextTick()
     await parseConditionItem(item, false, item.defaultConditionText)
   } catch (err: any) {
-    showFinalizeNotice('规则识别失败', '默认条件已恢复，请稍后重试识别。', conditionErrorMessage(err))
+    if (!requestIsCurrent()) return
+    if (await handleWorkflowRevisionConflict(err)) return
+    showFinalizeNotice('恢复默认失败', '请稍后重试，当前修改仍然保留。', conditionErrorMessage(err))
   } finally {
     setConditionBusy(item.segment.id, false)
   }
@@ -669,25 +757,28 @@ async function parseConditionItem(
   delete conditionErrors.value[item.segment.id]
   const requestProject = projectId.value
   const requestRoute = savedRoute.value.route_id
+  const requestRevision = savedRoute.value.workflow_revision
+  const requestIsCurrent = () => isRuleWorkspaceCurrent(requestProject, requestRoute, requestRevision)
   setConditionBusy(item.segment.id, true)
   try {
     const response = await parseRuleCondition({
       project_id: projectId.value,
       route_id: savedRoute.value.route_id,
-      expected_workflow_revision: savedRoute.value.workflow_revision,
+      expected_workflow_revision: requestRevision,
       segment_id: item.segment.id,
       source_text: sourceText,
       process_id: exportProcessIdForItem(item),
       process_name: normalizeExportProcessName(finalizeSegmentDisplayName(item.segment)),
       processes: conditionProcessOptions.value,
     })
-    if (!isCurrent() || projectId.value !== requestProject || savedRoute.value?.route_id !== requestRoute || !hasCurrentConditionText(item.segment.id, sourceText)) return false
+    if (!isCurrent() || !requestIsCurrent() || !hasCurrentConditionText(item.segment.id, sourceText)) return false
     applyConditionReview(item.segment.id, response.review)
     return response.review.status !== 'invalid'
   } catch (err: any) {
+    if (!isCurrent() || !requestIsCurrent()) return false
     if (await handleWorkflowRevisionConflict(err)) return false
     if (isCurrent() && projectId.value === requestProject && hasCurrentConditionText(item.segment.id, sourceText)) {
-      conditionErrors.value[item.segment.id] = `识别失败，描述保留为本机草稿：${conditionErrorMessage(err)}`
+      conditionErrors.value[item.segment.id] = `识别失败，已保存的原文仍然保留：${conditionErrorMessage(err)}`
     }
     if (showError) {
       console.error('条件候选规则生成失败', err)
@@ -777,17 +868,18 @@ async function handleConfirmCondition(
   // A quick confirm and a background candidate refresh must not submit two
   // versions of the same card at once.
   if (conditionBusySegmentIds.value.has(item.segment.id)) return
-  markExportedRulePackageOutdated()
   delete conditionErrors.value[item.segment.id]
   const requestProject = projectId.value
   const requestRoute = savedRoute.value.route_id
+  const requestRevision = savedRoute.value.workflow_revision
+  const requestIsCurrent = () => isRuleWorkspaceCurrent(requestProject, requestRoute, requestRevision)
   const requestSource = item.conditionText
   setConditionBusy(item.segment.id, true)
   try {
     const response = await confirmRuleCondition({
       project_id: projectId.value,
       route_id: savedRoute.value.route_id,
-      expected_workflow_revision: savedRoute.value.workflow_revision,
+      expected_workflow_revision: requestRevision,
       segment_id: item.segment.id,
       source_text: item.conditionText,
       source_hash: item.conditionReview.source_hash,
@@ -795,12 +887,13 @@ async function handleConfirmCondition(
       processes: conditionProcessOptions.value,
       confirmed_by: '默认用户',
     })
-    if (projectId.value !== requestProject || savedRoute.value?.route_id !== requestRoute || !hasCurrentConditionText(item.segment.id, requestSource)) return false
+    if (!requestIsCurrent() || !hasCurrentConditionText(item.segment.id, requestSource)) return false
     applyConditionReview(item.segment.id, response.review)
     if (response.review.status !== 'confirmed') {
       conditionErrors.value[item.segment.id] = '规则尚未确认，请核对后重试。'
       return false
     }
+    markExportedRulePackageOutdated()
     selectedRuleIds.value.delete(item.segment.id)
     if (advance) {
       const nextId = nextPendingSegmentId(segmentCards.value, reviewFocusCards.value, item.segment.id)
@@ -809,6 +902,7 @@ async function handleConfirmCondition(
     }
     return true
   } catch (err: any) {
+    if (!requestIsCurrent()) return false
     if (await handleWorkflowRevisionConflict(err)) return
     if (isConditionSourceConflict(err)) {
       const refreshed = await parseConditionItem(item, false)
@@ -824,24 +918,69 @@ async function handleConfirmCondition(
   }
 }
 
+async function handleSaveConfiguration(
+  item: ReturnType<typeof buildFinalizeCards>[number],
+  candidate: RuleConditionCandidate,
+) {
+  if (!projectId.value || !savedRoute.value || !candidate.configuration || conditionBusySegmentIds.value.has(item.segment.id)) return
+  const requestProject = projectId.value
+  const requestRoute = savedRoute.value.route_id
+  const requestRevision = savedRoute.value.workflow_revision
+  const requestSource = item.conditionText
+  const requestIsCurrent = () => isRuleWorkspaceCurrent(requestProject, requestRoute, requestRevision)
+  delete conditionErrors.value[item.segment.id]
+  setConditionBusy(item.segment.id, true)
+  try {
+    const response = await saveProcessConfiguration({
+      project_id: requestProject, route_id: requestRoute, expected_workflow_revision: requestRevision,
+      segment_id: item.segment.id, process_id: exportProcessIdForItem(item),
+      source_text: candidate.preview || item.conditionText, candidate, processes: conditionProcessOptions.value, confirmed_by: '用户直接设定',
+    })
+    if (!requestIsCurrent() || !hasCurrentConditionText(item.segment.id, requestSource)) return false
+    if (response.review.status !== 'confirmed') {
+      conditionErrors.value[item.segment.id] = '规则尚未保存，请核对后重试。'
+      return false
+    }
+    applyConditionReview(item.segment.id, response.review)
+    clearPersistedDraft(item.segment.id)
+    markExportedRulePackageOutdated()
+    selectedRuleIds.value.delete(item.segment.id)
+    setBatchNotice(`“${finalizeSegmentDisplayName(item.segment)}”规则已保存。`)
+    return true
+  } catch (err: any) {
+    if (!requestIsCurrent()) return false
+    if (await handleWorkflowRevisionConflict(err)) return false
+    conditionErrors.value[item.segment.id] = `保存失败，规则未生效：${conditionErrorMessage(err)}`
+    return false
+  } finally {
+    setConditionBusy(item.segment.id, false)
+  }
+}
+
 async function handleSetMainline(item: ReturnType<typeof buildFinalizeCards>[number]) {
   if (!projectId.value || !savedRoute.value || conditionBusySegmentIds.value.has(item.segment.id)) return
+  const requestProject = projectId.value
+  const requestRoute = savedRoute.value.route_id
+  const requestRevision = savedRoute.value.workflow_revision
+  const requestIsCurrent = () => isRuleWorkspaceCurrent(requestProject, requestRoute, requestRevision)
   const processName = normalizeExportProcessName(finalizeSegmentDisplayName(item.segment))
   const sourceText = `设置为主工序，始终纳入“${processName}”工序。`
-  markExportedRulePackageOutdated()
   setConditionBusy(item.segment.id, true)
   try {
     const response = await saveRuleConditionDraft({
       project_id: projectId.value,
       route_id: savedRoute.value.route_id,
-      expected_workflow_revision: savedRoute.value.workflow_revision,
+      expected_workflow_revision: requestRevision,
       segment_id: item.segment.id,
       source_text: sourceText,
     })
-    setConditionTextDraft(item, sourceText)
+    if (!requestIsCurrent()) return
     applyConditionReview(item.segment.id, response.review)
+    clearPersistedDraft(item.segment.id)
+    markExportedRulePackageOutdated()
     setBatchNotice(`"「${processName}」"已转为主工序。`)
   } catch (err: any) {
+    if (!requestIsCurrent()) return
     if (await handleWorkflowRevisionConflict(err)) return
     showFinalizeNotice('转换主工序失败', '当前工序尚未改变，请稍后重试。', conditionErrorMessage(err))
   } finally {
@@ -854,18 +993,21 @@ async function handleSetBoolean(
   label: string,
 ) {
   if (!projectId.value || !savedRoute.value || conditionBusySegmentIds.value.has(item.segment.id)) return
+  const requestProject = projectId.value
+  const requestRoute = savedRoute.value.route_id
+  const requestRevision = savedRoute.value.workflow_revision
+  const requestIsCurrent = () => isRuleWorkspaceCurrent(requestProject, requestRoute, requestRevision)
   const processName = normalizeExportProcessName(finalizeSegmentDisplayName(item.segment))
   const switchLabel = label.trim()
   if (!switchLabel) return
   const sourceText = `当用户选择“${switchLabel}”为是时，纳入“${processName}”工序。`
   const candidate = buildManualBooleanRuleCandidate(item, switchLabel)
-  markExportedRulePackageOutdated()
   setConditionBusy(item.segment.id, true)
   try {
     const response = await setManualRuleCondition({
       project_id: projectId.value,
       route_id: savedRoute.value.route_id,
-      expected_workflow_revision: savedRoute.value.workflow_revision,
+      expected_workflow_revision: requestRevision,
       segment_id: item.segment.id,
       process_id: exportProcessIdForItem(item),
       source_text: sourceText,
@@ -873,10 +1015,13 @@ async function handleSetBoolean(
       processes: conditionProcessOptions.value,
       confirmed_by: '用户直接设定',
     })
-    setConditionTextDraft(item, sourceText)
+    if (!requestIsCurrent()) return
     applyConditionReview(item.segment.id, response.review)
+    clearPersistedDraft(item.segment.id)
+    markExportedRulePackageOutdated()
     setBatchNotice(`"「${processName}」"已转为用户控制的 Bool 条件。`)
   } catch (err: any) {
+    if (!requestIsCurrent()) return
     if (await handleWorkflowRevisionConflict(err)) return
     showFinalizeNotice('转换 Bool 条件失败', '当前工序尚未改变，请检查开关名称后重试。', conditionErrorMessage(err))
   } finally {
@@ -900,6 +1045,8 @@ const {
   projectName,
   savedRoute,
   segmentCards,
+  unsavedCards,
+  savingRuleIds: conditionBusySegmentIds,
   displayName: finalizeSegmentDisplayName,
   metaLabel: finalizeSegmentMetaLabel,
   phaseLabel: resolveFinalizePhase,
@@ -913,11 +1060,12 @@ const {
   },
   onExportIssue: (issue) => {
     if (precheckResult.value && !precheckResult.value.ok) return
+    showPrecheckDialog.value = false
     exportIssue.value = { ...issue, context: '规则包发布' }
   },
   onPrecheck: (result) => {
     precheckResult.value = result
-    if (!result.ok) {
+    if (!result.ok || result.export_summary) {
       openPrecheckDialog()
     }
   },
@@ -938,7 +1086,19 @@ const reviewAndExportButtonLabel = computed(() => {
 
 async function handleReviewAndExport() {
   if (reviewAndExporting.value || batchParsing.value || batchReviewing.value || exportingRulePackage.value) return
+  if (unsavedCards.value.length) {
+    setBatchNotice(`有 ${unsavedCards.value.length} 项未保存，请先保存或取消修改后再发布。`)
+    await locateBlockedCard(unsavedCards.value[0]!.segment.id)
+    return
+  }
+  if (conditionBusySegmentIds.value.size) {
+    setBatchNotice('请等待当前规则保存或识别完成后再发布。')
+    return
+  }
   reviewAndExporting.value = true
+  precheckResult.value = null
+  showPrecheckDialog.value = false
+  exportIssue.value = null
   try {
     const remaining = exportBlockingCards(segmentCards.value)
     if (remaining.length) {
@@ -961,7 +1121,8 @@ function openPrecheckDialog() {
   openFinalizePrecheckDialog(showPrecheckDialog)
 }
 
-function openResetDialog() {
+async function openResetDialog() {
+  if (!await ensureRuleEditsSaved()) return
   resetDialogVisible.value = true
 }
 
@@ -972,15 +1133,30 @@ function handlePrecheckTemplateMapping() {
 
 async function handlePrecheckRuleReview(blocker: Record<string, any>) {
   showPrecheckDialog.value = false
+  const segmentIds = [
+    String(blocker.source_segment_id || '').trim(),
+    ...(Array.isArray(blocker.segment_ids) ? blocker.segment_ids.map((id: unknown) => String(id).trim()) : []),
+  ].filter(Boolean)
+  const processIds = [
+    String(blocker.process_id || '').trim(),
+    ...(Array.isArray(blocker.target_process_ids) ? blocker.target_process_ids.map((id: unknown) => String(id).trim()) : []),
+  ].filter(Boolean)
   const processName = String(blocker.process_name || '').trim()
-  const matchingCard = processName
-    ? reviewFocusCards.value.find(item => finalizeSegmentDisplayName(item.segment) === processName)
-    : undefined
-  const target = matchingCard || reviewFocusCards.value[0] || segmentCards.value[0]
-  onlyPending.value = reviewFocusCards.value.length > 0
-  if (!target) return
+  const matchingCard = segmentCards.value.find(item =>
+    segmentIds.includes(item.segment.id)
+      || processIds.some(id => id === item.segment.id || id === item.segment.export_process_id),
+  ) || (processName
+    ? segmentCards.value.find(item => finalizeSegmentDisplayName(item.segment) === processName)
+    : undefined)
+  if (!matchingCard) {
+    setBatchNotice(processName
+      ? `当前规则列表中找不到“${processName}”，请刷新规则后再试。`
+      : '当前规则列表中找不到对应工序，请刷新规则后再试。')
+    return
+  }
+  onlyPending.value = false
   await nextTick()
-  focusSegment(target.segment.id)
+  focusSegment(matchingCard.segment.id)
 }
 
 function goBackToAnalysis() {
@@ -1004,41 +1180,75 @@ function stopPreprocessPolling() {
   }
 }
 
+function invalidateRulePreprocessing() {
+  preprocessEpoch += 1
+  preprocessRefreshInFlight = null
+  stopPreprocessPolling()
+}
+
+function isPreprocessWorkspaceCurrent(epoch: number, requestProject: number, requestRoute: number, requestRevision: number) {
+  return finalizeViewActive && epoch === preprocessEpoch
+    && isRuleWorkspaceCurrent(requestProject, requestRoute, requestRevision)
+}
+
 async function pollRulePreprocessing() {
-  if (!projectId.value || !savedRoute.value || preprocessRefreshInFlight) return
-  preprocessRefreshInFlight = true
+  if (!finalizeViewActive || !projectId.value || !savedRoute.value || preprocessRefreshInFlight !== null) return
+  const requestProject = projectId.value
+  const requestRoute = savedRoute.value.route_id
+  const requestRevision = savedRoute.value.workflow_revision
+  const epoch = preprocessEpoch
+  const owner = Symbol()
+  preprocessRefreshInFlight = owner
   try {
-    const next = await getRulePreprocessingStatus(projectId.value, savedRoute.value.route_id)
+    const next = await getRulePreprocessingStatus(requestProject, requestRoute)
+    if (!isPreprocessWorkspaceCurrent(epoch, requestProject, requestRoute, requestRevision)) return
     const previous = preprocessStatus.value?.task_status
     preprocessStatus.value = next
     if (next.task_status === 'running' || next.task_status === 'queued') {
       stopPreprocessPolling()
       preprocessPollTimer = window.setTimeout(() => {
         preprocessPollTimer = null
-        void pollRulePreprocessing()
+        if (isPreprocessWorkspaceCurrent(epoch, requestProject, requestRoute, requestRevision)) void pollRulePreprocessing()
       }, 1200)
     } else {
       stopPreprocessPolling()
       if (previous && previous !== next.task_status && next.task_status === 'completed') {
-        await loadWorkspace(true)
+        if (hasUnsavedEdits.value || conditionBusySegmentIds.value.size) {
+          setBatchNotice('后台识别已完成，请保存或取消当前修改后刷新结果。')
+        } else {
+          await loadWorkspace(true)
+        }
       }
     }
   } catch (err) {
+    if (!isPreprocessWorkspaceCurrent(epoch, requestProject, requestRoute, requestRevision)) return
     console.warn('读取规则预处理状态失败', err)
   } finally {
-    preprocessRefreshInFlight = false
+    if (preprocessRefreshInFlight === owner) preprocessRefreshInFlight = null
   }
 }
 
 async function startRulePreprocessingForWorkspace() {
-  if (!projectId.value || !savedRoute.value || !reviewableCards.value.length) return
+  if (!finalizeViewActive || !projectId.value || !savedRoute.value || !reviewableCards.value.length) return
+  const requestProject = projectId.value
+  const requestRoute = savedRoute.value.route_id
+  const requestRevision = savedRoute.value.workflow_revision
+  const epoch = preprocessEpoch
   const triggerKey = buildRulePreprocessingTriggerKey({
     projectId: projectId.value,
     savedRoute: savedRoute.value,
     supersetOperations: supersetOperations.value,
     segmentDisplayName: finalizeSegmentDisplayName,
   })
-  if (!triggerKey || triggerKey === lastRulePreprocessTriggerKey) return
+  if (!triggerKey) return
+  if (triggerKey === lastRulePreprocessTriggerKey) {
+    const status = preprocessStatus.value?.task_status
+    if (status === 'running' || status === 'queued') {
+      void pollRulePreprocessing()
+      return
+    }
+    if (status === 'completed' || status === 'failed') return
+  }
   const items = reviewableCards.value.map(item => ({
     segment_id: item.segment.id,
     process_id: exportProcessIdForItem(item),
@@ -1048,23 +1258,32 @@ async function startRulePreprocessingForWorkspace() {
   if (!items.length) return
   try {
     lastRulePreprocessTriggerKey = triggerKey
-    preprocessStatus.value = await startRulePreprocessing({
-      project_id: projectId.value,
-      route_id: savedRoute.value.route_id,
-      expected_workflow_revision: savedRoute.value.workflow_revision,
+    preprocessStatus.value = null
+    const next = await startRulePreprocessing({
+      project_id: requestProject,
+      route_id: requestRoute,
+      expected_workflow_revision: requestRevision,
       items,
       processes: conditionProcessOptions.value,
     })
-    if (preprocessStatus.value.task_status === 'running' || preprocessStatus.value.task_status === 'queued') {
+    if (!isPreprocessWorkspaceCurrent(epoch, requestProject, requestRoute, requestRevision)) return
+    preprocessStatus.value = next
+    if (next.task_status === 'running' || next.task_status === 'queued') {
       void pollRulePreprocessing()
     }
   } catch (err) {
+    if (!isPreprocessWorkspaceCurrent(epoch, requestProject, requestRoute, requestRevision)) return
     lastRulePreprocessTriggerKey = ''
     console.warn('启动规则预处理失败', err)
   }
 }
 
 async function loadWorkspace(forceRefresh = false) {
+  if (hasUnsavedEdits.value) {
+    setBatchNotice('有未保存的修改，当前编辑仍保留。请先保存或取消修改后再刷新结果。')
+    return
+  }
+  invalidateRulePreprocessing()
   const request = workspaceRequestGuard.start()
   precheckResult.value = null
   validMappingCount.value = 0
@@ -1118,15 +1337,21 @@ async function loadWorkspace(forceRefresh = false) {
     operations.value = operationList
     supersetOperations.value = supersetResult.superset_route || []
     conditionFields.value = fieldRegistry.fields || []
-    readDrafts()
+    clearRuleEditStates()
+    cancelInlineEdit()
+    const skippedLocalDrafts = readDrafts(routeResult.segments)
+    if (skippedLocalDrafts) {
+      setBatchNotice('已使用服务端最新规则，旧的本机草稿未自动恢复。')
+    }
     activeSegmentId.value = routeResult.segments[0]?.id || ''
     await nextTick()
+    if (!request.isCurrent()) return
     lastExportedRulePackageVersion.value = null
     outdatedRulePackageVersion.value = null
     if (latestPackage) {
       const routeMatches = latestPackage.schema_version === '2.0'
         && latestPackage.route_version_id === routeResult.route_id
-      if (!routeMatches || !latestPackage.content_hash) {
+      if (!routeMatches || !latestPackage.content_hash || exportBlockingCards(segmentCards.value).length) {
         outdatedRulePackageVersion.value = latestPackage.version
       } else {
         try {
@@ -1149,6 +1374,7 @@ async function loadWorkspace(forceRefresh = false) {
             outdatedRulePackageVersion.value = latestPackage.version
           }
         } catch (hashCheckError) {
+          if (!request.isCurrent()) return
           console.warn('无法校验现有规则包是否为最新版本', hashCheckError)
           outdatedRulePackageVersion.value = latestPackage.version
         }
@@ -1170,15 +1396,40 @@ async function loadWorkspace(forceRefresh = false) {
     if (!request.isLatest()) return
     loading.value = false
     loadedDataRevision = getWorkflowDataRevision()
-    if (savedRoute.value && !error.value) {
+    if (request.isCurrent() && savedRoute.value && !error.value) {
       void startRulePreprocessingForWorkspace()
     }
   }
 }
 
 async function reloadWorkspace() {
+  if (!await ensureRuleEditsSaved()) return
   await loadWorkspace(true)
 }
+
+async function ensureRuleEditsSaved() {
+  if (unsavedCards.value.length) {
+    setBatchNotice('有未保存的修改，请先保存或取消修改后再离开或刷新。')
+    await locateBlockedCard(unsavedCards.value[0]!.segment.id)
+    return false
+  }
+  if (conditionBusySegmentIds.value.size) {
+    setBatchNotice('请等待当前规则保存或识别完成。')
+    return false
+  }
+  return true
+}
+
+function protectUnsavedPage(event: BeforeUnloadEvent) {
+  if (!finalizeViewActive || (!hasUnsavedEdits.value && !conditionBusySegmentIds.value.size)) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+onBeforeRouteLeave(() => ensureRuleEditsSaved())
+onBeforeRouteUpdate((to, from) => (
+  to.query.project_id === from.query.project_id ? true : ensureRuleEditsSaved()
+))
 
 async function handleResetAllRecognition() {
   if (resettingWorkflow.value || !projectId.value || !savedRoute.value) return
@@ -1242,7 +1493,7 @@ async function restartAllRecognitionInBackground(context: {
   await nextTick()
   const queue = [...batchEligibleCards.value]
   if (!queue.length) {
-    setBatchNotice('没有需要重新识别的普通规则；人工设定保持不变。')
+    setBatchNotice('没有需要重新识别的规则；有效的已确认规则已保留。')
     return
   }
   await handleBatchParseConditions(queue, context.isCurrent)
@@ -1250,7 +1501,7 @@ async function restartAllRecognitionInBackground(context: {
 
 watch(() => route.query.project_id, () => {
   if (!finalizeViewActive) return
-  stopPreprocessPolling()
+  invalidateRulePreprocessing()
   preprocessStatus.value = null
   recognitionTaskGuard.cancel()
   batchParseExecutionId += 1
@@ -1258,16 +1509,24 @@ watch(() => route.query.project_id, () => {
   void loadWorkspace()
 })
 
-watch(workflowResetSignal, (signal) => {
+function handleExternalWorkflowReset(signal: typeof workflowResetSignal.value) {
   if (!signal || signal.emittedAt === locallyHandledResetAt) return
   if (signal.projectId !== projectId.value || signal.fromStep > 4) return
   locallyHandledResetAt = signal.emittedAt
+  invalidateRulePreprocessing()
   recognitionTaskGuard.cancel()
   batchParseExecutionId += 1
   batchParsing.value = false
+  markExportedRulePackageOutdated()
+  if (hasUnsavedEdits.value || conditionBusySegmentIds.value.size) {
+    setBatchNotice('上游步骤已重新处理，当前编辑仍保留。请先复制备份或取消修改，再刷新结果。')
+    return
+  }
   if (signal.fromStep <= 3) clearAllDrafts()
   void loadWorkspace(true)
-})
+}
+
+watch(workflowResetSignal, handleExternalWorkflowReset)
 
 // Selection is tied to the candidate source, so refreshed/edited candidates need a new explicit selection.
 watch(() => pendingReviewCards.value.map(item => [item.segment.id, `${item.conditionReview?.source_hash}:${JSON.stringify(item.conditionReview?.candidate)}`] as const), (current, previous) => {
@@ -1285,11 +1544,18 @@ watch([visibleSegments, onlyPending], () => {
 }, { deep: true })
 
 onMounted(async () => {
+  window.addEventListener('beforeunload', protectUnsavedPage)
   try {
     await loadWorkspace()
   } finally {
     initialLoadFinished = true
   }
+})
+
+onBeforeUnmount(() => {
+  finalizeViewActive = false
+  invalidateRulePreprocessing()
+  window.removeEventListener('beforeunload', protectUnsavedPage)
 })
 
 onActivated(() => {
@@ -1299,6 +1565,7 @@ onActivated(() => {
   const routeProjectId = Number(route.query.project_id || 0)
   const projectChanged = routeProjectId > 0 && routeProjectId !== projectId.value
   if (!projectChanged && loadedDataRevision === getWorkflowDataRevision()) {
+    void startRulePreprocessingForWorkspace()
     const pid = projectId.value
     if (pid && savedRoute.value) void getCurrentGroupTemplate(pid).then(template => {
       if (!finalizeViewActive || projectId.value !== pid || !savedRoute.value) return
@@ -1312,7 +1579,7 @@ onActivated(() => {
 
 onDeactivated(() => {
   finalizeViewActive = false
-  stopPreprocessPolling()
+  invalidateRulePreprocessing()
   recognitionTaskGuard.cancel()
   batchParseExecutionId += 1
   batchParsing.value = false

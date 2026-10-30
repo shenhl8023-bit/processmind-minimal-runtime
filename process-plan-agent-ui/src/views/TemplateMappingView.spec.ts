@@ -54,6 +54,76 @@ beforeEach(() => {
 afterEach(() => app?.unmount())
 
 describe('template mapping workbench', () => {
+  function mockCurrentMergedRoute() {
+    api.getSavedNormalizedRoute.mockResolvedValue({ segments: [{
+      id: 'turning_a', sequence: 10, normalized_step_name: '车削加工（A侧）',
+      phase: 'rough', source_operation_ids: [11, 12],
+    }] })
+    api.getSupersetRoute.mockResolvedValue({ superset_route: [
+      { id: 11, name: '车外圆', step_items: ['平端面', '车外圆'], attached_step_items: ['倒角'] },
+      { id: 12, name: '车槽', step_items: ['平端面', '切槽'], attached_step_items: [] },
+    ] })
+  }
+
+  it('loads the saved merged route with current source steps and their lineage', async () => {
+    mockCurrentMergedRoute()
+    api.getSavedNormalizedRoute.mockResolvedValue({
+      ...await api.getSavedNormalizedRoute(), workflow_revision: 12,
+    })
+    const model = mount()
+    await model.load()
+
+    expect(model.error.value).toBe('')
+    expect(model.loading.value).toBe(false)
+    expect(model.workflowRevision.value).toBe(12)
+    expect(template).toContain(':workflow-revision="workflowRevision"')
+    expect(api.getSavedNormalizedRoute).toHaveBeenCalledWith(28, true)
+    expect(api.getSupersetRoute).toHaveBeenCalledWith(28, true)
+    expect(model.operations.value).toHaveLength(1)
+    expect(model.operations.value[0]).toMatchObject({
+      process_id: 'turning_a', source_operation_ids: [11, 12],
+      step_items: ['平端面', '车外圆', '切槽', '倒角'],
+    })
+    expect(model.operations.value[0].steps[0].source_steps).toEqual([
+      { source_operation_id: 11, source_operation_name: '车外圆', source_step_order: 1, source_step_name: '平端面' },
+      { source_operation_id: 12, source_operation_name: '车槽', source_step_order: 1, source_step_name: '平端面' },
+    ])
+  })
+
+  it('removes a previous mapping tree when refreshed source identities no longer match the saved route', async () => {
+    mockCurrentMergedRoute()
+    const model = mount()
+    await model.load()
+    expect(model.operations.value).toHaveLength(1)
+
+    api.getSupersetRoute.mockResolvedValue({ superset_route: [
+      { id: 9011, name: '车外圆', step_items: ['平端面', '车外圆'] },
+      { id: 9012, name: '车槽', step_items: ['平端面', '切槽'] },
+    ] })
+    await model.load()
+
+    expect(model.operations.value).toEqual([])
+    expect(model.error.value).toContain('当前保存路线与最新工序数据不一致')
+    expect(model.loading.value).toBe(false)
+  })
+
+  it('removes a previous mapping tree and reports missing details when every source loses its steps', async () => {
+    mockCurrentMergedRoute()
+    const model = mount()
+    await model.load()
+    expect(model.operations.value).toHaveLength(1)
+
+    api.getSupersetRoute.mockResolvedValue({ superset_route: [
+      { id: 11, name: '车外圆', step_items: [], attached_step_items: [] },
+      { id: 12, name: '车槽', step_items: [], attached_step_items: [] },
+    ] })
+    await model.load()
+
+    expect(model.operations.value).toEqual([])
+    expect(model.error.value).toContain('当前路线缺少工步明细')
+    expect(model.loading.value).toBe(false)
+  })
+
   it('uses the original mapping workbench chrome without an extra page header or workflow footer', () => {
     expect(template).toContain('<TemplateGroupMappingDialog')
     expect(template).toContain('embedded :model-value="true"')

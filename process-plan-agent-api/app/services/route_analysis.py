@@ -143,6 +143,13 @@ async def save_normalized_route_version(
             return latest
 
     version_number = int(latest.version or 0) + 1 if latest else 1
+    if latest:
+        project = await db.get(Project, project_id)
+        if project is not None:
+            from app.services.project_workflow_lifecycle import invalidate_project_workflow
+
+            await invalidate_project_workflow(db, project, from_step=3)
+
     version_row = NormalizedRouteVersion(
         project_id=project_id,
         version=version_number,

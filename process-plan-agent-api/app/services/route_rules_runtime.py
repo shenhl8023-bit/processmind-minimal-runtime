@@ -6,8 +6,7 @@ from __future__ import annotations
 
 import inspect
 from collections import defaultdict
-from collections.abc import Callable
-from typing import Any
+from typing import Any, Callable, Dict
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,11 +27,12 @@ from app.services.route_rules_warning_helpers import (
     merge_harness_warning_factors as _merge_harness_warning_factors,
     recover_equipment_promoted_to_operation,
 )
+from app.services.document_operation_non_pdf_parser import SUPPORTED_DETAIL_FILE_TYPES
 
 
 NormalizeOperationName = Callable[[str], str]
 OperationChainInferer = Callable[[str, str], str]
-TaskStateSetter = Callable[..., dict[str, Any]]
+TaskStateSetter = Callable[..., Dict[str, Any]]
 
 
 async def save_ops(
@@ -176,9 +176,6 @@ async def extract_route_set_with_llm(
         candidate_summary, doc_names, doc_orders = await summary_result
     else:
         candidate_summary, doc_names, doc_orders = summary_result
-    if not candidate_summary:
-        return None
-    total_docs = len(doc_names)
     detail_rows = await ensure_document_operation_details_fn(
         db,
         project_id,
@@ -191,7 +188,30 @@ async def extract_route_set_with_llm(
         ),
     )
     doc_name_map = {int(doc.id): str(doc.original_name or doc.filename or "") for doc in docs}
+    # Validated structured details are authoritative for non-PDF documents.
+    # Their flattened text can otherwise promote JSON keys/steps to operations
+    # and supply a false position for repeated auxiliary operations.
+    structured_sources = {
+        doc_name_map[int(doc.id)] for doc in docs
+        if (doc.file_type or "").lower() in SUPPORTED_DETAIL_FILE_TYPES - {"pdf"}
+        and any(row.document_id == doc.id for row in detail_rows)
+    }
+    for source in structured_sources:
+        doc_orders.pop(source, None)
+    for name, meta in list(candidate_summary.items()):
+        meta["sources"] = set(meta.get("sources") or []) - structured_sources
+        meta["card_sources"] = set(meta.get("card_sources") or []) - structured_sources
+        meta["occurrences"] = [
+            occurrence for occurrence in meta.get("occurrences") or []
+            if occurrence.get("source") not in structured_sources
+        ]
+        meta["sequences"] = [occurrence["sequence"] for occurrence in meta["occurrences"]]
+        if not meta["sources"]:
+            candidate_summary.pop(name)
     merge_document_detail_rows_into_candidate_summary(candidate_summary, doc_orders, detail_rows, doc_name_map)
+    if not candidate_summary:
+        return None
+    total_docs = len(doc_names) or len(docs)
 
     set_extraction_task_state(
         project_id,

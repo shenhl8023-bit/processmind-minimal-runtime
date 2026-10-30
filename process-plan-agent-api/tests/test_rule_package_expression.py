@@ -1,3 +1,5 @@
+import pytest
+
 from app.services.rule_packages.contracts import ConditionNode, InputSchemaV2
 from app.services.rule_packages.expression_engine import evaluate_condition
 from app.services.rule_packages.input_validation import canonicalize_inputs, validate_inputs
@@ -44,6 +46,17 @@ def test_not_does_not_turn_missing_field_into_match():
     assert trace.reason == "nested condition used a missing field"
 
 
+@pytest.mark.parametrize("op,wanted,expected", [
+    ("eq", 9007199254740992, False),
+    ("eq", 9007199254740992.0, False),
+    ("neq", 9007199254740992, True),
+    ("in", [9007199254740992], False),
+])
+def test_numeric_equality_tolerance_does_not_round_distinct_integer_inputs(op, wanted, expected):
+    condition = ConditionNode.model_validate({"field": "quantity", "op": op, "value": wanted})
+    assert evaluate_condition(condition, {"quantity": 9007199254740993}).matched is expected
+
+
 def _canonical_input_schema():
     return InputSchemaV2.model_validate({
         "fields": [
@@ -88,3 +101,42 @@ def test_rejects_unknown_nested_input_factor():
     )
 
     assert any(issue.code == "unknown_input_field" and issue.field == "geometry.diameter_mm" for issue in errors)
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), 10 ** 1000])
+def test_number_inputs_reject_non_finite_or_unrepresentable_values_without_overflow(value):
+    schema = InputSchemaV2.model_validate({"fields": [{"key": "quantity", "label": "数量", "type": "number"}]})
+    issues = validate_inputs(schema, {"quantity": value})
+    assert len(issues) == 1
+    assert issues[0].code == "input_number_not_finite"
+    assert issues[0].field == "quantity"
+
+
+@pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity", "1" + "0" * 1000])
+def test_simulation_api_returns_numeric_input_issue_instead_of_json_serialization_error(token):
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    package_json = (
+        '{"manifest":{"package_name":"numbers","project_id":1,"scope":{"key":"1"}},'
+        '"input_schema":{"fields":[{"key":"quantity","label":"数量","type":"number"}]},'
+        '"route_catalog":{"processes":[{"process_id":"base","display_name":"准备","main":true}]},'
+        '"route_rules":{"rules":[]}}'
+    )
+    response = TestClient(app).post(
+        "/api/extract/finalized-rule-packages/simulate",
+        content=(f'{{"package":{package_json},"inputs":{{"quantity":{token}}}}}').encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"][0]["code"] == "input_number_not_finite"
+
+
+@pytest.mark.parametrize("value", [-(10 ** 100), 0, 9007199254740993, 10 ** 100, 1e308])
+def test_large_finite_number_inputs_keep_their_original_precision(value):
+    schema = InputSchemaV2.model_validate({"fields": [{"key": "quantity", "label": "数量", "type": "number"}]})
+    assert validate_inputs(schema, {"quantity": value}) == []
+    canonical, issues = canonicalize_inputs(schema, {"quantity": value})
+    assert issues == []
+    assert canonical["quantity"] == value
+    assert type(canonical["quantity"]) is type(value)

@@ -12,6 +12,21 @@ const sources = [
   { id: 9, name: '钻', step_items: ['钻锥孔'] },
 ] as any
 const segment = { id: 'turning_a', sequence: 1, normalized_step_name: '车削加工（A侧）', phase: 'rough', source_operation_ids: [7, 8, 9] } as any
+it('refuses a saved tree whose source IDs no longer match the latest source tree', () => {
+  expect(() => buildFinalTemplateMappingOperations([
+    { ...segment, source_operation_ids: [900001, 900002] },
+  ], sources)).toThrow('当前保存路线与最新工序数据不一致')
+})
+it('refuses a partially stale tree instead of silently dropping missing source steps', () => {
+  expect(() => buildFinalTemplateMappingOperations([
+    { ...segment, source_operation_ids: [7, 900002] },
+  ], sources)).toThrow('当前保存路线与最新工序数据不一致')
+})
+it('does not expose an empty mapping tree after all extracted source steps disappear', () => {
+  expect(() => buildFinalTemplateMappingOperations([
+    { ...segment, source_operation_ids: [7] },
+  ], [{ id: 7, name: '车', step_items: [], attached_step_items: [] }] as any)).toThrow('当前路线缺少工步明细')
+})
 it('renders one final parent for a merge and shares third-step primary/attached steps', () => {
   const result = buildFinalTemplateMappingOperations([segment], sources)
   expect(result).toHaveLength(1)
@@ -65,6 +80,26 @@ it('keeps raw attached source names and positions distinct from equal primary na
     { kind: 'attached', order: 3, name: '刻线（附带二）' },
   ])
   expect(new Set(steps.map(step => step.step_id)).size).toBe(3)
+})
+it('preserves attached steps exactly once when a composite source is split for display', () => {
+  const source = [{ id: 11, name: '钻孔、铰孔', step_items: ['钻孔', '铰孔', '精磨'], attached_step_items: ['去毛刺', '倒角'] }] as any
+  const current = { ...segment, id: 'custom_hole', source_operation_ids: [11] }
+  const expected = ['钻孔', '铰孔', '精磨', '去毛刺', '倒角']
+  const steps = buildFinalRouteSteps(current, source)
+  expect(steps.map(step => step.step_name)).toEqual(expected)
+  expect(steps.map(step => step.source_step_order)).toEqual([1, 2, 3, 4, 5])
+  expect(new Set(steps.map(step => step.step_id)).size).toBe(5)
+  const mapped = buildFinalTemplateMappingOperations([current], source)
+  expect(mapped[0]!.steps!.map(step => step.step_name)).toEqual(expected)
+  const tree = useRouteSegmentSteps(ref(source))
+  const compiled = buildCompileRequestFromCards({
+    projectId: 28, packageName: 'composite-steps',
+    cards: [{ segment: current, conditionText: '始终保留', factorNames: ['always=true'] }],
+    displayName: segment => segment.normalized_step_name, phaseLabel: segment => segment.phase,
+    primarySteps: tree.segmentPrimarySteps, attachedSteps: tree.segmentAttachedSteps, finalSteps: tree.segmentStepNodes,
+  })
+  expect(compiled.processes[0]!.steps!.map(step => step.name)).toEqual(expected)
+  expect(compiled.processes[0]!.steps!.map(step => step.step_id)).toEqual(mapped[0]!.steps!.map(step => step.step_id))
 })
 it('uses a user-confirmed precision override when serializing mapping operations', () => {
   const operation = { ...buildFinalTemplateMappingOperations([segment], sources)[0]!, precision: '' }

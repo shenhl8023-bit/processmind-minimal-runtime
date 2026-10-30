@@ -53,3 +53,20 @@ def test_project_api_exposes_a_single_route_workflow(project_client):
         f"/api/projects/{project['id']}/rule-engine",
         json={"rule_engine": "v1"},
     ).status_code == 404
+
+
+@pytest.mark.parametrize("name", ["", "   ", "\t\n", "bad\x00name", "bad\nname", "项" * 256])
+def test_create_project_rejects_unusable_names_without_creating_rows(project_client, name):
+    response = project_client.post("/api/projects/", json={"name": name})
+
+    assert response.status_code == 422, response.text
+    assert project_client.get("/api/projects/").json() == []
+
+
+def test_create_project_trims_name_and_keeps_same_named_projects_distinct(project_client):
+    first = project_client.post("/api/projects/", json={"name": "  齿轮 工艺  "})
+    second = project_client.post("/api/projects/", json={"name": "齿轮 工艺"})
+
+    assert first.status_code == second.status_code == 200
+    assert first.json()["name"] == second.json()["name"] == "齿轮 工艺"
+    assert first.json()["id"] != second.json()["id"]

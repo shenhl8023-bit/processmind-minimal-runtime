@@ -9,10 +9,20 @@ import {
   listKnowledgeSuggestions,
   saveKnowledgeEvidence,
   searchKnowledge,
+  listKnowledgeCatalog,
+  getKnowledgeCatalogRecord,
   updateKnowledgeSuggestion,
 } from './knowledge'
 
 describe('knowledge API contracts', () => {
+  it('browses without the model and uses query params for special record IDs', async () => {
+    apiMocks.get.mockResolvedValueOnce({ data: { total: 30, items: [] } })
+    await listKnowledgeCatalog({ section: 'resources', category: 'equipment', page: 2, page_size: 20 })
+    expect(apiMocks.get).toHaveBeenCalledWith('/api/knowledge/catalog', { params: { section: 'resources', category: 'equipment', page: 2, page_size: 20 } })
+    apiMocks.get.mockResolvedValueOnce({ data: { id: 'WD/01:第3节' } })
+    await getKnowledgeCatalogRecord('WD/01:第3节')
+    expect(apiMocks.get).toHaveBeenLastCalledWith('/api/knowledge/catalog/record', { params: { record_id: 'WD/01:第3节' } })
+  })
   beforeEach(() => {
     apiMocks.post.mockReset()
     apiMocks.get.mockReset()

@@ -83,6 +83,7 @@ class ProjectGroupTemplate(Base):
     mappings_json = Column(Text, nullable=False, default="[]")
     step_mappings_json = Column(Text, nullable=False, default="[]")
     mapping_output_json = Column(Text, nullable=False, default="[]")
+    mapping_output_mode = Column(String(30), nullable=False, default="unknown", server_default="unknown")
     template_revision = Column(Integer, nullable=False, default=1, server_default="1")
     group_count = Column(Integer, nullable=False, default=0)
     feature_selection_count = Column(Integer, nullable=False, default=0)

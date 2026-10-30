@@ -88,13 +88,22 @@ def build_superset_process_tree(
             bucket.add_source_node(original_name)
             for row_id in operation_group.row_ids:
                 bucket.add_detail_row_id(row_id)
-            step_items, attached_step_items = extract_step_payload(
-                display_label,
-                original_name,
-                operation_group.operation_content or "",
-            )
-            for step in step_items:
-                bucket.add_step_item(step)
+            if operation_group.structured_steps:
+                step_items, attached_step_items = list(operation_group.structured_steps), []
+                occurrences: defaultdict[str, int] = defaultdict(int)
+                for step in step_items:
+                    occurrences[step] += 1
+                    # Merge equal occurrences across samples, while retaining
+                    # repeated occurrences within one operation.
+                    if bucket.step_items.count(step) < occurrences[step]:
+                        bucket.step_items.append(step)
+                        bucket.step_seen.add(step)
+            else:
+                step_items, attached_step_items = extract_step_payload(
+                    display_label, original_name, operation_group.operation_content or "",
+                )
+                for step in step_items:
+                    bucket.add_step_item(step)
             for step in attached_step_items:
                 bucket.add_attached_step_item(step)
 

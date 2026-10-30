@@ -270,6 +270,50 @@ export async function searchKnowledge(
   return response.data
 }
 
+export type KnowledgeCatalogSection = 'knowledge' | 'resources'
+export interface KnowledgeCatalogRequest {
+  section: KnowledgeCatalogSection
+  category?: string
+  topic?: string
+  q?: string
+  sort?: 'title_asc' | 'title_desc'
+  page?: number
+  page_size?: number
+}
+export interface KnowledgeCatalogRow {
+  id: string
+  title: string
+  category: string
+  source_kind: string
+  source_label: string
+  verification_status: string
+  data_warnings: string[]
+  values: Record<string, string>
+}
+export interface KnowledgeCatalogResponse {
+  section: KnowledgeCatalogSection
+  total: number
+  raw_count: number
+  page: number
+  page_size: number
+  categories: Array<{ value: string; label: string; count: number }>
+  topics: Array<{ value: string; label: string; count: number }>
+  columns: Array<{ key: string; label: string }>
+  items: KnowledgeCatalogRow[]
+}
+export interface KnowledgeCatalogDetail extends KnowledgeCatalogRow {
+  fields: Record<string, unknown>
+  sources: KnowledgeSource[]
+  guidance?: KnowledgeGuidance | null
+  original_records: Array<Record<string, unknown>>
+}
+export async function listKnowledgeCatalog(params: KnowledgeCatalogRequest): Promise<KnowledgeCatalogResponse> {
+  return (await api.get<KnowledgeCatalogResponse>('/api/knowledge/catalog', { params })).data
+}
+export async function getKnowledgeCatalogRecord(recordId: string): Promise<KnowledgeCatalogDetail> {
+  return (await api.get<KnowledgeCatalogDetail>('/api/knowledge/catalog/record', { params: { record_id: recordId } })).data
+}
+
 export async function saveKnowledgeEvidence(
   request: KnowledgeEvidenceCreate,
 ): Promise<KnowledgeEvidence> {

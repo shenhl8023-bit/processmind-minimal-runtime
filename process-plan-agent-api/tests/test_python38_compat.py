@@ -40,3 +40,46 @@ def test_python38_validator_covers_backend_and_reports_no_forbidden_apis():
     assert issues == []
 
 
+def test_python38_validator_rejects_subscripted_collections_abc_generics(tmp_path):
+    validator = _load_validator()
+    source = tmp_path / "bad_annotations.py"
+    source.write_text(
+        "from __future__ import annotations\n"
+        "from collections.abc import Callable\n"
+        "Factory = Callable[[], object]\n",
+        encoding="utf-8",
+    )
+
+    issues = validator.validate_tree(tmp_path)
+
+    assert any("collections.abc.Callable" in issue for issue in issues)
+
+
+def test_python38_validator_rejects_eager_builtin_generic_aliases(tmp_path):
+    validator = _load_validator()
+    source = tmp_path / "bad_alias.py"
+    source.write_text(
+        "from __future__ import annotations\n"
+        "Payload = dict[str, object]\n",
+        encoding="utf-8",
+    )
+
+    issues = validator.validate_tree(tmp_path)
+
+    assert any("eager built-in generic dict" in issue for issue in issues)
+
+
+def test_python38_validator_rejects_eager_builtin_generics_in_calls(tmp_path):
+    validator = _load_validator()
+    source = tmp_path / "bad_decorator.py"
+    source.write_text(
+        "from __future__ import annotations\n"
+        "route(response_model=list[object])\n",
+        encoding="utf-8",
+    )
+
+    issues = validator.validate_tree(tmp_path)
+
+    assert any("eager built-in generic list" in issue for issue in issues)
+
+

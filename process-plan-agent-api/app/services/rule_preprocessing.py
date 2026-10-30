@@ -25,6 +25,7 @@ from app.services.rule_packages.condition_parser import CONDITION_PARSER_VERSION
 from app.services.rule_packages.condition_registry import FIELD_REGISTRY_VERSION
 from app.services.rule_packages.condition_reviews import (
     _active_condition_parser_context,
+    _current_confirmed_candidate,
     parse_condition_review,
 )
 
@@ -183,6 +184,7 @@ async def _review_is_current(
     route_id: int,
     item: RulePreprocessItem,
     parser_version: str,
+    processes: list[RuleConditionProcessOption],
 ) -> bool:
     review = (
         await db.execute(
@@ -201,6 +203,10 @@ async def _review_is_current(
         return False
     if not review.condition_candidate_json:
         return False
+    if review.condition_status == "confirmed":
+        return _current_confirmed_candidate(
+            review, item.source_text, processes, item.process_id,
+        ) is not None
     if str(review.condition_parser_version or "") == "manual":
         return True
     return (
@@ -258,7 +264,7 @@ async def _run_job(
                         raise RuntimeError("规则预处理依赖的任务或路线版本不存在。")
                     if int(project.workflow_revision or 0) != int(workflow_revision):
                         raise RuntimeError("工作流版本已变化，请重新发起规则预处理。")
-                    if await _review_is_current(db, project_id, route_id, item, parser_version):
+                    if await _review_is_current(db, project_id, route_id, item, parser_version, processes):
                         pass
                     else:
                         await parse_condition_review(

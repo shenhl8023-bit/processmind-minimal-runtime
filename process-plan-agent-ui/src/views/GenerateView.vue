@@ -144,6 +144,7 @@ let generationRequestId = 0
 const projectId = ref<number | null>(null)
 const projectName = ref('')
 const inputSchema = ref<Record<string, any> | null>(null)
+const rulePackageRules = ref<Record<string, any> | null>(null)
 const hasRulePackage = ref(false)
 const packageVersion = ref<number | null>(null)
 const workflowRevision = ref(0)
@@ -177,6 +178,7 @@ const {
   toggleFieldArrayValue,
 } = useGenerateInputFields({
   inputSchema,
+  rulePackageRules,
   hasRulePackage,
   projectId,
   schemaLoading: contextLoading,
@@ -198,8 +200,9 @@ const packageMetaLabel = computed(() => {
 
 const schemaStatusText = computed(() => {
   if (contextLoading.value) return '正在加载当前任务的输入参数…'
-  if (!hasRulePackage.value) return '当前任务还没有可用规则包。请先在第4步完成规则定稿并发布规则包。'
-  return '当前规则包没有定义输入参数，请返回第4步重新发布规则包。'
+  if (!hasRulePackage.value) return '当前任务还没有可用规则包。请先在第5步完成规则定稿并发布规则包。'
+  if (canGenerate.value && !inputFields.value.length) return '当前规则包为固定路线，无需填写参数，可直接生成。'
+  return '当前规则包的输入参数未能正确加载，请返回第5步检查规则包。'
 })
 
 const isResultStale = computed(() => {
@@ -209,16 +212,17 @@ const isResultStale = computed(() => {
 
 const generateHintText = computed(() => {
   if (contextLoading.value) return '正在加载当前任务的输入参数，请稍候。'
-  if (!hasRulePackage.value) return '请先在第4步完成规则定稿并发布规则包。'
-  if (!inputFields.value.length) return '当前规则包没有定义输入参数。'
+  if (!hasRulePackage.value) return '请先在第5步完成规则定稿并发布规则包。'
+  if (!inputFields.value.length) return schemaStatusText.value
   return '请先补全必填输入参数。'
 })
 const generateNavSummary = computed(() => {
   if (!projectId.value) return '请先选择一个任务，完成规则定稿后再进入规则包验证与路线生成。'
-  if (!hasRulePackage.value) return '当前任务还没有可用规则包，请返回第四步完成规则定稿并发布规则包。'
+  if (!hasRulePackage.value) return '当前任务还没有可用规则包，请返回第五步完成规则定稿并发布规则包。'
   if (generating.value) return '正在生成工艺路线。'
   if (isResultStale.value) return `检测到规则包已更新至 V${packageVersion.value}，当前展示为旧版 V${result.value?.rule_package_version} 结果，建议重新点击生成。`
   if (result.value) return '路线已生成，可在右侧查看结果或导出 JSON。'
+  if (canGenerate.value && !inputFields.value.length) return `规则包 ${packageMetaLabel.value} 已就绪，无需填写参数，可直接生成固定路线。`
   return `规则包 ${packageMetaLabel.value} 已就绪，输入字段已填写 ${filledFieldCount.value}/${inputFields.value.length}。`
 })
 
@@ -235,11 +239,13 @@ function goUpload() {
 
 function resetRulePackageMetadata() {
   packageVersion.value = null
+  rulePackageRules.value = null
   workflowRevision.value = 0
 }
 
 function applyRulePackageMetadata(rulePackage: FinalizedRulePackageResult) {
   packageVersion.value = rulePackage.version ?? null
+  rulePackageRules.value = rulePackage.route_rules ?? null
 }
 
 function clearGeneratedWorkflowState() {
@@ -261,7 +267,13 @@ async function refreshGeneratedPackageMetadata(
   if (!generatedResult.rule_package_version) return
   const latestPackage = await getLatestFinalizedRulePackage(generatedProjectId, true).catch(() => null)
   if (!isLatest() || requestId !== generationRequestId || projectId.value !== generatedProjectId) return
-  if (!latestPackage || latestPackage.version !== generatedResult.rule_package_version) return
+  if (!latestPackage) return
+  if (latestPackage.version !== generatedResult.rule_package_version) {
+    inputSchema.value = latestPackage.input_schema
+    applyRulePackageMetadata(latestPackage)
+    initializeFieldValues()
+    return
+  }
   if (
     generatedResult.rule_package_hash
     && latestPackage.content_hash
@@ -271,7 +283,7 @@ async function refreshGeneratedPackageMetadata(
 }
 
 async function runGenerate() {
-  if (!projectId.value || contextLoading.value || !canGenerate.value) return
+  if (!projectId.value || contextLoading.value || generating.value || !canGenerate.value) return
   const request = generationRequestGuard.start()
   const generatedProjectId = projectId.value
   const loadedContextRequestId = contextLoadRequestId
@@ -292,9 +304,17 @@ async function runGenerate() {
       || projectId.value !== generatedProjectId
     ) return
     result.value = generatedResult
-    await refreshGeneratedPackageMetadata(generatedResult, generatedProjectId, requestId, request.isLatest)
+    await refreshGeneratedPackageMetadata(
+      generatedResult, generatedProjectId, requestId,
+      () => request.isLatest() && loadedContextRequestId === contextLoadRequestId,
+    )
   } catch (err: any) {
-    if (!request.isLatest() || requestId !== generationRequestId || projectId.value !== generatedProjectId) return
+    if (
+      !request.isLatest()
+      || requestId !== generationRequestId
+      || loadedContextRequestId !== contextLoadRequestId
+      || projectId.value !== generatedProjectId
+    ) return
     console.error(err)
     const fieldLabels = Object.fromEntries(
       inputFields.value.map(field => [field.key, field.name || field.key]),
@@ -342,6 +362,7 @@ async function loadGenerateContext() {
   const requestedProjectId = String(route.query.project_id || '')
   const hintedProjectId = Number(requestedProjectId)
   contextLoading.value = true
+  error.value = ''
   if (Number.isInteger(hintedProjectId) && hintedProjectId > 0) {
     setLoadingProject(hintedProjectId)
   }
@@ -369,7 +390,10 @@ async function loadGenerateContext() {
     const currentProject = projects.find(project => project.id === targetProjectId)
     projectName.value = currentProject?.name || `任务 #${targetProjectId}`
     workflowRevision.value = currentProject?.workflow_revision || 0
-    const latestPackage = await getLatestFinalizedRulePackage(targetProjectId).catch(() => null)
+    const latestPackage = await getLatestFinalizedRulePackage(targetProjectId).catch((err) => {
+      if (err?.response?.status === 404) return null
+      throw err
+    })
     const currentRouteProjectId = String(route.query.project_id || '')
     if (
       !request.isCurrent()
@@ -385,10 +409,11 @@ async function loadGenerateContext() {
     } else {
       clearRulePackageContext()
     }
-  } catch (err) {
+  } catch (err: any) {
     if (!request.isCurrent() || requestId !== contextLoadRequestId) return
     console.warn('读取生成上下文失败', err)
     clearRulePackageContext()
+    error.value = formatGenerateErrorDetail(err?.response?.data?.detail ?? err?.message)
   } finally {
     if (request.isLatest() && requestId === contextLoadRequestId) {
       contextLoading.value = false

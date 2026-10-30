@@ -33,6 +33,20 @@ def _write_wheel(path: Path, *, tag: str = "py3-none-any"):
         )
 
 
+def _write_native_wheel(path: Path, payload: bytes, *, name: str = "pydantic-core"):
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("pydantic_core/_pydantic_core.cp38-win_amd64.pyd", payload)
+        archive.writestr(
+            "%s-2.27.2.dist-info/METADATA" % name.replace("-", "_"),
+            "Metadata-Version: 2.1\nName: %s\nVersion: 2.27.2\n" % name,
+        )
+        archive.writestr(
+            "%s-2.27.2.dist-info/WHEEL" % name.replace("-", "_"),
+            "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: false\n"
+            "Tag: cp38-cp38-win_amd64\n",
+        )
+
+
 def test_installer_extracts_locked_wheels_without_pip(tmp_path: Path):
     installer = _load_installer()
     wheelhouse = tmp_path / "wheelhouse"
@@ -63,3 +77,22 @@ def test_installer_rejects_a_non_win7_wheel(tmp_path: Path):
         assert "compatible" in str(exc).lower()
     else:
         raise AssertionError("an incompatible CPython wheel must be rejected")
+
+
+def test_installer_rejects_pydantic_core_win10_only_imports(tmp_path: Path):
+    installer = _load_installer()
+    wheelhouse = tmp_path / "wheelhouse"
+    wheelhouse.mkdir()
+    _write_native_wheel(
+        wheelhouse / "pydantic_core-2.27.2-cp38-cp38-win_amd64.whl",
+        b"bcryptprimitives.dll\x00ProcessPrng\x00",
+    )
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("pydantic-core==2.27.2\n", encoding="utf-8")
+
+    try:
+        installer.install_requirements(requirements, wheelhouse, tmp_path / "site-packages")
+    except installer.WheelInstallError as exc:
+        assert "windows 7" in str(exc).lower()
+    else:
+        raise AssertionError("a Win10-only pydantic-core import must be rejected")
