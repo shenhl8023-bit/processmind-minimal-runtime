@@ -15,6 +15,9 @@ export interface GeneratedRouteStep {
 
 export interface GenerateRouteResult {
   id?: number | null
+  executable_revision_id?: number | null
+  executable_revision?: number | null
+  executable_content_hash?: string | null
   steps: GeneratedRouteStep[]
   summary: string
   output_json_text?: string | null
@@ -26,6 +29,7 @@ export interface GenerateRouteResult {
   schema_version?: string | null
   matched_rule_ids?: string[]
   selected_process_ids?: string[]
+  input_factors?: Record<string, any>
   input_metadata?: Record<string, GenerateInputMetadata>
 }
 
@@ -37,6 +41,7 @@ export type GenerateInputMetadata = {
 
 export async function generateRoute(body: {
   project_id: number
+  executable_revision_id?: number
   expected_workflow_revision: number
   factor_values: Record<string, any>
   input_metadata?: Record<string, GenerateInputMetadata>

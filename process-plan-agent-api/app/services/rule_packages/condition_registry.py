@@ -3,106 +3,22 @@
 from __future__ import annotations
 
 from typing import Any
+from pathlib import Path
+import json
+import math
+import re
 
 from app.services.rule_packages.condition_contracts import CanonicalConditionField
 from app.services.rule_packages.contracts import ConditionNode, InputField, InputOption, InputValidation
+from app.services.rule_packages.project_conditions import PROJECT_CONDITION_EXPRESSIONS, project_condition_fields, project_authoring_condition
 
 
-FIELD_REGISTRY_VERSION = "2026.10"
+FIELD_REGISTRY_VERSION = "2026.11-v3.7"
 
 
-_FIELDS = [
-    CanonicalConditionField(
-        key="material.grade", label="材料牌号", category="材料", type="single_select",
-        operators=["eq", "neq", "in"], aliases=["材料", "材质", "材料牌号"], source="CAD/PLM",
-        options=[{"value": value, "label": value} for value in ["9Cr18", "95Cr18", "4Cr14Ni14W2Mo", "6061"]], required=True,
-        # A finite reviewed material-grade domain lets the Demo compiler lower
-        # case/whitespace-insensitive authoring comparisons without changing
-        # their meaning. New grades must be added to this controlled list.
-        allow_custom=False,
-    ),
-    CanonicalConditionField(
-        key="precision.outer_diameter_it", label="外圆尺寸精度 IT", category="尺寸精度", type="number",
-        operators=["eq", "gt", "gte", "lt", "lte", "between"], aliases=["外圆精度", "外径精度", "外圆IT"],
-        source="CAD/工艺要求", validation={"min": 5, "max": 10},
-    ),
-    CanonicalConditionField(
-        key="precision.inner_diameter_it", label="内孔尺寸精度 IT", category="尺寸精度", type="number",
-        operators=["eq", "gt", "gte", "lt", "lte", "between"], aliases=["内孔精度", "孔精度", "内径精度", "孔IT"],
-        source="CAD/工艺要求", validation={"min": 5, "max": 10},
-    ),
-    CanonicalConditionField(
-        key="precision.dimension_it", label="尺寸精度 IT", category="尺寸精度", type="number",
-        operators=["eq", "gt", "gte", "lt", "lte", "between"], aliases=["尺寸精度", "IT等级", "公差等级"],
-        source="CAD/工艺要求", validation={"min": 5, "max": 10},
-    ),
-    CanonicalConditionField(
-        key="surface.roughness_ra", label="表面粗糙度 Ra", category="表面质量", type="number",
-        operators=["eq", "gt", "gte", "lt", "lte", "between"], aliases=["粗糙度", "表面粗糙度", "Ra"],
-        unit="μm", source="CAD/工艺要求", validation={"min": 0},
-    ),
-    CanonicalConditionField(
-        key="tolerance.roundness_mm", label="圆度公差", category="形位公差", type="number",
-        operators=["eq", "gt", "gte", "lt", "lte", "between"], aliases=["圆度"], unit="mm", source="CAD/工艺要求", validation={"min": 0},
-    ),
-    CanonicalConditionField(
-        key="tolerance.cylindricity_mm", label="圆柱度公差", category="形位公差", type="number",
-        operators=["eq", "gt", "gte", "lt", "lte", "between"], aliases=["圆柱度"], unit="mm", source="CAD/工艺要求", validation={"min": 0},
-    ),
-    CanonicalConditionField(
-        key="tolerance.coaxiality_mm", label="同轴度公差", category="形位公差", type="number",
-        operators=["eq", "gt", "gte", "lt", "lte", "between"], aliases=["同轴度", "同心度"], unit="mm", source="CAD/工艺要求", validation={"min": 0},
-    ),
-    CanonicalConditionField(
-        key="tolerance.runout_mm", label="跳动公差", category="形位公差", type="number",
-        operators=["eq", "gt", "gte", "lt", "lte", "between"], aliases=["圆跳动", "全跳动", "跳动"], unit="mm", source="CAD/工艺要求", validation={"min": 0},
-    ),
-    CanonicalConditionField(
-        key="tolerance.position_mm", label="位置度公差", category="形位公差", type="number",
-        operators=["eq", "gt", "gte", "lt", "lte", "between"], aliases=["位置度"], unit="mm", source="CAD/工艺要求", validation={"min": 0},
-    ),
-    CanonicalConditionField(
-        key="tolerance.flatness_mm", label="平面度公差", category="形位公差", type="number",
-        operators=["eq", "gt", "gte", "lt", "lte", "between"], aliases=["平面度"], unit="mm", source="CAD/工艺要求", validation={"min": 0},
-    ),
-    CanonicalConditionField(
-        key="tolerance.perpendicularity_mm", label="垂直度公差", category="形位公差", type="number",
-        operators=["eq", "gt", "gte", "lt", "lte", "between"], aliases=["垂直度"], unit="mm", source="CAD/工艺要求", validation={"min": 0},
-    ),
-    CanonicalConditionField(
-        key="geometry.diameter_mm", label="特征直径", category="几何尺寸", type="number",
-        operators=["eq", "gt", "gte", "lt", "lte", "between"], aliases=["直径", "孔径", "外径"], unit="mm", source="CAD", validation={"min": 0},
-    ),
-    CanonicalConditionField(
-        key="geometry.length_mm", label="特征长度", category="几何尺寸", type="number",
-        operators=["eq", "gt", "gte", "lt", "lte", "between"], aliases=["长度", "深度"], unit="mm", source="CAD", validation={"min": 0},
-    ),
-    CanonicalConditionField(
-        key="mechanical.hardness_hrc", label="目标硬度 HRC", category="性能要求", type="number",
-        operators=["eq", "gt", "gte", "lt", "lte", "between"], aliases=["硬度", "HRC", "目标硬度"], unit="HRC", source="图样技术要求", validation={"min": 0, "max": 80},
-    ),
-    CanonicalConditionField(
-        key="cad.features", label="CAD 特征集合", category="结构特征", type="multi_select",
-        operators=["contains", "contains_any", "contains_all"], aliases=["CAD特征", "结构特征", "槽", "孔", "扁位"], source="CAD",
-        options=[{"value": value, "label": value} for value in ["扁位/平面", "槽类特征", "普通孔/辅助孔", "铰孔/精孔", "型孔/割扁", "顶尖孔"]], required=True,
-        # These reviewed categories need an explicit human classification. The
-        # downstream CAD engine reads geometric names and has no classifier for
-        # these values, so publication exposes a manual multi-select input.
-        allow_custom=False,
-    ),
-    CanonicalConditionField(
-        key="precision.grades", label="精度/表面要求集合", category="精度要求", type="multi_select",
-        operators=["contains", "contains_any", "contains_all"], aliases=["精加工要求", "磨削要求", "研磨要求"], source="CAD/工艺要求",
-        options=[{"value": value, "label": value} for value in ["孔精加工", "珩孔要求", "研孔要求", "外圆磨削", "端面磨削", "槽磨削", "研外圆"]], required=True,
-        allow_custom=False,
-    ),
-    CanonicalConditionField(
-        key="special.requirements", label="特殊要求", category="特殊要求", type="multi_select",
-        operators=["contains", "contains_any", "contains_all"], aliases=["特殊要求", "技术要求", "检验要求", "表面处理要求"], source="人工补充/图样技术要求",
-        options=[{"value": value, "label": value} for value in ["渗氮层要求", "铬酸阳极化要求", "硬质阳极化要求", "追溯标印", "无损检测要求", "磁粉检查要求", "烧伤检查要求"]],
-        allow_custom=False,
-    ),
-]
+_FIELDS = [CanonicalConditionField.model_validate(field) for field in json.loads(
+    (Path(__file__).resolve().parents[2] / "assets" / "legacy_condition_fields.json").read_text(encoding="utf-8")
+)]
 
 
 def condition_fields() -> list[CanonicalConditionField]:
@@ -135,6 +51,7 @@ def validate_condition_tree(
     node: ConditionNode,
     additional_fields: dict[str, CanonicalConditionField] | None = None,
 ) -> list[str]:
+    node = project_authoring_condition(node)
     issues: list[str] = []
     fields = condition_field_map()
     fields.update(additional_fields or {})
@@ -148,11 +65,19 @@ def validate_condition_tree(
             if current.op not in definition.operators:
                 issues.append(f"字段“{definition.label}”不支持运算符 {current.op}")
             value = current.value
+            if (current.field.startswith('project_factor.') and definition.type in {'single_select', 'multi_select'}
+                    and not definition.allow_custom and current.op not in {'exists', 'not_exists'}):
+                values = value if isinstance(value, list) else [value]
+                allowed = [option.get('value') for option in definition.options]
+                if any(item not in allowed for item in values):
+                    issues.append(f'字段“{definition.label}”的条件值不在该规则自身定义的候选中')
             if definition.type == "number" and current.op not in {"exists", "not_exists"}:
                 values = value if isinstance(value, list) else [value]
                 if any(isinstance(item, bool) or not isinstance(item, (int, float)) for item in values):
                     issues.append(f"字段“{definition.label}”必须使用数值")
                 else:
+                    if re.fullmatch(r'project_factor\.operation_[^.]+\.it', current.field) and any(not math.isfinite(item) or item != int(item) or not -1 <= item <= 18 for item in values):
+                        issues.append('尺寸精度阈值必须是 IT01、IT0 或 IT1～IT18 等级，不能使用小数。')
                     validation = definition.validation or {}
                     minimum = validation.get("min")
                     maximum = validation.get("max")
@@ -173,6 +98,37 @@ def validate_condition_tree(
             walk(current.not_condition)
 
     walk(node)
+    # Two scalar inputs represent one explicitly identified machining object.
+    # Never let a feature on object A and a direction on object B form C01.
+    def scopes(current: ConditionNode):
+        if current.field:
+            match = re.fullmatch(r'(project_factor\.operation_[^.]+)\.(features|direction)', current.field)
+            if match:
+                yield match.group(1), match.group(2)
+        for child in current.all_conditions or []:
+            yield from scopes(child)
+    object_fields = list(scopes(node))
+    if {kind for _, kind in object_fields} == {'features', 'direction'} and len({scope for scope, _ in object_fields}) != 1:
+        issues.append('加工特征与方位必须属于同一加工对象，不能分别匹配不同对象。')
+    def leaves(current: ConditionNode):
+        if current.field:
+            yield current
+        for child in current.all_conditions or []:
+            yield from leaves(child)
+    intervals: dict[str, dict[str, ConditionNode]] = {}
+    for leaf in leaves(node):
+        match = re.fullmatch(r'(project_factor\.operation_[^.]+)\.(hardness_unit|hardness_min|hardness_max)', leaf.field)
+        if match:
+            intervals.setdefault(match.group(1), {})[match.group(2)] = leaf
+    for interval in intervals.values():
+        if set(interval) != {'hardness_unit', 'hardness_min', 'hardness_max'}:
+            issues.append('目标硬度必须同时设置硬度制、下限及上限，判断完整图纸区间。')
+            continue
+        low, high, unit = interval['hardness_min'], interval['hardness_max'], interval['hardness_unit']
+        if low.op != 'gte' or high.op != 'lte' or unit.op != 'eq':
+            issues.append('目标硬度完整区间须按下限≥、上限≤并使用相同硬度制判断。')
+        if isinstance(low.value, (int, float)) and isinstance(high.value, (int, float)) and low.value > high.value:
+            issues.append('目标硬度完整区间下限不能大于上限。')
     return issues
 
 

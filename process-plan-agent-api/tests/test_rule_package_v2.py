@@ -251,6 +251,23 @@ def test_validator_accepts_exact_manual_boolean_pair(rule_package_v2_payload):
     assert "same_priority_action_conflict" not in {issue.code for issue in report.errors}
 
 
+def test_validator_allows_a_confirmed_rule_from_another_segment_to_include_main_process(rule_package_v2_payload):
+    package = RulePackageV2.model_validate(rule_package_v2_payload)
+    rule = package.route_rules.rules[1].model_copy(deep=True)
+    rule.rule_id = "user.seg-mark.prepare"
+    rule.source = "user_confirmed"
+    rule.source_segment_id = "seg-mark"
+    rule.source_text = "当存在槽类特征时，纳入准备工序"
+    rule.confirmed_by = "tester"
+    rule.confirmed_at = "2026-08-07T00:00:00+00:00"
+    rule.then.include_process_ids = ["process_prepare"]
+    package.route_rules.rules.append(rule)
+
+    report = validate_rule_package(package)
+
+    assert report.valid is True, report.model_dump()
+
+
 def test_validator_rejects_user_condition_that_targets_another_process(rule_package_v2_payload):
     payload = deepcopy(rule_package_v2_payload)
     payload["route_rules"]["rules"].append({

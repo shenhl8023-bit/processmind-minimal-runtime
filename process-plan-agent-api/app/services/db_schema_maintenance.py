@@ -3,10 +3,53 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from pathlib import Path
 
 from sqlalchemy import text
+from app.core.paths import UPLOAD_DIR
 
 logger = logging.getLogger(__name__)
+
+
+async def _table_exists(conn, table_name: str) -> bool:
+    result = await conn.execute(
+        text("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = :name"),
+        {"name": table_name},
+    )
+    return result.first() is not None
+
+
+async def remove_legacy_reference_feature(conn) -> None:
+    if not await _table_exists(conn, "references"):
+        if await _table_exists(conn, "reference_id_sequence"):
+            await conn.execute(text("DROP TABLE reference_id_sequence"))
+        return
+
+    result = await conn.execute(text("""
+        SELECT DISTINCT filename
+        FROM "references"
+        WHERE ref_type = 'uploaded' AND filename IS NOT NULL AND filename != ''
+    """))
+    reference_filenames = {str(row[0]) for row in result.fetchall()}
+    document_result = await conn.execute(text("""
+        SELECT DISTINCT filename FROM documents WHERE filename IS NOT NULL AND filename != ''
+    """))
+    document_filenames = {str(row[0]) for row in document_result.fetchall()}
+
+    for filename in sorted(reference_filenames - document_filenames):
+        normalized = filename.replace("\\", "/")
+        if "/" in normalized or normalized in {".", ".."}:
+            logger.warning("Skipping legacy reference path outside upload root: %s", filename)
+            continue
+        path = Path(UPLOAD_DIR) / normalized
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            raise RuntimeError("Could not remove a legacy auxiliary reference upload") from exc
+
+    await conn.execute(text('DROP TABLE "references"'))
+    if await _table_exists(conn, "reference_id_sequence"):
+        await conn.execute(text("DROP TABLE reference_id_sequence"))
 
 
 async def ensure_project_schema(conn):
@@ -37,7 +80,6 @@ async def ensure_project_schema(conn):
     await ensure_column('route_merge_snapshots', 'knowledge_package_json', 'knowledge_package_json TEXT')
 
     await ensure_column("documents", "project_id", "project_id INTEGER")
-    await ensure_column("references", "project_id", "project_id INTEGER")
     await ensure_column("operations", "project_id", "project_id INTEGER")
     await ensure_column("operations", "chain", "chain VARCHAR(50)")
     await ensure_column("document_operation_details", "equipment_types", "equipment_types TEXT")
@@ -59,6 +101,10 @@ async def ensure_project_schema(conn):
     await ensure_column("normalized_route_segment_rule_reviews", "condition_confirmed_at", "condition_confirmed_at DATETIME")
     await ensure_column("normalized_route_segment_rule_reviews", "condition_knowledge_suggestion_id", "condition_knowledge_suggestion_id INTEGER")
     await ensure_column("projects", "workflow_revision", "workflow_revision INTEGER NOT NULL DEFAULT 0")
+    await ensure_column("projects", "analysis_guidance_json", "analysis_guidance_json TEXT")
+    from app.models.models import ExecutableRuleRevision
+    await conn.run_sync(lambda connection: ExecutableRuleRevision.__table__.create(connection, checkfirst=True))
+    await ensure_column("generated_routes", "executable_revision_id", "executable_revision_id INTEGER")
     await ensure_column("knowledge_evidence_snapshots", "route_version_id", "route_version_id INTEGER")
     await ensure_column("knowledge_evidence_snapshots", "segment_id", "segment_id VARCHAR(255)")
     await conn.execute(text("""
@@ -83,6 +129,7 @@ async def ensure_project_schema(conn):
     for name in ('domain_evidence_refs_json', 'domain_package_ref_json', 'sample_detail_ids_json'):
         await ensure_column('knowledge_rule_suggestions', name, f'{name} TEXT')
     await ensure_column('normalized_route_versions', 'knowledge_package_json', 'knowledge_package_json TEXT')
+    await ensure_column('normalized_route_versions', 'analysis_locked_at', 'analysis_locked_at DATETIME')
     await conn.execute(text("""
         CREATE INDEX IF NOT EXISTS idx_knowledge_rule_suggestions_scope
         ON knowledge_rule_suggestions(project_id, route_version_id, segment_id, status)
@@ -102,6 +149,9 @@ async def ensure_project_schema(conn):
             mappings_json TEXT NOT NULL DEFAULT '[]',
             step_mappings_json TEXT NOT NULL DEFAULT '[]',
             mapping_output_json TEXT NOT NULL DEFAULT '[]',
+            hidden_step_keys_json TEXT NOT NULL DEFAULT '[]',
+            waived_group_paths_json TEXT NOT NULL DEFAULT '[]',
+            mapping_operations_json TEXT NOT NULL DEFAULT '[]',
             mapping_output_mode VARCHAR(30) NOT NULL DEFAULT 'unknown',
             template_revision INTEGER NOT NULL DEFAULT 1,
             group_count INTEGER NOT NULL DEFAULT 0,
@@ -130,6 +180,10 @@ async def ensure_project_schema(conn):
         "mapping_output_mode",
         "mapping_output_mode VARCHAR(30) NOT NULL DEFAULT 'unknown'",
     )
+    for column in ("step_order_by_process_json", "mapping_context_json"):
+        await ensure_column("project_group_templates", column, column + " TEXT NOT NULL DEFAULT '{}'")
+    for column in ("hidden_step_keys_json", "waived_group_paths_json", "mapping_operations_json"):
+        await ensure_column("project_group_templates", column, column + " TEXT NOT NULL DEFAULT '[]'")
     await conn.execute(text("""
         CREATE TABLE IF NOT EXISTS schema_migrations (
             name VARCHAR(100) PRIMARY KEY,
@@ -222,6 +276,19 @@ async def ensure_project_schema(conn):
             text("INSERT INTO project_id_sequence (id) VALUES (:project_id)"),
             {"project_id": current_max_project_id},
         )
+
+    # Add an allocator without rebuilding the legacy documents table or its
+    # foreign keys. Its rows survive document deletion and application restart.
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS document_id_sequence (
+            id INTEGER PRIMARY KEY AUTOINCREMENT
+        )
+    """))
+    await conn.execute(text("""
+        INSERT OR IGNORE INTO document_id_sequence (id)
+        SELECT id FROM documents ORDER BY id DESC LIMIT 1
+    """))
+    await remove_legacy_reference_feature(conn)
 
     await backfill_chain_columns(conn)
     await audit_duplicate_operations(conn)

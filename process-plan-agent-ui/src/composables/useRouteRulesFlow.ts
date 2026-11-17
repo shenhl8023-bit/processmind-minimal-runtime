@@ -138,6 +138,9 @@ export function useRouteRulesFlow(options: UseRouteRulesFlowOptions) {
       const loaded = await options.loadRouteMergeWorkspaceFromBackend(true, forceRefresh)
       if (!isCurrent()) return
       if (!loaded) throw new Error('路线归并工作台加载失败，请刷新后重试。')
+      if (!options.routes.value.length && !options.routeMergeNormalizedSegments.value.length) {
+        throw new Error('当前没有可用的工艺路线，原始资料可能已更新，请点击重试后重新提取。')
+      }
       extractTask.value = null
     } catch (e: any) {
       if (!isCurrent()) return

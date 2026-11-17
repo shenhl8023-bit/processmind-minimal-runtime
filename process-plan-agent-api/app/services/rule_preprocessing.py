@@ -8,6 +8,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
+from fastapi import HTTPException
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,9 +24,12 @@ from app.services.rule_packages.condition_contracts import (
 )
 from app.services.rule_packages.condition_parser import CONDITION_PARSER_VERSION
 from app.services.rule_packages.condition_registry import FIELD_REGISTRY_VERSION
+from app.services.rule_packages.authoring_validation import validate_authored_candidate
 from app.services.rule_packages.condition_reviews import (
     _active_condition_parser_context,
+    _condition_review_token,
     _current_confirmed_candidate,
+    _loads_candidate,
     parse_condition_review,
 )
 
@@ -146,6 +150,36 @@ async def _save_state(
     return current
 
 
+async def _save_current_state(
+    db: AsyncSession,
+    project_id: int,
+    route_id: int,
+    workflow_revision: int,
+    *,
+    expected_state: dict[str, Any] | None = None,
+    **updates: Any,
+) -> dict[str, Any] | None:
+    """Keep the revision check and state write in the same transaction."""
+    try:
+        await acquire_workflow_revision(db, project_id, workflow_revision)
+    except HTTPException as exc:
+        if exc.status_code not in {404, 409}:
+            raise
+        await db.rollback()
+        return None
+    current = await _load_state(db, project_id, route_id)
+    if expected_state is not None and (
+        current is None or any(
+            current.get(field) != expected_state.get(field)
+            for field in ("workflow_revision", "input_hash", "started_at")
+        )
+    ):
+        await db.rollback()
+        return None
+    return await _save_state(db, project_id, route_id,
+        workflow_revision=workflow_revision, **updates)
+
+
 def _input_hash(items: list[RulePreprocessItem], processes: list[RuleConditionProcessOption]) -> str:
     payload = {
         "items": [item.model_dump(mode="json") for item in items],
@@ -207,6 +241,9 @@ async def _review_is_current(
         return _current_confirmed_candidate(
             review, item.source_text, processes, item.process_id,
         ) is not None
+    candidate = _loads_candidate(review.condition_candidate_json)
+    if candidate is None or validate_authored_candidate(candidate, item.process_id):
+        return False
     if str(review.condition_parser_version or "") == "manual":
         return True
     return (
@@ -222,15 +259,30 @@ async def _run_job(
     workflow_revision: int,
     items: list[RulePreprocessItem],
     processes: list[RuleConditionProcessOption],
+    review_tokens: dict[str, str] | None = None,
+    task_state: dict[str, Any] | None = None,
 ) -> None:
     key = _key(project_id, route_id)
+    owner = asyncio.current_task()
     completed = 0
     failed = 0
     failures: list[str] = []
     cursor = 0
     cursor_lock = asyncio.Lock()
     progress_lock = asyncio.Lock()
-    parser_version, _ = await _active_condition_parser_context()
+    workers: list[asyncio.Task] = []
+
+    async def save_progress(db: AsyncSession, **updates: Any) -> bool:
+        active = RULE_PREPROCESS_JOBS.get(key)
+        if (task_state is not None or active is not None) and active is not owner:
+            await db.rollback()
+            return False
+        state = await _save_current_state(db, project_id, route_id,
+            workflow_revision, expected_state=task_state, **updates)
+        if state is None:
+            return False
+        await db.commit()
+        return True
 
     async def next_item() -> RulePreprocessItem | None:
         nonlocal cursor
@@ -279,15 +331,13 @@ async def _run_job(
                                 processes=processes,
                             ),
                             db,
+                            expected_review_token=(review_tokens or {}).get(item.segment_id),
                         )
                     await db.commit()
                     async with progress_lock:
                         completed += 1
-                        await _save_state(
+                        if not await save_progress(
                             db,
-                            project_id,
-                            route_id,
-                            workflow_revision=workflow_revision,
                             task_status="running",
                             total_count=len(items),
                             completed_count=completed,
@@ -295,18 +345,15 @@ async def _run_job(
                             current_segment_id=item.segment_id,
                             message=f"正在准备规则候选：{completed}/{len(items)}",
                             error="\n".join(failures),
-                        )
-                        await db.commit()
+                        ):
+                            return
                 except Exception as exc:
                     await db.rollback()
                     async with progress_lock:
                         failed += 1
                         failures.append(f"{item.segment_id}: {exc}")
-                        await _save_state(
+                        if not await save_progress(
                             db,
-                            project_id,
-                            route_id,
-                            workflow_revision=workflow_revision,
                             task_status="running",
                             total_count=len(items),
                             completed_count=completed,
@@ -314,22 +361,21 @@ async def _run_job(
                             current_segment_id=item.segment_id,
                             message=f"规则候选准备中，已有 {failed} 条失败",
                             error="\n".join(failures),
-                        )
-                        await db.commit()
+                        ):
+                            return
 
     try:
-        await asyncio.gather(*(worker() for _ in range(min(3, max(1, len(items))))))
+        parser_version, _ = await _active_condition_parser_context()
+        workers = [asyncio.create_task(worker()) for _ in range(min(3, max(1, len(items))))]
+        await asyncio.gather(*workers)
         async with async_session() as db:
             message = (
                 f"规则候选已准备 {completed}/{len(items)} 条"
                 if not failed
                 else f"规则候选已准备 {completed}/{len(items)} 条，{failed} 条需要重试"
             )
-            await _save_state(
+            await save_progress(
                 db,
-                project_id,
-                route_id,
-                workflow_revision=workflow_revision,
                 task_status="completed",
                 total_count=len(items),
                 completed_count=completed,
@@ -339,14 +385,10 @@ async def _run_job(
                 error="\n".join(failures),
                 finished_at=_now(),
             )
-            await db.commit()
     except Exception as exc:
         async with async_session() as db:
-            await _save_state(
+            await save_progress(
                 db,
-                project_id,
-                route_id,
-                workflow_revision=workflow_revision,
                 task_status="failed",
                 total_count=len(items),
                 completed_count=completed,
@@ -355,9 +397,13 @@ async def _run_job(
                 error=str(exc),
                 finished_at=_now(),
             )
-            await db.commit()
     finally:
-        RULE_PREPROCESS_JOBS.pop(key, None)
+        for task in workers:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*workers, return_exceptions=True)
+        if RULE_PREPROCESS_JOBS.get(key) is owner:
+            RULE_PREPROCESS_JOBS.pop(key, None)
 
 
 async def start_rule_preprocessing(
@@ -367,23 +413,33 @@ async def start_rule_preprocessing(
     key = _key(body.project_id, body.route_id)
     lock = RULE_PREPROCESS_LOCKS.setdefault(key, asyncio.Lock())
     async with lock:
-        await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
-        route = (
-            await db.execute(
-                select(NormalizedRouteVersion).where(
-                    NormalizedRouteVersion.id == body.route_id,
-                    NormalizedRouteVersion.project_id == body.project_id,
-                )
-            )
-        ).scalar_one_or_none()
-        if not route:
-            raise ValueError("规则预处理依赖的路线版本不存在。")
-
         input_hash = _input_hash(body.items, body.processes)
-        current = await _load_state(db, body.project_id, body.route_id)
-        active = RULE_PREPROCESS_JOBS.get(key)
-        if active and not active.done() and current:
-            return _response(current)
+        while True:
+            await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
+            route = (
+                await db.execute(
+                    select(NormalizedRouteVersion).where(
+                        NormalizedRouteVersion.id == body.route_id,
+                        NormalizedRouteVersion.project_id == body.project_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if not route:
+                raise ValueError("规则预处理依赖的路线版本不存在。")
+
+            current = await _load_state(db, body.project_id, body.route_id)
+            active = RULE_PREPROCESS_JOBS.get(key)
+            if not active or active.done():
+                break
+            if (current and current.get("input_hash") == input_hash
+                    and int(current.get("workflow_revision") or 0) == int(body.expected_workflow_revision)):
+                return _response(current)
+            # A cancelled parser may need to roll back a DB transaction. Never
+            # wait for its workers while retaining this request's writer lock.
+            await db.rollback()
+            active.cancel()
+            await asyncio.gather(active, return_exceptions=True)
+            # Recheck after draining: another reset may have changed the revision.
         if (
             current
             and current.get("task_status") == "completed"
@@ -393,6 +449,17 @@ async def start_rule_preprocessing(
         ):
             return _response(current)
 
+        queued_reviews = (await db.execute(
+            select(NormalizedRouteSegmentRuleReview).where(
+                NormalizedRouteSegmentRuleReview.project_id == body.project_id,
+                NormalizedRouteSegmentRuleReview.route_version_id == body.route_id,
+            ).execution_options(populate_existing=True)
+        )).scalars().all()
+        reviews_by_segment = {review.segment_id: review for review in queued_reviews}
+        review_tokens = {
+            item.segment_id: _condition_review_token(reviews_by_segment.get(item.segment_id))
+            for item in body.items
+        }
         items_json = json.dumps([item.model_dump(mode="json") for item in body.items], ensure_ascii=False)
         processes_json = json.dumps([item.model_dump(mode="json") for item in body.processes], ensure_ascii=False)
         state = await _save_state(
@@ -400,30 +467,21 @@ async def start_rule_preprocessing(
             body.project_id,
             body.route_id,
             workflow_revision=body.expected_workflow_revision,
-            task_status="queued",
+            task_status="queued" if body.items else "completed",
             total_count=len(body.items),
             completed_count=0,
             failed_count=0,
             current_segment_id="",
-            message="已进入规则预处理队列。",
+            message="已进入规则预处理队列。" if body.items else "当前没有需要预处理的条件或关联规则。",
             error="",
             input_hash=input_hash,
             items_json=items_json,
             processes_json=processes_json,
             started_at=_now(),
-            finished_at="",
+            finished_at="" if body.items else _now(),
         )
         await db.commit()
         if not body.items:
-            state = await _save_state(
-                db,
-                body.project_id,
-                body.route_id,
-                task_status="completed",
-                message="当前没有需要预处理的条件或关联规则。",
-                finished_at=_now(),
-            )
-            await db.commit()
             return _response(state)
         RULE_PREPROCESS_JOBS[key] = asyncio.create_task(
             _run_job(
@@ -432,6 +490,8 @@ async def start_rule_preprocessing(
                 workflow_revision=body.expected_workflow_revision,
                 items=body.items,
                 processes=body.processes,
+                review_tokens=review_tokens,
+                task_state=state.copy(),
             )
         )
         state["task_status"] = "running"
@@ -440,6 +500,20 @@ async def start_rule_preprocessing(
 
 
 async def get_rule_preprocessing_status(
+    project_id: int,
+    route_id: int,
+    db: AsyncSession,
+) -> RulePreprocessStatusResponse:
+    # Start commits its queue before registering the in-memory task. Serialize
+    # interruption recovery with that whole operation so a live new job cannot
+    # be marked failed in the commit-to-registration window.
+    key = _key(project_id, route_id)
+    lock = RULE_PREPROCESS_LOCKS.setdefault(key, asyncio.Lock())
+    async with lock:
+        return await _rule_preprocessing_status(project_id, route_id, db)
+
+
+async def _rule_preprocessing_status(
     project_id: int,
     route_id: int,
     db: AsyncSession,
@@ -453,17 +527,21 @@ async def get_rule_preprocessing_status(
             task_status="idle",
         )
     active = RULE_PREPROCESS_JOBS.get(_key(project_id, route_id))
-    if state["task_status"] == "running" and (not active or active.done()):
-        state = await _save_state(
+    if state["task_status"] in {"queued", "running"} and (not active or active.done()):
+        updated = await _save_current_state(
             db,
             project_id,
             route_id,
+            state["workflow_revision"],
+            expected_state=state,
             task_status="failed",
             message="后台规则预处理已中断，请重试。",
             error=state.get("error") or "preprocessing task interrupted",
             finished_at=_now(),
         )
-        await db.commit()
+        if updated is not None:
+            state = updated
+            await db.commit()
     return _response(state)
 
 

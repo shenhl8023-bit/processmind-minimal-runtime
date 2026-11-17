@@ -138,7 +138,7 @@ try {
   $apiRoot = Join-Path $Root 'process-plan-agent-api'
   Push-Location $apiRoot
   try {
-    & $PythonExe -c "import app.main"
+    & $PythonExe -c "import sys; sys.path.insert(0, sys.argv[1]); import app.main" $apiRoot
     if ($LASTEXITCODE -ne 0) {
       throw 'The Win7 application import smoke test failed.'
     }

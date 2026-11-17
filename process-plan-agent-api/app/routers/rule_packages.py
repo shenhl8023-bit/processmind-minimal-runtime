@@ -20,6 +20,7 @@ from app.services.rule_packages.contracts import (
     SimulateRulePackageResponse,
 )
 from app.services.rule_packages.planner import RoutePlanningError
+from app.services.rule_packages.native_publication import package_for_product_profile
 from app.services.rule_packages.input_validation import canonicalize_inputs, input_validation_error_detail, validate_inputs
 from app.services.rule_packages.condition_contracts import (
     ConditionFieldRegistryResponse,
@@ -31,7 +32,7 @@ from app.services.rule_packages.condition_contracts import (
     RuleConditionReviewResponse,
     SaveRuleConditionDraftRequest,
 )
-from app.services.rule_packages.condition_registry import FIELD_REGISTRY_VERSION, condition_fields
+from app.services.rule_packages.condition_registry import FIELD_REGISTRY_VERSION, project_condition_fields
 from app.services.rule_packages.condition_reviews import (
     confirm_condition_review,
     set_manual_condition_review,
@@ -47,8 +48,8 @@ router = APIRouter(prefix="/api/extract/finalized-rule-packages", tags=["规则�
 
 
 @router.get("/condition-fields", response_model=ConditionFieldRegistryResponse)
-async def get_condition_fields():
-    return ConditionFieldRegistryResponse(version=FIELD_REGISTRY_VERSION, fields=condition_fields())
+async def get_condition_fields(process_id: str = 'current', process_name: str = ''):
+    return ConditionFieldRegistryResponse(version=FIELD_REGISTRY_VERSION, fields=project_condition_fields(process_id, process_name))
 
 
 @router.post("/rule-conditions/draft", response_model=RuleConditionReviewResponse)
@@ -121,7 +122,7 @@ async def compile_v2_rule_package(
     body: CompileRulePackageRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    package = compile_rule_package(body)
+    package = package_for_product_profile(compile_rule_package(body))
     return CompileRulePackageResponse(
         package=package,
         content_hash=rule_package_content_hash(package),
@@ -131,11 +132,12 @@ async def compile_v2_rule_package(
 
 @router.post("/validate", response_model=RulePackageValidationReport)
 async def validate_v2_rule_package(body: RulePackageV2):
-    return validate_rule_package(body)
+    return validate_rule_package(package_for_product_profile(body))
 
 
 @router.post("/simulate", response_model=SimulateRulePackageResponse)
 async def simulate_v2_rule_package(body: SimulateRulePackageRequest):
+    body.package = package_for_product_profile(body.package)
     validation = validate_rule_package(body.package)
     content_hash = rule_package_content_hash(body.package)
     if not validation.valid:

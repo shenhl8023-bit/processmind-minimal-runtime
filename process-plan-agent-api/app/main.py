@@ -7,12 +7,16 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.paths import FRONTEND_DIR
+from app.core.compat import run_in_thread
+from app.core.product_profile import TRIAL_EXPIRED_MESSAGE, get_product_profile
 from app.database import init_db
-from app.routers import documents, extract, generate, knowledge, projects, rule_packages, settings
+from app.services.extraction_parallel import shutdown_pdf_extraction_pool
+from app.routers import analysis_guidance, documents, executable_revisions, extract, generate, knowledge, projects, public_rule_package_identities, rule_packages, settings
 from app.web import install_frontend
 
 
@@ -20,12 +24,16 @@ from app.web import install_frontend
 async def lifespan(app: FastAPI):
     # Startup: 创建数据库表
     await init_db()
-    yield
-    # Shutdown
+    try:
+        yield
+    finally:
+        await run_in_thread(shutdown_pdf_extraction_pool)
 
 
 def create_app(frontend_dir: Optional[Path] = None) -> FastAPI:
     """Build the API application, optionally serving a production frontend."""
+
+    get_product_profile()  # Invalid or missing delivery configuration must fail closed.
 
     app = FastAPI(
         title="ProcessMind API",
@@ -53,11 +61,39 @@ def create_app(frontend_dir: Optional[Path] = None) -> FastAPI:
         allow_headers=["*"],
     )
 
+    @app.middleware("http")
+    async def enforce_product_limits(request: Request, call_next):
+        path = request.url.path.rstrip("/")
+        profile = get_product_profile()
+        status_or_health = path in {"/api/product-status", "/api/startup-ping"}
+        business_api = path == "/api" or path.startswith("/api/")
+        api_documentation = path in {"/docs", "/redoc", "/openapi.json"} or path.startswith("/docs/")
+        if not status_or_health and (business_api or api_documentation) and profile.is_expired():
+            return JSONResponse(status_code=403, content={"detail": {
+                "code": "trial_expired", "message": TRIAL_EXPIRED_MESSAGE,
+            }})
+        template_api = any(path.startswith(prefix) for prefix in (
+            "/api/extract/group-templates", "/api/extract/template-group-mappings",
+            "/api/extract/template-step-mappings", "/api/extract/template-process-precisions",
+        ))
+        if template_api and not profile.template_mapping_enabled:
+            return JSONResponse(status_code=403, content={"detail": {
+                "code": "feature_disabled", "message": "当前版本不提供模板分组编排功能。",
+            }})
+        return await call_next(request)
+
+    @app.get("/api/product-status")
+    async def product_status():
+        return get_product_profile().status()
+
     app.include_router(documents.router)
     app.include_router(extract.router)
     app.include_router(rule_packages.router)
+    app.include_router(executable_revisions.router)
+    app.include_router(public_rule_package_identities.router)
     app.include_router(generate.router)
     app.include_router(projects.router)
+    app.include_router(analysis_guidance.router)
     app.include_router(settings.router)
     app.include_router(knowledge.router)
 

@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.database import Base, get_db
 from app.main import app
+from executable_support import seed_fixed_validation
 from app.models.models import (
     Document,
     FinalizedRulePackage,
@@ -94,8 +95,8 @@ def test_progress_only_unlocks_each_next_step_after_its_saved_milestone(tmp_path
             ))
             await db.commit()
             progress = await get_workflow_progress(db, 51)
-            assert progress["completed_steps"] == 4
-            assert progress["max_available_step"] == 5
+            assert progress["completed_steps"] == 3
+            assert progress["max_available_step"] == 4
 
             db.add(FinalizedRulePackage(
                 project_id=51,
@@ -104,6 +105,10 @@ def test_progress_only_unlocks_each_next_step_after_its_saved_milestone(tmp_path
                 package_name="progress-rules",
                 status="published",
             ))
+            await db.commit()
+            progress = await get_workflow_progress(db, 51)
+            assert progress["max_available_step"] == 4  # An export is not an executable revision.
+            await seed_fixed_validation(db, project)
             await db.commit()
             progress = await get_workflow_progress(db, 51)
             assert progress == {
@@ -178,7 +183,7 @@ def test_project_workflow_progress_endpoint_returns_saved_milestones(tmp_path):
         asyncio.run(engine.dispose())
 
 
-def test_template_mapping_edit_invalidates_published_package_and_generated_route(tmp_path):
+def test_template_mapping_edit_retains_current_validation_and_generated_route(tmp_path):
     database_path = tmp_path / "workflow-template-edit.db"
     engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}")
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -247,8 +252,8 @@ def test_template_mapping_edit_invalidates_published_package_and_generated_route
                     package_name="template-edit-rules",
                     status="published",
                 ),
-                GeneratedRoute(project_id=71, input_factors="{}", result_json="{}"),
             ])
+            await seed_fixed_validation(db, project)
             await db.commit()
 
     asyncio.run(setup())
@@ -279,14 +284,14 @@ def test_template_mapping_edit_invalidates_published_package_and_generated_route
 
             after = client.get("/api/projects/71/workflow-progress")
             assert after.status_code == 200
-            assert after.json()["completed_steps"] == 4
-            assert after.json()["max_available_step"] == 5
+            assert after.json()["completed_steps"] == 5
+            assert after.json()["max_available_step"] == 6
 
         async def verify_rows():
             async with session_factory() as db:
                 package = (await db.execute(select(FinalizedRulePackage))).scalar_one()
                 assert package.status == "superseded"
-                assert not (await db.execute(select(GeneratedRoute))).scalars().all()
+                assert len((await db.execute(select(GeneratedRoute))).scalars().all()) == 1
 
         asyncio.run(verify_rows())
     finally:

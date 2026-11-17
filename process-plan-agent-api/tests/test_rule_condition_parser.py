@@ -93,6 +93,40 @@ NATURAL_RELATION_PROCESSES = [
 ]
 
 
+@pytest.mark.asyncio
+async def test_selected_generic_hole_structure_is_locally_executable_without_inventing_requirements(monkeypatch):
+    async def unexpected_model(*args, **kwargs):
+        pytest.fail('The generated hole structure condition must not require a model')
+
+    monkeypatch.setattr(condition_parser, 'call_llm', unexpected_model)
+    candidate, confidence, issues = await condition_parser.parse_rule_condition(
+        '当零件存在孔类结构时，纳入“钻孔”工序。', 'drill', '钻孔',
+        [RuleConditionProcessOption(process_id='drill', display_name='钻孔')],
+    )
+    assert candidate is not None and candidate.when is not None
+    assert candidate.when.field == 'cad.features'
+    for feature in ('普通孔/辅助孔', '铰孔/精孔', '型孔/割扁', '顶尖孔'):
+        assert evaluate_condition(candidate.when, {'cad': {'features': [feature]}}).matched
+    assert not evaluate_condition(candidate.when, {'cad': {'features': ['槽类特征']}}).matched
+    assert candidate.then.include_process_ids == ['drill']
+    assert confidence == 0.9
+    assert issues == []
+
+
+@pytest.mark.asyncio
+async def test_actual_cross_field_hole_or_requirement_remains_unresolved(monkeypatch):
+    async def unexpected_model(*args, **kwargs):
+        pytest.fail('Ambiguous cross-field OR must remain rejected')
+
+    monkeypatch.setattr(condition_parser, 'call_llm', unexpected_model)
+    candidate, _, issues = await condition_parser.parse_rule_condition(
+        '当零件存在孔类结构或孔加工要求时，纳入“钻孔”工序。', 'drill', '钻孔',
+        [RuleConditionProcessOption(process_id='drill', display_name='钻孔')],
+    )
+    assert candidate is None
+    assert issues
+
+
 def test_parse_request_only_accepts_the_controlled_field_registry():
     with pytest.raises(ValidationError, match="known_dynamic_fields"):
         ParseRuleConditionRequest.model_validate({
@@ -472,27 +506,24 @@ async def test_parses_join_process_after_explicit_predecessor():
 
 
 @pytest.mark.asyncio
-async def test_process_check_point_does_not_turn_into_a_generic_inspection_dependency():
+async def test_multiple_process_sources_require_clarification_without_inventing_inspection_source():
     processes = [
         RuleConditionProcessOption(process_id="process_turn", display_name="车削加工"),
         RuleConditionProcessOption(process_id="process_mill", display_name="铣槽"),
         RuleConditionProcessOption(process_id="process_inspect", display_name="检验"),
         RuleConditionProcessOption(process_id="process_burn_inspect", display_name="烧伤检查"),
     ]
-    candidate, confidence, issues = await condition_parser.parse_rule_condition(
-        "当车削后或周边加工后过程检验点满足时，设置烧伤检查作为质量确认节点。",
+    source_text = "当车削后或周边加工后过程检验点满足时，设置烧伤检查作为质量确认节点。"
+    candidate, _, issues = await condition_parser.parse_rule_condition(
+        source_text,
         "process_burn_inspect",
         "烧伤检查",
         processes,
     )
 
-    assert candidate is not None
-    assert candidate.kind == "process_relation"
-    assert candidate.relation is not None
-    assert candidate.relation.source_process_ids == ["process_turn", "process_mill"]
-    assert "process_inspect" not in candidate.relation.source_process_ids
-    assert confidence == 0.9
-    assert issues == []
+    assert condition_parser._resolve_relation_source_ids(source_text, "process_burn_inspect", processes) == ["process_turn", "process_mill"]
+    assert candidate is None
+    assert any("一个来源" in issue for issue in issues)
 
 
 @pytest.mark.asyncio

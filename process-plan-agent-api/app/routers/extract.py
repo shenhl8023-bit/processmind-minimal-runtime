@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from typing import Callable, List
 
+from app.core.product_profile import get_product_profile
 from app.database import get_db, async_session
 from app.models.models import (
     Document,
@@ -25,6 +26,8 @@ from app.models.models import (
     Project,
 )
 from app.schemas.schemas import (
+    AnalysisLockOut,
+    FinalizationEntryRequest,
     DocumentOperationDetailListOut,
     ExtractionTaskStartOut,
     ExtractionTaskStatusOut,
@@ -71,6 +74,7 @@ from app.services.finalized_rule_package_helpers import (
 )
 from app.services.rule_packages.contracts import RulePackageV2
 from app.services.rule_packages.hashing import rule_package_content_hash
+from app.services.rule_packages.native_publication import NativePublicationError, package_for_product_profile
 from app.services.rule_packages.lifecycle import publish_rule_package
 from app.services.rule_packages.confirmation_validation import require_confirmed_user_rule_sources
 from app.services.rule_packages.loader import load_published_rule_package
@@ -261,6 +265,8 @@ async def save_current_group_template(
         raise HTTPException(422, "确认文件与预览文件内容不一致，请重新预览。")
     try:
         await acquire_workflow_revision(db, project_id, expected_workflow_revision)
+        from app.services.rule_packages.executable_revisions import require_generation
+        await require_generation(db, project_id)
         result = await commit_project_group_template(
             db,
             project_id,
@@ -282,6 +288,8 @@ async def save_group_template_mappings(
     await _ensure_project_exists(body.project_id, db)
     try:
         await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
+        from app.services.rule_packages.executable_revisions import require_generation
+        await require_generation(db, body.project_id)
         result = await replace_project_group_mappings(
             db,
             body.project_id,
@@ -304,6 +312,8 @@ async def save_group_template_step_mappings(
     await _ensure_project_exists(body.project_id, db)
     try:
         await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
+        from app.services.rule_packages.executable_revisions import require_generation
+        await require_generation(db, body.project_id)
         result = await replace_project_group_step_mappings(
             db,
             body.project_id,
@@ -311,9 +321,29 @@ async def save_group_template_step_mappings(
             body.expected_template_revision,
             body.operations,
             replace_all=body.replace_all,
+            step_order_by_process=body.step_order_by_process,
+            expected_route_version_id=body.expected_route_version_id,
+            hidden_step_keys=body.hidden_step_keys,
+            waived_group_paths=body.waived_group_paths,
         )
         await db.commit()
         return asdict(result)
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.post("/workflow/enter-finalization", response_model=AnalysisLockOut)
+async def enter_rule_finalization(
+    body: FinalizationEntryRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.analysis_lock import enter_finalization
+
+    try:
+        result = await enter_finalization(db, body)
+        await db.commit()
+        return result
     except Exception:
         await db.rollback()
         raise
@@ -669,14 +699,14 @@ async def precheck_finalized_rule_package(
     checklist = []
     blockers: list[dict] = []
     try:
-        package_v2 = RulePackageV2.model_validate({
+        package_v2 = package_for_product_profile(RulePackageV2.model_validate({
             "manifest": body.manifest or {},
             "factor_dictionary": body.factor_dictionary or None,
             "input_schema": body.input_schema,
             "route_catalog": body.route_catalog,
             "route_rules": body.route_rules,
             "test_cases": list(body.test_cases or []),
-        })
+        }))
         validation = validate_rule_package(package_v2)
     except ValidationError as exc:
         checklist.append({
@@ -786,7 +816,7 @@ async def precheck_finalized_rule_package(
             "message": "请为每个包含特征的模板分组至少保存一条有效映射；无需逐个映射工步或组内全部特征。",
         })
         blockers.extend(asdict(blocker) for blocker in template_blockers)
-    else:
+    elif get_product_profile().template_mapping_enabled:
         checklist.append({
             "code": "template_mapping",
             "label": "分组模板映射",
@@ -797,19 +827,22 @@ async def precheck_finalized_rule_package(
     if validation.valid:
         from app.services.rule_packages.demo_tables import DemoTableError
 
+        native = not get_product_profile().template_mapping_enabled
+        export_code = "native_snapshot" if native else "demo_tables"
+        export_label = "原生 V2 规则包校验" if native else "三文件兼容校验"
         try:
             _, sources = await compile_publication_snapshot(package_v2, project, db)
             export_summary = sources.get("projection_report")
             checklist.append({
-                "code": "demo_tables",
-                "label": "三文件兼容校验",
+                "code": export_code,
+                "label": export_label,
                 "status": "passed",
-                "message": "因素表、全集路线表和规则表已通过格式与引用校验。",
+                "message": "已冻结标准化路线与原生 V2 规则。" if native else "因素表、全集路线表和规则表已通过格式与引用校验。",
             })
-        except DemoTableError as exc:
+        except (DemoTableError, NativePublicationError) as exc:
             checklist.append({
-                "code": "demo_tables",
-                "label": "三文件兼容校验",
+                "code": export_code,
+                "label": export_label,
                 "status": "blocking",
                 "message": str(exc),
             })
@@ -829,124 +862,21 @@ async def save_finalized_rule_package(
     body: FinalizedRulePackageSaveRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    project = await acquire_workflow_revision(
-        db,
-        body.project_id,
-        body.expected_workflow_revision,
-    )
-    # A project remains based on the same reviewed route after step 5 has run.
-    # Allow publishing a corrected package in that state; the route-version
-    # validation below still prevents cross-project or stale-route saves.
-    if project.status not in {"ROUTE_SET_READY", "GENERATED"}:
-        raise HTTPException(409, "当前资料已变更或尚未完成路线提炼，请重新完成第二至四步后再导出规则包。")
-    if not body.input_schema:
-        raise HTTPException(400, "input_schema.json 内容不能为空")
-    if not body.route_catalog:
-        raise HTTPException(400, "route_catalog.json 内容不能为空")
-    if not body.route_rules:
-        raise HTTPException(400, "route_rules.json 内容不能为空")
-    if not (body.rule_report_md or "").strip():
-        raise HTTPException(400, "rule_report.md 内容不能为空")
-
-    schema_version = "2.0"
-    package_name = (body.package_name or "process_route_rules").strip() or "process_route_rules"
-
-    server_validation = dict(body.validation_report or {})
-    manifest = dict(body.manifest or {})
-    test_cases = list(body.test_cases or [])
-    try:
-        package_v2 = RulePackageV2.model_validate({
-            "manifest": manifest,
-            "factor_dictionary": body.factor_dictionary or None,
-            "input_schema": body.input_schema,
-            "route_catalog": body.route_catalog,
-            "route_rules": body.route_rules,
-            "test_cases": test_cases,
-        })
-    except ValidationError as exc:
-        raise HTTPException(422, detail=exc.errors(include_url=False)) from exc
-    if package_v2.manifest.project_id != body.project_id:
-        raise HTTPException(422, "manifest.project_id 与请求 project_id 不一致")
-    if package_v2.manifest.package_name != package_name:
-        raise HTTPException(422, "manifest.package_name 与请求 package_name 不一致")
-    validation = validate_rule_package(package_v2)
-    server_validation = validation.model_dump(mode="json")
-    if not validation.valid:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "message": "规则包校验未通过，无法导出。",
-                "validation": server_validation,
-            },
-        )
-    await _require_current_package_route(
-        body.project_id, body.route_version_id, package_v2.manifest.route_version_id, db,
-    )
-    await require_confirmed_user_rule_sources(
-        package_v2,
-        project_id=body.project_id,
-        route_version_id=body.route_version_id,
-        db=db,
-    )
-    template_blockers = await validate_rule_package_template_mapping(db, package_v2)
-    if template_blockers:
-        raise HTTPException(
-            422,
-            detail={
-                "message": "规则包发布前需完成分组模板映射。",
-                "blockers": [asdict(blocker) for blocker in template_blockers],
-            },
-        )
-    from app.services.rule_packages.demo_tables import DemoTableError
-
-    try:
-        demo_tables, export_sources = await compile_publication_snapshot(package_v2, project, db)
-    except DemoTableError as exc:
-        raise HTTPException(422, detail={
-            "message": str(exc),
-            "blockers": [{**item, "severity": "blocking"} for item in exc.issues],
-        }) from exc
-    content_hash = rule_package_content_hash(package_v2)
-
-    # A retry must reread and revalidate all source revisions. Return a conflict
-    # after rollback rather than reusing a snapshot from a released write lock.
-    latest_version = (
-        await db.execute(
-            select(func.max(FinalizedRulePackage.version)).where(
-                FinalizedRulePackage.project_id == body.project_id
-            )
-        )
-    ).scalar_one_or_none()
-    row = FinalizedRulePackage(
-        project_id=body.project_id,
-        route_version_id=body.route_version_id,
-        version=int(latest_version or 0) + 1,
-        package_name=package_name,
-        schema_version=schema_version,
-        status="draft",
-        manifest_json=json_dumps(manifest),
-        factor_dictionary_json=json_dumps(package_v2.factor_dictionary.model_dump(mode="json")),
-        input_schema_json=json_dumps(body.input_schema),
-        route_catalog_json=json_dumps(body.route_catalog),
-        route_rules_json=json_dumps(body.route_rules),
-        demo_tables_json=json_dumps(demo_tables),
-        export_sources_json=json_dumps(export_sources),
-        test_cases_json=json_dumps_list(test_cases),
-        rule_report_md=body.rule_report_md,
-        validation_report_json=json_dumps(server_validation),
-        content_hash=content_hash,
-        created_by=(body.created_by or "默认用户").strip() or "默认用户",
-    )
-    db.add(row)
-    try:
-        await db.flush()
-        await publish_rule_package(row, db, actor=row.created_by)
-        await db.commit()
-        await db.refresh(row)
-        return serialize_finalized_rule_package(row)
-    except IntegrityError as exc:
-        await db.rollback()
-        raise HTTPException(409, "规则包版本正在由其他请求导出，请刷新后重试。") from exc
+    from app.services.rule_packages.executable_revisions import current_revision, export_revision
+    project = await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
+    row = await current_revision(db, project.id, required=False)
+    if row is None:
+        raise HTTPException(409, "请先在第四步保存当前可执行规则版本。")
+    package = RulePackageV2.model_validate({key: getattr(body, key) for key in
+        ("manifest", "factor_dictionary", "input_schema", "route_catalog", "route_rules", "test_cases")})
+    package.manifest.compiled_from.template_ids = []
+    for process in package.route_catalog.processes:
+        process.template_group_aliases = []
+    if rule_package_content_hash(package) != row.content_hash or body.route_version_id != row.route_version_id:
+        raise HTTPException(409, "请先保存并生成当前可执行规则版本，再导出相同规则核心。")
+    result = await export_revision(db, project, row)
+    await db.commit()
+    return result
 
 
 @router.get("/finalized-rule-packages/latest", response_model=FinalizedRulePackageOut)

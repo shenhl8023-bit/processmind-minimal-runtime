@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.database import Base, configure_sqlite_engine, get_db
 from app.main import app
+from executable_support import seed_fixed_validation
 from app.models.models import Project, ProjectGroupTemplate
 from app.services.db_schema_maintenance import ensure_project_schema
 from app.services.group_template_xml import parse_group_template_xml
@@ -87,10 +88,17 @@ async def template_store(tmp_path):
 
 
 @pytest.fixture
-def template_api_client(tmp_path):
+def template_api_client(tmp_path, monkeypatch):
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'template-api.db'}")
     configure_sqlite_engine(engine)
     sessions = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    # These storage/API contract tests submit synthetic legacy and split trees.
+    # Core/generation integration is covered without mocks in test_mapping_step_projection.
+    async def editor_ready(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr("app.services.rule_packages.executable_revisions.require_generation", editor_ready)
 
     async def setup():
         async with engine.begin() as conn:
@@ -99,6 +107,7 @@ def template_api_client(tmp_path):
         async with sessions() as db:
             project = Project(name="template-api")
             db.add(project)
+            await db.flush()
             await db.commit()
             return project.id
 
@@ -1137,6 +1146,7 @@ def test_template_writes_reject_old_workflow_even_when_template_revision_is_reus
         async with client.template_sessions() as db:
             project = await db.get(Project, client.project_id)
             await invalidate_project_workflow(db, project, from_step=3)
+            await seed_fixed_validation(db, project)
             await db.commit()
 
     asyncio.run(restart_workflow())

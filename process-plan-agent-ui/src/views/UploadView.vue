@@ -12,7 +12,7 @@
       @remove="removeProject"
     />
 
-    <div v-if="selectedProjectId" :class="['content-grid', { 'content-grid--main-only': !showReferencePanel }]">
+    <div v-if="selectedProjectId" class="content-grid">
       <UploadMainFileCard
         :title="currentMainTitle"
         :desc="currentMainDesc"
@@ -24,18 +24,6 @@
         @remove-file="removeDoc"
       />
 
-      <UploadReferenceCard
-        v-if="showReferencePanel"
-        :title="currentRefTitle"
-        :desc="currentRefDesc"
-        :files="refFiles"
-        :uploading="uploadingRef"
-        :format-time="formatTime"
-        :get-file-type="getFileType"
-        @upload-files="doRefUpload"
-        @save-written-ref="saveRef"
-        @remove-file="removeRef"
-      />
     </div>
 
     <div v-else class="card empty-task-card">
@@ -55,6 +43,7 @@
 
     <WorkflowNavFooter
       :summary="uploadNavSummary"
+      :notices="uploadNotices"
       :show-previous="false"
       next-label="进入路线归并 →"
       :next-disabled="!canEnterExtract"
@@ -148,9 +137,9 @@ import { computed, ref, onMounted, onActivated, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import UploadMainFileCard from '@/components/upload/UploadMainFileCard.vue'
 import UploadProjectBoard from '@/components/upload/UploadProjectBoard.vue'
-import UploadReferenceCard from '@/components/upload/UploadReferenceCard.vue'
 import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
-import { uploadDocuments, listDocuments, deleteDocument, createReference, listReferences, uploadReferences, deleteReference, listProjects, createProject, deleteProject } from '@/api'
+import type { WorkflowNotice } from '@/components/workflow/workflowNotice'
+import { uploadDocuments, listDocuments, deleteDocument, listProjects, createProject, deleteProject } from '@/api'
 import {
   buildProjectRouteQuery,
   clearStoredCurrentProjectId,
@@ -172,6 +161,9 @@ defineOptions({
   name: 'UploadView',
 })
 
+const uploadNotice = ref('')
+const uploadNotices = computed<WorkflowNotice[]>(() => uploadNotice.value ? [{ id: 'upload', level: 'warning', summary: '上传资料操作提示', detail: uploadNotice.value, actions: [{ label: '关闭提示', run: () => { uploadNotice.value = '' } }] }] : [])
+function showUploadNotice(message: string) { uploadNotice.value = message }
 const router = useRouter()
 const route = useRoute()
 const deleteDialogVisible = ref(false)
@@ -183,18 +175,15 @@ const createProjectInFlight = ref(false)
 const lastCreateProjectKey = ref('')
 const lastCreateProjectAt = ref(0)
 const uploading = ref(false)
-const uploadingRef = ref(false)
 const deletingProject = ref(false)
 const loadingFiles = ref(false)
 let loadRequestId = 0
 let initializeRequestId = 0
 const resolvingProject = ref(false)
-const showReferencePanel = false
 
 const projects = ref<any[]>([])
 const selectedProjectId = ref('')
 const mainFiles = ref<any[]>([])
-const refFiles = ref<any[]>([])
 const visibleProjects = computed(() =>
   sortProjects(projects.value)
     .filter((project) => !isSystemSeedProject(project))
@@ -209,7 +198,6 @@ async function initializeUploadView() {
   resolvingProject.value = true
   loadingFiles.value = true
   mainFiles.value = []
-  refFiles.value = []
   try {
     await ensureProjectReady(isCurrent, (projectId) => { routeProjectId = projectId })
     if (!isCurrent()) return
@@ -218,7 +206,7 @@ async function initializeUploadView() {
     if (isCurrent()) {
       selectedProjectId.value = ''
       clearStoredCurrentProjectId()
-      alert(formatRequestError(e, '加载任务列表失败，请刷新重试'))
+      showUploadNotice(formatRequestError(e, '加载任务列表失败，请刷新重试'))
     }
   } finally {
     if (requestId === initializeRequestId) {
@@ -258,7 +246,6 @@ async function loadData(forceRefresh = false) {
   loadingFiles.value = true
   if (!projectId) {
     mainFiles.value = []
-    refFiles.value = []
   }
   try {
     const updatedProjects = sortProjects(await listProjects())
@@ -269,22 +256,16 @@ async function loadData(forceRefresh = false) {
       selectedProjectId.value = ''
       clearStoredCurrentProjectId()
       mainFiles.value = []
-      refFiles.value = []
       return
     }
-    const [documents, references] = await Promise.all([
-      listDocuments(Number(projectId), forceRefresh),
-      listReferences(Number(projectId), forceRefresh),
-    ])
+    const documents = await listDocuments(Number(projectId), forceRefresh)
     if (!isCurrent()) return
     mainFiles.value = documents
-    refFiles.value = references
   } catch (e) {
     if (!isCurrent()) return
     console.error('加载任务资料失败', e)
     mainFiles.value = []
-    refFiles.value = []
-    alert(formatRequestError(e, '加载任务资料失败，请重试'))
+    showUploadNotice(formatRequestError(e, '加载任务资料失败，请重试'))
   } finally {
     if (requestId === loadRequestId) loadingFiles.value = false
   }
@@ -333,6 +314,13 @@ async function executeCreateProject() {
   lastCreateProjectKey.value = createKey
   lastCreateProjectAt.value = now
   creatingProject.value = true
+  const createContext = initializeRequestId
+  const initialProjectId = selectedProjectId.value
+  const initialRouteProjectId = String(route.query.project_id || '')
+  const isCurrentCreate = () => createContext === initializeRequestId
+    && selectedProjectId.value === initialProjectId
+    && route.path === '/upload'
+    && String(route.query.project_id || '') === initialRouteProjectId
   try {
     createDialogVisible.value = false
     const project = await createProject(name)
@@ -340,11 +328,11 @@ async function executeCreateProject() {
       project,
       ...projects.value.filter(item => item.id !== project.id),
     ])
+    if (!isCurrentCreate()) return
     selectedProjectId.value = String(project.id)
     setStoredCurrentProjectId(selectedProjectId.value)
     syncProjectRoute(selectedProjectId.value)
     mainFiles.value = []
-    refFiles.value = []
     try {
       projects.value = sortProjects(await listProjects())
     } catch (refreshError) {
@@ -360,7 +348,7 @@ async function executeCreateProject() {
     lastCreateProjectKey.value = ''
     lastCreateProjectAt.value = 0
     createDialogVisible.value = true
-    alert(formatRequestError(e, '创建任务失败，请检查后端服务后重试'))
+    showUploadNotice(formatRequestError(e, '创建任务失败，请检查后端服务后重试'))
   } finally {
     creatingProject.value = false
     createProjectInFlight.value = false
@@ -371,7 +359,6 @@ async function selectProject(projectId: number) {
   initializeRequestId += 1
   resolvingProject.value = false
   mainFiles.value = []
-  refFiles.value = []
   selectedProjectId.value = String(projectId)
   setStoredCurrentProjectId(selectedProjectId.value)
   syncProjectRoute(selectedProjectId.value)
@@ -396,26 +383,28 @@ async function executeDeleteProject() {
     projects.value = projects.value.filter(p => p.id !== projectId)
 
     if (selectedProjectId.value === String(projectId)) {
+      initializeRequestId += 1
+      loadRequestId += 1
+      resolvingProject.value = false
+      loadingFiles.value = false
       selectedProjectId.value = ''
+      mainFiles.value = []
       clearStoredCurrentProjectId()
       syncProjectRoute('')
     }
 
-    projects.value = sortProjects(await listProjects())
-    await loadData()
     projectToDelete.value = null
+    await loadData()
   } catch (e: any) {
     console.error('删除任务失败', e)
-    alert(formatRequestError(e, '删除任务失败，请稍后重试'))
+    showUploadNotice(formatRequestError(e, '删除任务失败，请稍后重试'))
   } finally {
     deletingProject.value = false
   }
 }
 
 const currentMainTitle = computed(() => '典型工艺规程文件')
-const currentMainDesc = computed(() => '支持 PDF / DOCX / XLSX / 工艺路线 JSON，可一次上传多份；旧版 DOC / XLS 请先另存为 DOCX / XLSX。')
-const currentRefTitle = computed(() => '参考资料')
-const currentRefDesc = computed(() => '老工艺师经验、背景说明、工艺编制原则等补充知识')
+const currentMainDesc = computed(() => '仅支持可提取文字的 PDF 工艺规程文件。')
 const canCreateProject = computed(() => Boolean(newProjectName.value.trim()))
 const canEnterExtract = computed(() =>
   Boolean(selectedProjectId.value) && mainFiles.value.length > 0 && !uploading.value && !loadingFiles.value && !resolvingProject.value
@@ -423,13 +412,17 @@ const canEnterExtract = computed(() =>
 const uploadNavSummary = computed(() => {
   if (!selectedProjectId.value) return '请先创建或选择任务，再上传工艺规程文件。'
   if (mainFiles.value.length === 0) return '当前任务还没有上传工艺规程文件，上传后才能进入路线归并。'
-  const refText = refFiles.value.length > 0 ? `，${refFiles.value.length} 份参考资料` : ''
-  return `当前任务已上传 ${mainFiles.value.length} 份工艺规程${refText}。`
+  return `当前任务已上传 ${mainFiles.value.length} 份 PDF 工艺规程。`
 })
 
 async function doUpload(files: File[]) {
   const projectId = selectedProjectId.value
   if (!projectId || uploading.value || resolvingProject.value) return
+  const unsupported = files.find(file => !file.name.toLowerCase().endsWith('.pdf'))
+  if (unsupported) {
+    showUploadNotice(`文件 ${unsupported.name} 不是 PDF，工艺规程上传仅支持 PDF 文件。`)
+    return
+  }
   uploading.value = true
   try {
     await uploadDocuments(files, Number(projectId))
@@ -438,65 +431,26 @@ async function doUpload(files: File[]) {
     if (selectedProjectId.value === projectId) await loadData(true)
   } catch (e) {
     console.error('上传失败', e)
-    alert(formatRequestError(e, '上传失败'))
+    showUploadNotice(formatRequestError(e, '上传失败'))
   } finally {
     uploading.value = false
   }
 }
 
-async function doRefUpload(files: File[]) {
-  const projectId = selectedProjectId.value
-  if (!projectId || uploadingRef.value || resolvingProject.value) return
-  uploadingRef.value = true
-  try {
-    await uploadReferences(files, Number(projectId))
-    clearProjectQuestionTreeStorage(projectId)
-    await refreshProjectMilestones(projectId)
-    if (selectedProjectId.value === projectId) await loadData(true)
-  } catch (e) {
-    console.error('上传参考资料失败', e)
-    alert(formatRequestError(e, '上传参考资料失败'))
-  } finally {
-    uploadingRef.value = false
-  }
-}
-
-const saveRef = async (payload: { title: string; content: string }) => {
-  const projectId = selectedProjectId.value
-  const content = payload.content.trim()
-  const title = payload.title.trim() || '补充要求'
-  if (!projectId || !content) return
-  try {
-    await createReference({ project_id: Number(projectId), title, content, ref_type: 'written' })
-    clearProjectQuestionTreeStorage(projectId)
-    await refreshProjectMilestones(projectId)
-    if (selectedProjectId.value === projectId) await loadData(true)
-  } catch (e) {
-    alert(formatRequestError(e, '保存参考资料失败'))
-  }
-}
-
 const removeDoc = async (id: number) => {
   const projectId = selectedProjectId.value
-  try {
-    await deleteDocument(id)
-    clearProjectQuestionTreeStorage(projectId)
-    await refreshProjectMilestones(projectId)
-    if (selectedProjectId.value === projectId) await loadData(true)
-  } catch (e) {
-    alert(formatRequestError(e, '删除文件失败，请重试'))
+  const document = mainFiles.value.find(item => item.id === id)
+  if (!projectId || !document?.filename) {
+    showUploadNotice('文件列表已变化，请刷新后再删除。')
+    return
   }
-}
-
-const removeRef = async (id: number) => {
-  const projectId = selectedProjectId.value
   try {
-    await deleteReference(id)
+    await deleteDocument(id, { project_id: Number(projectId), filename: document.filename })
     clearProjectQuestionTreeStorage(projectId)
     await refreshProjectMilestones(projectId)
     if (selectedProjectId.value === projectId) await loadData(true)
   } catch (e) {
-    alert(formatRequestError(e, '删除参考资料失败，请重试'))
+    showUploadNotice(formatRequestError(e, '删除文件失败，请重试'))
   }
 }
 
@@ -527,19 +481,15 @@ const goNext = async () => {
   box-sizing: border-box;
 }
 
-/* Content Grid Area (Split Columns) */
+/* The primary PDF upload card occupies the full content width. */
 .content-grid {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   margin-bottom: 0;
   overflow: hidden;
-}
-
-.content-grid--main-only {
-  grid-template-columns: minmax(0, 1fr);
 }
 
 .btn-with-svg {

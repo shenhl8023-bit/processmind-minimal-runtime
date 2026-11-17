@@ -5,20 +5,17 @@
       <span>正在加载项目分组模板...</span>
     </div>
     <template v-else-if="showMappingWorkspace">
-        <header class="tgmd-header">
-          <div class="tgmd-title-block">
+        <header class="tgmd-header workflow-page-header">
+          <div class="tgmd-title-block workflow-page-info">
             <div class="tgmd-title-row">
-              <h2 id="template-group-mapping-workspace-title">模板分组映射</h2>
-              <span v-if="model.template.value" class="tgmd-file-inline">
-                {{ model.template.value.original_filename }} → {{ model.template.value.part_filename || '未标注零件文件' }}
-              </span>
+              <h2 id="template-group-mapping-workspace-title" class="workflow-page-title">模板分组映射</h2>
               <span v-if="model.template.value" class="tgmd-title-tag">Kmsoft XML</span>
-              <div class="tgmd-review-guidance tgmd-header-guidance" role="note">
-                加工工步只有完成有效特征映射才参与三表交付；无映射加工工步不导出；辅助工序按规则保留。右侧选择适用的部分特征进行关联即可。
+              <div class="tgmd-review-guidance tgmd-header-guidance workflow-page-description" role="note">
+                在已验证的完整母路线基础上补充模板特征映射。删除工步不参与映射输出，叶子分组可自行豁免。
               </div>
             </div>
             </div>
-          <div class="tgmd-header-actions">
+          <div class="tgmd-header-actions workflow-page-actions">
             <button
               v-if="showMappingWorkspace"
               class="tgmd-command"
@@ -28,25 +25,19 @@
             ><RefreshRight />更换模板</button>
           </div>
         </header>
-      <div v-if="visibleError" class="tgmd-inline-error" role="alert">
-        <WarningFilled />
-        <span>{{ visibleError }}</span>
-      </div>
-
           <main class="tgmd-workspace">
             <section class="tgmd-pane tgmd-operation-pane">
               <header class="tgmd-pane-header tgmd-operation-header">
                 <div class="tgmd-op-header-left">
                   <h3>工序与工步</h3>
-                  <span class="tgmd-left-progress">分组覆盖 {{ coveredFeatureGroupCount }}/{{ featureGroupCount }} · 未覆盖 {{ uncoveredFeatureGroupCount }}</span>
+                  <span class="tgmd-left-progress">已映射 {{ coveredFeatureGroupCount }} · 已豁免 {{ waivedFeatureGroupCount }} · 待映射 {{ uncoveredFeatureGroupCount }}</span>
                   <span v-if="activeStep" class="tgmd-active-step-badge">{{ activeStep.step_name }}</span>
                   <span v-else class="tgmd-pane-subtitle">点击选中工步，勾选右侧特征后关联</span>
                 </div>
                 <div class="tgmd-operation-tools">
                   <button class="tgmd-smart-button" type="button"
-                    :disabled="precisionLoading || recognizing || model.loading.value || model.saving.value || !missingPrecisionOperations.length"
-                    title="根据工序、工步和路线顺序补全未填写的精度，已有选择保持不变"
-                    @click="suggestPrecisions"><MagicStick />{{ precisionLoading ? '正在判定精度…' : '智能判定精度' }}</button>
+                    :disabled="mappingEditsLocked || !hiddenStepKeys.length"
+                    @click="restoreHiddenSteps"><RefreshRight />恢复全部工步<span v-if="hiddenStepKeys.length">（{{ hiddenStepKeys.length }}）</span></button>
                   <div v-if="recognizing" class="tgmd-operation-status" aria-live="polite">
                     <span class="tgmd-status-pill is-live"><span class="tgmd-spinner tgmd-spinner-mini" />正在智能推荐...</span>
                   </div>
@@ -87,8 +78,8 @@
                     <span v-else class="tgmd-auxiliary-precision">辅助工序</span>
                   </div>
                   <div v-if="operationExpanded(operationId(operation))" class="tgmd-step-list">
-                    <div v-if="!stepRefsForOperation(operation).length" class="tgmd-operation-empty">
-                      该工序没有关联工步
+                    <div v-if="!visibleStepsForOperation(operation).length" class="tgmd-operation-empty">
+                      {{ stepRefsForOperation(operation).length ? '该工序的工步已删除，可恢复后继续映射' : '该工序没有关联工步' }}
                     </div>
                     <div v-for="step in visibleStepsForOperation(operation)" :key="step.step_key" role="button" tabindex="0"
                       class="tgmd-step-row" :class="{ 'is-selected': activeStepKey === step.step_key, 'is-mapped': stepMappings(step).length }"
@@ -107,6 +98,15 @@
                             <button type="button" title="解除关联" aria-label="解除关联" :disabled="mappingEditsLocked" @click.stop="removeStepMapping(association.mapping, step)"><Close /></button>
                           </span>
                         </div>
+                      </div>
+                      <div class="tgmd-step-actions" @keydown.stop>
+                        <button class="tgmd-hide-step" type="button" :aria-label="`上移工步：${step.step_name}`"
+                          :disabled="mappingEditsLocked || !canMoveStep(step, -1)" @click.stop="moveStep(step, -1)">上移</button>
+                        <button class="tgmd-hide-step" type="button" :aria-label="`下移工步：${step.step_name}`"
+                          :disabled="mappingEditsLocked || !canMoveStep(step, 1)" @click.stop="moveStep(step, 1)">下移</button>
+                        <button class="tgmd-hide-step" type="button"
+                          :data-hide-step-key="step.step_key" :aria-label="`删除工步：${step.step_name}`"
+                          :disabled="mappingEditsLocked" @click.stop="hideStep(step)"><Close />删除</button>
                       </div>
                     </div>
                   </div>
@@ -152,7 +152,8 @@
                 <TemplateGroupTreeNode v-for="node in displayTemplateTree" :key="node.key" :node="node"
                   :active-key="activeGroupKey" :mapped-counts="mappedCounts" :configured-leaf-keys="configuredLeafKeys"
                   :unconfigured-leaf-keys="unconfiguredLeafKeys" :show-metadata="false" multi-select
-                  :show-mapping-status="true"
+                  :show-mapping-status="true" :waived-leaf-keys="waivedLeafKeys" :show-waiver-actions="true"
+                  @toggle-waiver="toggleLeafWaiver"
                   :selected-feature-keys="selectedFeatureKeys" show-selected-features show-feature-details
                   :readonly="mappingEditsLocked"
                   @select="activeGroupKey = $event" @toggle-feature="toggleSelectedFeature" />
@@ -161,22 +162,13 @@
             </section>
           </main>
 
-          <footer class="tgmd-footer">
-            <button class="tgmd-clear-all" type="button" :disabled="!Object.keys(draftStepMappings).length || mappingEditsLocked" @click="clearMappings">
-              <Delete />清空所有映射
-            </button>
-            <div v-if="mappingStatusMessages.length" class="tgmd-footer-status" role="status">
-              <span v-for="notice in mappingStatusMessages" :key="notice"
-                :class="{ 'is-warning': notice.includes('失败') || notice.includes('未完成') }">{{ notice }}</span>
-            </div>
-            <div class="tgmd-footer-actions">
-              <button class="btn btn-outline" type="button" :disabled="mappingEditsLocked" @click="handleCancel">取消</button>
-              <button class="btn btn-primary" type="button" :disabled="primaryActionDisabled" @click="handlePrimaryAction">
-                <ArrowRight v-if="canContinue && !dirty" />
-                <Link v-else />{{ primaryActionLabel }}
-              </button>
-            </div>
-          </footer>
+          <WorkflowNavFooter :inline="!embedded" :class="{ 'tgmd-footer': !embedded }" :notices="workspaceNotices" summary="选择工步并关联右侧模板特征" :show-previous="false" :show-next="false" next-label="保存映射">
+            <template #actions>
+              <button class="workflow-nav-btn workflow-nav-btn-prev" type="button" :disabled="!Object.keys(draftStepMappings).length || mappingEditsLocked" @click="clearMappings">清空映射</button>
+              <button class="workflow-nav-btn workflow-nav-btn-prev" type="button" :disabled="mappingEditsLocked" @click="handleCancel">{{ embedded ? '返回路线验证' : '取消' }}</button>
+              <button class="workflow-nav-btn workflow-nav-btn-next" type="button" :disabled="primaryActionDisabled" @click="handlePrimaryAction">{{ primaryActionLabel }}</button>
+            </template>
+          </WorkflowNavFooter>
     </template>
     <main v-else-if="showEmptyState" class="tgmd-empty-state">
       <div class="tgmd-empty-icon"><UploadFilled /></div>
@@ -191,6 +183,7 @@
       <WarningFilled />
       <span>{{ visibleError }}</span>
     </div>
+    <WorkflowNavFooter v-if="embedded && !showMappingWorkspace" :notices="workspaceNotices" summary="导入模板后可继续映射" previous-label="← 返回路线验证" next-label="保存映射" :show-next="false" @previous="handleCancel" />
   </div>
 
   <Teleport to="body">
@@ -400,9 +393,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Close,
-  Delete,
   DocumentChecked,
-  Link,
   MagicStick,
   RefreshRight,
   Search,
@@ -419,6 +410,8 @@ import {
   type GroupTemplateStepMappingInput,
 } from '@/api/extract'
 import TemplateGroupTreeNode from '@/components/extract/TemplateGroupTreeNode.vue'
+import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
+import type { WorkflowNotice } from '@/components/workflow/workflowNotice'
 import {
   acceptTemplateGroupFile,
   buildTemplateRouteStructureOperations,
@@ -429,6 +422,8 @@ import {
 } from '@/composables/templateGroupMapping'
 import {
   buildTemplateStepRefs,
+  templateStepOrder,
+  moveTemplateStep,
   buildSourceSuggestionOperations,
   isSuggestionForStep,
   buildTemplateStepRouteFingerprint,
@@ -449,18 +444,21 @@ import {
 } from '@/composables/templateStepMapping'
 import {
   buildEligibleTemplateSteps,
-  featureLeafConfiguration,
   groupConfirmedMappingsByLeaf,
   mappingRecord,
 } from '@/composables/templateGroupProcessMapping'
-import { formatGroupTemplateIssueDetail, useProjectGroupTemplate } from '@/composables/useProjectGroupTemplate'
+import { formatGroupTemplateIssueDetail, useProjectGroupTemplate, type TemplateMappingSaveHandler } from '@/composables/useProjectGroupTemplate'
+import { clearTemplateMappingEdits, loadTemplateMappingExceptionDraft, loadTemplateMappingPrecisionDraft, saveTemplateMappingEdits } from '@/composables/templateMappingEdits'
 
 const props = defineProps<{
   modelValue: boolean
   projectId: number
   workflowRevision?: number
+  routeVersionId?: number
   operations: TemplateOperation[]
+  pageNotices?: WorkflowNotice[]
   embedded?: boolean
+  beforeSave?: TemplateMappingSaveHandler
   legacyAliases: Record<string, TemplateAliasBinding>
 }>()
 
@@ -469,7 +467,7 @@ const emit = defineEmits<{
   (event: 'cancel'): void
   (event: 'continue'): void
   (event: 'status', payload: { validCount: number; savedValidCount: number; invalidCount: number; candidateCount: number; dirty: boolean; busy: boolean }): void
-  (event: 'save', payload: { stepMappings: GroupTemplateStepMapping[]; templateRevision: number }): void
+  (event: 'save', payload: { stepMappings: GroupTemplateStepMapping[]; templateRevision: number; hiddenStepKeys: string[]; waivedGroupPaths: string[][] }): void
 }>()
 
 const model = useProjectGroupTemplate(
@@ -487,6 +485,15 @@ const importDialogOpen = ref(!props.embedded && props.modelValue)
 const draftStepMappings = ref<Record<string, GroupTemplateStepMappingInput>>({})
 const savedSignature = ref('[]')
 const savedPrecisionSignature = ref('{}')
+const savedExceptionSignature = ref('{"hiddenStepKeys":[],"waivedGroupPaths":[]}')
+const draftStepOrder = ref<Record<string, string[]>>({})
+const stepOrderByProcess = computed(() => templateStepOrder(mappingOperations.value, draftStepOrder.value))
+const draftHiddenStepKeys = ref<string[]>([])
+const draftWaivedGroupPaths = ref<string[][]>([])
+const draftInitialized = ref(false)
+const draftTemplateRevision = ref(0)
+const editContext = computed(() => ({ projectId: props.projectId, routeVersionId: props.routeVersionId || 0,
+  workflowRevision: props.workflowRevision || 0, templateRevision: model.templateRevision.value }))
 const expandedOperationIds = ref<number[]>([])
 const precisionOverrides = ref<Record<string, string>>({})
 const activeGroupKey = ref('')
@@ -507,7 +514,7 @@ const precisionEdits = ref<Record<string, number>>({})
 let precisionRequestId = 0
 const visibleError = computed(() => transientError.value || model.error.value
   || (precisionValidationAttempted.value && missingPrecisionOperations.value.length
-    ? `请先填写以下 ${missingPrecisionOperations.value.length} 道加工工序的精度，再保存映射：${missingPrecisionOperations.value.map(operation => operation.name).join('、')}。可点击“智能判定精度”，或在各工序右侧手动选择。`
+    ? `请先填写以下 ${missingPrecisionOperations.value.length} 道加工工序的精度，再保存映射：${missingPrecisionOperations.value.map(operation => operation.name).join('、')}。可点击“智能推荐”补全，或在各工序右侧手动选择。`
     : ''))
 const isReplacing = computed(() => Boolean(model.template.value))
 const showMappingWorkspace = computed(() => Boolean(model.template.value) && (props.embedded || model.state.value === 'workspace'))
@@ -529,6 +536,18 @@ const mappingOperations = computed(() => {
     .sort((left, right) => Number(left.sequence || 0) - Number(right.sequence || 0) || operationId(left) - operationId(right))
 })
 const stepRefs = computed(() => mappingOperations.value.flatMap(buildTemplateStepRefs))
+// Persist canonical mother-route identities; list filtering never edits the source operations.
+const hiddenStepKeys = computed(() => stepRefs.value.filter(step => draftHiddenStepKeys.value.includes(step.step_key)).map(step => step.step_key))
+const featureLeaves = computed(() => {
+  const visit = (nodes: GroupTemplateNode[]): GroupTemplateNode[] => nodes.flatMap(node => isFeatureLeaf(node) ? [node] : visit(node.children || []))
+  return visit(model.template.value?.tree || [])
+})
+function groupPathKey(path: string[]) { return JSON.stringify(path.map(part => part.normalize('NFC').trim())) }
+const waivedGroupPaths = computed(() => featureLeaves.value.filter(leaf => draftWaivedGroupPaths.value
+  .some(path => groupPathKey(path) === groupPathKey(leaf.path))).map(leaf => [...leaf.path]))
+const waivedLeafKeys = computed(() => featureLeaves.value.filter(leaf => waivedGroupPaths.value
+  .some(path => groupPathKey(path) === groupPathKey(leaf.path))).map(leaf => leaf.key))
+const exceptionState = computed(() => ({ hiddenStepKeys: hiddenStepKeys.value, waivedGroupPaths: waivedGroupPaths.value, stepOrderByProcess: stepOrderByProcess.value }))
 const routeFingerprint = computed(() => buildTemplateStepRouteFingerprint(mappingOperations.value))
 const classifiedSteps = computed(() => buildEligibleTemplateSteps(mappingOperations.value))
 const eligibleStepKeys = computed(() => new Set(classifiedSteps.value.eligible.map(step => step.step_key)))
@@ -545,10 +564,11 @@ const displayTemplateTree = computed(() => {
   if (!treeSearchQuery.value.trim()) return tree
   return tree.map(node => filterTreeNode(node, treeSearchQuery.value)).filter((node): node is GroupTemplateNode => node !== null)
 })
-const selectedFeatures = computed(() => selectedTemplateFeatures(model.template.value?.tree || [], selectedFeatureKeys.value))
-const activeStep = computed(() => stepRefs.value.find(step => step.step_key === activeStepKey.value) || null)
-const featureGroupCount = computed(() => leafConfiguration.value.configured.length + leafConfiguration.value.unconfigured.length)
+const selectedFeatures = computed(() => selectedTemplateFeatures(model.template.value?.tree || [], selectedFeatureKeys.value)
+  .filter(selection => !waivedLeafKeys.value.includes(selection.leaf.key)))
+const activeStep = computed(() => stepRefs.value.find(step => step.step_key === activeStepKey.value && !hiddenStepKeys.value.includes(step.step_key)) || null)
 const coveredFeatureGroupCount = computed(() => leafConfiguration.value.configured.length)
+const waivedFeatureGroupCount = computed(() => draftStatus.value.waivedFeatureGroups.length)
 const uncoveredFeatureGroupCount = computed(() => leafConfiguration.value.unconfigured.length)
 const canLinkActiveStep = computed(() => !mappingEditsLocked.value && Boolean(activeStep.value && canDecideStep(activeStep.value) && selectedFeatures.value.some(selection => (
   !isFeatureLinkedToStep(activeStep.value!, selection.leaf, selection.feature)
@@ -560,6 +580,12 @@ const isAllActiveGroupFeaturesSelected = computed(() => Boolean(activeGroupFeatu
   selectedFeatureKeys.value.includes(templateFeatureSelectionKey(activeGroupKey.value, feature))
 ))))
 const mappingStatusMessages = computed(() => [...new Set([...mappingWarnings.value, ...precisionWarnings.value].map(notice => notice.trim()).filter(Boolean))])
+const workspaceNotices = computed<WorkflowNotice[]>(() => [
+  ...(props.pageNotices || []),
+  ...(visibleError.value ? [{ id: 'mapping-error', level: 'error' as const, summary: '映射操作未完成', detail: visibleError.value }] : []),
+  ...mappingStatusMessages.value.map((detail, index) => ({ id: `mapping-status-${index}`, level: 'warning' as const, summary: detail, detail })),
+])
+
 const visibleMappingOperations = computed(() => mappingOperations.value)
 const machiningPrecisions = ['粗加工', '半精加工', '精加工']
 const missingPrecisionOperations = computed(() => props.operations.filter(operation =>
@@ -569,10 +595,7 @@ const mappingsByLeaf = computed(() => groupConfirmedMappingsByLeaf(
   Object.values(draftStepMappings.value),
   model.template.value?.tree || [],
 ))
-const leafConfiguration = computed(() => featureLeafConfiguration(
-  model.template.value?.tree || [],
-  Object.values(draftStepMappings.value),
-))
+const leafConfiguration = computed(() => ({ configured: draftStatus.value.mappedFeatureGroups, unconfigured: draftStatus.value.missingFeatureGroups }))
 const configuredLeafKeys = computed(() => leafConfiguration.value.configured.map(leaf => leaf.key))
 const unconfiguredLeafKeys = computed(() => leafConfiguration.value.unconfigured.map(leaf => leaf.key))
 const mappedCounts = computed(() => Object.entries(mappingsByLeaf.value).reduce<Record<string, number>>((counts, [key, mappings]) => {
@@ -585,19 +608,17 @@ const mappedCounts = computed(() => Object.entries(mappingsByLeaf.value).reduce<
 }, {}))
 const draftStatus = computed(() => getTemplateMappingStatus(model.template.value ? {
   ...model.template.value, step_mappings: Object.values(draftStepMappings.value) as GroupTemplateStepMapping[],
+  hidden_step_keys: hiddenStepKeys.value, waived_group_paths: waivedGroupPaths.value,
 } : null, props.operations))
 const savedStatus = computed(() => getTemplateMappingStatus(model.template.value, props.operations))
-const canContinue = computed(() => savedStatus.value.validCount > 0 && savedStatus.value.missingFeatureGroups.length === 0
+const canContinue = computed(() => (savedStatus.value.validCount > 0 || savedStatus.value.waivedFeatureGroups.length > 0) && savedStatus.value.missingFeatureGroups.length === 0
   && !missingPrecisionOperations.value.length)
 const dirty = computed(() => savedSignature.value !== JSON.stringify(Object.values(draftStepMappings.value))
-  || savedPrecisionSignature.value !== JSON.stringify(precisionOverrides.value))
+  || savedPrecisionSignature.value !== JSON.stringify(precisionOverrides.value)
+  || savedExceptionSignature.value !== JSON.stringify(exceptionState.value))
 const primaryActionLabel = computed(() => model.saving.value
   ? '正在保存'
-  : dirty.value || missingPrecisionOperations.value.length
-    ? '保存工步映射'
-    : canContinue.value
-      ? '进入规则定稿'
-      : '关联工步后继续')
+  : canContinue.value && !dirty.value ? '更新规则包' : '保存并导出规则包')
 const primaryActionDisabled = computed(() => (
   model.saving.value
   || model.loading.value
@@ -622,12 +643,19 @@ watch([draftStatus, savedStatus, dirty, recognizing, precisionLoading, model.sav
   })
 }, { immediate: true, deep: true })
 
-defineExpose({ save: saveStepMappings })
+watch([dirty, precisionOverrides, exceptionState, () => JSON.stringify(draftStepMappings.value)], () => {
+  if (draftInitialized.value && !model.loading.value && !model.saving.value) {
+    saveTemplateMappingEdits(editContext.value, dirty.value, precisionOverrides.value, exceptionState.value)
+  }
+}, { deep: true, flush: 'sync' })
+
+defineExpose({ save: saveStepMappings, discardChanges })
 onBeforeUnmount(invalidatePrecisionSuggestions)
 onDeactivated(invalidatePrecisionSuggestions)
 
 watch(() => [props.modelValue, props.projectId] as const, async ([visible]) => {
   dialogRunId.value += 1
+  draftInitialized.value = false
   invalidatePrecisionSuggestions()
   recognizing.value = false
   recommendationProgress.value = '正在推荐'
@@ -654,6 +682,8 @@ function stepRefsForOperation(operation: TemplateOperation) {
 }
 
 function syncDraftFromTemplate() {
+  draftInitialized.value = false
+  draftTemplateRevision.value = model.templateRevision.value
   precisionSuggestions.value = {}
   precisionValidationAttempted.value = false
   const template = model.template.value
@@ -662,6 +692,10 @@ function syncDraftFromTemplate() {
     precisionOverrides.value = {}
     savedSignature.value = '[]'
     savedPrecisionSignature.value = '{}'
+    draftStepOrder.value = {}
+    draftHiddenStepKeys.value = []
+    draftWaivedGroupPaths.value = []
+    savedExceptionSignature.value = JSON.stringify(exceptionState.value)
     activeGroupKey.value = ''
     selectedFeatureKeys.value = []
     activeStepKey.value = ''
@@ -673,6 +707,7 @@ function syncDraftFromTemplate() {
       .map(process => [process.process_id, process.precision || '']),
   )
   savedPrecisionSignature.value = JSON.stringify(precisionOverrides.value)
+  precisionOverrides.value = loadTemplateMappingPrecisionDraft(editContext.value, precisionOverrides.value)
   const formal = model.draftStepMappings.value
   const restored = loadTemplateStepMappingDraft(
     props.projectId,
@@ -682,8 +717,16 @@ function syncDraftFromTemplate() {
   )
   savedSignature.value = JSON.stringify(Object.values(mappingRecord(scopeMappingsToFinalSteps(formal, stepRefs.value))))
   draftStepMappings.value = mappingRecord(scopeMappingsToFinalSteps(restored, stepRefs.value))
+  draftStepOrder.value = template.step_order_by_process || {}
+  draftHiddenStepKeys.value = template.hidden_step_keys || []
+  draftWaivedGroupPaths.value = template.waived_group_paths || []
+  savedExceptionSignature.value = JSON.stringify(exceptionState.value)
+  const exceptions = loadTemplateMappingExceptionDraft(editContext.value, exceptionState.value)
+  draftHiddenStepKeys.value = exceptions.hiddenStepKeys
+  draftWaivedGroupPaths.value = exceptions.waivedGroupPaths
+  draftStepOrder.value = exceptions.stepOrderByProcess || draftStepOrder.value
   const activeStillExists = findTemplateGroupByKey(template.tree, activeGroupKey.value)
-  const firstLeaf = [...leafConfiguration.value.configured, ...leafConfiguration.value.unconfigured][0]
+  const firstLeaf = featureLeaves.value[0]
   activeGroupKey.value = activeStillExists?.key || firstLeaf?.key || ''
   selectedFeatureKeys.value = []
   const firstEligibleStep = classifiedSteps.value.eligible[0]
@@ -695,6 +738,26 @@ function syncDraftFromTemplate() {
     .filter(operation => operation.process_type !== '辅助工序')
     .slice(0, 3)
     .map(operationId)
+  draftInitialized.value = true
+  saveTemplateMappingEdits(editContext.value, dirty.value, precisionOverrides.value, exceptionState.value)
+}
+
+function discardChanges() {
+  if (model.loading.value || model.saving.value || recognizing.value || precisionLoading.value) return
+  model.draftStepMappings.value = model.template.value?.step_mappings || []
+  clearTemplateStepMappingDraft(props.projectId)
+  clearTemplateMappingEdits(editContext.value)
+  syncDraftFromTemplate()
+}
+
+function syncChangedDraftBase() {
+  if (draftTemplateRevision.value === model.templateRevision.value) return false
+  // A recovered version token can only be used with a draft from that snapshot.
+  discardChanges()
+  transientError.value = model.template.value
+    ? '分组模板已更新，未保存的草稿已替换为最新映射和精度。请核对后重新编辑、保存。'
+    : ''
+  return true
 }
 
 function formatBytes(size: number) {
@@ -811,7 +874,53 @@ function operationExpanded(id: number) {
 }
 
 function visibleStepsForOperation(operation: TemplateOperation) {
-  return stepRefsForOperation(operation)
+  const refs = stepRefsForOperation(operation)
+  const key = operation.process_id || `op_${operationId(operation)}`
+  const byId = new Map(refs.map(step => [step.step_key, step]))
+  return (stepOrderByProcess.value[key] || []).filter(id => !hiddenStepKeys.value.includes(id))
+    .flatMap(id => byId.has(id) ? [byId.get(id)!] : []).map((step, index) => ({ ...step, display_order: index + 1 }))
+}
+
+function hideStep(step: TemplateStepRef) {
+  if (mappingEditsLocked.value || !stepRefs.value.some(item => item.step_key === step.step_key)) return
+  mappingsForStep(draftStepMappings.value, step).forEach(mapping => { delete draftStepMappings.value[stepMappingKey(mapping)] })
+  draftHiddenStepKeys.value = [...new Set([...hiddenStepKeys.value, step.step_key])]
+  if (activeStepKey.value === step.step_key) activeStepKey.value = ''
+  persistStepDraft()
+}
+
+function stepOrderKey(step: TemplateStepRef) { return step.process_id || `op_${step.operation_id}` }
+
+function canMoveStep(step: TemplateStepRef, direction: -1 | 1) {
+  const visible = (stepOrderByProcess.value[stepOrderKey(step)] || []).filter(id => !hiddenStepKeys.value.includes(id))
+  const index = visible.indexOf(step.step_key)
+  return index >= 0 && Boolean(visible[index + direction])
+}
+
+function moveStep(step: TemplateStepRef, direction: -1 | 1) {
+  if (mappingEditsLocked.value || !canMoveStep(step, direction)) return
+  const key = stepOrderKey(step)
+  draftStepOrder.value = { ...stepOrderByProcess.value, [key]: moveTemplateStep(stepOrderByProcess.value[key]!, hiddenStepKeys.value, step.step_key, direction) }
+  persistStepDraft()
+}
+
+function restoreHiddenSteps() {
+  if (mappingEditsLocked.value) return
+  draftHiddenStepKeys.value = []
+  persistStepDraft()
+}
+
+function toggleLeafWaiver(key: string) {
+  if (mappingEditsLocked.value) return
+  const leaf = featureLeaves.value.find(node => node.key === key)
+  if (!leaf) return
+  const pathKey = groupPathKey(leaf.path)
+  const waived = waivedGroupPaths.value.some(path => groupPathKey(path) === pathKey)
+  if (!waived && configuredLeafKeys.value.includes(key)) return
+  draftWaivedGroupPaths.value = waived
+    ? waivedGroupPaths.value.filter(path => groupPathKey(path) !== pathKey)
+    : [...waivedGroupPaths.value, [...leaf.path]]
+  mappingWarnings.value = []
 }
 
 function operationTypeLabel(operation: TemplateOperation) {
@@ -820,7 +929,7 @@ function operationTypeLabel(operation: TemplateOperation) {
 
 function operationMappingSummary(operation: TemplateOperation) {
   if (operation.process_type === '辅助工序') return '辅助工序，按规则保留'
-  const allSteps = stepRefsForOperation(operation)
+  const allSteps = visibleStepsForOperation(operation)
   if (!allSteps.length) return '无工步，不导出'
   const mapped = allSteps.filter(step => stepFeatureMappings(step).length > 0).length
   const unmapped = Math.max(0, allSteps.length - mapped)
@@ -953,7 +1062,7 @@ function sourceRefsForStep(step: TemplateStepRef) {
 }
 
 function canDecideStep(step: TemplateStepRef) {
-  return eligibleStepKeys.value.has(step.step_key) && step.operation_id > 0 && step.step_order > 0
+  return !hiddenStepKeys.value.includes(step.step_key) && eligibleStepKeys.value.has(step.step_key) && step.operation_id > 0 && step.step_order > 0
 }
 
 function clearLegacyGeneralStepDecision(step: TemplateStepRef) {
@@ -979,7 +1088,7 @@ function clearMappings() {
 }
 
 function suggestionOperations() {
-  return buildSourceSuggestionOperations(mappingOperations.value, eligibleStepKeys.value)
+  return buildSourceSuggestionOperations(mappingOperations.value, new Set([...eligibleStepKeys.value].filter(key => !hiddenStepKeys.value.includes(key))))
 }
 
 function mappingOutputOperations() {
@@ -1082,6 +1191,7 @@ function applySuggestedMappings(
       const sourceRefs = sourceRefsForSuggestion(step, suggestion.step_key)
       if (!sourceRefs.length) return
       suggestion.recommended_group_ids.forEach((groupId) => {
+        if (waivedLeafKeys.value.includes(groupId)) return
         if (targetLeafKeys?.length && !targetLeafKeys.includes(groupId)) return
         const leaf = findTemplateGroupByKey(tree, groupId)
         if (!leaf || !isFeatureLeaf(leaf)) return
@@ -1207,6 +1317,7 @@ async function suggestAllSteps() {
 
 async function saveStepMappings() {
   if (recognizing.value || precisionLoading.value || model.loading.value || model.saving.value) return false
+  if (syncChangedDraftBase()) return false
   precisionValidationAttempted.value = true
   if (missingPrecisionOperations.value.length) {
     await focusMissingPrecision()
@@ -1217,13 +1328,25 @@ async function saveStepMappings() {
   mappingWarnings.value = []
   model.draftStepMappings.value = confirmed
   const runId = dialogRunId.value
-  const saved = await model.saveStepMappings(mappingOutputOperations())
-  if (!saved || runId !== dialogRunId.value || !props.modelValue || model.error.value || !model.template.value) {
+  const saved = await model.saveStepMappings(mappingOutputOperations(), {
+    step_order_by_process: stepOrderByProcess.value,
+    ...(props.routeVersionId ? { expected_route_version_id: props.routeVersionId } : {}),
+    hidden_step_keys: [...hiddenStepKeys.value], waived_group_paths: waivedGroupPaths.value.map(path => [...path]),
+  }, ...(props.beforeSave ? [props.beforeSave] as const : [] as const))
+  if (runId !== dialogRunId.value || !props.modelValue) return false
+  if (!saved) {
+    syncChangedDraftBase()
     return false
   }
+  if (model.error.value || !model.template.value) return false
+  draftTemplateRevision.value = model.templateRevision.value
   draftStepMappings.value = mappingRecord(model.template.value.step_mappings || [])
   savedSignature.value = JSON.stringify(Object.values(draftStepMappings.value))
   savedPrecisionSignature.value = JSON.stringify(precisionOverrides.value)
+  draftStepOrder.value = model.template.value.step_order_by_process || stepOrderByProcess.value
+  draftHiddenStepKeys.value = model.template.value.hidden_step_keys || []
+  draftWaivedGroupPaths.value = model.template.value.waived_group_paths || []
+  savedExceptionSignature.value = JSON.stringify(exceptionState.value)
   const unconfigured = savedStatus.value.missingFeatureGroups
   mappingWarnings.value = unconfigured.length
     ? [
@@ -1232,21 +1355,20 @@ async function saveStepMappings() {
     ]
     : ['工步映射已保存。']
   clearTemplateStepMappingDraft(props.projectId)
+  clearTemplateMappingEdits(editContext.value)
   emit('save', {
     stepMappings: model.template.value.step_mappings || [],
     templateRevision: model.templateRevision.value,
+    hiddenStepKeys: [...hiddenStepKeys.value],
+    waivedGroupPaths: waivedGroupPaths.value.map(path => [...path]),
   })
   if (!props.embedded) closeDialog()
-  return savedStatus.value.validCount > 0
+  return savedStatus.value.validCount > 0 || savedStatus.value.waivedFeatureGroups.length > 0
 }
 
 async function handlePrimaryAction() {
   if (primaryActionDisabled.value) return
-  if (dirty.value || missingPrecisionOperations.value.length) {
-    await saveStepMappings()
-    return
-  }
-  if (canContinue.value) emit('continue')
+  await saveStepMappings()
 }
 
 function closeDialog() {
@@ -1294,7 +1416,6 @@ function handleCancel() {
   place-items: center;
   padding: 12px;
   background: rgba(15, 23, 42, 0.45);
-  backdrop-filter: blur(4px);
 }
 
 .tgmd-dialog {
@@ -1303,11 +1424,11 @@ function handleCancel() {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  background: #f8fafc;
-  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.2);
-  color: #0f172a;
+  border: 1px solid var(--pm-border-strong);
+  border-radius: var(--pm-radius-dialog);
+  background: var(--pm-surface-subtle);
+  box-shadow: var(--pm-shadow-popup);
+  color: var(--pm-text);
   transition: all 180ms ease;
 }
 
@@ -1320,7 +1441,7 @@ function handleCancel() {
   gap: 8px;
   overflow: hidden;
   background: transparent;
-  color: #0f172a;
+  color: var(--pm-text);
 }
 
 .tgmd-page .tgmd-workspace {
@@ -1341,13 +1462,13 @@ function handleCancel() {
 
 .tgmd-page-loading,
 .tgmd-page-error {
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary, var(--pm-text-secondary));
   font-size: 13px;
 }
 
 .tgmd-empty-state {
   padding: 32px 20px;
-  background: var(--bg-card, #fff);
+  background: var(--bg-card, var(--pm-surface));
   text-align: center;
 }
 
@@ -1356,10 +1477,10 @@ function handleCancel() {
   height: 52px;
   display: grid;
   place-items: center;
-  border: 1px solid #c7d2fe;
+  border: 1px solid var(--pm-primary-border);
   border-radius: 14px;
-  background: #eef2ff;
-  color: #4f46e5;
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary);
 }
 
 .tgmd-empty-icon svg {
@@ -1369,7 +1490,7 @@ function handleCancel() {
 
 .tgmd-empty-state h2 {
   margin: 4px 0 0;
-  color: #0f172a;
+  color: var(--pm-text);
   font-size: 18px;
   font-weight: 650;
 }
@@ -1377,7 +1498,7 @@ function handleCancel() {
 .tgmd-empty-state p {
   max-width: 420px;
   margin: 0;
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary, var(--pm-text-secondary));
   font-size: 13px;
   line-height: 1.65;
 }
@@ -1390,13 +1511,13 @@ function handleCancel() {
 }
 
 .tgmd-empty-hint {
-  color: #64748b;
-  font-size: 11px;
+  color: var(--pm-text-muted);
+  font-size: 12px;
 }
 
 .tgmd-page :focus-visible,
 .tgmd-backdrop :focus-visible {
-  outline: 2px solid #4f46e5;
+  outline: 2px solid var(--pm-primary);
   outline-offset: 2px;
 }
 
@@ -1428,7 +1549,7 @@ function handleCancel() {
   flex-direction: column;
   gap: 12px;
   padding: 24px;
-  color: var(--text-secondary, #475569);
+  color: var(--text-secondary, var(--pm-text-secondary));
   text-align: center;
 }
 
@@ -1445,8 +1566,8 @@ function handleCancel() {
   justify-content: space-between;
   gap: 12px;
   padding: 6px 12px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #ffffff;
+  border-bottom: 1px solid var(--pm-border);
+  background: var(--pm-surface);
 }
 
 .tgmd-title-block {
@@ -1471,24 +1592,24 @@ function handleCancel() {
   font-size: 14px;
   font-weight: 700;
   line-height: 1.2;
-  color: #0f172a;
+  color: var(--pm-text);
 }
 
 .tgmd-title-tag {
   padding: 1px 7px;
   border-radius: 4px;
-  background: #eef2ff;
-  color: #4338ca;
-  font-size: 10px;
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary-hover);
+  font-size: 12px;
   font-weight: 600;
-  border: 1px solid #c7d2fe;
+  border: 1px solid var(--pm-primary-border);
   white-space: nowrap;
 }
 
 .tgmd-file-inline {
   min-width: 0;
   overflow: hidden;
-  color: #475569;
+  color: var(--pm-text-secondary);
   font-size: 12px;
   font-weight: 600;
   text-overflow: ellipsis;
@@ -1504,7 +1625,7 @@ function handleCancel() {
   min-width: 0;
   flex-shrink: 1;
   overflow: hidden;
-  color: #64748b;
+  color: var(--pm-text-muted);
 }
 
 .tgmd-status-pill {
@@ -1514,11 +1635,11 @@ function handleCancel() {
   align-items: center;
   gap: 4px;
   padding: 1px 6px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--pm-border);
   border-radius: 999px;
-  background: #f8fafc;
-  color: #475569;
-  font-size: 10px;
+  background: var(--pm-surface-subtle);
+  color: var(--pm-text-secondary);
+  font-size: 12px;
   font-weight: 600;
   line-height: 18px;
   overflow: hidden;
@@ -1528,9 +1649,9 @@ function handleCancel() {
 }
 
 .tgmd-status-pill.is-live {
-  border-color: #c7d2fe;
-  background: #eef2ff;
-  color: #4338ca;
+  border-color: var(--pm-primary-border);
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary-hover);
 }
 
 .tgmd-file-info {
@@ -1538,33 +1659,33 @@ function handleCancel() {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .tgmd-file-badge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: #334155;
+  color: var(--pm-text-secondary);
   font-weight: 500;
 }
 
 .tgmd-file-badge svg {
   width: 13px;
   height: 13px;
-  color: #6366f1;
+  color: var(--pm-primary);
 }
 
 .tgmd-part-badge {
-  color: #64748b;
+  color: var(--pm-text-muted);
   padding-left: 8px;
-  border-left: 1px solid #cbd5e1;
+  border-left: 1px solid var(--pm-border-strong);
 }
 
 .tgmd-subtitle-hint {
   margin: 2px 0 0;
-  color: #64748b;
-  font-size: 11px;
+  color: var(--pm-text-muted);
+  font-size: 12px;
 }
 
 .tgmd-header-actions,
@@ -1588,9 +1709,9 @@ function handleCancel() {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  border: 1px solid #cbd5e1;
-  background: #ffffff;
-  color: #334155;
+  border: 1px solid var(--pm-border-strong);
+  background: var(--pm-surface);
+  color: var(--pm-text-secondary);
   cursor: pointer;
   transition: all 120ms ease;
 }
@@ -1599,14 +1720,14 @@ function handleCancel() {
   min-height: 28px;
   padding: 0 9px;
   border-radius: 5px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
 }
 
 .tgmd-command:hover {
-  border-color: #c7d2fe;
-  background: #eef2ff;
-  color: #4338ca;
+  border-color: var(--pm-primary-border);
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary-hover);
 }
 
 .tgmd-command svg,
@@ -1621,14 +1742,14 @@ function handleCancel() {
   width: 28px;
   height: 28px;
   border-radius: 5px;
-  border: 1px solid #e2e8f0;
-  color: #64748b;
+  border: 1px solid var(--pm-border);
+  color: var(--pm-text-muted);
 }
 
 .tgmd-icon-button:hover {
-  border-color: #cbd5e1;
-  background: #f1f5f9;
-  color: #0f172a;
+  border-color: var(--pm-border-strong);
+  background: var(--pm-surface-subtle);
+  color: var(--pm-text);
 }
 
 .tgmd-icon-button svg {
@@ -1641,10 +1762,10 @@ function handleCancel() {
   align-items: center;
   gap: 6px;
   padding: 5px 12px;
-  border-bottom: 1px solid #fecaca;
-  background: #fef2f2;
-  color: #991b1b;
-  font-size: 11px;
+  border-bottom: 1px solid var(--pm-danger-border);
+  background: var(--pm-danger-soft);
+  color: var(--pm-danger);
+  font-size: 12px;
   font-weight: 500;
 }
 
@@ -1660,7 +1781,7 @@ function handleCancel() {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  color: #64748b;
+  color: var(--pm-text-muted);
   font-size: 13px;
 }
 
@@ -1668,8 +1789,8 @@ function handleCancel() {
   width: 18px;
   height: 18px;
   display: inline-block;
-  border: 2px solid #cbd5e1;
-  border-top-color: #6366f1;
+  border: 2px solid var(--pm-border-strong);
+  border-top-color: var(--pm-primary);
   border-radius: 50%;
   animation: tgmd-spin 0.8s linear infinite;
 }
@@ -1682,7 +1803,7 @@ function handleCancel() {
 
 .tgmd-spinner-light {
   border-color: rgba(255, 255, 255, 0.45);
-  border-top-color: #fff;
+  border-top-color: var(--pm-surface);
 }
 
 @keyframes tgmd-spin {
@@ -1712,10 +1833,10 @@ function handleCancel() {
   align-items: center;
   justify-content: flex-start;
   gap: 16px;
-  border: 1.5px dashed #c7d2fe;
+  border: 1.5px dashed var(--pm-primary-border);
   border-radius: 8px;
-  background: #fafafa;
-  color: #334155;
+  background: var(--pm-surface-subtle);
+  color: var(--pm-text-secondary);
   cursor: pointer;
   transition: all 150ms ease;
   text-align: left;
@@ -1723,8 +1844,8 @@ function handleCancel() {
 
 .tgmd-dropzone:hover,
 .tgmd-dropzone-ready {
-  border-color: #6366f1;
-  background: #eef2ff;
+  border-color: var(--pm-primary);
+  background: var(--pm-primary-soft);
 }
 
 .tgmd-drop-icon-wrap {
@@ -1734,14 +1855,14 @@ function handleCancel() {
   display: grid;
   place-items: center;
   border-radius: 8px;
-  background: #eef2ff;
-  color: #6366f1;
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary);
   transition: all 150ms ease;
 }
 
 .tgmd-dropzone:hover .tgmd-drop-icon-wrap,
 .tgmd-dropzone-ready .tgmd-drop-icon-wrap {
-  background: #e0e7ff;
+  background: var(--pm-primary-soft);
 }
 
 .tgmd-drop-icon {
@@ -1760,13 +1881,13 @@ function handleCancel() {
 .tgmd-dropzone strong {
   font-size: 13px;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--pm-text);
   line-height: 1.3;
 }
 
 .tgmd-dropzone-sub {
-  color: #64748b;
-  font-size: 11px;
+  color: var(--pm-text-muted);
+  font-size: 12px;
   line-height: 1.4;
 }
 
@@ -1794,8 +1915,8 @@ function handleCancel() {
   display: flex;
   flex-direction: column;
   gap: 0;
-  border-right: 1px solid #e2e8f0;
-  background: #fafafa;
+  border-right: 1px solid var(--pm-border);
+  background: var(--pm-surface-subtle);
 }
 
 /* File Status Card */
@@ -1804,17 +1925,17 @@ function handleCancel() {
   align-items: flex-start;
   gap: 12px;
   padding: 16px 16px 14px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--pm-border);
 }
 
 .tgmd-preview-file-card.is-ok {
-  background: linear-gradient(135deg, #f0fdf4 0%, #ffffff 60%);
-  border-bottom-color: #bbf7d0;
+  background: var(--pm-success-soft);
+  border-bottom-color: var(--pm-success-border);
 }
 
 .tgmd-preview-file-card.is-err {
-  background: linear-gradient(135deg, #fff1f2 0%, #ffffff 60%);
-  border-bottom-color: #fecdd3;
+  background: var(--pm-danger-soft);
+  border-bottom-color: var(--pm-danger-border);
 }
 
 .tgmd-preview-file-icon {
@@ -1824,29 +1945,29 @@ function handleCancel() {
   display: grid;
   place-items: center;
   border-radius: 8px;
-  background: #eef2ff;
+  background: var(--pm-primary-soft);
 }
 
 .tgmd-preview-file-card.is-ok .tgmd-preview-file-icon {
-  background: #d1fae5;
+  background: var(--pm-success-soft);
 }
 
 .tgmd-preview-file-card.is-err .tgmd-preview-file-icon {
-  background: #ffe4e6;
+  background: var(--pm-danger-soft);
 }
 
 .tgmd-preview-file-icon svg {
   width: 18px;
   height: 18px;
-  color: #6366f1;
+  color: var(--pm-primary);
 }
 
 .tgmd-preview-file-card.is-ok .tgmd-preview-file-icon svg {
-  color: #059669;
+  color: var(--pm-success);
 }
 
 .tgmd-preview-file-card.is-err .tgmd-preview-file-icon svg {
-  color: #e11d48;
+  color: var(--pm-danger);
 }
 
 .tgmd-preview-file-info {
@@ -1861,7 +1982,7 @@ function handleCancel() {
   display: block;
   font-size: 13px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--pm-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1869,8 +1990,8 @@ function handleCancel() {
 
 .tgmd-preview-filedesc {
   display: block;
-  font-size: 11px;
-  color: #64748b;
+  font-size: 12px;
+  color: var(--pm-text-muted);
   line-height: 1.4;
 }
 
@@ -1878,28 +1999,28 @@ function handleCancel() {
   flex: 0 0 auto;
   padding: 3px 8px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
 }
 
 .tgmd-validation-badge.is-valid {
-  background: #dcfce7;
-  color: #15803d;
-  border: 1px solid #86efac;
+  background: var(--pm-success-soft);
+  color: var(--pm-success);
+  border: 1px solid var(--pm-success-border);
 }
 
 .tgmd-validation-badge.is-invalid {
-  background: #fff1f2;
-  color: #be123c;
-  border: 1px solid #fecdd3;
+  background: var(--pm-danger-soft);
+  color: var(--pm-danger);
+  border: 1px solid var(--pm-danger-border);
 }
 
 /* Key Metrics - 3 columns, big numbers */
 .tgmd-preview-metrics {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--pm-border);
 }
 
 .tgmd-metric {
@@ -1909,7 +2030,7 @@ function handleCancel() {
   justify-content: center;
   padding: 14px 8px;
   gap: 4px;
-  border-right: 1px solid #e2e8f0;
+  border-right: 1px solid var(--pm-border);
 }
 
 .tgmd-metric:last-child {
@@ -1920,25 +2041,25 @@ function handleCancel() {
   font-size: 28px;
   font-weight: 800;
   line-height: 1;
-  color: #1e293b;
+  color: var(--pm-text);
 }
 
 .tgmd-metric-accent {
-  color: #4f46e5;
+  color: var(--pm-primary);
 }
 
 .tgmd-metric-ok {
-  color: #059669;
+  color: var(--pm-success);
 }
 
 .tgmd-metric-error {
-  color: #e11d48;
+  color: var(--pm-danger);
 }
 
 .tgmd-metric-label {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
-  color: #94a3b8;
+  color: var(--pm-text-muted);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -1947,7 +2068,7 @@ function handleCancel() {
 .tgmd-preview-meta {
   display: flex;
   flex-direction: column;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--pm-border);
 }
 
 .tgmd-meta-row {
@@ -1956,7 +2077,7 @@ function handleCancel() {
   justify-content: space-between;
   gap: 12px;
   padding: 8px 16px;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--pm-surface-subtle);
 }
 
 .tgmd-meta-row:last-child {
@@ -1964,15 +2085,15 @@ function handleCancel() {
 }
 
 .tgmd-meta-key {
-  font-size: 11px;
-  color: #94a3b8;
+  font-size: 12px;
+  color: var(--pm-text-muted);
   font-weight: 500;
 }
 
 .tgmd-meta-val {
   font-size: 12px;
   font-weight: 600;
-  color: #334155;
+  color: var(--pm-text-secondary);
   max-width: 60%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1984,7 +2105,7 @@ function handleCancel() {
 .tgmd-issue-section {
   display: flex;
   flex-direction: column;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--pm-border);
 }
 
 .tgmd-issue-section-header {
@@ -1992,11 +2113,11 @@ function handleCancel() {
   align-items: center;
   gap: 6px;
   padding: 8px 16px;
-  background: #fff7ed;
-  border-bottom: 1px solid #fed7aa;
+  background: var(--pm-warning-soft);
+  border-bottom: 1px solid var(--pm-warning-border);
   font-size: 12px;
   font-weight: 600;
-  color: #c2410c;
+  color: var(--pm-warning);
 }
 
 .tgmd-issue-icon {
@@ -2009,9 +2130,9 @@ function handleCancel() {
   margin-left: auto;
   padding: 1px 6px;
   border-radius: 10px;
-  background: #c2410c;
-  color: #ffffff;
-  font-size: 10px;
+  background: var(--pm-warning);
+  color: var(--pm-surface);
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -2020,7 +2141,7 @@ function handleCancel() {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  background: #fffdfa;
+  background: var(--pm-warning-soft);
 }
 
 .tgmd-issue-row {
@@ -2028,8 +2149,8 @@ function handleCancel() {
   align-items: flex-start;
   gap: 8px;
   padding: 8px 16px;
-  border-bottom: 1px solid #ffedd5;
-  font-size: 11px;
+  border-bottom: 1px solid var(--pm-warning-border);
+  font-size: 12px;
 }
 
 .tgmd-issue-dot {
@@ -2037,7 +2158,7 @@ function handleCancel() {
   height: 5px;
   flex: 0 0 5px;
   border-radius: 50%;
-  background: #ea580c;
+  background: var(--pm-warning);
   margin-top: 5px;
 }
 
@@ -2049,12 +2170,12 @@ function handleCancel() {
 
 .tgmd-issue-body strong {
   font-weight: 600;
-  color: #9f1239;
+  color: var(--pm-danger);
 }
 
 .tgmd-issue-detail {
-  color: #c2410c;
-  font-size: 10px;
+  color: var(--pm-warning);
+  font-size: 12px;
 }
 
 /* Impact section */
@@ -2063,13 +2184,13 @@ function handleCancel() {
   flex-direction: column;
   gap: 8px;
   padding: 12px 16px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--pm-border);
 }
 
 .tgmd-impact-header {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
-  color: #64748b;
+  color: var(--pm-text-muted);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -2090,13 +2211,13 @@ function handleCancel() {
 }
 
 .tgmd-impact-stat.is-keep {
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
+  background: var(--pm-success-soft);
+  border: 1px solid var(--pm-success-border);
 }
 
 .tgmd-impact-stat.is-lost {
-  background: #fff7ed;
-  border: 1px solid #fed7aa;
+  background: var(--pm-warning-soft);
+  border: 1px solid var(--pm-warning-border);
 }
 
 .tgmd-impact-num {
@@ -2106,17 +2227,17 @@ function handleCancel() {
 }
 
 .tgmd-impact-stat.is-keep .tgmd-impact-num {
-  color: #15803d;
+  color: var(--pm-success);
 }
 
 .tgmd-impact-stat.is-lost .tgmd-impact-num {
-  color: #c2410c;
+  color: var(--pm-warning);
 }
 
 .tgmd-impact-desc {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
-  color: #64748b;
+  color: var(--pm-text-muted);
 }
 
 .tgmd-invalidated-list {
@@ -2133,18 +2254,18 @@ function handleCancel() {
   gap: 8px;
   padding: 5px 10px;
   border-radius: 4px;
-  background: #fff7ed;
-  font-size: 11px;
+  background: var(--pm-warning-soft);
+  font-size: 12px;
 }
 
 .tgmd-invalidated-op {
   font-weight: 600;
-  color: #1e293b;
+  color: var(--pm-text);
 }
 
 .tgmd-invalidated-path {
-  color: #94a3b8;
-  font-size: 10px;
+  color: var(--pm-text-muted);
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2156,7 +2277,7 @@ function handleCancel() {
   min-height: 0;
   border: 0;
   border-radius: 0;
-  background: #ffffff;
+  background: var(--pm-surface);
 }
 
 .tgmd-preview-tree {
@@ -2170,20 +2291,20 @@ function handleCancel() {
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #fafafa;
+  border-bottom: 1px solid var(--pm-border);
+  background: var(--pm-surface-subtle);
 }
 
 .tgmd-section-header h3 {
   margin: 0;
   font-size: 13px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--pm-text);
 }
 
 .tgmd-section-header span {
-  color: #94a3b8;
-  font-size: 11px;
+  color: var(--pm-text-muted);
+  font-size: 12px;
 }
 
 .tgmd-tree-scroll {
@@ -2203,9 +2324,9 @@ function handleCancel() {
   gap: 0;
   margin: 8px 10px;
   overflow: hidden;
-  border: 1px solid #dbe3ec;
+  border: 1px solid var(--pm-border);
   border-radius: 7px;
-  background: #ffffff;
+  background: var(--pm-surface);
 }
 
 .tgmd-pane {
@@ -2214,22 +2335,23 @@ function handleCancel() {
   overflow: hidden;
   border: 0;
   border-radius: 0;
-  background: #ffffff;
+  background: var(--pm-surface);
 }
 
 .tgmd-operation-pane {
-  border-right: 1px solid #dbe3ec;
+  border-right: 1px solid var(--pm-border);
 }
 
 .tgmd-pane-header {
+  flex: 0 0 auto;
   min-height: 38px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
   padding: 5px 10px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #fafafa;
+  border-bottom: 1px solid var(--pm-border);
+  background: var(--pm-surface-subtle);
   border-radius: 0;
 }
 
@@ -2237,18 +2359,19 @@ function handleCancel() {
   margin: 0;
   font-size: 13px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--pm-text);
 }
 
 .tgmd-pane-subtitle {
-  color: #94a3b8;
-  font-size: 11px;
+  color: var(--pm-text-muted);
+  font-size: 12px;
   white-space: nowrap;
 }
 
 /* Active step badge in left header */
 .tgmd-op-header-left {
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
   min-width: 0;
@@ -2256,14 +2379,17 @@ function handleCancel() {
   overflow: hidden;
 }
 
+.tgmd-op-header-left h3 { flex: 0 0 auto; white-space: nowrap; }
+.tgmd-op-header-left .tgmd-pane-subtitle { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
+
 .tgmd-left-progress {
   flex: 0 0 auto;
   padding: 1px 6px;
-  border: 1px solid #c7d2fe;
+  border: 1px solid var(--pm-primary-border);
   border-radius: 999px;
-  background: #eef2ff;
-  color: #4338ca;
-  font-size: 10px;
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary-hover);
+  font-size: 12px;
   font-weight: 700;
   line-height: 17px;
   white-space: nowrap;
@@ -2276,10 +2402,10 @@ function handleCancel() {
   white-space: nowrap;
   padding: 1px 6px;
   border-radius: 999px;
-  background: #eef2ff;
-  border: 1px solid #c7d2fe;
-  color: #4338ca;
-  font-size: 10px;
+  background: var(--pm-primary-soft);
+  border: 1px solid var(--pm-primary-border);
+  color: var(--pm-primary-hover);
+  font-size: 12px;
   font-weight: 600;
   line-height: 17px;
   flex-shrink: 1;
@@ -2321,21 +2447,21 @@ function handleCancel() {
   align-items: center;
   gap: 4px;
   padding: 0 6px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--pm-border-strong);
   border-radius: 4px;
-  background: #f8fafc;
+  background: var(--pm-surface-subtle);
   transition: all 120ms ease;
 }
 
 .tgmd-search-box:focus-within {
-  border-color: #6366f1;
-  background: #ffffff;
+  border-color: var(--pm-primary);
+  background: var(--pm-surface);
 }
 
 .tgmd-search-box svg {
   width: 12px;
   height: 12px;
-  color: #64748b;
+  color: var(--pm-text-muted);
   flex: 0 0 auto;
 }
 
@@ -2345,8 +2471,8 @@ function handleCancel() {
   border: 0;
   outline: 0;
   background: transparent;
-  font-size: 11px;
-  color: #0f172a;
+  font-size: 12px;
+  color: var(--pm-text);
 }
 
 .tgmd-search-clear {
@@ -2356,43 +2482,43 @@ function handleCancel() {
   place-items: center;
   border: 0;
   background: transparent;
-  color: #94a3b8;
+  color: var(--pm-text-muted);
   cursor: pointer;
   padding: 0;
 }
 
 .tgmd-search-clear:hover {
-  color: #475569;
+  color: var(--pm-text-secondary);
 }
 
 .tgmd-selected-inline {
   min-width: 0;
   overflow: hidden;
-  color: #475569;
-  font-size: 11px;
+  color: var(--pm-text-secondary);
+  font-size: 12px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .tgmd-selected-inline {
-  color: #3730a3;
+  color: var(--pm-primary);
 }
 
 .tgmd-smart-button {
   height: 26px;
   padding: 0 9px;
-  border-color: #c7d2fe;
+  border-color: var(--pm-primary-border);
   border-radius: 4px;
-  color: #4338ca;
-  background: #eef2ff;
-  font-size: 11px;
+  color: var(--pm-primary-hover);
+  background: var(--pm-primary-soft);
+  font-size: 12px;
   font-weight: 600;
 }
 
 .tgmd-smart-button:hover:not(:disabled) {
-  background: #e0e7ff;
-  border-color: #818cf8;
+  background: var(--pm-primary-soft);
+  border-color: var(--pm-primary-border);
 }
 
 .tgmd-smart-button:disabled {
@@ -2406,10 +2532,10 @@ function handleCancel() {
   gap: 4px;
   padding: 4px 8px;
   border-radius: 6px;
-  border: 1px solid #e2e8f0;
-  background: #ffffff;
-  color: #64748b;
-  font-size: 11.5px;
+  border: 1px solid var(--pm-border);
+  background: var(--pm-surface);
+  color: var(--pm-text-muted);
+  font-size: 12px;
   cursor: pointer;
   transition: all 0.15s ease;
   white-space: nowrap;
@@ -2421,10 +2547,10 @@ function handleCancel() {
   gap: 4px;
   padding: 4px 8px;
   border-radius: 6px;
-  border: 1px solid #c7d2fe;
-  background: #eef2ff;
-  color: #4f46e5;
-  font-size: 11.5px;
+  border: 1px solid var(--pm-primary-border);
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary);
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -2432,8 +2558,8 @@ function handleCancel() {
 }
 
 .tgmd-toggle-group-selection:hover {
-  background: #e0e7ff;
-  border-color: #818cf8;
+  background: var(--pm-primary-soft);
+  border-color: var(--pm-primary-border);
 }
 
 .tgmd-toggle-group-selection svg {
@@ -2449,10 +2575,10 @@ function handleCancel() {
   height: 26px;
   padding: 0 9px;
   border-radius: 5px;
-  border: 1px solid #cbd5e1;
-  background: #f1f5f9;
-  color: #94a3b8;
-  font-size: 11px;
+  border: 1px solid var(--pm-border-strong);
+  background: var(--pm-surface-subtle);
+  color: var(--pm-text-muted);
+  font-size: 12px;
   font-weight: 600;
   cursor: not-allowed;
   transition: all 150ms ease;
@@ -2465,16 +2591,16 @@ function handleCancel() {
 }
 
 .tgmd-link-btn.is-active {
-  border-color: #6366f1;
-  background: #4f46e5;
-  color: #ffffff;
+  border-color: var(--pm-primary);
+  background: var(--pm-primary);
+  color: var(--pm-surface);
   cursor: pointer;
-  box-shadow: 0 2px 6px rgba(79, 70, 229, 0.3);
+  box-shadow: 0 2px 6px rgba(36, 95, 168, 0.3);
 }
 
 .tgmd-link-btn.is-active:hover {
-  background: #4338ca;
-  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.32);
+  background: var(--pm-primary-hover);
+  box-shadow: 0 2px 8px rgba(36, 95, 168, 0.32);
 }
 
 .tgmd-link-count {
@@ -2486,7 +2612,7 @@ function handleCancel() {
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.25);
   color: inherit;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 1;
 }
@@ -2506,11 +2632,11 @@ function handleCancel() {
   max-width: 320px;
   padding: 8px 10px;
   border-radius: 7px;
-  border: 1px solid #cbd5e1;
-  background: #ffffff;
+  border: 1px solid var(--pm-border-strong);
+  background: var(--pm-surface);
   box-shadow: 0 10px 25px -4px rgba(15, 23, 42, 0.16), 0 4px 10px -2px rgba(15, 23, 42, 0.08);
-  font-size: 11px;
-  color: #0f172a;
+  font-size: 12px;
+  color: var(--pm-text);
   pointer-events: none;
 }
 
@@ -2521,9 +2647,9 @@ function handleCancel() {
   right: 18px;
   width: 8px;
   height: 8px;
-  background: #ffffff;
-  border-left: 1px solid #cbd5e1;
-  border-top: 1px solid #cbd5e1;
+  background: var(--pm-surface);
+  border-left: 1px solid var(--pm-border-strong);
+  border-top: 1px solid var(--pm-border-strong);
   transform: rotate(45deg);
 }
 
@@ -2534,21 +2660,21 @@ function handleCancel() {
   gap: 8px;
   padding-bottom: 5px;
   margin-bottom: 5px;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--pm-surface-subtle);
 }
 
 .tgmd-popover-title {
   font-weight: 700;
-  color: #1e293b;
-  font-size: 11px;
+  color: var(--pm-text);
+  font-size: 12px;
 }
 
 .tgmd-popover-badge {
   padding: 1px 6px;
   border-radius: 999px;
-  background: #eef2ff;
-  color: #4338ca;
-  font-size: 10px;
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary-hover);
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -2567,12 +2693,12 @@ function handleCancel() {
   gap: 10px;
   padding: 3px 6px;
   border-radius: 4px;
-  background: #f8fafc;
+  background: var(--pm-surface-subtle);
 }
 
 .tgmd-popover-path {
-  color: #64748b;
-  font-size: 10px;
+  color: var(--pm-text-muted);
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2581,11 +2707,11 @@ function handleCancel() {
 .tgmd-popover-feature {
   flex-shrink: 0;
   font-weight: 600;
-  color: #3730a3;
-  background: #e0e7ff;
+  color: var(--pm-primary);
+  background: var(--pm-primary-soft);
   padding: 1px 5px;
   border-radius: 3px;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .tgmd-popover-fade-enter-active,
@@ -2610,9 +2736,9 @@ function handleCancel() {
 /* Operation card */
 .tgmd-operation-card {
   margin-bottom: 3px;
-  border: 1px solid #e8edf2;
+  border: 1px solid var(--pm-border);
   border-radius: 5px;
-  background: #ffffff;
+  background: var(--pm-surface);
   overflow: hidden;
 }
 
@@ -2620,7 +2746,7 @@ function handleCancel() {
   display: flex;
   align-items: stretch;
   min-width: 0;
-  background: #f8fafc;
+  background: var(--pm-surface-subtle);
 }
 
 .tgmd-operation-toggle {
@@ -2634,8 +2760,8 @@ function handleCancel() {
   gap: 8px;
   padding: 0 8px;
   border: 0;
-  background: #f8fafc;
-  color: #0f172a;
+  background: var(--pm-surface-subtle);
+  color: var(--pm-text);
   text-align: left;
   cursor: pointer;
   transition: background-color 120ms ease;
@@ -2643,7 +2769,7 @@ function handleCancel() {
 }
 
 .tgmd-operation-toggle:hover {
-  background: #f1f5f9;
+  background: var(--pm-surface-subtle);
 }
 
 .tgmd-op-title {
@@ -2656,7 +2782,7 @@ function handleCancel() {
 .tgmd-op-title svg {
   width: 12px;
   height: 12px;
-  color: #64748b;
+  color: var(--pm-text-muted);
   transition: transform 150ms ease;
   flex: 0 0 auto;
 }
@@ -2668,7 +2794,7 @@ function handleCancel() {
 .tgmd-op-title strong {
   min-width: 0;
   flex: 0 1 auto;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2679,25 +2805,25 @@ function handleCancel() {
   flex: 0 0 auto;
   padding: 2px 5px;
   border-radius: 4px;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
 }
 
 .tgmd-process-type.is-standard {
-  background: #eef2ff;
-  color: #3730a3;
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary);
 }
 
 .tgmd-process-type.is-auxiliary {
-  background: #f1f5f9;
-  color: #475569;
+  background: var(--pm-surface-subtle);
+  color: var(--pm-text-secondary);
 }
 
 .tgmd-op-summary {
-  color: #64748b;
-  font-size: 10px;
+  color: var(--pm-text-muted);
+  font-size: 12px;
   flex: 0 0 auto;
 }
 
@@ -2707,33 +2833,33 @@ function handleCancel() {
   gap: 5px;
   flex: 0 0 auto;
   padding: 3px 7px 3px 2px;
-  color: #475569;
-  font-size: 10px;
+  color: var(--pm-text-secondary);
+  font-size: 12px;
 }
 
 .tgmd-precision-field select {
   width: 76px;
   height: 24px;
   padding: 0 4px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--pm-border-strong);
   border-radius: 4px;
-  background: #fff;
-  color: #0f172a;
-  font-size: 10px;
+  background: var(--pm-surface);
+  color: var(--pm-text);
+  font-size: 12px;
 }
 
 .tgmd-precision-field.is-invalid {
-  color: #b91c1c;
+  color: var(--pm-danger);
 }
 
 .tgmd-precision-field.is-invalid select {
-  border-color: #dc2626;
-  background: #fff7f7;
+  border-color: var(--pm-danger);
+  background: var(--pm-danger-soft);
 }
 
 .tgmd-precision-suggestion {
-  color: #4f46e5;
-  font-size: 10px;
+  color: var(--pm-primary);
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -2742,34 +2868,33 @@ function handleCancel() {
   align-items: center;
   flex: 0 0 auto;
   padding: 0 9px;
-  color: #64748b;
-  font-size: 10px;
+  color: var(--pm-text-muted);
+  font-size: 12px;
 }
 
 .tgmd-step-list {
-  border-top: 1px solid #f1f5f9;
+  border-top: 1px solid var(--pm-surface-subtle);
 }
 
 .tgmd-operation-empty {
   padding: 9px 12px 9px 36px;
-  color: #64748b;
-  font-size: 11px;
+  color: var(--pm-text-muted);
+  font-size: 12px;
   line-height: 1.4;
 }
 
 .tgmd-step-row {
   position: relative;
-  min-height: 28px;
+  min-height: 40px;
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
+  grid-template-columns: 26px minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
   padding: 3px 8px;
-  border-bottom: 1px solid #f8fafc;
-  background: #ffffff;
-  color: #334155;
+  border-bottom: 1px solid var(--pm-surface-subtle);
+  background: var(--pm-surface);
+  color: var(--pm-text-secondary);
   cursor: pointer;
-  outline: 0;
   transition: all 120ms ease;
 }
 
@@ -2778,17 +2903,17 @@ function handleCancel() {
 }
 
 .tgmd-step-row:hover {
-  background: #f8fbff;
+  background: var(--pm-primary-soft);
 }
 
 /* Active Step - Matches SourceRoutePanel srp-op--active */
 .tgmd-step-row.is-selected {
-  background: #eef2ff;
-  box-shadow: inset 3px 0 #6366f1;
+  background: var(--pm-primary-soft);
+  box-shadow: inset 3px 0 var(--pm-primary);
 }
 
 .tgmd-step-row.is-mapped:not(.is-selected) {
-  box-shadow: inset 3px 0 #10b981;
+  box-shadow: inset 3px 0 var(--pm-success);
 }
 
 /* Monospace Step Order Badge - Matches srp-op-seq */
@@ -2798,50 +2923,57 @@ function handleCancel() {
   display: grid;
   place-items: center;
   border-radius: 4px;
-  background: #f1f5f9;
-  color: #475569;
+  background: var(--pm-surface-subtle);
+  color: var(--pm-text-secondary);
   font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
   font-weight: 700;
 }
 
 .tgmd-step-row.is-selected .tgmd-step-order {
-  background: #6366f1;
-  color: #ffffff;
+  background: var(--pm-primary);
+  color: var(--pm-surface);
 }
 
 .tgmd-step-content {
   min-width: 0;
 }
 
+.tgmd-step-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; }
+.tgmd-hide-step { display: inline-flex; align-items: center; gap: 3px; padding: 3px 5px; border: 0; border-radius: 4px; background: transparent; color: var(--pm-text-muted); font-size: 12px; cursor: pointer; }
+.tgmd-hide-step svg { width: 12px; height: 12px; }
+.tgmd-hide-step:hover:not(:disabled) { background: var(--pm-surface-subtle); color: var(--pm-text-secondary); }
+.tgmd-hide-step:disabled { cursor: not-allowed; opacity: .55; }
+
+
 .tgmd-step-name {
   display: block;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--pm-text);
   line-height: 1.3;
 }
 
 .tgmd-step-count-text {
   display: block;
   margin-top: 2px;
-  color: #059669;
-  font-size: 10px;
+  color: var(--pm-success);
+  font-size: 12px;
   font-weight: 500;
 }
 
 .tgmd-step-eligibility {
   display: inline-flex;
   margin-left: 6px;
-  color: #64748b;
-  font-size: 10px;
+  color: var(--pm-text-muted);
+  font-size: 12px;
   font-weight: 500;
 }
 
 .tgmd-step-unmapped-text {
   display: block;
   margin-top: 2px;
-  color: #b0b8c4;
-  font-size: 10px;
+  color: var(--pm-text-muted);
+  font-size: 12px;
   font-style: italic;
 }
 
@@ -2849,8 +2981,8 @@ function handleCancel() {
   display: block;
   margin-top: 2px;
   overflow: hidden;
-  color: #6366f1;
-  font-size: 10px;
+  color: var(--pm-primary);
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2868,11 +3000,11 @@ function handleCancel() {
   align-items: center;
   gap: 3px;
   padding: 1px 5px;
-  border: 1px solid #a7f3d0;
+  border: 1px solid var(--pm-success-border);
   border-radius: 4px;
-  background: #ecfdf5;
-  color: #047857;
-  font-size: 10px;
+  background: var(--pm-success-soft);
+  color: var(--pm-success);
+  font-size: 12px;
   font-weight: 500;
 }
 
@@ -2885,13 +3017,13 @@ function handleCancel() {
   border: 0;
   border-radius: 50%;
   background: transparent;
-  color: #059669;
+  color: var(--pm-success);
   cursor: pointer;
 }
 
 .tgmd-chip-tag button:hover {
-  background: #d1fae5;
-  color: #047857;
+  background: var(--pm-success-soft);
+  color: var(--pm-success);
 }
 
 .tgmd-chip-tag svg {
@@ -2907,11 +3039,11 @@ function handleCancel() {
   gap: 4px;
   height: 26px;
   padding: 0 8px;
-  border: 1px solid #c7d2fe;
+  border: 1px solid var(--pm-primary-border);
   border-radius: 4px;
-  background: #ffffff;
-  color: #4338ca;
-  font-size: 11px;
+  background: var(--pm-surface);
+  color: var(--pm-primary-hover);
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: all 120ms ease;
@@ -2919,14 +3051,14 @@ function handleCancel() {
 }
 
 .tgmd-current-suggest:hover:not(:disabled) {
-  background: #eef2ff;
-  border-color: #a5b4fc;
+  background: var(--pm-primary-soft);
+  border-color: var(--pm-primary-border);
 }
 
 .tgmd-current-suggest:disabled {
-  color: #94a3b8;
-  border-color: #e2e8f0;
-  background: #f8fafc;
+  color: var(--pm-text-muted);
+  border-color: var(--pm-border);
+  background: var(--pm-surface-subtle);
   cursor: not-allowed;
 }
 
@@ -2944,26 +3076,26 @@ function handleCancel() {
   gap: 4px;
   height: 26px;
   padding: 0 8px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--pm-border-strong);
   border-radius: 4px;
-  background: #ffffff;
-  color: #64748b;
-  font-size: 11px;
+  background: var(--pm-surface);
+  color: var(--pm-text-muted);
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: all 120ms ease;
 }
 
 .tgmd-clear-selection:hover:not(:disabled) {
-  border-color: #fecdd3;
-  background: #fff1f2;
-  color: #be123c;
+  border-color: var(--pm-danger-border);
+  background: var(--pm-danger-soft);
+  color: var(--pm-danger);
 }
 
 .tgmd-clear-selection:disabled {
-  color: #94a3b8;
-  border-color: #e2e8f0;
-  background: #f8fafc;
+  color: var(--pm-text-muted);
+  border-color: var(--pm-border);
+  background: var(--pm-surface-subtle);
   cursor: not-allowed;
 }
 
@@ -2975,7 +3107,7 @@ function handleCancel() {
 
 .tgmd-empty {
   padding: 18px 12px;
-  color: #94a3b8;
+  color: var(--pm-text-muted);
   text-align: center;
   font-size: 12px;
 }
@@ -2988,8 +3120,8 @@ function handleCancel() {
   justify-content: space-between;
   gap: 10px;
   padding: 6px 12px;
-  border-top: 1px solid #e2e8f0;
-  background: #ffffff;
+  border-top: 1px solid var(--pm-border);
+  background: var(--pm-surface);
 }
 
 .tgmd-footer-left {
@@ -3004,7 +3136,7 @@ function handleCancel() {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary, var(--pm-text-muted));
   font-size: 12px;
   line-height: 1.5;
   overflow-wrap: anywhere;
@@ -3012,7 +3144,7 @@ function handleCancel() {
 }
 
 .tgmd-footer-status .is-warning {
-  color: #b45309;
+  color: var(--pm-warning);
 }
 
 .tgmd-page > .tgmd-footer > .tgmd-clear-all,
@@ -3028,15 +3160,15 @@ function handleCancel() {
   min-height: 28px;
   padding: 0 10px;
   border-radius: 5px;
-  border-color: #fecdd3;
-  background: #fff1f2;
-  color: #be123c;
-  font-size: 11px;
+  border-color: var(--pm-danger-border);
+  background: var(--pm-danger-soft);
+  color: var(--pm-danger);
+  font-size: 12px;
   font-weight: 600;
 }
 
 .tgmd-clear-all:hover:not(:disabled) {
-  background: #ffe4e6;
+  background: var(--pm-danger-soft);
 }
 
 .tgmd-clear-all:disabled {
@@ -3052,7 +3184,7 @@ function handleCancel() {
   gap: 5px;
   padding: 0 12px;
   border-radius: 5px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: all 120ms ease;
@@ -3064,24 +3196,24 @@ function handleCancel() {
 }
 
 .btn-outline {
-  border: 1px solid #cbd5e1;
-  background: #ffffff;
-  color: #334155;
+  border: 1px solid var(--pm-border-strong);
+  background: var(--pm-surface);
+  color: var(--pm-text-secondary);
 }
 
 .btn-outline:hover:not(:disabled) {
-  border-color: #94a3b8;
-  background: #f8fafc;
+  border-color: var(--pm-text-muted);
+  background: var(--pm-surface-subtle);
 }
 
 .btn-primary {
-  border: 1px solid #4338ca;
-  background: #4f46e5;
-  color: #ffffff;
+  border: 1px solid var(--pm-primary-hover);
+  background: var(--pm-primary);
+  color: var(--pm-surface);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #4338ca;
+  background: var(--pm-primary-hover);
 }
 
 /* Custom Scrollbars */
@@ -3095,7 +3227,7 @@ function handleCancel() {
 .tgmd-tree-scroll::-webkit-scrollbar-thumb,
 .tgmd-operation-scroll::-webkit-scrollbar-thumb,
 .tgmd-preview-summary::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: var(--pm-border-strong);
   border-radius: 3px;
 }
 
@@ -3124,7 +3256,7 @@ function handleCancel() {
   }
   .tgmd-operation-pane {
     border-right: 0;
-    border-bottom: 1px solid #dbe3ec;
+    border-bottom: 1px solid var(--pm-border);
   }
   .tgmd-pane {
     min-height: 320px;
@@ -3140,44 +3272,44 @@ function handleCancel() {
 
 <style scoped>
 /* Recommendation actions stay beside their source step. */
-.tgmd-step-candidate { margin-top: 6px; padding: 6px 8px; border: 1px solid #c7d2fe; border-radius: 4px; background: #f8faff; color: #4f46e5; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.tgmd-step-candidate { margin-top: 6px; padding: 6px 8px; border: 1px solid var(--pm-primary-border); border-radius: 4px; background: var(--pm-primary-soft); color: var(--pm-primary); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .tgmd-step-candidate > div { display: flex; gap: 8px; margin-top: 4px; }
-.tgmd-step-candidate .tgmd-command, .tgmd-invalid-mapping .tgmd-command { min-height: 24px; padding: 2px 6px; font-size: 11px; }
-.tgmd-invalid-mappings { margin: 8px; color: #b45309; font-size: 12px; }
+.tgmd-step-candidate .tgmd-command, .tgmd-invalid-mapping .tgmd-command { min-height: 24px; padding: 2px 6px; font-size: 12px; }
+.tgmd-invalid-mappings { margin: 8px; color: var(--pm-warning); font-size: 12px; }
 .tgmd-invalid-mappings summary { cursor: pointer; }
 .tgmd-invalid-mapping { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; overflow-wrap: anywhere; }
-.tgmd-smart-status { display: flex; justify-content: space-between; gap: 16px; padding: 7px 18px; border-bottom: 1px solid #bfdbfe; background: #eff6ff; color: #1e40af; font-size: 11px; }
-.tgmd-smart-warning { color: #92400e; text-align: right; }
-.tgmd-page > .tgmd-header { min-height: 48px; flex: 0 0 auto; padding: 6px 12px; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03); }
+.tgmd-smart-status { display: flex; justify-content: space-between; gap: 16px; padding: 7px 18px; border-bottom: 1px solid var(--pm-primary-border); background: var(--pm-primary-soft); color: var(--pm-primary); font-size: 12px; }
+.tgmd-smart-warning { color: var(--pm-warning); text-align: right; }
+.tgmd-page > .tgmd-header { min-height: 40px; flex: 0 0 auto; padding: 4px 10px; border: 1px solid var(--pm-border); border-radius: 8px; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03); }
 .tgmd-page > .tgmd-workspace { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; flex: 1 1 auto; min-height: 0; margin: 0; padding: 0; overflow: hidden; border: 0; border-radius: 0; background: transparent; }
-.tgmd-page > .tgmd-workspace > .tgmd-pane { min-width: 0; border: 1px solid #dbe3ec; border-radius: 8px; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03); }
-.tgmd-page > .tgmd-workspace > .tgmd-operation-pane { border-right: 1px solid #dbe3ec; }
-.tgmd-pane-header { min-height: 38px; align-items: center; gap: 6px; padding: 5px 10px; background: #fafafa; }
+.tgmd-page > .tgmd-workspace > .tgmd-pane { min-width: 0; border: 1px solid var(--pm-border); border-radius: 8px; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03); }
+.tgmd-page > .tgmd-workspace > .tgmd-operation-pane { border-right: 1px solid var(--pm-border); }
+.tgmd-pane-header { min-height: 38px; align-items: center; gap: 6px; padding: 5px 10px; background: var(--pm-surface-subtle); }
 .tgmd-pane-header h3, .tgmd-pane-header span { margin: 0; }
 .tgmd-pane-header h3 { font-size: 13px; }
 .tgmd-pane-header > div:first-child { min-width: 0; }
-.tgmd-pane-header > div:first-child > span { overflow-wrap: anywhere; color: #64748b; font-size: 11px; }
-.tgmd-group-progress { color: #1d4ed8 !important; font-weight: 650; white-space: nowrap; }
-.tgmd-active-target { padding: 9px 12px; border-top: 1px solid #e2e8f0; background: #eff6ff; }
-.tgmd-active-target span, .tgmd-active-target small { display: block; color: #64748b; font-size: 10px; }
-.tgmd-active-target strong { display: block; margin-top: 2px; color: #1d4ed8; font-size: 12px; overflow-wrap: anywhere; }
+.tgmd-pane-header > div:first-child > span { overflow-wrap: anywhere; color: var(--pm-text-muted); font-size: 12px; }
+.tgmd-group-progress { color: var(--pm-primary); font-weight: 600; white-space: nowrap; }
+.tgmd-active-target { padding: 9px 12px; border-top: 1px solid var(--pm-border); background: var(--pm-primary-soft); }
+.tgmd-active-target span, .tgmd-active-target small { display: block; color: var(--pm-text-muted); font-size: 12px; }
+.tgmd-active-target strong { display: block; margin-top: 2px; color: var(--pm-primary); font-size: 12px; overflow-wrap: anywhere; }
 .tgmd-active-target small { margin-top: 3px; }
-.tgmd-feature-summary { margin: 0; padding: 9px 12px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; color: #64748b; font-size: 11px; }
+.tgmd-feature-summary { margin: 0; padding: 9px 12px; border-bottom: 1px solid var(--pm-border); background: var(--pm-surface-subtle); color: var(--pm-text-muted); font-size: 12px; }
 .tgmd-operation-header { align-items: center; }
 .tgmd-operation-tools { min-width: 0; }
-.tgmd-review-guidance { margin: 0; padding: 7px 11px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; color: #64748b; font-size: 11px; line-height: 1.5; }
+.tgmd-review-guidance { margin: 0; padding: 7px 11px; border-bottom: 1px solid var(--pm-border); background: var(--pm-surface-subtle); color: var(--pm-text-muted); font-size: 12px; line-height: 1.5; }
 .tgmd-title-row { flex-wrap: wrap; }
-.tgmd-page > .tgmd-header .tgmd-header-guidance { flex: 1 1 280px; min-width: 180px; padding: 0; border: 0; background: transparent; color: #64748b; font-size: 10px; line-height: 1.4; }
-.tgmd-smart-button { height: 26px; min-height: 26px; padding: 0 9px; border-color: #c7d2fe; border-radius: 4px; color: #4338ca; background: #eef2ff; white-space: nowrap; }
-.tgmd-page > .tgmd-footer { min-height: 52px; flex: 0 0 auto; padding: 7px 12px; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03); }
+.tgmd-page > .tgmd-header .tgmd-header-guidance { flex: 1 1 280px; min-width: 180px; padding: 0; border: 0; background: transparent; color: var(--pm-text-muted); font-size: 12px; line-height: 1.4; }
+.tgmd-smart-button { height: 26px; min-height: 26px; padding: 0 9px; border-color: var(--pm-primary-border); border-radius: 4px; color: var(--pm-primary-hover); background: var(--pm-primary-soft); white-space: nowrap; }
+.tgmd-page > .tgmd-footer { min-height: 52px; flex: 0 0 auto; padding: 7px 12px; border: 1px solid var(--pm-border); border-radius: 8px; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03); }
 @media (max-width: 860px) {
-  .tgmd-page { height: auto; min-height: 0; overflow: visible; }
-  .tgmd-page > .tgmd-workspace { grid-template-columns: 1fr; flex: 0 0 auto; min-height: 0; overflow: visible; }
-  .tgmd-page > .tgmd-workspace > .tgmd-pane { height: clamp(320px, 60dvh, 560px); min-height: 320px; }
-  .tgmd-page > .tgmd-workspace > .tgmd-operation-pane { border-right: 1px solid #dbe3ec; border-bottom: 1px solid #dbe3ec; }
-  .tgmd-operation-header, .tgmd-tree-header { align-items: stretch; flex: 0 0 auto; flex-direction: column; }
+  .tgmd-page { height: 100%; min-height: 0; }
+  .tgmd-page > .tgmd-workspace { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  .tgmd-page > .tgmd-workspace > .tgmd-pane { height: auto; min-height: 0; }
+  .tgmd-page > .tgmd-workspace > .tgmd-operation-pane { border-right: 1px solid var(--pm-border); border-bottom: 1px solid var(--pm-border); }
+  .tgmd-operation-header, .tgmd-tree-header { align-items: center; flex: 0 0 auto; flex-direction: row; }
   .tgmd-tree-header-right { flex-wrap: wrap; }
-  .tgmd-tree-header-right .tgmd-search-box { flex: 1; min-width: 120px; }
+  .tgmd-tree-header-right .tgmd-search-box { flex: 1 1 100px; min-width: 100px; }
   .tgmd-page > .tgmd-footer { position: static; margin-top: 0; }
   .tgmd-page > .tgmd-footer .tgmd-footer-actions { margin-left: auto; }
   .tgmd-smart-status { align-items: flex-start; flex-direction: column; }
@@ -3189,4 +3321,87 @@ function handleCancel() {
   .tgmd-page > .tgmd-footer .tgmd-footer-status { flex: 0 0 auto; }
   .tgmd-page > .tgmd-footer .tgmd-footer-actions { width: 100%; justify-content: flex-end; }
 }
+
+/* Mapping density is local; each tree retains its own scroll container. */
+.tgmd-page { gap: 6px; font-size: 13px; }
+.tgmd-page > .tgmd-header { padding: 4px 10px; border-color: var(--pm-border); border-radius: var(--pm-radius-card); box-shadow: var(--pm-shadow-card); }
+.tgmd-page > .tgmd-footer { padding: 10px 12px; border-color: var(--pm-border); border-radius: var(--pm-radius-card); box-shadow: var(--pm-shadow-card); }
+.tgmd-page > .tgmd-header .tgmd-header-guidance { flex: 1 1 240px; min-width: 0; font-size: 12px; line-height: 18px; }
+.tgmd-title-row { gap: 4px 8px; }
+.tgmd-title-row h2 { font-size: 16px; line-height: 24px; font-weight: 600; }
+.tgmd-page > .tgmd-header .tgmd-title-row h2 { font-size: 14px; line-height: 20px; font-weight: 600; }
+.tgmd-title-tag, .tgmd-process-type, .tgmd-status-pill, .tgmd-active-step-badge { border-radius: 4px; font-weight: 500; line-height: 18px; }
+.tgmd-page > .tgmd-workspace { gap: 8px; font-size: 12px; line-height: 18px; }
+.tgmd-page .tgmd-tree-scroll { --tgtn-name-size: 12px; --tgtn-line-height: 18px; --tgtn-row-height: 28px; --tgtn-row-spacing: 1px; --tgtn-row-padding: 2px; --tgtn-control-height: 24px; --tgtn-control-padding: 1px 6px; --tgtn-feature-spacing: 1px 0 2px; padding: 4px 6px 4px 4px; }
+.tgmd-pane-header { flex-wrap: wrap; gap: 4px 6px; padding: 4px 8px; background: var(--pm-surface-subtle); }
+.tgmd-pane-header h3 { font-size: 13px; font-weight: 600; line-height: 18px; }
+.tgmd-operation-header .tgmd-op-header-left { flex: 1 1 0; min-width: 0; gap: 6px; }
+.tgmd-operation-tools, .tgmd-tree-header-right { flex-wrap: wrap; gap: 4px; }
+.tgmd-tree-header-right { flex: 1 1 280px; min-width: 0; }
+.tgmd-tree-header-left { flex: 0 0 auto; }
+.tgmd-operation-tools { margin-left: auto; flex: 0 0 auto; }
+.tgmd-operation-header .tgmd-op-header-left h3, .tgmd-tree-header-left h3 { white-space: nowrap; }
+.tgmd-left-progress { white-space: nowrap; }
+.tgmd-active-step-badge { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tgmd-search-box { flex: 1 1 150px; width: auto; min-width: 100px; height: 28px; border-radius: var(--pm-radius-control); background: var(--pm-surface); }
+.tgmd-search-box input { font-size: 12px; }
+.tgmd-search-box:focus-within { border-color: var(--pm-primary); box-shadow: var(--pm-focus-ring); }
+.tgmd-operation-scroll { padding: 4px; overscroll-behavior: contain; scroll-padding: 4px; }
+.tgmd-page .tgmd-tree-scroll { overscroll-behavior: contain; scroll-padding: 4px; }
+.tgmd-operation-card { margin-bottom: 4px; border-color: var(--pm-border); border-radius: var(--pm-radius-control); }
+.tgmd-operation-heading { flex-wrap: wrap; }
+.tgmd-operation-toggle { min-height: 30px; width: auto; padding: 3px 6px; flex: 1 1 180px; flex-wrap: wrap; gap: 2px 6px; }
+.tgmd-op-title { flex-wrap: wrap; }
+.tgmd-op-title strong { font-size: 12px; line-height: 18px; white-space: normal; overflow-wrap: anywhere; }
+.tgmd-op-summary { font-size: 12px; white-space: nowrap; }
+.tgmd-precision-field { flex: 0 1 auto; margin-left: auto; padding: 2px 6px; flex-wrap: wrap; font-size: 12px; }
+.tgmd-precision-field select { min-height: 24px; height: auto; border-radius: var(--pm-radius-control); font-size: 12px; }
+.tgmd-step-row { min-height: 34px; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 4px; padding: 3px 6px; }
+.tgmd-step-order { font-family: var(--pm-font); font-size: 12px; font-weight: 600; }
+.tgmd-step-name { font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+.tgmd-step-eligibility { margin-left: 0; line-height: 18px; }
+.tgmd-step-mapping-summary { white-space: normal; line-height: 18px; overflow-wrap: anywhere; }
+.tgmd-step-actions { gap: 2px; }
+.tgmd-hide-step { min-height: 24px; padding: 2px 4px; font-size: 12px; line-height: 18px; }
+.tgmd-hide-step[data-hide-step-key]:hover:not(:disabled) { background: var(--pm-danger-soft); color: var(--pm-danger); }
+.tgmd-step-row.is-selected { background: var(--pm-primary-soft); box-shadow: inset 3px 0 var(--pm-primary); }
+.tgmd-step-row.is-mapped:not(.is-selected) { box-shadow: inset 3px 0 var(--pm-success); }
+.tgmd-command, .tgmd-smart-button, .tgmd-clear-selection, .tgmd-toggle-group-selection, .tgmd-link-btn, .tgmd-current-suggest, .tgmd-clear-all { min-height: 28px; height: auto; padding: 3px 8px; border-radius: var(--pm-radius-control); font-size: 12px; line-height: 20px; font-weight: 500; box-shadow: none; }
+.tgmd-link-btn.is-active, .tgmd-link-btn.is-active:hover { background: var(--pm-primary); border-color: var(--pm-primary); box-shadow: none; }
+.btn { min-height: var(--pm-control-height); padding: 5px 12px; border-radius: var(--pm-radius-control); font-size: 13px; line-height: 20px; font-weight: 500; }
+.btn-primary, .btn-primary:hover:not(:disabled) { background: var(--pm-primary); border-color: var(--pm-primary); box-shadow: none; }
+.btn-primary:hover:not(:disabled) { background: var(--pm-primary-hover); border-color: var(--pm-primary-hover); }
+.tgmd-page :focus-visible, .tgmd-backdrop :focus-visible { outline: 2px solid var(--pm-primary); outline-offset: 2px; }
+.tgmd-empty, .tgmd-operation-empty { padding: 18px 12px; color: var(--pm-text-muted); font-size: 13px; line-height: 20px; }
+.tgmd-inline-error { flex: 0 0 auto; border: 1px solid var(--pm-danger-border); border-left-width: 3px; border-radius: var(--pm-radius-control); background: var(--pm-danger-soft); color: var(--pm-danger); font-size: 13px; line-height: 20px; overflow-wrap: anywhere; }
+.tgmd-preview-file-card.is-ok { background: var(--pm-success-soft); }
+.tgmd-preview-file-card.is-err { background: var(--pm-danger-soft); }
+.tgmd-dialog .tgmd-footer { flex-shrink: 0; flex-wrap: wrap; }
+@media (max-width: 860px) {
+  .tgmd-operation-header .tgmd-op-header-left { flex: 0 1 auto; flex-wrap: wrap; }
+  .tgmd-tree-header-right { flex: 1 1 100%; }
+}
+@media (max-width: 1100px) and (min-width: 721px) {
+  .tgmd-step-row { grid-template-columns: 22px minmax(0, 1fr); }
+  .tgmd-step-actions { grid-column: 2; justify-self: end; }
+}
+@media (max-width: 720px) {
+  .tgmd-page { height: auto; min-height: 100%; overflow: visible; }
+  .tgmd-page > .tgmd-workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: repeat(2, minmax(0, 1fr)); flex: 1 0 380px; min-height: 380px; }
+}
+@media (max-width: 520px) {
+  .tgmd-header { align-items: flex-start; flex-wrap: wrap; }
+  .tgmd-header-actions { margin-left: auto; }
+  .tgmd-step-row { grid-template-columns: 26px minmax(0, 1fr); }
+  .tgmd-step-actions { grid-column: 2; justify-self: end; }
+  .tgmd-footer-actions { flex-wrap: wrap; }
+}
+@media (max-height: 600px) and (min-width: 721px) {
+  /* Keep pane tools and usable trees above the footer; .main-area owns
+     overflow when the application header leaves too little viewport height. */
+  .tgmd-page { height: auto; min-height: 100%; flex: 1 0 auto; }
+  .tgmd-page > .tgmd-workspace { flex: 1 0 320px; min-height: 320px; }
+}
+.tgmd-page > .tgmd-footer.workflow-nav-footer-inline { min-height: 48px; padding: 0; gap: 0; }
+@media (prefers-reduced-motion: reduce) { .tgmd-dialog, .tgmd-page button { transition: none; } .tgmd-spinner { animation: none; } }
 </style>

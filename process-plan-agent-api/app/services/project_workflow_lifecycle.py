@@ -219,9 +219,10 @@ async def invalidate_project_workflow(
         # reference them through SQLite foreign keys.
         await db.flush()
 
+    from app.services.rule_packages.executable_revisions import invalidate_executable
     generated_routes = await _rows(db, GeneratedRoute, project_id)
-    for route in generated_routes:
-        await db.delete(route)
+
+    await invalidate_executable(db, project_id, detach_route=from_step == 2)
 
     factor_reviews = await _rows(db, NormalizedRouteSegmentFactorReview, project_id)
     rule_reviews = await _rows(db, NormalizedRouteSegmentRuleReview, project_id)
@@ -229,6 +230,8 @@ async def invalidate_project_workflow(
     preserved_manual_condition_reviews = 0
 
     if from_step <= 3:
+        for route_version in await _rows(db, NormalizedRouteVersion, project_id):
+            route_version.analysis_locked_at = None
         for review in factor_reviews:
             await db.delete(review)
         for review in rule_reviews:

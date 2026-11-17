@@ -34,17 +34,19 @@
           @drop.prevent="onDrop(item.id)"
           @dragend="onDragEnd"
         >
-          <!-- Row 1: seq badge + name -->
+          <!-- Summary: sequence, name and source steps -->
           <div class="nrp-row1">
             <span class="nrp-seq">{{ item.sequence }}</span>
             <div class="nrp-name-block">
               <span class="nrp-name">{{ routeItemDisplayName(item) }}</span>
             </div>
-          </div>
-
-          <!-- Steps: collapsible -->
-          <div v-if="selectedItemId === item.id && previewStepGroups(item).length" class="nrp-steps-area" @click.stop>
-            <button class="nrp-steps-toggle" type="button" @click.stop="toggleSteps(item.id)">
+            <button
+              v-if="selectedItemId === item.id && previewStepGroups(item).length"
+              class="nrp-steps-toggle"
+              type="button"
+              :aria-expanded="expandedStepIds.has(item.id)"
+              @click.stop="toggleSteps(item.id)"
+            >
               <svg
                 class="nrp-steps-chevron"
                 :class="{ 'nrp-steps-chevron--open': expandedStepIds.has(item.id) }"
@@ -55,8 +57,12 @@
               <span>来源工序与工步</span>
               <span class="nrp-steps-count">{{ stepTotalCount(item) }}</span>
             </button>
+          </div>
+
+          <!-- Steps: collapsible, preserving source operation groups -->
+          <div v-if="selectedItemId === item.id && previewStepGroups(item).length" @click.stop>
             <Transition name="nrp-expand">
-              <div v-if="expandedStepIds.has(item.id)" class="nrp-steps-content">
+              <div v-if="expandedStepIds.has(item.id)" class="nrp-steps-area nrp-steps-content">
                 <div
                   v-for="group in previewStepGroups(item)"
                   :key="group.key"
@@ -264,25 +270,28 @@ function previewStepGroups(item: RouteMergePreviewItem) {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
 /* ── Head ── */
 .route-pane-head {
   display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; padding: 18px 20px 14px;
+  flex-shrink: 0; flex-wrap: wrap;
+  gap: 2px 8px; padding: 6px 12px;
   border-bottom: 1px solid #f1f5f9;
   background: linear-gradient(135deg, #fafbff 0%, #f8fafc 100%);
 }
-.route-pane-title { font-size: 15px; font-weight: 700; color: #0f172a; letter-spacing: -0.015em; }
-.route-pane-subtitle { font-size: 13px; color: #94a3b8; font-weight: 500; white-space: nowrap; }
+.nrp-root .route-pane-title { font-size: 13px; line-height: 20px; font-weight: 700; color: #0f172a; letter-spacing: -0.015em; overflow-wrap: anywhere; }
+.route-pane-subtitle { font-size: 12px; line-height: 20px; color: #94a3b8; font-weight: 500; overflow-wrap: anywhere; }
 .nrp-empty { padding: 40px; text-align: center; color: #94a3b8; font-size: 14px; }
 
 /* ── Scroll container ── */
 .nrp-scroll {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 14px 16px 24px;
+  padding: 8px 12px 12px;
   display: flex;
   flex-direction: column;
 }
@@ -292,6 +301,7 @@ function previewStepGroups(item: RouteMergePreviewItem) {
   display: flex;
   align-items: stretch;
   gap: 10px;
+  flex-shrink: 0;
 }
 
 /* ── Track ── */
@@ -301,7 +311,7 @@ function previewStepGroups(item: RouteMergePreviewItem) {
   align-items: center;
   flex-shrink: 0;
   width: 16px;
-  padding-top: 13px;
+  padding-top: 14px;
 }
 .nrp-dot {
   width: 8px;
@@ -333,8 +343,8 @@ function previewStepGroups(item: RouteMergePreviewItem) {
   text-align: left;
   border: 1px solid transparent;
   border-radius: 8px;
-  padding: 9px 12px;
-  margin-bottom: 4px;
+  padding: 5px 12px;
+  margin-bottom: 2px;
   background: #ffffff;
   cursor: pointer;
   position: relative;
@@ -361,7 +371,7 @@ function previewStepGroups(item: RouteMergePreviewItem) {
 }
 .nrp-card--active::before { background: #4f46e5; }
 .nrp-card--dragging { opacity: 0.4; transform: scale(0.98); }
-.nrp-card[draggable="true"] { cursor: grab; }
+.nrp-card[draggable="true"] { cursor: grab; padding-right: 26px; }
 .nrp-card[draggable="true"]:active { cursor: grabbing; }
 .nrp-card--drop-target {
   border-color: #fb923c;
@@ -388,8 +398,9 @@ function previewStepGroups(item: RouteMergePreviewItem) {
 .nrp-row1 {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 26px;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  min-height: 24px;
 }
 .nrp-seq {
   flex-shrink: 0;
@@ -411,7 +422,7 @@ function previewStepGroups(item: RouteMergePreviewItem) {
   color: #fff;
 }
 .nrp-name-block {
-  flex: 1;
+  flex: 1 1 80px;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -422,9 +433,7 @@ function previewStepGroups(item: RouteMergePreviewItem) {
   font-weight: 700;
   color: #1e293b;
   line-height: 1.4;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 .nrp-meta {
   font-size: 11px;
@@ -436,14 +445,18 @@ function previewStepGroups(item: RouteMergePreviewItem) {
 
 /* ── Steps area ── */
 .nrp-steps-area {
-  margin-top: 8px;
-  padding-top: 8px;
+  margin-top: 4px;
+  padding-top: 4px;
   border-top: 1px solid #f1f5f9;
 }
 .nrp-steps-toggle {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  flex-shrink: 0;
+  min-width: 24px;
+  min-height: 24px;
+  white-space: nowrap;
   font-size: 11.5px;
   font-weight: 600;
   color: #64748b;
@@ -474,17 +487,17 @@ function previewStepGroups(item: RouteMergePreviewItem) {
   color: #6366f1;
 }
 .nrp-steps-content {
-  margin-top: 8px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 .nrp-step-group {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 0 0 0 10px;
+  gap: 2px;
+  padding: 0 0 0 8px;
   border-left: 2px solid #e2e8f0;
+  overflow-wrap: anywhere;
 }
 .nrp-step-group-name {
   font-size: 11.5px;
@@ -494,11 +507,13 @@ function previewStepGroups(item: RouteMergePreviewItem) {
 .nrp-step-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 2px;
 }
 .nrp-chip {
   display: inline-flex;
   align-items: center;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   padding: 2px 6px;
   border-radius: 4px;
   border: 1px solid #e2e8f0;
@@ -525,12 +540,12 @@ function previewStepGroups(item: RouteMergePreviewItem) {
 
 /* ── Actions ── */
 .nrp-actions {
-  margin-top: 8px;
-  padding-top: 8px;
+  margin-top: 4px;
+  padding-top: 4px;
   border-top: 1px solid #f1f5f9;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 .nrp-action-row {
   display: flex;
@@ -562,6 +577,8 @@ function previewStepGroups(item: RouteMergePreviewItem) {
 .nrp-icon-btn:hover:not(:disabled) { background: #ffffff; color: #334155; }
 .nrp-icon-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 .nrp-text-btn {
+  min-width: 24px;
+  min-height: 24px;
   border: 1px solid transparent;
   background: transparent;
   color: #64748b;

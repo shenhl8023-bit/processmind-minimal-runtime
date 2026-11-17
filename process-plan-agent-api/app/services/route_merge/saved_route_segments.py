@@ -204,7 +204,7 @@ def build_saved_route_version_segments(
         )
 
         segments.append({
-            "id": str(route_item_value(item, "id", f"manual-route-{idx}") or f"manual-route-{idx}"),
+            "id": process_identity.segment_id,
             "export_process_id": process_identity.export_process_id,
             "sequence": idx * 10,
             "normalized_step_name": display_operation_name(route_item_value(item, "normalized_step_name", "")) or "未命名工序段",

@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import {
   clearAllWorkflowDataCache,
+  clearWorkflowDataCacheByPrefix,
+  clearWorkflowProjectDataCache,
   createLatestWorkflowRequestGuard,
   getWorkflowDataCache,
   getWorkflowDataRevision,
@@ -15,6 +17,19 @@ describe('workflow data cache concurrency', () => {
     const requestRevision = getWorkflowDataRevision()
     clearAllWorkflowDataCache()
 
+    const stored = setWorkflowDataCache('api:extract:operations:17', ['stale'], requestRevision)
+
+    expect(stored).toBe(false)
+    expect(getWorkflowDataCache('api:extract:operations:17')).toBeNull()
+  })
+
+  it.each([
+    ['project invalidation', () => clearWorkflowProjectDataCache(17)],
+    ['prefix invalidation', () => clearWorkflowDataCacheByPrefix('api:extract:operations:17')],
+  ])('rejects in-flight responses after empty-cache %s', (_label, invalidate) => {
+    const requestRevision = getWorkflowDataRevision()
+
+    invalidate()
     const stored = setWorkflowDataCache('api:extract:operations:17', ['stale'], requestRevision)
 
     expect(stored).toBe(false)

@@ -1,7 +1,8 @@
 <template>
   <section class="analysis-column analysis-column-left">
     <div class="panel-head">
-      <div class="panel-title">已保存路线 <span class="panel-badge-inline">只读</span></div>
+      <div class="panel-title">工艺路线总览</div>
+      <slot name="filters" />
     </div>
 
     <div class="route-list">
@@ -416,8 +417,8 @@ const emit = defineEmits<{
 }
 
 .route-state-badge.is-completed {
-  background: rgba(34, 197, 94, 0.14);
-  color: #15803d;
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary);
 }
 
 .route-state-badge.is-started {

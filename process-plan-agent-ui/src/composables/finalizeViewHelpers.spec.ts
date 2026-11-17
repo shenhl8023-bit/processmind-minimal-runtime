@@ -3,6 +3,14 @@ import { buildFinalizeCards, type FinalizeDraft } from './finalizeViewHelpers'
 import { finalizeRuleMode } from '@/utils/finalizeRulePackage'
 
 describe('saved finalize rule sources', () => {
+  it('takes the executable third-step draft as the initial rule without reconstructing it from labels', () => {
+    const cards = buildFinalizeCards([{
+      id: 'drill', normalized_step_name: '钻孔', sequence: 1, factor_reviews: [], doc_coverage: { hit_docs: 1, total_docs: 2 },
+      rule_review: { analysis_draft: { status: 'confirmed', scope: 'current', object: '孔', condition_text: '同一对象具有盲孔且位于周边时安排钻孔。', candidate: { kind: 'process_configuration', configuration: { process_id: 'drill', occurrence: 'conditional', when: { field: 'project_factor.x', op: 'eq', value: true }, relations: [] } } } },
+    }] as any, [], {})
+    expect(cards[0]!.conditionText).toBe('同一对象具有盲孔且位于周边时安排钻孔。')
+    expect(finalizeRuleMode(cards[0])).toBe('conditional')
+  })
   it('restores a saved conditional edit after its local recovery copy is cleared', () => {
     const cards = buildFinalizeCards([{
       id: 'remove_copper', normalized_step_name: '除铜', sequence: 10,

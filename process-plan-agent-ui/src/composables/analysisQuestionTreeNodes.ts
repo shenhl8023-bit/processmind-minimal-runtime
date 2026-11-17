@@ -32,6 +32,9 @@ export interface TreeNode {
   minSelections?: number
   confirmLabel?: string
   sourceHint?: string
+  recommendedValues?: string[]
+  numeric?: { min: number; max?: number; exclusiveMin?: boolean; integer?: boolean; unit: string }
+  customEditor?: boolean
 }
 
 export function resolveAnsweredRootReason(answers: Record<string, TreeAnswer>) {
@@ -296,7 +299,7 @@ function normalizeStructureCondition(value: string) {
   return joinSummaryList(value)
     .split('、')
     .map((item) => {
-      if (/^(孔|孔结构|一般孔|孔类特征)$/.test(item)) return '孔类结构或孔加工要求'
+      if (/^(孔|孔结构|一般孔|孔类特征)$/.test(item)) return '孔类结构'
       if (/^(型孔|异形孔|异型孔)$/.test(item)) return '型孔或异形孔加工要求'
       if (/^(槽|槽类特征|一般槽|一般环槽)$/.test(item)) return '槽类结构'
       if (/^(外圆|主外圆|台阶外圆|基准外圆)$/.test(item)) return `${item}加工对象`
@@ -313,6 +316,9 @@ function buildRequirementConditionPhrase(value: string, answers: Record<string, 
   const detail = joinSummaryList(value)
   const scene = cleanSummaryLabel(answers.requirement_scene_type?.label)
   if (!detail) return ''
+  // Profiles can finish at the scene question. In that case the scene is
+  // already the complete answer, not a value to compare with itself.
+  if (detail === scene) return detail
   const subject = scene
     .replace(/的/g, '')
     .replace(/要求$/, '要求')

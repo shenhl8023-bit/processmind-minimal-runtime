@@ -21,6 +21,26 @@ import {
 
 export type GroupTemplateDialogState = 'empty' | 'preview' | 'workspace'
 
+export type TemplateMappingSaveRequest = {
+  project_id: number
+  expected_template_revision: number
+  expected_workflow_revision: number
+  mappings: GroupTemplateStepMappingInput[]
+  operations: TemplateGroupMappingOperationInput[]
+  replace_all: true
+  step_order_by_process?: Record<string, string[]>
+  expected_route_version_id?: number
+  hidden_step_keys: string[]
+  waived_group_paths: string[][]
+}
+
+// The atomic export endpoint can return this frozen mapping snapshot in
+// export_sources.template_mapping; metadata absent there stays on the template.
+export type TemplateMappingSavedSnapshot = Pick<ProjectGroupTemplate, 'template_revision' | 'step_mappings' | 'mapping_output'>
+  & { hidden_step_keys: string[]; waived_group_paths: string[][] }
+  & Partial<ProjectGroupTemplate>
+export type TemplateMappingSaveHandler = (request: TemplateMappingSaveRequest) => Promise<TemplateMappingSavedSnapshot>
+
 export type LegacyGroupTemplateAlias = {
   source_operation_id: number
   alias: string
@@ -134,12 +154,23 @@ function errorStatus(error: unknown) {
 }
 
 function errorMessage(error: unknown) {
-  if (!error || typeof error !== 'object' || !('response' in error)) return '分组模板操作失败，请稍后重试。'
+  const fallback = error instanceof Error && error.message.trim()
+    ? error.message
+    : '分组模板操作失败，请稍后重试。'
+  if (!error || typeof error !== 'object' || !('response' in error)) return fallback
   const response = error.response
-  if (!response || typeof response !== 'object' || !('data' in response)) return '分组模板操作失败，请稍后重试。'
+  if (!response || typeof response !== 'object' || !('data' in response)) return fallback
   const data = response.data
-  if (data && typeof data === 'object' && 'detail' in data && typeof data.detail === 'string') return data.detail
-  return '分组模板操作失败，请稍后重试。'
+  const detail = data && typeof data === 'object' && 'detail' in data ? data.detail : undefined
+  if (typeof detail === 'string') return detail
+  if (detail && typeof detail === 'object') {
+    const message = 'message' in detail && typeof detail.message === 'string' ? detail.message.trim() : ''
+    const blockers = 'blockers' in detail && Array.isArray(detail.blockers)
+      ? detail.blockers.map(blocker => blocker && typeof blocker.message === 'string' ? blocker.message.trim() : '')
+      : []
+    return [message, ...blockers].filter(Boolean).join('\n') || fallback
+  }
+  return fallback
 }
 
 export function useProjectGroupTemplate(
@@ -189,7 +220,7 @@ export function useProjectGroupTemplate(
   }, { flush: 'sync' })
 
   function applyTemplate(snapshot: ProjectGroupTemplate) {
-    template.value = snapshot
+    template.value = { ...snapshot, hidden_step_keys: snapshot.hidden_step_keys || [], waived_group_paths: snapshot.waived_group_paths || [] }
     draftMappings.value = mappingInputs(snapshot.mappings)
     draftStepMappings.value = (snapshot.step_mappings || []).map(stepMappingInput)
     state.value = 'workspace'
@@ -311,7 +342,7 @@ export function useProjectGroupTemplate(
         unref(workflowRevision),
       )
       if (!isCurrent()) return false
-      applyTemplate(committed)
+      applyTemplate({ ...committed, hidden_step_keys: [], waived_group_paths: [] })
       replacementImpact.value = {
         kept_source_operation_ids: committed.kept_source_operation_ids,
         invalidated: committed.invalidated,
@@ -361,20 +392,39 @@ export function useProjectGroupTemplate(
     }
   }
 
-  async function saveStepMappings(operations: TemplateGroupMappingOperationInput[] = []) {
+  async function saveStepMappings(
+    operations: TemplateGroupMappingOperationInput[] = [],
+    exceptions?: { hidden_step_keys: string[]; waived_group_paths: string[][]; step_order_by_process?: Record<string, string[]>; expected_route_version_id?: number },
+    beforeSave?: TemplateMappingSaveHandler,
+  ) {
     if (workflowStale || !template.value || template.value.project_id !== unref(projectId)) return false
+    const currentTemplate = template.value
     const isCurrent = beginRequest('saving')
     error.value = ''
     try {
-      const saved = await saveGroupTemplateStepMappings(
+      // A supplied handler owns persistence (and optionally export) in one server
+      // transaction. Never follow it with the standalone mapping PUT.
+      const saved = beforeSave ? await beforeSave(JSON.parse(JSON.stringify({
+        project_id: unref(projectId),
+        expected_template_revision: templateRevision.value,
+        expected_workflow_revision: unref(workflowRevision),
+        mappings: draftStepMappings.value,
+        operations,
+        replace_all: true,
+        ...(exceptions?.step_order_by_process ? { step_order_by_process: exceptions.step_order_by_process } : {}),
+        ...(exceptions?.expected_route_version_id ? { expected_route_version_id: exceptions.expected_route_version_id } : {}),
+        hidden_step_keys: exceptions?.hidden_step_keys || currentTemplate.hidden_step_keys || [],
+        waived_group_paths: exceptions?.waived_group_paths || currentTemplate.waived_group_paths || [],
+      }))) : await saveGroupTemplateStepMappings(
         unref(projectId),
         templateRevision.value,
         draftStepMappings.value,
         operations,
         unref(workflowRevision),
+        ...(exceptions ? [exceptions] as const : [] as const),
       )
       if (!isCurrent()) return false
-      applyTemplate(saved)
+      applyTemplate({ ...currentTemplate, ...saved })
       return true
     } catch (cause) {
       if (!isCurrent()) return false

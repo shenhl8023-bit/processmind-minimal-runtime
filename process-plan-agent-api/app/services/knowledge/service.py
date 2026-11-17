@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +18,9 @@ def canonical_snapshot_hash(payload: dict[str, object]) -> str:
 
 
 def evidence_hash_payload(payload) -> dict[str, object]:
+    for field in ("query", "item_id", "content"):
+        if not getattr(payload, field).strip():
+            raise HTTPException(status_code=422, detail=f"{field} 不能为空")
     return {
         "project_id": payload.project_id,
         "route_version_id": payload.route_version_id,

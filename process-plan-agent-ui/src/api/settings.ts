@@ -16,9 +16,21 @@ export interface LLMTestRequest {
   model?: string
 }
 
+export interface LLMSettingsRequest {
+  api_url: string
+  model: string
+  api_key?: string
+}
+
+export interface LLMModelsRequest {
+  api_url: string
+  api_key: string
+}
+
 export interface LLMTestResult {
   success: boolean
   message: string
+  code?: string
 }
 
 export interface LLMModel {
@@ -36,6 +48,11 @@ export async function updateSetting(key: string, value: string) {
   return data as Setting
 }
 
+export async function saveLLMSettings(payload: LLMSettingsRequest) {
+  const { data } = await api.post('/api/settings/llm', payload)
+  return data as Setting[]
+}
+
 export async function clearSetting(key: string) {
   const { data } = await api.delete(`/api/settings/${encodeURIComponent(key)}`)
   return data as Setting
@@ -46,7 +63,9 @@ export async function testLLMConnection(payload: LLMTestRequest) {
   return data as LLMTestResult
 }
 
-export async function getAvailableModels() {
-  const { data } = await api.get('/api/settings/models')
+export async function getAvailableModels(payload?: LLMModelsRequest) {
+  const { data } = payload
+    ? await api.post('/api/settings/models', payload)
+    : await api.get('/api/settings/models')
   return data as LLMModel[]
 }

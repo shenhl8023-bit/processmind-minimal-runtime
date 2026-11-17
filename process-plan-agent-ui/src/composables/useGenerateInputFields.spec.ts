@@ -3,6 +3,96 @@ import { ref } from 'vue'
 
 import { useGenerateInputFields } from './useGenerateInputFields'
 
+it('requires parameters only for selected features and clears them when deselected', () => {
+  const scope = 'project_factor.feature_5b54'
+  const input = useGenerateInputFields({ inputSchema: ref({ schema_version: '2.0', fields: [
+    { key: `${scope}.present`, label: '孔', type: 'boolean', source: '本项目特征输入' },
+    { key: `${scope}.direction`, label: '孔的方位', type: 'single_select', options: [{ value: 'A侧', label: 'A侧' }], allow_custom: false },
+    { key: `${scope}.it`, label: '孔的实际精度', type: 'number', unit: 'IT' },
+  ] }), hasRulePackage: ref(true), projectId: ref(8) })
+  input.initializeFieldValues()
+  expect(input.fieldValues.value[`${scope}.present`]).toBe(false)
+  expect(input.canGenerate.value).toBe(true)
+  input.setFieldBoolean(`${scope}.present`, true)
+  expect(input.canGenerate.value).toBe(false)
+  input.setFieldText(`${scope}.direction`, 'A侧')
+  input.setFieldText(`${scope}.it`, '7')
+  expect(input.canGenerate.value).toBe(true)
+  expect(input.factorValues.value).toEqual({ project_factor: { feature_5b54: { present: true, direction: 'A侧', it: 7 } } })
+  input.setFieldBoolean(`${scope}.present`, false)
+  expect(input.fieldValues.value[`${scope}.it`]).toBe('')
+  expect(input.factorValues.value).toEqual({ project_factor: { feature_5b54: { present: false } } })
+  expect(Object.keys(input.factorMetadata.value)).toEqual([`${scope}.present`])
+  input.setFieldBoolean(`${scope}.present`, true)
+  expect(input.canGenerate.value).toBe(false)
+})
+
+it('blocks generation instead of omitting an invalid optional numeric zero', () => {
+  const fields = useGenerateInputFields({
+    inputSchema: ref({ schema_version: '2.0', fields: [
+      { key: 'project_factor.operation_x.ra', label: '实际粗糙度', type: 'number', required: false, validation: { min: 0 } },
+    ] }),
+    hasRulePackage: ref(true), projectId: ref(7),
+  })
+  fields.initializeFieldValues()
+  fields.fillExampleValues()
+  expect(fields.fieldValues.value['project_factor.operation_x.ra']).toBe(0)
+  expect(fields.isInvalidConfirmedFieldValue(fields.inputFields.value[0]!)).toBe(true)
+  expect(fields.canGenerate.value).toBe(false)
+})
+
+it('accepts a numeric zero hardness lower bound when the upper bound is entered', () => {
+  const fields = useGenerateInputFields({
+    inputSchema: ref({ schema_version: '2.0', fields: [
+      { key: 'project_factor.operation_x.hardness_min', type: 'number', required: true, validation: { min: 0 } },
+      { key: 'project_factor.operation_x.hardness_max', type: 'number', required: true, validation: { min: 0 } },
+    ] }),
+    hasRulePackage: ref(true), projectId: ref(7),
+  })
+  fields.initializeFieldValues()
+  fields.fillExampleValues()
+  fields.setFieldText('project_factor.operation_x.hardness_max', '60')
+  expect(fields.canGenerate.value).toBe(true)
+  expect(fields.factorValues.value).toEqual({ project_factor: { operation_x: { hardness_min: 0, hardness_max: 60 } } })
+})
+
+it.each(['4', '11', '7.5', 'IT7'])('blocks actual project IT %s with an older 1-18 threshold definition', (value) => {
+  const fields = useGenerateInputFields({ inputSchema: ref({ schema_version: '2.0', fields: [
+    { key: 'project_factor.operation_a.it', label: '实际尺寸精度等级', type: 'number', unit: 'IT', required: true, validation: { min: 1, max: 18 } },
+  ] }), hasRulePackage: ref(true), projectId: ref(5) })
+  fields.initializeFieldValues()
+  fields.setFieldText('project_factor.operation_a.it', value)
+  expect(fields.canGenerate.value).toBe(false)
+  expect(fields.factorValues.value).toEqual({})
+})
+
+it('derives a six-grade actual IT domain and live rule hint without narrowing the trigger threshold', () => {
+  const rules = ref<any>({ process_configurations: [{ process_id: 'grind', occurrence: 'conditional', when: { field: 'project_factor.operation_a.it', op: 'lte', value: 7 } }] })
+  const fields = useGenerateInputFields({ inputSchema: ref({ schema_version: '2.0', fields: [
+    { key: 'project_factor.operation_a.it', label: '实际尺寸精度等级', type: 'number', unit: 'IT', required: true },
+  ] }), rulePackageRules: rules, hasRulePackage: ref(true), projectId: ref(5) })
+  fields.initializeFieldValues()
+  expect(fields.inputFields.value[0]?.allowed_values).toEqual(['5', '6', '7', '8', '9', '10'])
+  expect((fields.inputFields.value[0] as any).rule_hint).toContain('IT7')
+  for (const grade of ['6', '8']) {
+    fields.setFieldText('project_factor.operation_a.it', grade)
+    expect(fields.canGenerate.value).toBe(true)
+    expect(fields.factorValues.value).toEqual({ project_factor: { operation_a: { it: Number(grade) } } })
+  }
+  rules.value.process_configurations[0].when.value = 6
+  expect((fields.inputFields.value[0] as any).rule_hint).toContain('IT6')
+})
+
+it('uses explicit IT units for custom actual-grade fields rather than relying on the label', () => {
+  const fields = useGenerateInputFields({ inputSchema: ref({ schema_version: '2.0', fields: [
+    { key: 'project_factor.precision_for_object', label: '对象参数', type: 'number', unit: 'IT', required: true },
+  ] }), hasRulePackage: ref(true), projectId: ref(5) })
+  fields.initializeFieldValues(); fields.setFieldText('project_factor.precision_for_object', '4')
+  expect(fields.canGenerate.value).toBe(false)
+  fields.setFieldText('project_factor.precision_for_object', '8')
+  expect(fields.canGenerate.value).toBe(true)
+})
+
 describe('manual Boolean process inputs', () => {
   it.each([
     [{ field: 'special.requirements', op: 'contains', value: '无损检测要求' }, ['无损检测要求']],
@@ -48,7 +138,7 @@ describe('manual Boolean process inputs', () => {
     fields.toggleFieldArrayValue('special.requirements', '除铜要求')
     expect(fields.factorValues.value).toEqual({ special: { requirements: ['除铜要求'] }, project_factor: { manual_process_ndt: false } })
   })
-  it('keeps user-controlled process switches unset until the user chooses', () => {
+  it('defaults user-controlled process switches to false without inventing manual confirmation', () => {
     const fields = useGenerateInputFields({
       inputSchema: ref({
         schema_version: '2.0',
@@ -66,9 +156,16 @@ describe('manual Boolean process inputs', () => {
 
     fields.initializeFieldValues()
 
-    expect(fields.fieldValues.value['project_factor.manual_process_12345678']).toBeUndefined()
-    expect(fields.filledFieldCount.value).toBe(0)
+    expect(fields.fieldValues.value['project_factor.manual_process_12345678']).toBe(false)
+    expect(fields.filledFieldCount.value).toBe(1)
     expect(fields.factorValues.value).toEqual({})
+    expect(fields.factorMetadata.value).toEqual({})
+
+    expect(fields.canGenerate.value).toBe(true)
+    fields.setFieldBoolean('project_factor.manual_process_12345678', true)
+    fields.initializeFieldValues()
+    expect(fields.fieldValues.value['project_factor.manual_process_12345678']).toBe(true)
+    expect(fields.factorValues.value).toEqual({project_factor:{manual_process_12345678:true}})
 
     fields.setFieldBoolean('project_factor.manual_process_12345678', false)
 
@@ -80,8 +177,9 @@ describe('manual Boolean process inputs', () => {
 
     fields.clearAllFields()
 
-    expect(fields.fieldValues.value['project_factor.manual_process_12345678']).toBeUndefined()
+    expect(fields.fieldValues.value['project_factor.manual_process_12345678']).toBe(false)
     expect(fields.factorValues.value).toEqual({})
+    expect(fields.factorMetadata.value).toEqual({})
   })
 
   it('keeps other Boolean inputs unselected initially', () => {
@@ -433,7 +531,7 @@ describe('useGenerateInputFields project isolation', () => {
     expect(fields.canGenerate.value).toBe(true)
   })
 
-  it('adds a custom single-select value when the factor allows it', () => {
+  it('rejects unconfigured material values even if an old field claims to allow custom input', () => {
     const inputSchema = ref<Record<string, any> | null>({
       schema_version: '2.0',
       fields: [{
@@ -455,7 +553,30 @@ describe('useGenerateInputFields project isolation', () => {
     fields.setCustomInput('material.grade', 'Custom Alloy')
     fields.addCustomSingleValue('material.grade')
 
-    expect(fields.factorValues.value).toEqual({ material: { grade: 'Custom Alloy' } })
-    expect(fields.factorMetadata.value['material.grade']?.origin).toBe('manual')
+    expect(fields.inputFields.value[0]!.allow_custom).toBe(false)
+    expect(fields.factorValues.value).toEqual({})
+    expect(fields.canGenerate.value).toBe(false)
+  })
+
+  it('starts actual IT and Ra blank, validates precision integers and positive roughness, and rejects reversed hardness intervals', () => {
+    const fields = useGenerateInputFields({ inputSchema: ref({ schema_version: '2.0', fields: [
+      { key: 'project_factor.operation_a.it', label: '磨外圆 · 外圆柱面的实际尺寸精度等级', type: 'number', unit: 'IT' },
+      { key: 'project_factor.operation_b.ra', label: '磨孔 · 孔的实际Ra要求值', type: 'number', unit: 'μm' },
+      { key: 'project_factor.operation_c.hardness_min', label: '硬度下限', type: 'number' },
+      { key: 'project_factor.operation_c.hardness_max', label: '硬度上限', type: 'number' },
+    ] }), projectId: ref(1), hasRulePackage: ref(true) })
+    fields.initializeFieldValues()
+    expect(Object.values(fields.fieldValues.value)).toEqual(['', '', '', ''])
+    fields.setFieldText('project_factor.operation_a.it', '7.5')
+    expect(fields.canGenerate.value).toBe(false)
+    fields.setFieldText('project_factor.operation_a.it', '7')
+    fields.setFieldText('project_factor.operation_b.ra', '0')
+    expect(fields.canGenerate.value).toBe(false)
+    fields.setFieldText('project_factor.operation_b.ra', '0.4')
+    fields.setFieldText('project_factor.operation_c.hardness_min', '50')
+    fields.setFieldText('project_factor.operation_c.hardness_max', '40')
+    expect(fields.canGenerate.value).toBe(false)
+    fields.setFieldText('project_factor.operation_c.hardness_max', '55')
+    expect(fields.canGenerate.value).toBe(true)
   })
 })

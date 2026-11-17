@@ -23,7 +23,6 @@ from app.models.models import (
     Operation,
     ParamAuditAnswer,
     Project,
-    Reference,
 )
 from app.schemas.schemas import (
     FactorFieldOut,
@@ -46,13 +45,15 @@ from app.services.harness_validators import (
     raise_for_harness_errors,
     validate_param_followup_questions,
 )
-from app.services.generate_factor_schema import extract_document_body, parse_reference_attributes
+from app.services.generate_factor_schema import extract_document_body, parse_document_attributes
 from app.services.generate_factor_schema_loader import build_project_factor_schema
 from app.services.generate_route_result_builder import (
     build_generate_output_json,
     build_generate_summary,
 )
-from app.services.finalized_rule_package_helpers import serialize_finalized_rule_package
+from app.services.finalized_rule_package_helpers import json_loads, serialize_finalized_rule_package
+from app.core.product_profile import get_product_profile
+from app.services.rule_packages.native_publication import has_native_snapshot
 from app.services.param_project_context import (
     load_project_resource_bundle,
 )
@@ -219,7 +220,7 @@ def _build_process_presence_pairs(documents: list[Document]) -> list[tuple[dict[
                 json_docs[sample_key] = process_names
             continue
 
-        attrs = parse_reference_attributes(extract_document_body(doc))
+        attrs = parse_document_attributes(extract_document_body(doc))
         if attrs:
             param_docs[sample_key] = attrs
 
@@ -346,6 +347,7 @@ def _param_operation_key(stage: str, occurrence_index: int, step_name: str) -> s
 
 async def _enhance_param_operation_questions_with_llm(
     operation_reviews: list[ParamOperationReviewOut],
+    *, db: AsyncSession | None = None, project_id: int | None = None,
 ) -> list[ParamOperationReviewOut]:
     candidates = [item for item in operation_reviews if item.current_question]
     if not candidates:
@@ -419,6 +421,10 @@ async def _enhance_param_operation_questions_with_llm(
         user_prompt_template = get_prompt_template("param_followup_question_user")
         if not system_prompt.strip() or not user_prompt_template.strip():
             return operation_reviews
+        if db is not None and project_id is not None and await db.get(Project, project_id) is not None:
+            from app.services.analysis_guidance import get_analysis_guidance
+            guidance = await get_analysis_guidance(db, project_id)
+            system_prompt += "\n\n" + guidance["prompt_reference"]
         user_prompt = user_prompt_template.replace(
             "{{question_payload_json}}",
             json.dumps(payload, ensure_ascii=False, indent=2),
@@ -944,8 +950,6 @@ async def get_factor_schema(
     if not project:
         raise HTTPException(404, "任务不存在")
 
-    references = resources.references
-
     result = await db.execute(
         select(Operation)
         .where(Operation.project_id == project_id)
@@ -955,7 +959,6 @@ async def get_factor_schema(
     operations = result.scalars().all()
     return build_project_factor_schema(
         operations,
-        references,
         parse_factor_condition=_parse_factor_condition,
         is_warning_factor_name=is_harness_warning_factor_name,
     )
@@ -968,7 +971,7 @@ async def generate_route(
 ):
     """
     基于用户录入的影响因素生成工艺路线。
-    当前版本只读取已发布的 V2 规则包生成路线。
+    读取第四步已保存的当前可执行规则版本，生成与导出独立。
     """
     if not body.project_id:
         raise HTTPException(400, "project_id 不能为空")
@@ -999,52 +1002,18 @@ async def generate_route(
         key: value.model_dump(mode="json")
         for key, value in body.input_metadata.items()
     }
-    finalized_package = await _latest_finalized_rule_package(body.project_id, db)
-    if not finalized_package:
-        raise HTTPException(409, "当前资料尚未导出有效规则包。请重新完成提炼、审核并导出后再生成。")
-    # Historical V2 packages can still plan routes without three-table metadata.
-    # Never combine their published rules with a live, unpublished mapping.
-    if finalized_package.demo_tables_json:
-        published_snapshot = serialize_finalized_rule_package(finalized_package)
-        if published_snapshot.demo_tables is None:
-            raise HTTPException(status_code=409, detail=published_snapshot.export_error)
-        full_route_structure = published_snapshot.demo_tables["full_route_table"]
+    from app.services.rule_packages.executable_revisions import current_revision
+    if body.executable_revision_id is None:
+        raise HTTPException(409, "请指定当前可执行规则版本后生成。")
+    executable = await current_revision(db, body.project_id, body.executable_revision_id)
     schema_version = "2.0"
-    rule_package_id = finalized_package.id
-    rule_package_version = finalized_package.version
-    rule_package_hash = finalized_package.content_hash or ""
     try:
-        package_v2 = v2_package_from_row(finalized_package)
-        if (
-            package_v2.manifest.project_id is not None
-            and package_v2.manifest.project_id != body.project_id
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail="已发布规则包的任务信息不一致，请返回第四步重新导出规则包。",
-            )
-        package_route_version_id = finalized_package.route_version_id
-        manifest_route_version_id = package_v2.manifest.route_version_id
-        if (
-            package_route_version_id is not None
-            and manifest_route_version_id is not None
-            and package_route_version_id != manifest_route_version_id
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail="已发布规则包的路线版本信息不一致，请返回第四步重新导出规则包。",
-            )
-        if package_route_version_id is not None:
-            latest_route_version = await get_latest_normalized_route_version(body.project_id, db)
-            if not latest_route_version or latest_route_version.id != package_route_version_id:
-                raise HTTPException(
-                    status_code=409,
-                    detail="标准化路线版本已更新，请返回第四步重新审核并导出规则包后再生成。",
-                )
+        from app.services.rule_packages.contracts import RulePackageV2
+        package_v2 = RulePackageV2.model_validate_json(executable.package_json)
         validation = validate_rule_package(package_v2)
         if not validation.valid:
             detail = {
-                "message": f"已发布规则包 V{finalized_package.version} 校验未通过，无法生成",
+                "message": f"可执行规则版本 V{executable.revision} 校验未通过，无法生成",
                 "validation": validation.model_dump(mode="json"),
             }
             raise HTTPException(status_code=422, detail=detail)
@@ -1076,10 +1045,10 @@ async def generate_route(
         matched_rule_ids = [trace.rule_id for trace in plan.traces if trace.matched]
         selected_process_ids = list(plan.selected_process_ids)
         summary = (
-            f"已基于已发布规则包 V{finalized_package.version}（schema 2.0）"
+            f"已基于可执行规则版本 V{executable.revision}（schema 2.0）"
             f"确定性规划生成，命中 {len(matched_rule_ids)} 条规则"
         )
-        output_mode = "finalized_rule_package_v2"
+        output_mode = "executable_rule_revision_v2"
     except HTTPException:
         raise
     except RulePackageLifecycleError as exc:
@@ -1092,9 +1061,14 @@ async def generate_route(
     if not steps:
         raise HTTPException(422, "规则包未生成可执行路线，请检查主线工序和规则条件。")
 
+    output_json_text = build_generate_output_json(
+        body.project_id, output_mode, steps, full_route_structure=full_route_structure,
+        input_factors=canonical_inputs, input_metadata=input_metadata,
+    )
     # 持久化
     route = GeneratedRoute(
         project_id=body.project_id,
+        executable_revision_id=executable.id,
         input_factors=json.dumps({
             "factor_values": canonical_inputs,
             "input_metadata": input_metadata,
@@ -1102,14 +1076,21 @@ async def generate_route(
         result_json=json.dumps(
             {
                 "steps": [s.model_dump() for s in steps],
+                "executable_revision_id": executable.id,
+                "executable_revision": executable.revision,
+                "executable_content_hash": executable.content_hash,
+                "summary": build_generate_summary(steps, summary),
                 "rule_package_id": rule_package_id,
                 "rule_package_version": rule_package_version,
                 "rule_package_hash": rule_package_hash,
                 "schema_version": schema_version,
                 "matched_rule_ids": matched_rule_ids,
                 "selected_process_ids": selected_process_ids,
+                "input_factors": canonical_inputs,
                 "input_metadata": input_metadata,
                 "output_mode": output_mode,
+                "output_json_text": output_json_text,
+                "full_route_structure": full_route_structure,
             },
             ensure_ascii=False,
         ),
@@ -1121,16 +1102,12 @@ async def generate_route(
 
     return GenerateResponse(
         id=route.id,
+        executable_revision_id=executable.id,
+        executable_revision=executable.revision,
+        executable_content_hash=executable.content_hash,
         steps=steps,
         summary=build_generate_summary(steps, summary),
-        output_json_text=build_generate_output_json(
-            body.project_id,
-            output_mode,
-            steps,
-            full_route_structure=full_route_structure,
-            input_factors=canonical_inputs,
-            input_metadata=input_metadata,
-        ),
+        output_json_text=output_json_text,
         full_route_structure=full_route_structure,
         output_mode=output_mode,
         rule_package_id=rule_package_id,
@@ -1139,5 +1116,28 @@ async def generate_route(
         schema_version=schema_version,
         matched_rule_ids=matched_rule_ids,
         selected_process_ids=selected_process_ids,
+        input_factors=canonical_inputs,
         input_metadata=input_metadata,
     )
+
+
+@router.get("/results")
+async def list_current_generation_results(project_id: int, db: AsyncSession = Depends(get_db)):
+    from app.services.rule_packages.executable_revisions import current_revision
+    executable = await current_revision(db, project_id)
+    rows = (await db.execute(select(GeneratedRoute).where(
+        GeneratedRoute.project_id == project_id, GeneratedRoute.executable_revision_id == executable.id)
+        .order_by(GeneratedRoute.created_at.desc(), GeneratedRoute.id.desc()))).scalars().all()
+    results = []
+    for row in rows:
+        data = json.loads(row.result_json)
+        input_snapshot = json.loads(row.input_factors or "{}")
+        if not data.get("input_factors"):
+            data["input_factors"] = input_snapshot.get("factor_values", {})
+        if not data.get("input_metadata"):
+            data["input_metadata"] = input_snapshot.get("input_metadata", {})
+        data["id"] = row.id
+        data.setdefault("summary", "已基于当前可执行规则生成")
+        results.append(GenerateResponse.model_validate(data).model_dump(mode="json"))
+    return {"project_id": project_id, "executable_revision_id": executable.id,
+            "revision": executable.revision, "content_hash": executable.content_hash, "results": results}

@@ -39,7 +39,7 @@
               </button>
             </div>
             <p v-if="hasStoredKey" class="form-hint">当前已保存密钥。输入新值会覆盖；留空保存则保持不变。</p>
-            <button v-if="hasStoredKey" class="btn-text" @click="clearApiKey" :disabled="saving">
+            <button v-if="hasStoredKey" class="btn-text" @click="clearApiKey" :disabled="saving || testing || loadingSettings || !settingsLoaded">
               清空已保存的 API Key
             </button>
           </div>
@@ -60,10 +60,10 @@
             <div v-if="saveStatus" :class="['status-msg', saveStatus.type]">
               {{ saveStatus.msg }}
             </div>
-            <button class="btn btn-outline" @click="testConnection" :disabled="testing">
+            <button class="btn btn-outline" @click="testConnection" :disabled="testing || saving || loadingSettings || !settingsLoaded">
               {{ testing ? '测试中...' : '⚡️ 测试连接' }}
             </button>
-            <button class="btn btn-primary" @click="saveSettings" :disabled="saving">
+            <button class="btn btn-primary" @click="saveSettings" :disabled="saving || testing || loadingSettings || !settingsLoaded">
               {{ saving ? '正在保存...' : '💾 保存配置' }}
             </button>
           </div>
@@ -97,8 +97,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { listSettings, updateSetting, clearSetting, testLLMConnection } from '@/api'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { listSettings, saveLLMSettings, clearSetting, testLLMConnection } from '@/api'
 
 interface SettingsForm {
   LLM_API_URL: string
@@ -116,81 +116,116 @@ const showKey = ref(false)
 const saving = ref(false)
 const testing = ref(false)
 const hasStoredKey = ref(false)
+const loadingSettings = ref(true)
+const settingsLoaded = ref(false)
+let active = true
+let draftGeneration = 0
+let testRequestId = 0
 const saveStatus = ref<{ type: 'success' | 'error', msg: string } | null>(null)
+
+// Record all edits synchronously so changing a value back cannot revive an old test.
+watch(() => [form.value.LLM_API_URL, form.value.LLM_API_KEY, form.value.LLM_MODEL, hasStoredKey.value], () => {
+  draftGeneration += 1
+  testRequestId += 1
+  testing.value = false
+  saveStatus.value = null
+}, { flush: 'sync' })
+
+onUnmounted(() => { active = false; testRequestId += 1 })
+
+function errorMessage(error: unknown, fallback: string): string {
+  const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (detail && typeof detail === 'object' && 'message' in detail && typeof detail.message === 'string' && detail.message.trim()) return detail.message
+  return fallback
+}
 
 onMounted(async () => {
   try {
     const settings = await listSettings()
+    if (!active) return
     settings.forEach(s => {
-      if (s.key in form.value) {
-        form.value[s.key as keyof SettingsForm] = s.value
+      if (s.key === 'LLM_API_URL' || s.key === 'LLM_MODEL') {
+        form.value[s.key] = s.value
       }
       if (s.key === 'LLM_API_KEY') {
         hasStoredKey.value = Boolean(s.is_configured)
       }
     })
+    settingsLoaded.value = true
   } catch (e) {
-    console.error('加载设置失败', e)
+    if (active) saveStatus.value = { type: 'error', msg: errorMessage(e, '加载设置失败，请重新打开重试。') }
+  } finally {
+    if (active) loadingSettings.value = false
   }
 })
 
 async function saveSettings() {
+  if (saving.value || testing.value || loadingSettings.value || !settingsLoaded.value) return
+  const generation = draftGeneration
+  const submittedKey = form.value.LLM_API_KEY.trim()
+  const payload = {
+    api_url: form.value.LLM_API_URL.trim(),
+    model: form.value.LLM_MODEL.trim(),
+    ...(submittedKey ? { api_key: submittedKey } : {}),
+  }
   saving.value = true
   saveStatus.value = null
   try {
-    const tasks = [
-      updateSetting('LLM_API_URL', form.value.LLM_API_URL),
-      updateSetting('LLM_MODEL', form.value.LLM_MODEL),
-    ]
-    if (form.value.LLM_API_KEY.trim()) {
-      tasks.push(updateSetting('LLM_API_KEY', form.value.LLM_API_KEY))
-    }
-    await Promise.all(tasks)
-    if (form.value.LLM_API_KEY.trim()) {
-      form.value.LLM_API_KEY = ''
-      hasStoredKey.value = true
-    }
-    saveStatus.value = { type: 'success', msg: '设置保存成功！' }
+    const settings = await saveLLMSettings(payload)
+    if (!active) return
+    const unchanged = generation === draftGeneration
+    const savedKey = settings.find(setting => setting.key === 'LLM_API_KEY')
+    if (savedKey) hasStoredKey.value = Boolean(savedKey.is_configured)
+    if (unchanged && submittedKey) form.value.LLM_API_KEY = ''
+    saveStatus.value = { type: 'success', msg: unchanged ? '设置保存成功！' : '已保存提交的配置，当前修改尚未保存。' }
   } catch (e) {
-    console.error('保存设置失败', e)
-    saveStatus.value = { type: 'error', msg: '保存失败，请检查网络或后端服务。' }
+    if (active) saveStatus.value = { type: 'error', msg: errorMessage(e, '保存失败，请检查网络或后端服务。') }
   } finally {
     saving.value = false
   }
 }
 
 async function clearApiKey() {
+  if (saving.value || testing.value || loadingSettings.value || !settingsLoaded.value) return
+  const generation = draftGeneration
   saving.value = true
   saveStatus.value = null
   try {
     await clearSetting('LLM_API_KEY')
-    form.value.LLM_API_KEY = ''
+    if (!active) return
+    const unchanged = generation === draftGeneration
     hasStoredKey.value = false
+    if (unchanged) form.value.LLM_API_KEY = ''
     saveStatus.value = { type: 'success', msg: 'API Key 已清空。' }
   } catch (e) {
-    console.error('清空 API Key 失败', e)
-    saveStatus.value = { type: 'error', msg: '清空失败，请检查网络或后端服务。' }
+    if (active) saveStatus.value = { type: 'error', msg: errorMessage(e, '清空失败，请检查网络或后端服务。') }
   } finally {
     saving.value = false
   }
 }
 
 async function testConnection() {
+  if (testing.value || saving.value || loadingSettings.value || !settingsLoaded.value) return
+  const generation = draftGeneration
+  const request = ++testRequestId
+  const payload = {
+    api_url: form.value.LLM_API_URL.trim(),
+    api_key: form.value.LLM_API_KEY.trim() || (hasStoredKey.value ? '__use_saved__' : ''),
+    model: form.value.LLM_MODEL.trim(),
+  }
+  const isCurrent = () => active && generation === draftGeneration && request === testRequestId
   testing.value = true
   saveStatus.value = null
   try {
-    const apiKey = form.value.LLM_API_KEY.trim() || (hasStoredKey.value ? '__use_saved__' : '')
-    const result = await testLLMConnection({
-      api_url: form.value.LLM_API_URL.trim(),
-      api_key: apiKey,
-      model: form.value.LLM_MODEL.trim(),
-    })
+    const result = await testLLMConnection(payload)
+    if (!isCurrent()) return
     saveStatus.value = { type: result.success ? 'success' : 'error', msg: result.message }
   } catch (e) {
-    const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-    saveStatus.value = { type: 'error', msg: detail || '模型测试请求失败，请检查后端服务。' }
+    if (!isCurrent()) return
+    saveStatus.value = { type: 'error', msg: errorMessage(e, '模型测试请求失败，请检查后端服务。') }
   } finally {
-    testing.value = false
+    if (isCurrent()) testing.value = false
   }
 }
 </script>

@@ -11,6 +11,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AnalysisGuidanceEditor: typeof import('./components/analysis/AnalysisGuidanceEditor.vue')['default']
     AnalysisRouteList: typeof import('./components/analysis/AnalysisRouteList.vue')['default']
     ElDialog: typeof import('element-plus/es')['ElDialog']
     EvidenceExcerptPanel: typeof import('./components/analysis/EvidenceExcerptPanel.vue')['default']
@@ -45,7 +46,6 @@ declare module 'vue' {
     TemplateMappingRequiredDialog: typeof import('./components/workflow/TemplateMappingRequiredDialog.vue')['default']
     UploadMainFileCard: typeof import('./components/upload/UploadMainFileCard.vue')['default']
     UploadProjectBoard: typeof import('./components/upload/UploadProjectBoard.vue')['default']
-    UploadReferenceCard: typeof import('./components/upload/UploadReferenceCard.vue')['default']
     WorkflowNavFooter: typeof import('./components/workflow/WorkflowNavFooter.vue')['default']
     WorkflowResetDialog: typeof import('./components/workflow/WorkflowResetDialog.vue')['default']
   }

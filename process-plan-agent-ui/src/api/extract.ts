@@ -217,6 +217,10 @@ export interface ProjectGroupTemplate {
   mappings: GroupTemplateMapping[]
   step_mappings: GroupTemplateStepMapping[]
   mapping_output: GroupTemplateMappingOutputProcess[]
+  step_order_by_process?: Record<string, string[]>
+  mapping_context?: Record<string, unknown>
+  hidden_step_keys?: string[]
+  waived_group_paths?: string[][]
   template_revision: number
   group_count: number
   feature_selection_count: number
@@ -414,7 +418,7 @@ export interface SegmentFactorReview {
 
 export interface SegmentRuleReview {
   id: number
-  decision: 'accepted' | 'rejected'
+  decision: 'accepted' | 'rejected' | 'pending'
   note: string
   summary_lines: string[]
   question_trail: Array<{
@@ -470,7 +474,26 @@ export interface SavedNormalizedRouteVersionResult {
   total_docs: number
   segment_count: number
   workflow_revision: number
+  analysis_locked?: boolean
+  analysis_locked_at?: string | null
   segments: SavedNormalizedRouteSegment[]
+}
+
+export interface AnalysisLockResult {
+  project_id: number
+  route_id: number
+  workflow_revision: number
+  analysis_locked: boolean
+  analysis_locked_at: string | null
+}
+
+export async function enterRuleFinalization(body: {
+  project_id: number
+  route_id: number
+  expected_workflow_revision: number
+}) {
+  const { data } = await api.post('/api/extract/workflow/enter-finalization', body)
+  return data as AnalysisLockResult
 }
 
 export interface SegmentRuleReviewSaveResult {
@@ -480,6 +503,7 @@ export interface SegmentRuleReviewSaveResult {
   analysis_status: string
   normalized_step_name?: string | null
   rule_review?: SegmentRuleReview | null
+  invalidated_segment_ids?: string[]
 }
 
 export interface FinalizedRulePackageResult {
@@ -764,6 +788,7 @@ export async function commitGroupTemplate(
   form.append('expected_template_revision', String(expectedRevision))
   form.append('expected_workflow_revision', String(expectedWorkflowRevision))
   const { data } = await api.put('/api/extract/group-templates/current', form)
+  clearAllWorkflowDataCache()
   return data as GroupTemplateCommitResult
 }
 
@@ -780,6 +805,7 @@ export async function saveGroupTemplateMappings(
     mappings,
     replace_all: true,
   })
+  clearAllWorkflowDataCache()
   return data as ProjectGroupTemplate
 }
 
@@ -789,6 +815,7 @@ export async function saveGroupTemplateStepMappings(
   mappings: GroupTemplateStepMappingInput[],
   operations: TemplateGroupMappingOperationInput[] = [],
   expectedWorkflowRevision = 0,
+  exceptions?: { hidden_step_keys: string[]; waived_group_paths: string[][]; step_order_by_process?: Record<string, string[]>; expected_route_version_id?: number },
 ): Promise<ProjectGroupTemplate> {
   const { data } = await api.put('/api/extract/group-templates/step-mappings', {
     project_id: projectId,
@@ -796,8 +823,10 @@ export async function saveGroupTemplateStepMappings(
     expected_workflow_revision: expectedWorkflowRevision,
     mappings,
     operations,
+    ...exceptions,
     replace_all: true,
   })
+  clearAllWorkflowDataCache()
   return data as ProjectGroupTemplate
 }
 

@@ -1,0 +1,3268 @@
+{
+  "provenance": {
+    "source": "process-plan-agent-ui/src/utils/featureInputProjection.ts",
+    "sha256": "b671a28927b5b1ee79bd9b80f7b858ea2e48b37875072d64054c7612cee74ebc",
+    "dependencies": [
+      {
+        "source": "process-plan-agent-ui/src/utils/ruleConditionShape.ts",
+        "sha256": "9562cf8ca48f63a1d48632be0d97851f86335b4bc319718dacdc02e67682854c"
+      },
+      {
+        "source": "process-plan-agent-ui/src/utils/projectConditionFields.ts",
+        "sha256": "6741f444aacb6c319302a00654cc5ff02c90672ac6c1b0c8f0a0ba0075c4e668"
+      },
+      {
+        "source": "process-plan-agent-api/app/assets/project_conditions.json",
+        "sha256": "53ed07c33f1dafe66260205387c06c8bac5a0d6ef8bdd980252e8a249a5c301b"
+      }
+    ],
+    "generator": ".scratch/system-improvements/evidence/pm-059-064/build_projection_fixture.cjs",
+    "engine": "actual TypeScript compiled with esbuild and executed by Node"
+  },
+  "cases": [
+    {
+      "id": "scalar-A-and-IT",
+      "input": {
+        "fields": [
+          {
+            "key": "project_factor.operation_drill.features",
+            "label": "加工对象的特征",
+            "type": "multi_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "孔(通孔)",
+                "label": "孔(通孔)"
+              },
+              {
+                "value": "孔(盲孔)",
+                "label": "孔(盲孔)"
+              }
+            ]
+          },
+          {
+            "key": "project_factor.operation_drill.direction",
+            "label": "同一对象方位",
+            "type": "single_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.operation_drill.it",
+            "label": "实际IT",
+            "type": "number",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          },
+          {
+            "key": "project_factor.operation_drill.ra",
+            "label": "实际Ra",
+            "type": "number",
+            "unit": "μm"
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.operation_drill.features",
+                  "op": "contains_any",
+                  "value": [
+                    "孔(通孔)",
+                    "孔(盲孔)"
+                  ]
+                },
+                {
+                  "field": "project_factor.operation_drill.direction",
+                  "op": "eq",
+                  "value": "A侧"
+                },
+                {
+                  "field": "project_factor.operation_drill.it",
+                  "op": "lte",
+                  "value": 7
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": []
+      },
+      "expected": {
+        "fields": [
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+            "label": "孔(通孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+            "label": "孔(通孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+            "label": "孔(通孔)的实际尺寸精度等级",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          },
+          {
+            "key": "project_factor.feature_5b54_28_76f2_5b54_29.present",
+            "label": "孔(盲孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_76f2_5b54_29.direction",
+            "label": "孔(盲孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_76f2_5b54_29.it",
+            "label": "孔(盲孔)的实际尺寸精度等级",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "any": [
+                {
+                  "all": [
+                    {
+                      "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                      "op": "eq",
+                      "value": true
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                      "op": "in",
+                      "value": [
+                        "A侧",
+                        "所有方位"
+                      ]
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_901a_5b54_29.it",
+                      "op": "lte",
+                      "value": 7
+                    }
+                  ]
+                },
+                {
+                  "all": [
+                    {
+                      "field": "project_factor.feature_5b54_28_76f2_5b54_29.present",
+                      "op": "eq",
+                      "value": true
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_76f2_5b54_29.direction",
+                      "op": "in",
+                      "value": [
+                        "A侧",
+                        "所有方位"
+                      ]
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_76f2_5b54_29.it",
+                      "op": "lte",
+                      "value": 7
+                    }
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": []
+      }
+    },
+    {
+      "id": "normalized-AB",
+      "input": {
+        "fields": [
+          {
+            "key": "project_factor.operation_drill.features",
+            "label": "加工对象的特征",
+            "type": "multi_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "孔(通孔)",
+                "label": "孔(通孔)"
+              },
+              {
+                "value": "孔(盲孔)",
+                "label": "孔(盲孔)"
+              }
+            ]
+          },
+          {
+            "key": "project_factor.operation_drill.direction",
+            "label": "同一对象方位",
+            "type": "single_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.operation_drill.it",
+            "label": "实际IT",
+            "type": "number",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          },
+          {
+            "key": "project_factor.operation_drill.ra",
+            "label": "实际Ra",
+            "type": "number",
+            "unit": "μm"
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.operation_drill.features",
+                  "op": "contains_any",
+                  "value": [
+                    "孔(通孔)",
+                    "孔(盲孔)"
+                  ]
+                },
+                {
+                  "any": [
+                    {
+                      "field": "project_factor.operation_drill.direction",
+                      "op": "eq",
+                      "value": "A侧"
+                    },
+                    {
+                      "field": "project_factor.operation_drill.direction",
+                      "op": "eq",
+                      "value": "B侧"
+                    }
+                  ]
+                },
+                {
+                  "field": "project_factor.operation_drill.it",
+                  "op": "lte",
+                  "value": 7
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": []
+      },
+      "expected": {
+        "fields": [
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+            "label": "孔(通孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+            "label": "孔(通孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+            "label": "孔(通孔)的实际尺寸精度等级",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          },
+          {
+            "key": "project_factor.feature_5b54_28_76f2_5b54_29.present",
+            "label": "孔(盲孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_76f2_5b54_29.direction",
+            "label": "孔(盲孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_76f2_5b54_29.it",
+            "label": "孔(盲孔)的实际尺寸精度等级",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "any": [
+                {
+                  "all": [
+                    {
+                      "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                      "op": "eq",
+                      "value": true
+                    },
+                    {
+                      "any": [
+                        {
+                          "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                          "op": "in",
+                          "value": [
+                            "A侧",
+                            "所有方位"
+                          ]
+                        },
+                        {
+                          "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                          "op": "in",
+                          "value": [
+                            "B侧",
+                            "所有方位"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_901a_5b54_29.it",
+                      "op": "lte",
+                      "value": 7
+                    }
+                  ]
+                },
+                {
+                  "all": [
+                    {
+                      "field": "project_factor.feature_5b54_28_76f2_5b54_29.present",
+                      "op": "eq",
+                      "value": true
+                    },
+                    {
+                      "any": [
+                        {
+                          "field": "project_factor.feature_5b54_28_76f2_5b54_29.direction",
+                          "op": "in",
+                          "value": [
+                            "A侧",
+                            "所有方位"
+                          ]
+                        },
+                        {
+                          "field": "project_factor.feature_5b54_28_76f2_5b54_29.direction",
+                          "op": "in",
+                          "value": [
+                            "B侧",
+                            "所有方位"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_76f2_5b54_29.it",
+                      "op": "lte",
+                      "value": 7
+                    }
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": []
+      }
+    },
+    {
+      "id": "scalar-all-directions",
+      "input": {
+        "fields": [
+          {
+            "key": "project_factor.operation_drill.features",
+            "label": "加工对象的特征",
+            "type": "multi_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "孔(通孔)",
+                "label": "孔(通孔)"
+              },
+              {
+                "value": "孔(盲孔)",
+                "label": "孔(盲孔)"
+              }
+            ]
+          },
+          {
+            "key": "project_factor.operation_drill.direction",
+            "label": "同一对象方位",
+            "type": "single_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.operation_drill.it",
+            "label": "实际IT",
+            "type": "number",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          },
+          {
+            "key": "project_factor.operation_drill.ra",
+            "label": "实际Ra",
+            "type": "number",
+            "unit": "μm"
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.operation_drill.features",
+                  "op": "contains_any",
+                  "value": [
+                    "孔(通孔)",
+                    "孔(盲孔)"
+                  ]
+                },
+                {
+                  "field": "project_factor.operation_drill.direction",
+                  "op": "eq",
+                  "value": "所有方位"
+                },
+                {
+                  "field": "project_factor.operation_drill.it",
+                  "op": "lte",
+                  "value": 7
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": []
+      },
+      "expected": {
+        "fields": [
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+            "label": "孔(通孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+            "label": "孔(通孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+            "label": "孔(通孔)的实际尺寸精度等级",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          },
+          {
+            "key": "project_factor.feature_5b54_28_76f2_5b54_29.present",
+            "label": "孔(盲孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_76f2_5b54_29.direction",
+            "label": "孔(盲孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_76f2_5b54_29.it",
+            "label": "孔(盲孔)的实际尺寸精度等级",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "any": [
+                {
+                  "all": [
+                    {
+                      "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                      "op": "eq",
+                      "value": true
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                      "op": "in",
+                      "value": [
+                        "A侧",
+                        "B侧",
+                        "所有方位"
+                      ]
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_901a_5b54_29.it",
+                      "op": "lte",
+                      "value": 7
+                    }
+                  ]
+                },
+                {
+                  "all": [
+                    {
+                      "field": "project_factor.feature_5b54_28_76f2_5b54_29.present",
+                      "op": "eq",
+                      "value": true
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_76f2_5b54_29.direction",
+                      "op": "in",
+                      "value": [
+                        "A侧",
+                        "B侧",
+                        "所有方位"
+                      ]
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_76f2_5b54_29.it",
+                      "op": "lte",
+                      "value": 7
+                    }
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": []
+      }
+    },
+    {
+      "id": "multiple-feature-predicates-preserved",
+      "input": {
+        "fields": [
+          {
+            "key": "project_factor.operation_drill.features",
+            "label": "加工对象的特征",
+            "type": "multi_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "孔(通孔)",
+                "label": "孔(通孔)"
+              },
+              {
+                "value": "孔(盲孔)",
+                "label": "孔(盲孔)"
+              }
+            ]
+          },
+          {
+            "key": "project_factor.operation_drill.direction",
+            "label": "同一对象方位",
+            "type": "single_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.operation_drill.it",
+            "label": "实际IT",
+            "type": "number",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          },
+          {
+            "key": "project_factor.operation_drill.ra",
+            "label": "实际Ra",
+            "type": "number",
+            "unit": "μm"
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.operation_drill.features",
+                  "op": "contains_any",
+                  "value": [
+                    "孔(通孔)",
+                    "孔(盲孔)"
+                  ]
+                },
+                {
+                  "field": "project_factor.operation_drill.features",
+                  "op": "contains_any",
+                  "value": [
+                    "孔(通孔)"
+                  ]
+                },
+                {
+                  "field": "project_factor.operation_drill.direction",
+                  "op": "eq",
+                  "value": "A侧"
+                },
+                {
+                  "field": "project_factor.operation_drill.it",
+                  "op": "lte",
+                  "value": 7
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": []
+      },
+      "expected": {
+        "fields": [
+          {
+            "key": "project_factor.operation_drill.features",
+            "label": "加工对象的特征",
+            "type": "multi_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "孔(通孔)",
+                "label": "孔(通孔)"
+              },
+              {
+                "value": "孔(盲孔)",
+                "label": "孔(盲孔)"
+              }
+            ]
+          },
+          {
+            "key": "project_factor.operation_drill.direction",
+            "label": "同一对象方位",
+            "type": "single_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.operation_drill.it",
+            "label": "实际IT",
+            "type": "number",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.operation_drill.features",
+                  "op": "contains_any",
+                  "value": [
+                    "孔(通孔)",
+                    "孔(盲孔)"
+                  ]
+                },
+                {
+                  "field": "project_factor.operation_drill.features",
+                  "op": "contains_any",
+                  "value": [
+                    "孔(通孔)"
+                  ]
+                },
+                {
+                  "field": "project_factor.operation_drill.direction",
+                  "op": "eq",
+                  "value": "A侧"
+                },
+                {
+                  "field": "project_factor.operation_drill.it",
+                  "op": "lte",
+                  "value": 7
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": []
+      }
+    },
+    {
+      "id": "arbitrary-composite-preserved",
+      "input": {
+        "fields": [
+          {
+            "key": "project_factor.operation_drill.features",
+            "label": "加工对象的特征",
+            "type": "multi_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "孔(通孔)",
+                "label": "孔(通孔)"
+              },
+              {
+                "value": "孔(盲孔)",
+                "label": "孔(盲孔)"
+              }
+            ]
+          },
+          {
+            "key": "project_factor.operation_drill.direction",
+            "label": "同一对象方位",
+            "type": "single_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.operation_drill.it",
+            "label": "实际IT",
+            "type": "number",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          },
+          {
+            "key": "project_factor.operation_drill.ra",
+            "label": "实际Ra",
+            "type": "number",
+            "unit": "μm"
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.operation_drill.features",
+                  "op": "contains_any",
+                  "value": [
+                    "孔(通孔)",
+                    "孔(盲孔)"
+                  ]
+                },
+                {
+                  "any": [
+                    {
+                      "field": "project_factor.operation_drill.direction",
+                      "op": "eq",
+                      "value": "A侧"
+                    },
+                    {
+                      "field": "project_factor.operation_drill.it",
+                      "op": "lte",
+                      "value": 7
+                    }
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": []
+      },
+      "expected": {
+        "fields": [
+          {
+            "key": "project_factor.operation_drill.features",
+            "label": "加工对象的特征",
+            "type": "multi_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "孔(通孔)",
+                "label": "孔(通孔)"
+              },
+              {
+                "value": "孔(盲孔)",
+                "label": "孔(盲孔)"
+              }
+            ]
+          },
+          {
+            "key": "project_factor.operation_drill.direction",
+            "label": "同一对象方位",
+            "type": "single_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.operation_drill.it",
+            "label": "实际IT",
+            "type": "number",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.operation_drill.features",
+                  "op": "contains_any",
+                  "value": [
+                    "孔(通孔)",
+                    "孔(盲孔)"
+                  ]
+                },
+                {
+                  "any": [
+                    {
+                      "field": "project_factor.operation_drill.direction",
+                      "op": "eq",
+                      "value": "A侧"
+                    },
+                    {
+                      "field": "project_factor.operation_drill.it",
+                      "op": "lte",
+                      "value": 7
+                    }
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": []
+      }
+    },
+    {
+      "id": "custom-negation-preserved",
+      "input": {
+        "fields": [
+          {
+            "key": "project_factor.operation_drill.features",
+            "label": "加工对象的特征",
+            "type": "multi_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "孔(通孔)",
+                "label": "孔(通孔)"
+              },
+              {
+                "value": "孔(盲孔)",
+                "label": "孔(盲孔)"
+              }
+            ]
+          },
+          {
+            "key": "project_factor.operation_drill.direction",
+            "label": "同一对象方位",
+            "type": "single_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.operation_drill.it",
+            "label": "实际IT",
+            "type": "number",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          },
+          {
+            "key": "project_factor.operation_drill.ra",
+            "label": "实际Ra",
+            "type": "number",
+            "unit": "μm"
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "not": {
+                "all": [
+                  {
+                    "field": "project_factor.operation_drill.features",
+                    "op": "contains_any",
+                    "value": [
+                      "孔(通孔)",
+                      "孔(盲孔)"
+                    ]
+                  },
+                  {
+                    "field": "project_factor.operation_drill.direction",
+                    "op": "eq",
+                    "value": "A侧"
+                  },
+                  {
+                    "field": "project_factor.operation_drill.it",
+                    "op": "lte",
+                    "value": 7
+                  }
+                ]
+              }
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": []
+      },
+      "expected": {
+        "fields": [
+          {
+            "key": "project_factor.operation_drill.features",
+            "label": "加工对象的特征",
+            "type": "multi_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "孔(通孔)",
+                "label": "孔(通孔)"
+              },
+              {
+                "value": "孔(盲孔)",
+                "label": "孔(盲孔)"
+              }
+            ]
+          },
+          {
+            "key": "project_factor.operation_drill.direction",
+            "label": "同一对象方位",
+            "type": "single_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.operation_drill.it",
+            "label": "实际IT",
+            "type": "number",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "not": {
+                "all": [
+                  {
+                    "field": "project_factor.operation_drill.features",
+                    "op": "contains_any",
+                    "value": [
+                      "孔(通孔)",
+                      "孔(盲孔)"
+                    ]
+                  },
+                  {
+                    "field": "project_factor.operation_drill.direction",
+                    "op": "eq",
+                    "value": "A侧"
+                  },
+                  {
+                    "field": "project_factor.operation_drill.it",
+                    "op": "lte",
+                    "value": 7
+                  }
+                ]
+              }
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": []
+      }
+    },
+    {
+      "id": "precision-only-preserved",
+      "input": {
+        "fields": [
+          {
+            "key": "project_factor.operation_drill.features",
+            "label": "加工对象的特征",
+            "type": "multi_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "孔(通孔)",
+                "label": "孔(通孔)"
+              },
+              {
+                "value": "孔(盲孔)",
+                "label": "孔(盲孔)"
+              }
+            ]
+          },
+          {
+            "key": "project_factor.operation_drill.direction",
+            "label": "同一对象方位",
+            "type": "single_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.operation_drill.it",
+            "label": "实际IT",
+            "type": "number",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          },
+          {
+            "key": "project_factor.operation_drill.ra",
+            "label": "实际Ra",
+            "type": "number",
+            "unit": "μm"
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "field": "project_factor.operation_drill.it",
+              "op": "lte",
+              "value": 7
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": []
+      },
+      "expected": {
+        "fields": [
+          {
+            "key": "project_factor.operation_drill.it",
+            "label": "实际IT",
+            "type": "number",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "field": "project_factor.operation_drill.it",
+              "op": "lte",
+              "value": 7
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": []
+      }
+    },
+    {
+      "id": "unknown-definition-preserved",
+      "input": {
+        "fields": [
+          {
+            "key": "project_factor.operation_drill.features",
+            "label": "加工对象的特征",
+            "type": "multi_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "孔(通孔)",
+                "label": "孔(通孔)"
+              },
+              {
+                "value": "孔(盲孔)",
+                "label": "孔(盲孔)"
+              }
+            ]
+          },
+          {
+            "key": "project_factor.operation_drill.direction",
+            "label": "同一对象方位",
+            "type": "single_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.operation_drill.ra",
+            "label": "实际Ra",
+            "type": "number",
+            "unit": "μm"
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.operation_drill.features",
+                  "op": "contains_any",
+                  "value": [
+                    "孔(通孔)",
+                    "孔(盲孔)"
+                  ]
+                },
+                {
+                  "field": "project_factor.operation_drill.direction",
+                  "op": "eq",
+                  "value": "A侧"
+                },
+                {
+                  "field": "project_factor.operation_drill.it",
+                  "op": "lte",
+                  "value": 7
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": []
+      },
+      "expected": {
+        "fields": [
+          {
+            "key": "project_factor.operation_drill.features",
+            "label": "加工对象的特征",
+            "type": "multi_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "孔(通孔)",
+                "label": "孔(通孔)"
+              },
+              {
+                "value": "孔(盲孔)",
+                "label": "孔(盲孔)"
+              }
+            ]
+          },
+          {
+            "key": "project_factor.operation_drill.direction",
+            "label": "同一对象方位",
+            "type": "single_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.operation_drill.features",
+                  "op": "contains_any",
+                  "value": [
+                    "孔(通孔)",
+                    "孔(盲孔)"
+                  ]
+                },
+                {
+                  "field": "project_factor.operation_drill.direction",
+                  "op": "eq",
+                  "value": "A侧"
+                },
+                {
+                  "field": "project_factor.operation_drill.it",
+                  "op": "lte",
+                  "value": 7
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": []
+      }
+    },
+    {
+      "id": "contains-scalar-and-astral-name",
+      "input": {
+        "fields": [
+          {
+            "key": "project_factor.operation_drill.features",
+            "label": "加工对象的特征",
+            "type": "multi_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "孔(通孔)",
+                "label": "孔(通孔)"
+              },
+              {
+                "value": "孔(盲孔)",
+                "label": "孔(盲孔)"
+              }
+            ]
+          },
+          {
+            "key": "project_factor.operation_drill.direction",
+            "label": "同一对象方位",
+            "type": "single_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.operation_drill.it",
+            "label": "实际IT",
+            "type": "number",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          },
+          {
+            "key": "project_factor.operation_drill.ra",
+            "label": "实际Ra",
+            "type": "number",
+            "unit": "μm"
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.operation_drill.features",
+                  "op": "contains",
+                  "value": "面😀"
+                },
+                {
+                  "field": "project_factor.operation_drill.ra",
+                  "op": "lte",
+                  "value": 0.8
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": []
+      },
+      "expected": {
+        "fields": [
+          {
+            "key": "project_factor.feature_9762_1f600.present",
+            "label": "面😀",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_9762_1f600.ra",
+            "label": "面😀的实际Ra要求值",
+            "type": "number",
+            "unit": "μm",
+            "required": false,
+            "source": "本项目特征输入"
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.feature_9762_1f600.present",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "field": "project_factor.feature_9762_1f600.ra",
+                  "op": "lte",
+                  "value": 0.8
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": []
+      }
+    },
+    {
+      "id": "nested-all-and-repeated-feature-name",
+      "input": {
+        "fields": [
+          {
+            "key": "project_factor.operation_drill.features",
+            "label": "加工对象的特征",
+            "type": "multi_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "孔(通孔)",
+                "label": "孔(通孔)"
+              },
+              {
+                "value": "孔(盲孔)",
+                "label": "孔(盲孔)"
+              }
+            ]
+          },
+          {
+            "key": "project_factor.operation_drill.direction",
+            "label": "同一对象方位",
+            "type": "single_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.operation_drill.it",
+            "label": "实际IT",
+            "type": "number",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          },
+          {
+            "key": "project_factor.operation_drill.ra",
+            "label": "实际Ra",
+            "type": "number",
+            "unit": "μm"
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "all": [
+                {
+                  "all": [
+                    {
+                      "field": "project_factor.operation_drill.features",
+                      "op": "contains_any",
+                      "value": [
+                        "孔(盲孔)",
+                        "孔(通孔)",
+                        "孔(盲孔)"
+                      ]
+                    },
+                    {
+                      "field": "project_factor.operation_drill.direction",
+                      "op": "eq",
+                      "value": "A侧"
+                    }
+                  ]
+                },
+                {
+                  "field": "project_factor.operation_drill.it",
+                  "op": "lte",
+                  "value": 7
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": []
+      },
+      "expected": {
+        "fields": [
+          {
+            "key": "project_factor.feature_5b54_28_76f2_5b54_29.present",
+            "label": "孔(盲孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_76f2_5b54_29.direction",
+            "label": "孔(盲孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_76f2_5b54_29.it",
+            "label": "孔(盲孔)的实际尺寸精度等级",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+            "label": "孔(通孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+            "label": "孔(通孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+            "label": "孔(通孔)的实际尺寸精度等级",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "any": [
+                {
+                  "all": [
+                    {
+                      "field": "project_factor.feature_5b54_28_76f2_5b54_29.present",
+                      "op": "eq",
+                      "value": true
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_76f2_5b54_29.direction",
+                      "op": "in",
+                      "value": [
+                        "A侧",
+                        "所有方位"
+                      ]
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_76f2_5b54_29.it",
+                      "op": "lte",
+                      "value": 7
+                    }
+                  ]
+                },
+                {
+                  "all": [
+                    {
+                      "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                      "op": "eq",
+                      "value": true
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                      "op": "in",
+                      "value": [
+                        "A侧",
+                        "所有方位"
+                      ]
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_901a_5b54_29.it",
+                      "op": "lte",
+                      "value": 7
+                    }
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": []
+      }
+    },
+    {
+      "id": "direction-option-union-and-null-defaults",
+      "input": {
+        "fields": [
+          {
+            "key": "project_factor.operation_drill.features",
+            "label": "加工对象的特征",
+            "type": "multi_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "孔(通孔)",
+                "label": "孔(通孔)"
+              },
+              {
+                "value": "孔(盲孔)",
+                "label": "孔(盲孔)"
+              }
+            ]
+          },
+          {
+            "key": "project_factor.operation_drill.direction",
+            "label": "同一对象方位",
+            "type": "single_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "A侧",
+                "label": "A侧"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.operation_drill.it",
+            "label": "实际IT",
+            "type": "number",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          },
+          {
+            "key": "project_factor.operation_drill.ra",
+            "label": "实际Ra",
+            "type": "number",
+            "unit": "μm"
+          },
+          {
+            "key": "project_factor.operation_hone.features",
+            "label": "加工对象的特征",
+            "type": "multi_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "孔(通孔)",
+                "label": "孔(通孔)"
+              },
+              {
+                "value": "孔(盲孔)",
+                "label": "孔(盲孔)"
+              }
+            ]
+          },
+          {
+            "key": "project_factor.operation_hone.direction",
+            "label": "同一对象方位",
+            "type": "single_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              },
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "中间",
+                "label": "中间"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.operation_hone.it",
+            "label": "实际IT",
+            "type": "number",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          },
+          {
+            "key": "project_factor.operation_hone.ra",
+            "label": "实际Ra",
+            "type": "number",
+            "unit": "μm"
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.operation_drill.features",
+                  "op": "contains",
+                  "value": "孔(通孔)"
+                },
+                {
+                  "field": "project_factor.operation_drill.direction",
+                  "op": "eq",
+                  "value": "A侧"
+                },
+                {
+                  "field": "project_factor.operation_drill.it",
+                  "op": "lte",
+                  "value": 7
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": [
+          {
+            "process_id": "hone",
+            "occurrence": "conditional",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.operation_hone.features",
+                  "op": "contains",
+                  "value": "孔(通孔)"
+                },
+                {
+                  "field": "project_factor.operation_hone.direction",
+                  "op": "eq",
+                  "value": "B侧"
+                },
+                {
+                  "field": "project_factor.operation_hone.it",
+                  "op": "lte",
+                  "value": 6
+                }
+              ]
+            },
+            "relations": [],
+            "source": "user_confirmed"
+          },
+          {
+            "process_id": "prepare",
+            "occurrence": "always",
+            "when": null,
+            "relations": []
+          },
+          {
+            "process_id": "static",
+            "occurrence": "always",
+            "relations": []
+          }
+        ]
+      },
+      "expected": {
+        "fields": [
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+            "label": "孔(通孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+            "label": "孔(通孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              },
+              {
+                "value": "中间",
+                "label": "中间"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+            "label": "孔(通孔)的实际尺寸精度等级",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                  "op": "in",
+                  "value": [
+                    "A侧",
+                    "所有方位"
+                  ]
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.it",
+                  "op": "lte",
+                  "value": 7
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": [
+          {
+            "process_id": "hone",
+            "occurrence": "conditional",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                  "op": "in",
+                  "value": [
+                    "B侧",
+                    "所有方位"
+                  ]
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.it",
+                  "op": "lte",
+                  "value": 6
+                }
+              ]
+            },
+            "relations": [],
+            "source": "user_confirmed"
+          },
+          {
+            "process_id": "prepare",
+            "occurrence": "always",
+            "when": null,
+            "relations": []
+          },
+          {
+            "process_id": "static",
+            "occurrence": "always",
+            "relations": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "mixed-guided-editor-actual-IT-domain",
+      "input": {
+        "fields": [
+          {
+            "key": "project_factor.operation_drill.features",
+            "label": "加工对象的特征",
+            "type": "multi_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "孔(通孔)",
+                "label": "孔(通孔)"
+              },
+              {
+                "value": "孔(盲孔)",
+                "label": "孔(盲孔)"
+              }
+            ]
+          },
+          {
+            "key": "project_factor.operation_drill.direction",
+            "label": "同一对象方位",
+            "type": "single_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.operation_drill.it",
+            "label": "实际IT",
+            "type": "number",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 1,
+              "max": 18
+            },
+            "options": []
+          },
+          {
+            "key": "project_factor.operation_drill.ra",
+            "label": "实际Ra",
+            "type": "number",
+            "unit": "μm"
+          },
+          {
+            "key": "project_factor.operation_hone.features",
+            "label": "加工对象的特征",
+            "type": "multi_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "孔(通孔)",
+                "label": "孔(通孔)"
+              },
+              {
+                "value": "孔(盲孔)",
+                "label": "孔(盲孔)"
+              }
+            ]
+          },
+          {
+            "key": "project_factor.operation_hone.direction",
+            "label": "同一对象方位",
+            "type": "single_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.operation_hone.it",
+            "label": "实际IT",
+            "type": "number",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": -1,
+              "max": 18
+            },
+            "options": [
+              {
+                "value": "-1",
+                "label": "IT01"
+              },
+              {
+                "value": "0",
+                "label": "IT0"
+              },
+              {
+                "value": "1",
+                "label": "IT1"
+              },
+              {
+                "value": "2",
+                "label": "IT2"
+              },
+              {
+                "value": "3",
+                "label": "IT3"
+              },
+              {
+                "value": "4",
+                "label": "IT4"
+              },
+              {
+                "value": "5",
+                "label": "IT5"
+              },
+              {
+                "value": "6",
+                "label": "IT6"
+              },
+              {
+                "value": "7",
+                "label": "IT7"
+              },
+              {
+                "value": "8",
+                "label": "IT8"
+              },
+              {
+                "value": "9",
+                "label": "IT9"
+              },
+              {
+                "value": "10",
+                "label": "IT10"
+              },
+              {
+                "value": "11",
+                "label": "IT11"
+              },
+              {
+                "value": "12",
+                "label": "IT12"
+              },
+              {
+                "value": "13",
+                "label": "IT13"
+              },
+              {
+                "value": "14",
+                "label": "IT14"
+              },
+              {
+                "value": "15",
+                "label": "IT15"
+              },
+              {
+                "value": "16",
+                "label": "IT16"
+              },
+              {
+                "value": "17",
+                "label": "IT17"
+              },
+              {
+                "value": "18",
+                "label": "IT18"
+              }
+            ]
+          },
+          {
+            "key": "project_factor.operation_hone.ra",
+            "label": "实际Ra",
+            "type": "number",
+            "unit": "μm"
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.operation_drill.features",
+                  "op": "contains_any",
+                  "value": [
+                    "孔(通孔)",
+                    "孔(盲孔)"
+                  ]
+                },
+                {
+                  "field": "project_factor.operation_drill.direction",
+                  "op": "eq",
+                  "value": "A侧"
+                },
+                {
+                  "field": "project_factor.operation_drill.it",
+                  "op": "lte",
+                  "value": 7
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": [
+          {
+            "process_id": "hone",
+            "occurrence": "conditional",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.operation_hone.features",
+                  "op": "contains",
+                  "value": "孔(通孔)"
+                },
+                {
+                  "field": "project_factor.operation_hone.direction",
+                  "op": "eq",
+                  "value": "B侧"
+                },
+                {
+                  "field": "project_factor.operation_hone.it",
+                  "op": "lte",
+                  "value": 6
+                }
+              ]
+            },
+            "relations": [],
+            "source": "user_confirmed"
+          }
+        ]
+      },
+      "expected": {
+        "fields": [
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+            "label": "孔(通孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+            "label": "孔(通孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+            "label": "孔(通孔)的实际尺寸精度等级",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          },
+          {
+            "key": "project_factor.feature_5b54_28_76f2_5b54_29.present",
+            "label": "孔(盲孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_76f2_5b54_29.direction",
+            "label": "孔(盲孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_76f2_5b54_29.it",
+            "label": "孔(盲孔)的实际尺寸精度等级",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "any": [
+                {
+                  "all": [
+                    {
+                      "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                      "op": "eq",
+                      "value": true
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                      "op": "in",
+                      "value": [
+                        "A侧",
+                        "所有方位"
+                      ]
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_901a_5b54_29.it",
+                      "op": "lte",
+                      "value": 7
+                    }
+                  ]
+                },
+                {
+                  "all": [
+                    {
+                      "field": "project_factor.feature_5b54_28_76f2_5b54_29.present",
+                      "op": "eq",
+                      "value": true
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_76f2_5b54_29.direction",
+                      "op": "in",
+                      "value": [
+                        "A侧",
+                        "所有方位"
+                      ]
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_76f2_5b54_29.it",
+                      "op": "lte",
+                      "value": 7
+                    }
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": [
+          {
+            "process_id": "hone",
+            "occurrence": "conditional",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                  "op": "in",
+                  "value": [
+                    "B侧",
+                    "所有方位"
+                  ]
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.it",
+                  "op": "lte",
+                  "value": 6
+                }
+              ]
+            },
+            "relations": [],
+            "source": "user_confirmed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "actual-backend-condition-default-nulls",
+      "input": {
+        "fields": [
+          {
+            "key": "project_factor.operation_drill.features",
+            "label": "加工对象的特征",
+            "type": "multi_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "孔(通孔)",
+                "label": "孔(通孔)"
+              },
+              {
+                "value": "孔(盲孔)",
+                "label": "孔(盲孔)"
+              }
+            ]
+          },
+          {
+            "key": "project_factor.operation_drill.direction",
+            "label": "同一对象方位",
+            "type": "single_select",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.operation_drill.it",
+            "label": "实际IT",
+            "type": "number",
+            "required": false,
+            "source": "已确认对象",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          },
+          {
+            "key": "project_factor.operation_drill.ra",
+            "label": "实际Ra",
+            "type": "number",
+            "unit": "μm"
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "all": [
+                {
+                  "all": null,
+                  "any": null,
+                  "not": null,
+                  "field": "project_factor.operation_drill.features",
+                  "op": "contains_any",
+                  "value": [
+                    "孔(通孔)",
+                    "孔(盲孔)"
+                  ]
+                },
+                {
+                  "all": null,
+                  "any": [
+                    {
+                      "all": null,
+                      "any": null,
+                      "not": null,
+                      "field": "project_factor.operation_drill.direction",
+                      "op": "eq",
+                      "value": "A侧"
+                    },
+                    {
+                      "all": null,
+                      "any": null,
+                      "not": null,
+                      "field": "project_factor.operation_drill.direction",
+                      "op": "eq",
+                      "value": "B侧"
+                    }
+                  ],
+                  "not": null,
+                  "field": null,
+                  "op": null,
+                  "value": null
+                },
+                {
+                  "all": null,
+                  "any": null,
+                  "not": null,
+                  "field": "project_factor.operation_drill.it",
+                  "op": "lte",
+                  "value": 7
+                }
+              ],
+              "any": null,
+              "not": null,
+              "field": null,
+              "op": null,
+              "value": null
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": []
+      },
+      "expected": {
+        "fields": [
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+            "label": "孔(通孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+            "label": "孔(通孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+            "label": "孔(通孔)的实际尺寸精度等级",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          },
+          {
+            "key": "project_factor.feature_5b54_28_76f2_5b54_29.present",
+            "label": "孔(盲孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_76f2_5b54_29.direction",
+            "label": "孔(盲孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_76f2_5b54_29.it",
+            "label": "孔(盲孔)的实际尺寸精度等级",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            },
+            "options": []
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "confirmed.drill",
+            "when": {
+              "any": [
+                {
+                  "all": [
+                    {
+                      "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                      "op": "eq",
+                      "value": true
+                    },
+                    {
+                      "any": [
+                        {
+                          "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                          "op": "in",
+                          "value": [
+                            "A侧",
+                            "所有方位"
+                          ]
+                        },
+                        {
+                          "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                          "op": "in",
+                          "value": [
+                            "B侧",
+                            "所有方位"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_901a_5b54_29.it",
+                      "op": "lte",
+                      "value": 7
+                    }
+                  ]
+                },
+                {
+                  "all": [
+                    {
+                      "field": "project_factor.feature_5b54_28_76f2_5b54_29.present",
+                      "op": "eq",
+                      "value": true
+                    },
+                    {
+                      "any": [
+                        {
+                          "field": "project_factor.feature_5b54_28_76f2_5b54_29.direction",
+                          "op": "in",
+                          "value": [
+                            "A侧",
+                            "所有方位"
+                          ]
+                        },
+                        {
+                          "field": "project_factor.feature_5b54_28_76f2_5b54_29.direction",
+                          "op": "in",
+                          "value": [
+                            "B侧",
+                            "所有方位"
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_76f2_5b54_29.it",
+                      "op": "lte",
+                      "value": 7
+                    }
+                  ]
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "drill"
+              ]
+            },
+            "source": "user_confirmed",
+            "enabled": true
+          }
+        ],
+        "processConfigurations": []
+      }
+    }
+  ]
+}

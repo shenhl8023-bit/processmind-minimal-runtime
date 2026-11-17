@@ -1,4 +1,4 @@
-"""Stage 3: published V2 packages drive production generation via plan_route."""
+"""Current executable V2 cores drive deterministic production generation."""
 
 from __future__ import annotations
 
@@ -15,8 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.database import Base, get_db
 from app.main import app
+from executable_support import generate_current
 from app.models.models import (
     FinalizedRulePackage,
+    ExecutableRuleRevision,
     GeneratedRoute,
     NormalizedRouteVersion,
     Project,
@@ -133,6 +135,16 @@ async def _seed_published_v2(
         await db.flush()
         payload["manifest"]["project_id"] = project.id
         payload["manifest"]["scope"] = {"type": "project", "key": str(project.id)}
+        route = NormalizedRouteVersion(project_id=project.id, version=1, route_json=json.dumps([
+            {"id": p["process_id"], "normalized_step_name": p["display_name"],
+             "phase": p.get("phase"), "source_operation_ids": p.get("source_operation_ids", []),
+             "step_item_details": [{"id": step["step_id"], "text": step["name"], "kind": step["kind"]}
+                                   for step in p.get("steps", [])],
+             "doc_coverage": {"hit_docs": 1, "total_docs": 1}}
+            for p in sorted(payload["route_catalog"]["processes"], key=lambda p: p["default_sequence"])]))
+        db.add(route)
+        await db.flush()
+        payload["manifest"]["route_version_id"] = route.id
         package = RulePackageV2.model_validate(payload)
         assert validate_rule_package(package).valid
         content_hash = rule_package_content_hash(package)
@@ -155,6 +167,13 @@ async def _seed_published_v2(
             published_by="tester",
         )
         db.add(row)
+        from types import SimpleNamespace
+        from app.services.rule_packages.executable_revisions import save_revision
+        await db.flush()
+        executable = await save_revision(db, project, SimpleNamespace(**payload,
+            project_id=project.id, route_version_id=route.id, expected_executable_revision=0,
+            package_name=package.manifest.package_name, rule_report_md="# Fixture", created_by="tester",
+            factor_dictionary=payload.get("factor_dictionary")))
         await db.commit()
         await db.refresh(row)
         return project.id, payload
@@ -199,11 +218,46 @@ def _assert_generation_not_persisted(session_factory, project_id: int) -> None:
     assert asyncio.run(_generation_state(session_factory, project_id)) == ("ROUTE_SET_READY", 0)
 
 
+@pytest.mark.parametrize('choice', [None, False, True])
+def test_generate_manual_bool_default_off_and_associated_chain(generation_context, choice):
+    from app.services.rule_packages.condition_reviews import _manual_process_field_key
+    client, session_factory = generation_context
+    key = _manual_process_field_key('copper')
+
+    def configure(payload):
+        payload['input_schema']['fields'] = [{
+            'key': key, 'label': '是否需要镀铜', 'type': 'boolean',
+            'required': False, 'source': '用户直接设定',
+        }]
+        payload['route_catalog']['processes'] = [
+            {'process_id': pid, 'display_name': name, 'main': pid == 'prepare', 'default_sequence': index * 10}
+            for index, (pid, name) in enumerate([
+                ('prepare', '准备'), ('copper', '镀铜'), ('strip', '除铜'), ('inspect', '检查'),
+            ], 1)
+        ]
+        payload['route_rules'] = {'rules': [], 'process_configurations': [
+            {'process_id': 'copper', 'occurrence': 'manual', 'when': {'field': key, 'op': 'eq', 'value': True}},
+            *[{'process_id': target, 'occurrence': 'associated', 'relations': [{
+                'relation_type': 'trigger_after', 'source_process_ids': [source], 'target_process_ids': [target],
+            }]} for source, target in [('copper', 'strip'), ('strip', 'inspect')]],
+        ]}
+        payload['test_cases'] = []
+
+    project_id, _ = asyncio.run(_seed_published_v2(session_factory, configure_payload=configure))
+    # Untouched unchecked switches send neither an input nor invented provenance.
+    body = {'project_id': project_id, 'factor_values': {}, 'input_metadata': {}}
+    if choice is not None:
+        body['factor_values'] = {'project_factor': {key.split('.', 1)[1]: choice}}
+        body['input_metadata'] = {key: {'origin': 'manual'}}
+    response = generate_current(client, json=body)
+    assert response.status_code == 200, response.text
+    assert response.json()['selected_process_ids'] == (['prepare', 'copper', 'strip', 'inspect'] if choice else ['prepare'])
+
+
 def test_generate_uses_published_v2_plan_route(generation_context):
     client, session_factory = generation_context
     project_id, _ = asyncio.run(_seed_published_v2(session_factory))
-    response = client.post(
-        "/api/generate/",
+    response = generate_current(client,
         json={
             "project_id": project_id,
             "factor_values": {
@@ -216,9 +270,9 @@ def test_generate_uses_published_v2_plan_route(generation_context):
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["output_mode"] == "finalized_rule_package_v2"
+    assert body["output_mode"] == "executable_rule_revision_v2"
     assert body["schema_version"] == "2.0"
-    assert body["rule_package_version"] == 1
+    assert body["executable_revision"] == 1
     assert body["selected_process_ids"] == [
         "process_prepare",
         "process_rough_machine",
@@ -297,8 +351,7 @@ def test_generate_keeps_template_output_bound_to_published_snapshot(generation_c
             await db.commit()
 
     asyncio.run(seed_template())
-    response = client.post(
-        "/api/generate/",
+    response = generate_current(client,
         json={
             "project_id": project_id,
             "factor_values": {
@@ -310,15 +363,9 @@ def test_generate_keeps_template_output_bound_to_published_snapshot(generation_c
         },
     )
 
-    if snapshot_state == "tampered":
-        assert response.status_code == 409, response.text
-        assert "三文件快照" in response.json()["detail"]
-        _assert_generation_not_persisted(session_factory, project_id)
-        return
     assert response.status_code == 200, response.text
-    expected_structure = full_route_structure if snapshot_state == "published" else []
-    assert response.json()["full_route_structure"] == expected_structure
-    assert json.loads(response.json()["output_json_text"])["full_route_structure"] == expected_structure
+    assert response.json()["full_route_structure"] == []
+    assert json.loads(response.json()["output_json_text"])["full_route_structure"] == []
 
 
 def test_generate_rejects_rule_package_from_an_older_route_version(generation_context):
@@ -327,28 +374,11 @@ def test_generate_rejects_rule_package_from_an_older_route_version(generation_co
 
     async def seed_newer_route_version():
         async with session_factory() as db:
-            current_route = NormalizedRouteVersion(
-                project_id=project_id,
-                version=1,
-                route_json="[]",
-            )
-            db.add(current_route)
-            await db.flush()
-            package = (
-                await db.execute(
-                    select(FinalizedRulePackage).where(FinalizedRulePackage.project_id == project_id)
-                )
-            ).scalar_one()
-            package.route_version_id = current_route.id
-            manifest = json.loads(package.manifest_json)
-            manifest["route_version_id"] = current_route.id
-            package.manifest_json = json.dumps(manifest, ensure_ascii=False)
             db.add(NormalizedRouteVersion(project_id=project_id, version=2, route_json="[]"))
             await db.commit()
 
     asyncio.run(seed_newer_route_version())
-    response = client.post(
-        "/api/generate/",
+    response = generate_current(client,
         json={
             "project_id": project_id,
             "factor_values": {
@@ -361,14 +391,13 @@ def test_generate_rejects_rule_package_from_an_older_route_version(generation_co
     )
 
     assert response.status_code == 409, response.text
-    assert "路线版本已更新" in str(response.json()["detail"])
+    assert "可执行规则版本" in str(response.json()["detail"])
 
 
 def test_generate_rejects_missing_required_v2_input(generation_context):
     client, session_factory = generation_context
     project_id, _ = asyncio.run(_seed_published_v2(session_factory, "v2-input-validation"))
-    response = client.post(
-        "/api/generate/",
+    response = generate_current(client,
         json={
             "project_id": project_id,
             "factor_values": {"cad": {"features": ["槽类特征"]}},
@@ -382,8 +411,7 @@ def test_generate_rejects_example_value_for_required_input(generation_context):
     client, session_factory = generation_context
     project_id, _ = asyncio.run(_seed_published_v2(session_factory, "v2-example-input"))
 
-    response = client.post(
-        "/api/generate/",
+    response = generate_current(client,
         json={
             "project_id": project_id,
             "factor_values": {
@@ -408,17 +436,15 @@ def test_generate_rejects_package_manifest_from_another_project(generation_conte
 
     async def corrupt_project_binding():
         async with session_factory() as db:
-            row = (await db.execute(select(FinalizedRulePackage).where(
-                FinalizedRulePackage.project_id == project_id
-            ))).scalar_one()
-            manifest = json.loads(row.manifest_json)
-            manifest['project_id'] = project_id + 100
-            manifest['scope']['key'] = str(project_id + 100)
-            row.manifest_json = json.dumps(manifest)
+            row = (await db.execute(select(ExecutableRuleRevision).where(
+                ExecutableRuleRevision.project_id == project_id))).scalar_one()
+            payload = json.loads(row.package_json)
+            payload['manifest']['project_id'] = project_id + 100
+            row.package_json = json.dumps(payload)
             await db.commit()
 
     asyncio.run(corrupt_project_binding())
-    response = client.post('/api/generate/', json={
+    response = generate_current(client, json={
         'project_id': project_id,
         'factor_values': {
             'material': {'grade': '9Cr18'}, 'cad': {'features': ['槽类特征']},
@@ -427,7 +453,7 @@ def test_generate_rejects_package_manifest_from_another_project(generation_conte
         'input_metadata': CONFIRMED_BASE_INPUT_METADATA,
     })
     assert response.status_code == 409, response.text
-    assert '任务' in str(response.json()['detail'])
+    assert '可执行规则版本' in str(response.json()['detail'])
     _assert_generation_not_persisted(session_factory, project_id)
 
 
@@ -435,8 +461,7 @@ def test_generate_rejects_required_value_without_confirmed_origin(generation_con
     client, session_factory = generation_context
     project_id, _ = asyncio.run(_seed_published_v2(session_factory, "v2-missing-input-origin"))
 
-    response = client.post(
-        "/api/generate/",
+    response = generate_current(client,
         json={
             "project_id": project_id,
             "factor_values": {
@@ -455,8 +480,7 @@ def test_generate_rejects_optional_rule_value_without_confirmed_origin(generatio
     client, session_factory = generation_context
     project_id, _ = asyncio.run(_seed_published_v2(session_factory, "v2-optional-input-origin"))
 
-    response = client.post(
-        "/api/generate/",
+    response = generate_current(client,
         json={
             "project_id": project_id,
             "factor_values": {
@@ -479,8 +503,7 @@ def test_generate_rejects_extracted_value_without_evidence(generation_context):
     client, session_factory = generation_context
     project_id, _ = asyncio.run(_seed_published_v2(session_factory, "v2-extracted-without-evidence"))
 
-    response = client.post(
-        "/api/generate/",
+    response = generate_current(client,
         json={
             "project_id": project_id,
             "factor_values": {
@@ -519,8 +542,7 @@ def test_generate_rejects_unit_that_differs_from_factor_definition(generation_co
         configure_payload=with_roundness,
     ))
 
-    response = client.post(
-        "/api/generate/",
+    response = generate_current(client,
         json={
             "project_id": project_id,
             "factor_values": {
@@ -542,8 +564,7 @@ def test_generate_rejects_unit_that_differs_from_factor_definition(generation_co
 def test_generate_rejects_stale_workflow_revision(generation_context):
     client, session_factory = generation_context
     project_id, _ = asyncio.run(_seed_published_v2(session_factory, "v2-stale-workflow"))
-    response = client.post(
-        "/api/generate/",
+    response = generate_current(client,
         json={
             "project_id": project_id,
             "expected_workflow_revision": 99,
@@ -592,8 +613,7 @@ def test_draft_v2_is_not_used_for_generate(generation_context):
             return project.id
 
     project_id = asyncio.run(seed_draft_only())
-    response = client.post(
-        "/api/generate/",
+    response = generate_current(client,
         json={
             "project_id": project_id,
             "factor_values": {
@@ -604,7 +624,7 @@ def test_draft_v2_is_not_used_for_generate(generation_context):
         },
     )
     assert response.status_code == 409, response.text
-    assert "尚未导出有效规则包" in response.json()["detail"]
+    assert "可执行规则版本" in response.json()["detail"]
 
 
 def test_published_v2_package_ignores_retired_rule_engine_value(generation_context):
@@ -612,8 +632,7 @@ def test_published_v2_package_ignores_retired_rule_engine_value(generation_conte
     project_id, _ = asyncio.run(_seed_published_v2(session_factory, "v2-forced-v1"))
     asyncio.run(_set_retired_rule_engine_value(session_factory, project_id, "v1"))
 
-    response = client.post(
-        "/api/generate/",
+    response = generate_current(client,
         json={
             "project_id": project_id,
             "factor_values": {
@@ -626,7 +645,7 @@ def test_published_v2_package_ignores_retired_rule_engine_value(generation_conte
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["output_mode"] == "finalized_rule_package_v2"
+    assert body["output_mode"] == "executable_rule_revision_v2"
     assert "旧规则路径" not in body["summary"]
 
 
@@ -634,8 +653,7 @@ def test_generate_rejects_missing_required_v2_input_without_side_effects(generat
     client, session_factory = generation_context
     project_id, _ = asyncio.run(_seed_published_v2(session_factory, "v2-missing-input"))
 
-    response = client.post(
-        "/api/generate/",
+    response = generate_current(client,
         json={
             "project_id": project_id,
             "factor_values": {
@@ -664,8 +682,7 @@ def test_generate_v2_requires_all_submitted_factor_values(generation_context):
         )
     )
 
-    response = client.post(
-        "/api/generate/",
+    response = generate_current(client,
         json={
             "project_id": project_id,
             "factor_values": {
@@ -701,8 +718,7 @@ def test_generate_v2_ignores_retired_top_level_factor_fields(generation_context)
         )
     )
 
-    response = client.post(
-        "/api/generate/",
+    response = generate_current(client,
         json={
             "project_id": project_id,
             "factor_values": {
@@ -739,8 +755,7 @@ def test_generate_v2_accepts_additional_factor_values(generation_context):
         )
     )
 
-    response = client.post(
-        "/api/generate/",
+    response = generate_current(client,
         json={
             "project_id": project_id,
             "factor_values": {
@@ -760,7 +775,7 @@ def test_generate_v2_accepts_additional_factor_values(generation_context):
     )
 
     assert response.status_code == 200, response.text
-    assert response.json()["output_mode"] == "finalized_rule_package_v2"
+    assert response.json()["output_mode"] == "executable_rule_revision_v2"
     assert asyncio.run(_generation_state(session_factory, project_id)) == ("GENERATED", 1)
 
 
@@ -797,8 +812,7 @@ def test_generate_rejects_invalid_v2_option_without_side_effects(generation_cont
     project_id, _ = asyncio.run(
         _seed_published_v2(session_factory, "v2-invalid-option", configure_payload)
     )
-    response = client.post(
-        "/api/generate/",
+    response = generate_current(client,
         json={
             "project_id": project_id,
             "factor_values": {
@@ -837,8 +851,7 @@ def test_generate_rejects_wrong_v2_boolean_type_without_side_effects(generation_
     project_id, _ = asyncio.run(
         _seed_published_v2(session_factory, "v2-wrong-boolean", configure_payload)
     )
-    response = client.post(
-        "/api/generate/",
+    response = generate_current(client,
         json={
             "project_id": project_id,
             "factor_values": {
@@ -863,8 +876,7 @@ def test_generate_rejects_wrong_v2_number_type_without_side_effects(generation_c
     client, session_factory = generation_context
     project_id, _ = asyncio.run(_seed_published_v2(session_factory, "v2-wrong-number"))
 
-    response = client.post(
-        "/api/generate/",
+    response = generate_current(client,
         json={
             "project_id": project_id,
             "factor_values": {

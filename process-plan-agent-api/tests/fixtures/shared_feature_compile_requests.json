@@ -1,0 +1,6152 @@
+{
+  "provenance": {
+    "engine": "actual TS question/editor definitions and finalize builder, executed by Node",
+    "generator": "process-plan-agent-ui/scripts/build-shared-feature-compile-fixture.cjs",
+    "dependencies": [
+      {
+        "source": "process-plan-agent-ui/src/utils/__fixtures__/sharedFeatureCompile.ts",
+        "sha256": "6b110b533eec7c745bd3ed1d6fa0589f5168a6142075616538fb23b4d4e26a3b"
+      },
+      {
+        "source": "process-plan-agent-ui/src/utils/finalizeRulePackage.ts",
+        "sha256": "87b94f9562ad49ae3d24f04cd44d95b4ff5d7a36e10bcc173f3ed8be9d28d673"
+      },
+      {
+        "source": "process-plan-agent-ui/src/utils/featureInputProjection.ts",
+        "sha256": "b671a28927b5b1ee79bd9b80f7b858ea2e48b37875072d64054c7612cee74ebc"
+      },
+      {
+        "source": "process-plan-agent-ui/src/utils/projectConditionFields.ts",
+        "sha256": "6741f444aacb6c319302a00654cc5ff02c90672ac6c1b0c8f0a0ba0075c4e668"
+      },
+      {
+        "source": "process-plan-agent-ui/src/composables/analysisGuidanceFlow.ts",
+        "sha256": "3887376cc2a755d22c9eed9c07528f596a0e85edbf2a222874e43d12e7b34c16"
+      },
+      {
+        "source": "process-plan-agent-ui/src/composables/analysisGuidedObjects.ts",
+        "sha256": "68a39c789f1c345f2a767324a899600f9301b77908afd681c9dcf9d07aad60b4"
+      },
+      {
+        "source": "process-plan-agent-api/app/assets/project_conditions.json",
+        "sha256": "53ed07c33f1dafe66260205387c06c8bac5a0d6ef8bdd980252e8a249a5c301b"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "id": "guided-it",
+      "cards": [
+        {
+          "segment": {
+            "id": "grind",
+            "export_process_id": "grind",
+            "normalized_step_name": "磨孔",
+            "sequence": 1,
+            "source_nodes": [],
+            "doc_coverage": {
+              "total_docs": 2,
+              "hit_docs": 1
+            }
+          },
+          "edited": true,
+          "conditionText": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+          "conditionReview": {
+            "source_text": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+            "status": "confirmed",
+            "confirmed": {
+              "kind": "process_configuration",
+              "configuration": {
+                "process_id": "grind",
+                "occurrence": "conditional",
+                "when": {
+                  "all": [
+                    {
+                      "field": "project_factor.operation_4a95de15.features",
+                      "op": "contains_any",
+                      "value": [
+                        "孔(通孔)"
+                      ]
+                    },
+                    {
+                      "field": "project_factor.operation_4a95de15.direction",
+                      "op": "eq",
+                      "value": "A侧"
+                    },
+                    {
+                      "field": "project_factor.operation_4a95de15.it",
+                      "op": "lte",
+                      "value": 7
+                    }
+                  ]
+                },
+                "relations": []
+              },
+              "field_definitions": [
+                {
+                  "key": "project_factor.operation_4a95de15.features",
+                  "label": "加工对象的特征",
+                  "type": "multi_select",
+                  "category": "磨孔 · 孔(通孔)",
+                  "operators": [
+                    "contains_any"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [
+                    {
+                      "value": "孔(通孔)",
+                      "label": "孔(通孔)"
+                    },
+                    {
+                      "value": "孔(盲孔)",
+                      "label": "孔(盲孔)"
+                    }
+                  ],
+                  "allow_custom": false
+                },
+                {
+                  "key": "project_factor.operation_4a95de15.direction",
+                  "label": "同一加工对象的方位",
+                  "type": "single_select",
+                  "category": "磨孔 · 孔(通孔)",
+                  "operators": [
+                    "eq"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [
+                    {
+                      "value": "A侧",
+                      "label": "A侧"
+                    },
+                    {
+                      "value": "B侧",
+                      "label": "B侧"
+                    },
+                    {
+                      "value": "中间",
+                      "label": "中间"
+                    },
+                    {
+                      "value": "周边",
+                      "label": "周边"
+                    },
+                    {
+                      "value": "所有方位",
+                      "label": "所有方位"
+                    }
+                  ],
+                  "allow_custom": false
+                },
+                {
+                  "key": "project_factor.operation_4a95de15.it",
+                  "label": "孔(通孔)的实际尺寸精度等级",
+                  "type": "number",
+                  "category": "磨孔 · 孔(通孔)",
+                  "operators": [
+                    "lte"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [],
+                  "allow_custom": false,
+                  "unit": "IT",
+                  "validation": {
+                    "min": 1,
+                    "max": 18
+                  }
+                }
+              ],
+              "preview": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+              "evidence": "用户确认的第三步回答"
+            },
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00",
+            "issues": []
+          }
+        }
+      ],
+      "request": {
+        "project_id": 7,
+        "package_name": "guided-it",
+        "route_version_id": 1,
+        "applicability": {
+          "part_families": [],
+          "manufacturing_modes": [
+            "machining"
+          ]
+        },
+        "factor_dictionary": {
+          "schema_version": "2.0",
+          "fields": [
+            {
+              "key": "project_factor.operation_4a95de15.features",
+              "label": "加工对象的特征",
+              "type": "multi_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [
+                {
+                  "value": "孔(通孔)",
+                  "label": "孔(通孔)"
+                },
+                {
+                  "value": "孔(盲孔)",
+                  "label": "孔(盲孔)"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_4a95de15.direction",
+              "label": "同一加工对象的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_4a95de15.it",
+              "label": "孔(通孔)的实际尺寸精度等级",
+              "type": "number",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [],
+              "allow_custom": false,
+              "unit": "IT",
+              "validation": {
+                "min": 1,
+                "max": 18
+              }
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+              "label": "孔(通孔)",
+              "type": "boolean",
+              "required": false,
+              "source": "本项目特征输入",
+              "allow_custom": false
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+              "label": "孔(通孔)的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "本项目特征输入",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+              "label": "孔(通孔)的实际尺寸精度等级",
+              "type": "number",
+              "required": false,
+              "source": "本项目特征输入",
+              "options": [],
+              "allow_custom": false,
+              "unit": "IT",
+              "validation": {
+                "min": 5,
+                "max": 10
+              }
+            }
+          ]
+        },
+        "fields": [
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+            "label": "孔(通孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+            "label": "孔(通孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "中间",
+                "label": "中间"
+              },
+              {
+                "value": "周边",
+                "label": "周边"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "allow_custom": false,
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+            "label": "孔(通孔)的实际尺寸精度等级",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "options": [],
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            }
+          }
+        ],
+        "processes": [
+          {
+            "process_id": "prepare",
+            "process_code": "PREPARE",
+            "display_name": "备料",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 0,
+            "main": true,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "prepare.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          },
+          {
+            "process_id": "grind",
+            "process_code": "GRIND",
+            "display_name": "磨孔",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 10,
+            "main": false,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "grind.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          }
+        ],
+        "rules": [],
+        "process_relations": [],
+        "process_configurations": [
+          {
+            "process_id": "grind",
+            "occurrence": "conditional",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                  "op": "in",
+                  "value": [
+                    "A侧",
+                    "所有方位"
+                  ]
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.it",
+                  "op": "lte",
+                  "value": 7
+                }
+              ]
+            },
+            "relations": [],
+            "enabled": true,
+            "source": "user_confirmed",
+            "source_segment_id": "grind",
+            "source_text": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00"
+          }
+        ],
+        "test_cases": [
+          {
+            "case_id": "default-smoke",
+            "input": {
+              "project_factor": {
+                "feature_5b54_28_901a_5b54_29": {
+                  "present": true,
+                  "direction": "A侧",
+                  "it": 7
+                }
+              }
+            },
+            "expect": {
+              "included_process_ids": [
+                "prepare"
+              ],
+              "excluded_process_ids": []
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "guided-ra",
+      "cards": [
+        {
+          "segment": {
+            "id": "grind",
+            "export_process_id": "grind",
+            "normalized_step_name": "磨孔",
+            "sequence": 1,
+            "source_nodes": [],
+            "doc_coverage": {
+              "total_docs": 2,
+              "hit_docs": 1
+            }
+          },
+          "edited": true,
+          "conditionText": "孔(通孔)位于A侧，且实际Ra要求值≤0.8 μm时安排磨孔。",
+          "conditionReview": {
+            "source_text": "孔(通孔)位于A侧，且实际Ra要求值≤0.8 μm时安排磨孔。",
+            "status": "confirmed",
+            "confirmed": {
+              "kind": "process_configuration",
+              "configuration": {
+                "process_id": "grind",
+                "occurrence": "conditional",
+                "when": {
+                  "all": [
+                    {
+                      "field": "project_factor.operation_4a95de15.features",
+                      "op": "contains_any",
+                      "value": [
+                        "孔(通孔)"
+                      ]
+                    },
+                    {
+                      "field": "project_factor.operation_4a95de15.direction",
+                      "op": "eq",
+                      "value": "A侧"
+                    },
+                    {
+                      "field": "project_factor.operation_4a95de15.ra",
+                      "op": "lte",
+                      "value": 0.8
+                    }
+                  ]
+                },
+                "relations": []
+              },
+              "field_definitions": [
+                {
+                  "key": "project_factor.operation_4a95de15.features",
+                  "label": "加工对象的特征",
+                  "type": "multi_select",
+                  "category": "磨孔 · 孔(通孔)",
+                  "operators": [
+                    "contains_any"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [
+                    {
+                      "value": "孔(通孔)",
+                      "label": "孔(通孔)"
+                    },
+                    {
+                      "value": "孔(盲孔)",
+                      "label": "孔(盲孔)"
+                    }
+                  ],
+                  "allow_custom": false
+                },
+                {
+                  "key": "project_factor.operation_4a95de15.direction",
+                  "label": "同一加工对象的方位",
+                  "type": "single_select",
+                  "category": "磨孔 · 孔(通孔)",
+                  "operators": [
+                    "eq"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [
+                    {
+                      "value": "A侧",
+                      "label": "A侧"
+                    },
+                    {
+                      "value": "B侧",
+                      "label": "B侧"
+                    },
+                    {
+                      "value": "中间",
+                      "label": "中间"
+                    },
+                    {
+                      "value": "周边",
+                      "label": "周边"
+                    },
+                    {
+                      "value": "所有方位",
+                      "label": "所有方位"
+                    }
+                  ],
+                  "allow_custom": false
+                },
+                {
+                  "key": "project_factor.operation_4a95de15.ra",
+                  "label": "孔(通孔)的实际Ra要求值",
+                  "type": "number",
+                  "category": "磨孔 · 孔(通孔)",
+                  "operators": [
+                    "lte"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [],
+                  "allow_custom": false,
+                  "unit": "μm",
+                  "validation": {
+                    "min": 0
+                  }
+                }
+              ],
+              "preview": "孔(通孔)位于A侧，且实际Ra要求值≤0.8 μm时安排磨孔。",
+              "evidence": "用户确认的第三步回答"
+            },
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00",
+            "issues": []
+          }
+        }
+      ],
+      "request": {
+        "project_id": 7,
+        "package_name": "guided-ra",
+        "route_version_id": 1,
+        "applicability": {
+          "part_families": [],
+          "manufacturing_modes": [
+            "machining"
+          ]
+        },
+        "factor_dictionary": {
+          "schema_version": "2.0",
+          "fields": [
+            {
+              "key": "project_factor.operation_4a95de15.features",
+              "label": "加工对象的特征",
+              "type": "multi_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [
+                {
+                  "value": "孔(通孔)",
+                  "label": "孔(通孔)"
+                },
+                {
+                  "value": "孔(盲孔)",
+                  "label": "孔(盲孔)"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_4a95de15.direction",
+              "label": "同一加工对象的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_4a95de15.ra",
+              "label": "孔(通孔)的实际Ra要求值",
+              "type": "number",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [],
+              "allow_custom": false,
+              "unit": "μm",
+              "validation": {
+                "min": 0
+              }
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+              "label": "孔(通孔)",
+              "type": "boolean",
+              "required": false,
+              "source": "本项目特征输入",
+              "allow_custom": false
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+              "label": "孔(通孔)的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "本项目特征输入",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.ra",
+              "label": "孔(通孔)的实际Ra要求值",
+              "type": "number",
+              "required": false,
+              "source": "本项目特征输入",
+              "options": [],
+              "allow_custom": false,
+              "unit": "μm",
+              "validation": {
+                "min": 0
+              }
+            }
+          ]
+        },
+        "fields": [
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+            "label": "孔(通孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+            "label": "孔(通孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "中间",
+                "label": "中间"
+              },
+              {
+                "value": "周边",
+                "label": "周边"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "allow_custom": false,
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.ra",
+            "label": "孔(通孔)的实际Ra要求值",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "options": [],
+            "allow_custom": false,
+            "unit": "μm",
+            "validation": {
+              "min": 0
+            }
+          }
+        ],
+        "processes": [
+          {
+            "process_id": "prepare",
+            "process_code": "PREPARE",
+            "display_name": "备料",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 0,
+            "main": true,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "prepare.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          },
+          {
+            "process_id": "grind",
+            "process_code": "GRIND",
+            "display_name": "磨孔",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 10,
+            "main": false,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "grind.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          }
+        ],
+        "rules": [],
+        "process_relations": [],
+        "process_configurations": [
+          {
+            "process_id": "grind",
+            "occurrence": "conditional",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                  "op": "in",
+                  "value": [
+                    "A侧",
+                    "所有方位"
+                  ]
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.ra",
+                  "op": "lte",
+                  "value": 0.8
+                }
+              ]
+            },
+            "relations": [],
+            "enabled": true,
+            "source": "user_confirmed",
+            "source_segment_id": "grind",
+            "source_text": "孔(通孔)位于A侧，且实际Ra要求值≤0.8 μm时安排磨孔。",
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00"
+          }
+        ],
+        "test_cases": [
+          {
+            "case_id": "default-smoke",
+            "input": {
+              "project_factor": {
+                "feature_5b54_28_901a_5b54_29": {
+                  "present": true,
+                  "direction": "A侧",
+                  "ra": 1
+                }
+              }
+            },
+            "expect": {
+              "included_process_ids": [
+                "prepare"
+              ],
+              "excluded_process_ids": []
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "editor-it",
+      "cards": [
+        {
+          "segment": {
+            "id": "grind",
+            "export_process_id": "grind",
+            "normalized_step_name": "磨孔",
+            "sequence": 1,
+            "source_nodes": [],
+            "doc_coverage": {
+              "total_docs": 2,
+              "hit_docs": 1
+            }
+          },
+          "edited": true,
+          "conditionText": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+          "conditionReview": {
+            "source_text": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+            "status": "confirmed",
+            "confirmed": {
+              "kind": "process_configuration",
+              "configuration": {
+                "process_id": "grind",
+                "occurrence": "conditional",
+                "when": {
+                  "all": [
+                    {
+                      "field": "project_factor.operation_4a95de15.features",
+                      "op": "contains_any",
+                      "value": [
+                        "孔(通孔)"
+                      ]
+                    },
+                    {
+                      "field": "project_factor.operation_4a95de15.direction",
+                      "op": "eq",
+                      "value": "A侧"
+                    },
+                    {
+                      "field": "project_factor.operation_4a95de15.it",
+                      "op": "lte",
+                      "value": 7
+                    }
+                  ]
+                },
+                "relations": []
+              },
+              "field_definitions": [
+                {
+                  "key": "project_factor.operation_4a95de15.features",
+                  "label": "加工对象的特征",
+                  "category": "本项目条件",
+                  "type": "multi_select",
+                  "operators": [
+                    "contains_any"
+                  ],
+                  "aliases": [],
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [
+                    {
+                      "value": "孔(通孔)",
+                      "label": "孔(通孔)"
+                    },
+                    {
+                      "value": "孔(盲孔)",
+                      "label": "孔(盲孔)"
+                    }
+                  ],
+                  "allow_custom": false,
+                  "required": false
+                },
+                {
+                  "key": "project_factor.operation_4a95de15.direction",
+                  "label": "同一加工对象的方位",
+                  "category": "本项目条件",
+                  "type": "single_select",
+                  "operators": [
+                    "eq"
+                  ],
+                  "aliases": [],
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [
+                    {
+                      "value": "A侧",
+                      "label": "A侧"
+                    },
+                    {
+                      "value": "B侧",
+                      "label": "B侧"
+                    },
+                    {
+                      "value": "中间",
+                      "label": "中间"
+                    },
+                    {
+                      "value": "周边",
+                      "label": "周边"
+                    },
+                    {
+                      "value": "所有方位",
+                      "label": "所有方位"
+                    }
+                  ],
+                  "allow_custom": false,
+                  "required": false
+                },
+                {
+                  "key": "project_factor.operation_4a95de15.it",
+                  "label": "孔(通孔)、孔(盲孔)的实际尺寸精度等级",
+                  "category": "本项目条件",
+                  "type": "number",
+                  "operators": [
+                    "lte"
+                  ],
+                  "aliases": [],
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [
+                    {
+                      "value": "-1",
+                      "label": "IT01"
+                    },
+                    {
+                      "value": "0",
+                      "label": "IT0"
+                    },
+                    {
+                      "value": "1",
+                      "label": "IT1"
+                    },
+                    {
+                      "value": "2",
+                      "label": "IT2"
+                    },
+                    {
+                      "value": "3",
+                      "label": "IT3"
+                    },
+                    {
+                      "value": "4",
+                      "label": "IT4"
+                    },
+                    {
+                      "value": "5",
+                      "label": "IT5"
+                    },
+                    {
+                      "value": "6",
+                      "label": "IT6"
+                    },
+                    {
+                      "value": "7",
+                      "label": "IT7"
+                    },
+                    {
+                      "value": "8",
+                      "label": "IT8"
+                    },
+                    {
+                      "value": "9",
+                      "label": "IT9"
+                    },
+                    {
+                      "value": "10",
+                      "label": "IT10"
+                    },
+                    {
+                      "value": "11",
+                      "label": "IT11"
+                    },
+                    {
+                      "value": "12",
+                      "label": "IT12"
+                    },
+                    {
+                      "value": "13",
+                      "label": "IT13"
+                    },
+                    {
+                      "value": "14",
+                      "label": "IT14"
+                    },
+                    {
+                      "value": "15",
+                      "label": "IT15"
+                    },
+                    {
+                      "value": "16",
+                      "label": "IT16"
+                    },
+                    {
+                      "value": "17",
+                      "label": "IT17"
+                    },
+                    {
+                      "value": "18",
+                      "label": "IT18"
+                    }
+                  ],
+                  "allow_custom": false,
+                  "required": false,
+                  "unit": "IT",
+                  "validation": {
+                    "min": -1,
+                    "max": 18
+                  }
+                }
+              ],
+              "preview": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+              "evidence": "用户确认的第三步回答"
+            },
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00",
+            "issues": []
+          }
+        }
+      ],
+      "request": {
+        "project_id": 7,
+        "package_name": "editor-it",
+        "route_version_id": 1,
+        "applicability": {
+          "part_families": [],
+          "manufacturing_modes": [
+            "machining"
+          ]
+        },
+        "factor_dictionary": {
+          "schema_version": "2.0",
+          "fields": [
+            {
+              "key": "project_factor.operation_4a95de15.features",
+              "label": "加工对象的特征",
+              "type": "multi_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [
+                {
+                  "value": "孔(通孔)",
+                  "label": "孔(通孔)"
+                },
+                {
+                  "value": "孔(盲孔)",
+                  "label": "孔(盲孔)"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_4a95de15.direction",
+              "label": "同一加工对象的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_4a95de15.it",
+              "label": "孔(通孔)、孔(盲孔)的实际尺寸精度等级",
+              "type": "number",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [
+                {
+                  "value": "-1",
+                  "label": "IT01"
+                },
+                {
+                  "value": "0",
+                  "label": "IT0"
+                },
+                {
+                  "value": "1",
+                  "label": "IT1"
+                },
+                {
+                  "value": "2",
+                  "label": "IT2"
+                },
+                {
+                  "value": "3",
+                  "label": "IT3"
+                },
+                {
+                  "value": "4",
+                  "label": "IT4"
+                },
+                {
+                  "value": "5",
+                  "label": "IT5"
+                },
+                {
+                  "value": "6",
+                  "label": "IT6"
+                },
+                {
+                  "value": "7",
+                  "label": "IT7"
+                },
+                {
+                  "value": "8",
+                  "label": "IT8"
+                },
+                {
+                  "value": "9",
+                  "label": "IT9"
+                },
+                {
+                  "value": "10",
+                  "label": "IT10"
+                },
+                {
+                  "value": "11",
+                  "label": "IT11"
+                },
+                {
+                  "value": "12",
+                  "label": "IT12"
+                },
+                {
+                  "value": "13",
+                  "label": "IT13"
+                },
+                {
+                  "value": "14",
+                  "label": "IT14"
+                },
+                {
+                  "value": "15",
+                  "label": "IT15"
+                },
+                {
+                  "value": "16",
+                  "label": "IT16"
+                },
+                {
+                  "value": "17",
+                  "label": "IT17"
+                },
+                {
+                  "value": "18",
+                  "label": "IT18"
+                }
+              ],
+              "allow_custom": false,
+              "unit": "IT",
+              "validation": {
+                "min": -1,
+                "max": 18
+              }
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+              "label": "孔(通孔)",
+              "type": "boolean",
+              "required": false,
+              "source": "本项目特征输入",
+              "allow_custom": false
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+              "label": "孔(通孔)的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "本项目特征输入",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+              "label": "孔(通孔)的实际尺寸精度等级",
+              "type": "number",
+              "required": false,
+              "source": "本项目特征输入",
+              "options": [],
+              "allow_custom": false,
+              "unit": "IT",
+              "validation": {
+                "min": 5,
+                "max": 10
+              }
+            }
+          ]
+        },
+        "fields": [
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+            "label": "孔(通孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+            "label": "孔(通孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "中间",
+                "label": "中间"
+              },
+              {
+                "value": "周边",
+                "label": "周边"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "allow_custom": false,
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+            "label": "孔(通孔)的实际尺寸精度等级",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "options": [],
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            }
+          }
+        ],
+        "processes": [
+          {
+            "process_id": "prepare",
+            "process_code": "PREPARE",
+            "display_name": "备料",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 0,
+            "main": true,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "prepare.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          },
+          {
+            "process_id": "grind",
+            "process_code": "GRIND",
+            "display_name": "磨孔",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 10,
+            "main": false,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "grind.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          }
+        ],
+        "rules": [],
+        "process_relations": [],
+        "process_configurations": [
+          {
+            "process_id": "grind",
+            "occurrence": "conditional",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                  "op": "in",
+                  "value": [
+                    "A侧",
+                    "所有方位"
+                  ]
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.it",
+                  "op": "lte",
+                  "value": 7
+                }
+              ]
+            },
+            "relations": [],
+            "enabled": true,
+            "source": "user_confirmed",
+            "source_segment_id": "grind",
+            "source_text": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00"
+          }
+        ],
+        "test_cases": [
+          {
+            "case_id": "default-smoke",
+            "input": {
+              "project_factor": {
+                "feature_5b54_28_901a_5b54_29": {
+                  "present": true,
+                  "direction": "A侧",
+                  "it": 7
+                }
+              }
+            },
+            "expect": {
+              "included_process_ids": [
+                "prepare"
+              ],
+              "excluded_process_ids": []
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "editor-ra",
+      "cards": [
+        {
+          "segment": {
+            "id": "grind",
+            "export_process_id": "grind",
+            "normalized_step_name": "磨孔",
+            "sequence": 1,
+            "source_nodes": [],
+            "doc_coverage": {
+              "total_docs": 2,
+              "hit_docs": 1
+            }
+          },
+          "edited": true,
+          "conditionText": "孔(通孔)位于A侧，且实际Ra要求值≤0.8 μm时安排磨孔。",
+          "conditionReview": {
+            "source_text": "孔(通孔)位于A侧，且实际Ra要求值≤0.8 μm时安排磨孔。",
+            "status": "confirmed",
+            "confirmed": {
+              "kind": "process_configuration",
+              "configuration": {
+                "process_id": "grind",
+                "occurrence": "conditional",
+                "when": {
+                  "all": [
+                    {
+                      "field": "project_factor.operation_4a95de15.features",
+                      "op": "contains_any",
+                      "value": [
+                        "孔(通孔)"
+                      ]
+                    },
+                    {
+                      "field": "project_factor.operation_4a95de15.direction",
+                      "op": "eq",
+                      "value": "A侧"
+                    },
+                    {
+                      "field": "project_factor.operation_4a95de15.ra",
+                      "op": "lte",
+                      "value": 0.8
+                    }
+                  ]
+                },
+                "relations": []
+              },
+              "field_definitions": [
+                {
+                  "key": "project_factor.operation_4a95de15.features",
+                  "label": "加工对象的特征",
+                  "category": "本项目条件",
+                  "type": "multi_select",
+                  "operators": [
+                    "contains_any"
+                  ],
+                  "aliases": [],
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [
+                    {
+                      "value": "孔(通孔)",
+                      "label": "孔(通孔)"
+                    },
+                    {
+                      "value": "孔(盲孔)",
+                      "label": "孔(盲孔)"
+                    }
+                  ],
+                  "allow_custom": false,
+                  "required": false
+                },
+                {
+                  "key": "project_factor.operation_4a95de15.direction",
+                  "label": "同一加工对象的方位",
+                  "category": "本项目条件",
+                  "type": "single_select",
+                  "operators": [
+                    "eq"
+                  ],
+                  "aliases": [],
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [
+                    {
+                      "value": "A侧",
+                      "label": "A侧"
+                    },
+                    {
+                      "value": "B侧",
+                      "label": "B侧"
+                    },
+                    {
+                      "value": "中间",
+                      "label": "中间"
+                    },
+                    {
+                      "value": "周边",
+                      "label": "周边"
+                    },
+                    {
+                      "value": "所有方位",
+                      "label": "所有方位"
+                    }
+                  ],
+                  "allow_custom": false,
+                  "required": false
+                },
+                {
+                  "key": "project_factor.operation_4a95de15.ra",
+                  "label": "孔(通孔)、孔(盲孔)的实际Ra要求值",
+                  "category": "本项目条件",
+                  "type": "number",
+                  "operators": [
+                    "lte"
+                  ],
+                  "aliases": [],
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [],
+                  "allow_custom": false,
+                  "required": false,
+                  "unit": "μm",
+                  "validation": {
+                    "min": 0
+                  }
+                }
+              ],
+              "preview": "孔(通孔)位于A侧，且实际Ra要求值≤0.8 μm时安排磨孔。",
+              "evidence": "用户确认的第三步回答"
+            },
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00",
+            "issues": []
+          }
+        }
+      ],
+      "request": {
+        "project_id": 7,
+        "package_name": "editor-ra",
+        "route_version_id": 1,
+        "applicability": {
+          "part_families": [],
+          "manufacturing_modes": [
+            "machining"
+          ]
+        },
+        "factor_dictionary": {
+          "schema_version": "2.0",
+          "fields": [
+            {
+              "key": "project_factor.operation_4a95de15.features",
+              "label": "加工对象的特征",
+              "type": "multi_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [
+                {
+                  "value": "孔(通孔)",
+                  "label": "孔(通孔)"
+                },
+                {
+                  "value": "孔(盲孔)",
+                  "label": "孔(盲孔)"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_4a95de15.direction",
+              "label": "同一加工对象的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_4a95de15.ra",
+              "label": "孔(通孔)、孔(盲孔)的实际Ra要求值",
+              "type": "number",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [],
+              "allow_custom": false,
+              "unit": "μm",
+              "validation": {
+                "min": 0
+              }
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+              "label": "孔(通孔)",
+              "type": "boolean",
+              "required": false,
+              "source": "本项目特征输入",
+              "allow_custom": false
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+              "label": "孔(通孔)的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "本项目特征输入",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.ra",
+              "label": "孔(通孔)的实际Ra要求值",
+              "type": "number",
+              "required": false,
+              "source": "本项目特征输入",
+              "options": [],
+              "allow_custom": false,
+              "unit": "μm",
+              "validation": {
+                "min": 0
+              }
+            }
+          ]
+        },
+        "fields": [
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+            "label": "孔(通孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+            "label": "孔(通孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "中间",
+                "label": "中间"
+              },
+              {
+                "value": "周边",
+                "label": "周边"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "allow_custom": false,
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.ra",
+            "label": "孔(通孔)的实际Ra要求值",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "options": [],
+            "allow_custom": false,
+            "unit": "μm",
+            "validation": {
+              "min": 0
+            }
+          }
+        ],
+        "processes": [
+          {
+            "process_id": "prepare",
+            "process_code": "PREPARE",
+            "display_name": "备料",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 0,
+            "main": true,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "prepare.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          },
+          {
+            "process_id": "grind",
+            "process_code": "GRIND",
+            "display_name": "磨孔",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 10,
+            "main": false,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "grind.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          }
+        ],
+        "rules": [],
+        "process_relations": [],
+        "process_configurations": [
+          {
+            "process_id": "grind",
+            "occurrence": "conditional",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                  "op": "in",
+                  "value": [
+                    "A侧",
+                    "所有方位"
+                  ]
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.ra",
+                  "op": "lte",
+                  "value": 0.8
+                }
+              ]
+            },
+            "relations": [],
+            "enabled": true,
+            "source": "user_confirmed",
+            "source_segment_id": "grind",
+            "source_text": "孔(通孔)位于A侧，且实际Ra要求值≤0.8 μm时安排磨孔。",
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00"
+          }
+        ],
+        "test_cases": [
+          {
+            "case_id": "default-smoke",
+            "input": {
+              "project_factor": {
+                "feature_5b54_28_901a_5b54_29": {
+                  "present": true,
+                  "direction": "A侧",
+                  "ra": 1
+                }
+              }
+            },
+            "expect": {
+              "included_process_ids": [
+                "prepare"
+              ],
+              "excluded_process_ids": []
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "mixed-guided-editor-it",
+      "cards": [
+        {
+          "segment": {
+            "id": "grind",
+            "export_process_id": "grind",
+            "normalized_step_name": "磨孔",
+            "sequence": 1,
+            "source_nodes": [],
+            "doc_coverage": {
+              "total_docs": 2,
+              "hit_docs": 1
+            }
+          },
+          "edited": true,
+          "conditionText": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+          "conditionReview": {
+            "source_text": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+            "status": "confirmed",
+            "confirmed": {
+              "kind": "process_configuration",
+              "configuration": {
+                "process_id": "grind",
+                "occurrence": "conditional",
+                "when": {
+                  "all": [
+                    {
+                      "field": "project_factor.operation_4a95de15.features",
+                      "op": "contains_any",
+                      "value": [
+                        "孔(通孔)"
+                      ]
+                    },
+                    {
+                      "field": "project_factor.operation_4a95de15.direction",
+                      "op": "eq",
+                      "value": "A侧"
+                    },
+                    {
+                      "field": "project_factor.operation_4a95de15.it",
+                      "op": "lte",
+                      "value": 7
+                    }
+                  ]
+                },
+                "relations": []
+              },
+              "field_definitions": [
+                {
+                  "key": "project_factor.operation_4a95de15.features",
+                  "label": "加工对象的特征",
+                  "type": "multi_select",
+                  "category": "磨孔 · 孔(通孔)",
+                  "operators": [
+                    "contains_any"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [
+                    {
+                      "value": "孔(通孔)",
+                      "label": "孔(通孔)"
+                    },
+                    {
+                      "value": "孔(盲孔)",
+                      "label": "孔(盲孔)"
+                    }
+                  ],
+                  "allow_custom": false
+                },
+                {
+                  "key": "project_factor.operation_4a95de15.direction",
+                  "label": "同一加工对象的方位",
+                  "type": "single_select",
+                  "category": "磨孔 · 孔(通孔)",
+                  "operators": [
+                    "eq"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [
+                    {
+                      "value": "A侧",
+                      "label": "A侧"
+                    },
+                    {
+                      "value": "B侧",
+                      "label": "B侧"
+                    },
+                    {
+                      "value": "中间",
+                      "label": "中间"
+                    },
+                    {
+                      "value": "周边",
+                      "label": "周边"
+                    },
+                    {
+                      "value": "所有方位",
+                      "label": "所有方位"
+                    }
+                  ],
+                  "allow_custom": false
+                },
+                {
+                  "key": "project_factor.operation_4a95de15.it",
+                  "label": "孔(通孔)的实际尺寸精度等级",
+                  "type": "number",
+                  "category": "磨孔 · 孔(通孔)",
+                  "operators": [
+                    "lte"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [],
+                  "allow_custom": false,
+                  "unit": "IT",
+                  "validation": {
+                    "min": 1,
+                    "max": 18
+                  }
+                }
+              ],
+              "preview": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+              "evidence": "用户确认的第三步回答"
+            },
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00",
+            "issues": []
+          }
+        },
+        {
+          "segment": {
+            "id": "hone",
+            "export_process_id": "hone",
+            "normalized_step_name": "珩孔",
+            "sequence": 2,
+            "source_nodes": [],
+            "doc_coverage": {
+              "total_docs": 2,
+              "hit_docs": 1
+            }
+          },
+          "edited": true,
+          "conditionText": "孔(通孔)位于A侧，且实际尺寸精度≤IT6时安排珩孔。",
+          "conditionReview": {
+            "source_text": "孔(通孔)位于A侧，且实际尺寸精度≤IT6时安排珩孔。",
+            "status": "confirmed",
+            "confirmed": {
+              "kind": "process_configuration",
+              "configuration": {
+                "process_id": "hone",
+                "occurrence": "conditional",
+                "when": {
+                  "all": [
+                    {
+                      "field": "project_factor.operation_c2cae7f5.features",
+                      "op": "contains_any",
+                      "value": [
+                        "孔(通孔)"
+                      ]
+                    },
+                    {
+                      "field": "project_factor.operation_c2cae7f5.direction",
+                      "op": "eq",
+                      "value": "A侧"
+                    },
+                    {
+                      "field": "project_factor.operation_c2cae7f5.it",
+                      "op": "lte",
+                      "value": 6
+                    }
+                  ]
+                },
+                "relations": []
+              },
+              "field_definitions": [
+                {
+                  "key": "project_factor.operation_c2cae7f5.features",
+                  "label": "加工对象的特征",
+                  "category": "本项目条件",
+                  "type": "multi_select",
+                  "operators": [
+                    "contains_any"
+                  ],
+                  "aliases": [],
+                  "source": "项目问答配置；同一加工对象；工序=hone",
+                  "options": [
+                    {
+                      "value": "孔(通孔)",
+                      "label": "孔(通孔)"
+                    },
+                    {
+                      "value": "孔(盲孔)",
+                      "label": "孔(盲孔)"
+                    }
+                  ],
+                  "allow_custom": false,
+                  "required": false
+                },
+                {
+                  "key": "project_factor.operation_c2cae7f5.direction",
+                  "label": "同一加工对象的方位",
+                  "category": "本项目条件",
+                  "type": "single_select",
+                  "operators": [
+                    "eq"
+                  ],
+                  "aliases": [],
+                  "source": "项目问答配置；同一加工对象；工序=hone",
+                  "options": [
+                    {
+                      "value": "A侧",
+                      "label": "A侧"
+                    },
+                    {
+                      "value": "B侧",
+                      "label": "B侧"
+                    },
+                    {
+                      "value": "中间",
+                      "label": "中间"
+                    },
+                    {
+                      "value": "周边",
+                      "label": "周边"
+                    },
+                    {
+                      "value": "所有方位",
+                      "label": "所有方位"
+                    }
+                  ],
+                  "allow_custom": false,
+                  "required": false
+                },
+                {
+                  "key": "project_factor.operation_c2cae7f5.it",
+                  "label": "孔(通孔)、孔(盲孔)的实际尺寸精度等级",
+                  "category": "本项目条件",
+                  "type": "number",
+                  "operators": [
+                    "lte"
+                  ],
+                  "aliases": [],
+                  "source": "项目问答配置；同一加工对象；工序=hone",
+                  "options": [
+                    {
+                      "value": "-1",
+                      "label": "IT01"
+                    },
+                    {
+                      "value": "0",
+                      "label": "IT0"
+                    },
+                    {
+                      "value": "1",
+                      "label": "IT1"
+                    },
+                    {
+                      "value": "2",
+                      "label": "IT2"
+                    },
+                    {
+                      "value": "3",
+                      "label": "IT3"
+                    },
+                    {
+                      "value": "4",
+                      "label": "IT4"
+                    },
+                    {
+                      "value": "5",
+                      "label": "IT5"
+                    },
+                    {
+                      "value": "6",
+                      "label": "IT6"
+                    },
+                    {
+                      "value": "7",
+                      "label": "IT7"
+                    },
+                    {
+                      "value": "8",
+                      "label": "IT8"
+                    },
+                    {
+                      "value": "9",
+                      "label": "IT9"
+                    },
+                    {
+                      "value": "10",
+                      "label": "IT10"
+                    },
+                    {
+                      "value": "11",
+                      "label": "IT11"
+                    },
+                    {
+                      "value": "12",
+                      "label": "IT12"
+                    },
+                    {
+                      "value": "13",
+                      "label": "IT13"
+                    },
+                    {
+                      "value": "14",
+                      "label": "IT14"
+                    },
+                    {
+                      "value": "15",
+                      "label": "IT15"
+                    },
+                    {
+                      "value": "16",
+                      "label": "IT16"
+                    },
+                    {
+                      "value": "17",
+                      "label": "IT17"
+                    },
+                    {
+                      "value": "18",
+                      "label": "IT18"
+                    }
+                  ],
+                  "allow_custom": false,
+                  "required": false,
+                  "unit": "IT",
+                  "validation": {
+                    "min": -1,
+                    "max": 18
+                  }
+                }
+              ],
+              "preview": "孔(通孔)位于A侧，且实际尺寸精度≤IT6时安排珩孔。",
+              "evidence": "用户确认的第三步回答"
+            },
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00",
+            "issues": []
+          }
+        }
+      ],
+      "request": {
+        "project_id": 7,
+        "package_name": "mixed-guided-editor-it",
+        "route_version_id": 1,
+        "applicability": {
+          "part_families": [],
+          "manufacturing_modes": [
+            "machining"
+          ]
+        },
+        "factor_dictionary": {
+          "schema_version": "2.0",
+          "fields": [
+            {
+              "key": "project_factor.operation_4a95de15.features",
+              "label": "加工对象的特征",
+              "type": "multi_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [
+                {
+                  "value": "孔(通孔)",
+                  "label": "孔(通孔)"
+                },
+                {
+                  "value": "孔(盲孔)",
+                  "label": "孔(盲孔)"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_4a95de15.direction",
+              "label": "同一加工对象的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_4a95de15.it",
+              "label": "孔(通孔)的实际尺寸精度等级",
+              "type": "number",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [],
+              "allow_custom": false,
+              "unit": "IT",
+              "validation": {
+                "min": 1,
+                "max": 18
+              }
+            },
+            {
+              "key": "project_factor.operation_c2cae7f5.features",
+              "label": "加工对象的特征",
+              "type": "multi_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=hone",
+              "options": [
+                {
+                  "value": "孔(通孔)",
+                  "label": "孔(通孔)"
+                },
+                {
+                  "value": "孔(盲孔)",
+                  "label": "孔(盲孔)"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_c2cae7f5.direction",
+              "label": "同一加工对象的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=hone",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_c2cae7f5.it",
+              "label": "孔(通孔)、孔(盲孔)的实际尺寸精度等级",
+              "type": "number",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=hone",
+              "options": [
+                {
+                  "value": "-1",
+                  "label": "IT01"
+                },
+                {
+                  "value": "0",
+                  "label": "IT0"
+                },
+                {
+                  "value": "1",
+                  "label": "IT1"
+                },
+                {
+                  "value": "2",
+                  "label": "IT2"
+                },
+                {
+                  "value": "3",
+                  "label": "IT3"
+                },
+                {
+                  "value": "4",
+                  "label": "IT4"
+                },
+                {
+                  "value": "5",
+                  "label": "IT5"
+                },
+                {
+                  "value": "6",
+                  "label": "IT6"
+                },
+                {
+                  "value": "7",
+                  "label": "IT7"
+                },
+                {
+                  "value": "8",
+                  "label": "IT8"
+                },
+                {
+                  "value": "9",
+                  "label": "IT9"
+                },
+                {
+                  "value": "10",
+                  "label": "IT10"
+                },
+                {
+                  "value": "11",
+                  "label": "IT11"
+                },
+                {
+                  "value": "12",
+                  "label": "IT12"
+                },
+                {
+                  "value": "13",
+                  "label": "IT13"
+                },
+                {
+                  "value": "14",
+                  "label": "IT14"
+                },
+                {
+                  "value": "15",
+                  "label": "IT15"
+                },
+                {
+                  "value": "16",
+                  "label": "IT16"
+                },
+                {
+                  "value": "17",
+                  "label": "IT17"
+                },
+                {
+                  "value": "18",
+                  "label": "IT18"
+                }
+              ],
+              "allow_custom": false,
+              "unit": "IT",
+              "validation": {
+                "min": -1,
+                "max": 18
+              }
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+              "label": "孔(通孔)",
+              "type": "boolean",
+              "required": false,
+              "source": "本项目特征输入",
+              "allow_custom": false
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+              "label": "孔(通孔)的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "本项目特征输入",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+              "label": "孔(通孔)的实际尺寸精度等级",
+              "type": "number",
+              "required": false,
+              "source": "本项目特征输入",
+              "options": [],
+              "allow_custom": false,
+              "unit": "IT",
+              "validation": {
+                "min": 5,
+                "max": 10
+              }
+            }
+          ]
+        },
+        "fields": [
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+            "label": "孔(通孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+            "label": "孔(通孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "中间",
+                "label": "中间"
+              },
+              {
+                "value": "周边",
+                "label": "周边"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "allow_custom": false,
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+            "label": "孔(通孔)的实际尺寸精度等级",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "options": [],
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            }
+          }
+        ],
+        "processes": [
+          {
+            "process_id": "prepare",
+            "process_code": "PREPARE",
+            "display_name": "备料",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 0,
+            "main": true,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "prepare.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          },
+          {
+            "process_id": "grind",
+            "process_code": "GRIND",
+            "display_name": "磨孔",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 10,
+            "main": false,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "grind.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          },
+          {
+            "process_id": "hone",
+            "process_code": "HONE",
+            "display_name": "珩孔",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 20,
+            "main": false,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "hone.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          }
+        ],
+        "rules": [],
+        "process_relations": [],
+        "process_configurations": [
+          {
+            "process_id": "grind",
+            "occurrence": "conditional",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                  "op": "in",
+                  "value": [
+                    "A侧",
+                    "所有方位"
+                  ]
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.it",
+                  "op": "lte",
+                  "value": 7
+                }
+              ]
+            },
+            "relations": [],
+            "enabled": true,
+            "source": "user_confirmed",
+            "source_segment_id": "grind",
+            "source_text": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00"
+          },
+          {
+            "process_id": "hone",
+            "occurrence": "conditional",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                  "op": "in",
+                  "value": [
+                    "A侧",
+                    "所有方位"
+                  ]
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.it",
+                  "op": "lte",
+                  "value": 6
+                }
+              ]
+            },
+            "relations": [],
+            "enabled": true,
+            "source": "user_confirmed",
+            "source_segment_id": "hone",
+            "source_text": "孔(通孔)位于A侧，且实际尺寸精度≤IT6时安排珩孔。",
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00"
+          }
+        ],
+        "test_cases": [
+          {
+            "case_id": "default-smoke",
+            "input": {
+              "project_factor": {
+                "feature_5b54_28_901a_5b54_29": {
+                  "present": true,
+                  "direction": "A侧",
+                  "it": 7
+                }
+              }
+            },
+            "expect": {
+              "included_process_ids": [
+                "prepare"
+              ],
+              "excluded_process_ids": []
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "mixed-editor-guided-it",
+      "cards": [
+        {
+          "segment": {
+            "id": "grind",
+            "export_process_id": "grind",
+            "normalized_step_name": "磨孔",
+            "sequence": 1,
+            "source_nodes": [],
+            "doc_coverage": {
+              "total_docs": 2,
+              "hit_docs": 1
+            }
+          },
+          "edited": true,
+          "conditionText": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+          "conditionReview": {
+            "source_text": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+            "status": "confirmed",
+            "confirmed": {
+              "kind": "process_configuration",
+              "configuration": {
+                "process_id": "grind",
+                "occurrence": "conditional",
+                "when": {
+                  "all": [
+                    {
+                      "field": "project_factor.operation_4a95de15.features",
+                      "op": "contains_any",
+                      "value": [
+                        "孔(通孔)"
+                      ]
+                    },
+                    {
+                      "field": "project_factor.operation_4a95de15.direction",
+                      "op": "eq",
+                      "value": "A侧"
+                    },
+                    {
+                      "field": "project_factor.operation_4a95de15.it",
+                      "op": "lte",
+                      "value": 7
+                    }
+                  ]
+                },
+                "relations": []
+              },
+              "field_definitions": [
+                {
+                  "key": "project_factor.operation_4a95de15.features",
+                  "label": "加工对象的特征",
+                  "category": "本项目条件",
+                  "type": "multi_select",
+                  "operators": [
+                    "contains_any"
+                  ],
+                  "aliases": [],
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [
+                    {
+                      "value": "孔(通孔)",
+                      "label": "孔(通孔)"
+                    },
+                    {
+                      "value": "孔(盲孔)",
+                      "label": "孔(盲孔)"
+                    }
+                  ],
+                  "allow_custom": false,
+                  "required": false
+                },
+                {
+                  "key": "project_factor.operation_4a95de15.direction",
+                  "label": "同一加工对象的方位",
+                  "category": "本项目条件",
+                  "type": "single_select",
+                  "operators": [
+                    "eq"
+                  ],
+                  "aliases": [],
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [
+                    {
+                      "value": "A侧",
+                      "label": "A侧"
+                    },
+                    {
+                      "value": "B侧",
+                      "label": "B侧"
+                    },
+                    {
+                      "value": "中间",
+                      "label": "中间"
+                    },
+                    {
+                      "value": "周边",
+                      "label": "周边"
+                    },
+                    {
+                      "value": "所有方位",
+                      "label": "所有方位"
+                    }
+                  ],
+                  "allow_custom": false,
+                  "required": false
+                },
+                {
+                  "key": "project_factor.operation_4a95de15.it",
+                  "label": "孔(通孔)、孔(盲孔)的实际尺寸精度等级",
+                  "category": "本项目条件",
+                  "type": "number",
+                  "operators": [
+                    "lte"
+                  ],
+                  "aliases": [],
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [
+                    {
+                      "value": "-1",
+                      "label": "IT01"
+                    },
+                    {
+                      "value": "0",
+                      "label": "IT0"
+                    },
+                    {
+                      "value": "1",
+                      "label": "IT1"
+                    },
+                    {
+                      "value": "2",
+                      "label": "IT2"
+                    },
+                    {
+                      "value": "3",
+                      "label": "IT3"
+                    },
+                    {
+                      "value": "4",
+                      "label": "IT4"
+                    },
+                    {
+                      "value": "5",
+                      "label": "IT5"
+                    },
+                    {
+                      "value": "6",
+                      "label": "IT6"
+                    },
+                    {
+                      "value": "7",
+                      "label": "IT7"
+                    },
+                    {
+                      "value": "8",
+                      "label": "IT8"
+                    },
+                    {
+                      "value": "9",
+                      "label": "IT9"
+                    },
+                    {
+                      "value": "10",
+                      "label": "IT10"
+                    },
+                    {
+                      "value": "11",
+                      "label": "IT11"
+                    },
+                    {
+                      "value": "12",
+                      "label": "IT12"
+                    },
+                    {
+                      "value": "13",
+                      "label": "IT13"
+                    },
+                    {
+                      "value": "14",
+                      "label": "IT14"
+                    },
+                    {
+                      "value": "15",
+                      "label": "IT15"
+                    },
+                    {
+                      "value": "16",
+                      "label": "IT16"
+                    },
+                    {
+                      "value": "17",
+                      "label": "IT17"
+                    },
+                    {
+                      "value": "18",
+                      "label": "IT18"
+                    }
+                  ],
+                  "allow_custom": false,
+                  "required": false,
+                  "unit": "IT",
+                  "validation": {
+                    "min": -1,
+                    "max": 18
+                  }
+                }
+              ],
+              "preview": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+              "evidence": "用户确认的第三步回答"
+            },
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00",
+            "issues": []
+          }
+        },
+        {
+          "segment": {
+            "id": "hone",
+            "export_process_id": "hone",
+            "normalized_step_name": "珩孔",
+            "sequence": 2,
+            "source_nodes": [],
+            "doc_coverage": {
+              "total_docs": 2,
+              "hit_docs": 1
+            }
+          },
+          "edited": true,
+          "conditionText": "孔(通孔)位于A侧，且实际尺寸精度≤IT6时安排珩孔。",
+          "conditionReview": {
+            "source_text": "孔(通孔)位于A侧，且实际尺寸精度≤IT6时安排珩孔。",
+            "status": "confirmed",
+            "confirmed": {
+              "kind": "process_configuration",
+              "configuration": {
+                "process_id": "hone",
+                "occurrence": "conditional",
+                "when": {
+                  "all": [
+                    {
+                      "field": "project_factor.operation_c2cae7f5.features",
+                      "op": "contains_any",
+                      "value": [
+                        "孔(通孔)"
+                      ]
+                    },
+                    {
+                      "field": "project_factor.operation_c2cae7f5.direction",
+                      "op": "eq",
+                      "value": "A侧"
+                    },
+                    {
+                      "field": "project_factor.operation_c2cae7f5.it",
+                      "op": "lte",
+                      "value": 6
+                    }
+                  ]
+                },
+                "relations": []
+              },
+              "field_definitions": [
+                {
+                  "key": "project_factor.operation_c2cae7f5.features",
+                  "label": "加工对象的特征",
+                  "type": "multi_select",
+                  "category": "珩孔 · 孔(通孔)",
+                  "operators": [
+                    "contains_any"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=hone",
+                  "options": [
+                    {
+                      "value": "孔(通孔)",
+                      "label": "孔(通孔)"
+                    },
+                    {
+                      "value": "孔(盲孔)",
+                      "label": "孔(盲孔)"
+                    }
+                  ],
+                  "allow_custom": false
+                },
+                {
+                  "key": "project_factor.operation_c2cae7f5.direction",
+                  "label": "同一加工对象的方位",
+                  "type": "single_select",
+                  "category": "珩孔 · 孔(通孔)",
+                  "operators": [
+                    "eq"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=hone",
+                  "options": [
+                    {
+                      "value": "A侧",
+                      "label": "A侧"
+                    },
+                    {
+                      "value": "B侧",
+                      "label": "B侧"
+                    },
+                    {
+                      "value": "中间",
+                      "label": "中间"
+                    },
+                    {
+                      "value": "周边",
+                      "label": "周边"
+                    },
+                    {
+                      "value": "所有方位",
+                      "label": "所有方位"
+                    }
+                  ],
+                  "allow_custom": false
+                },
+                {
+                  "key": "project_factor.operation_c2cae7f5.it",
+                  "label": "孔(通孔)的实际尺寸精度等级",
+                  "type": "number",
+                  "category": "珩孔 · 孔(通孔)",
+                  "operators": [
+                    "lte"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=hone",
+                  "options": [],
+                  "allow_custom": false,
+                  "unit": "IT",
+                  "validation": {
+                    "min": 1,
+                    "max": 18
+                  }
+                }
+              ],
+              "preview": "孔(通孔)位于A侧，且实际尺寸精度≤IT6时安排珩孔。",
+              "evidence": "用户确认的第三步回答"
+            },
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00",
+            "issues": []
+          }
+        }
+      ],
+      "request": {
+        "project_id": 7,
+        "package_name": "mixed-editor-guided-it",
+        "route_version_id": 1,
+        "applicability": {
+          "part_families": [],
+          "manufacturing_modes": [
+            "machining"
+          ]
+        },
+        "factor_dictionary": {
+          "schema_version": "2.0",
+          "fields": [
+            {
+              "key": "project_factor.operation_4a95de15.features",
+              "label": "加工对象的特征",
+              "type": "multi_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [
+                {
+                  "value": "孔(通孔)",
+                  "label": "孔(通孔)"
+                },
+                {
+                  "value": "孔(盲孔)",
+                  "label": "孔(盲孔)"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_4a95de15.direction",
+              "label": "同一加工对象的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_4a95de15.it",
+              "label": "孔(通孔)、孔(盲孔)的实际尺寸精度等级",
+              "type": "number",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [
+                {
+                  "value": "-1",
+                  "label": "IT01"
+                },
+                {
+                  "value": "0",
+                  "label": "IT0"
+                },
+                {
+                  "value": "1",
+                  "label": "IT1"
+                },
+                {
+                  "value": "2",
+                  "label": "IT2"
+                },
+                {
+                  "value": "3",
+                  "label": "IT3"
+                },
+                {
+                  "value": "4",
+                  "label": "IT4"
+                },
+                {
+                  "value": "5",
+                  "label": "IT5"
+                },
+                {
+                  "value": "6",
+                  "label": "IT6"
+                },
+                {
+                  "value": "7",
+                  "label": "IT7"
+                },
+                {
+                  "value": "8",
+                  "label": "IT8"
+                },
+                {
+                  "value": "9",
+                  "label": "IT9"
+                },
+                {
+                  "value": "10",
+                  "label": "IT10"
+                },
+                {
+                  "value": "11",
+                  "label": "IT11"
+                },
+                {
+                  "value": "12",
+                  "label": "IT12"
+                },
+                {
+                  "value": "13",
+                  "label": "IT13"
+                },
+                {
+                  "value": "14",
+                  "label": "IT14"
+                },
+                {
+                  "value": "15",
+                  "label": "IT15"
+                },
+                {
+                  "value": "16",
+                  "label": "IT16"
+                },
+                {
+                  "value": "17",
+                  "label": "IT17"
+                },
+                {
+                  "value": "18",
+                  "label": "IT18"
+                }
+              ],
+              "allow_custom": false,
+              "unit": "IT",
+              "validation": {
+                "min": -1,
+                "max": 18
+              }
+            },
+            {
+              "key": "project_factor.operation_c2cae7f5.features",
+              "label": "加工对象的特征",
+              "type": "multi_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=hone",
+              "options": [
+                {
+                  "value": "孔(通孔)",
+                  "label": "孔(通孔)"
+                },
+                {
+                  "value": "孔(盲孔)",
+                  "label": "孔(盲孔)"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_c2cae7f5.direction",
+              "label": "同一加工对象的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=hone",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_c2cae7f5.it",
+              "label": "孔(通孔)的实际尺寸精度等级",
+              "type": "number",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=hone",
+              "options": [],
+              "allow_custom": false,
+              "unit": "IT",
+              "validation": {
+                "min": 1,
+                "max": 18
+              }
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+              "label": "孔(通孔)",
+              "type": "boolean",
+              "required": false,
+              "source": "本项目特征输入",
+              "allow_custom": false
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+              "label": "孔(通孔)的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "本项目特征输入",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+              "label": "孔(通孔)的实际尺寸精度等级",
+              "type": "number",
+              "required": false,
+              "source": "本项目特征输入",
+              "options": [],
+              "allow_custom": false,
+              "unit": "IT",
+              "validation": {
+                "min": 5,
+                "max": 10
+              }
+            }
+          ]
+        },
+        "fields": [
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+            "label": "孔(通孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+            "label": "孔(通孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "中间",
+                "label": "中间"
+              },
+              {
+                "value": "周边",
+                "label": "周边"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "allow_custom": false,
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+            "label": "孔(通孔)的实际尺寸精度等级",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "options": [],
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            }
+          }
+        ],
+        "processes": [
+          {
+            "process_id": "prepare",
+            "process_code": "PREPARE",
+            "display_name": "备料",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 0,
+            "main": true,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "prepare.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          },
+          {
+            "process_id": "grind",
+            "process_code": "GRIND",
+            "display_name": "磨孔",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 10,
+            "main": false,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "grind.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          },
+          {
+            "process_id": "hone",
+            "process_code": "HONE",
+            "display_name": "珩孔",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 20,
+            "main": false,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "hone.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          }
+        ],
+        "rules": [],
+        "process_relations": [],
+        "process_configurations": [
+          {
+            "process_id": "grind",
+            "occurrence": "conditional",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                  "op": "in",
+                  "value": [
+                    "A侧",
+                    "所有方位"
+                  ]
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.it",
+                  "op": "lte",
+                  "value": 7
+                }
+              ]
+            },
+            "relations": [],
+            "enabled": true,
+            "source": "user_confirmed",
+            "source_segment_id": "grind",
+            "source_text": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00"
+          },
+          {
+            "process_id": "hone",
+            "occurrence": "conditional",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                  "op": "in",
+                  "value": [
+                    "A侧",
+                    "所有方位"
+                  ]
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.it",
+                  "op": "lte",
+                  "value": 6
+                }
+              ]
+            },
+            "relations": [],
+            "enabled": true,
+            "source": "user_confirmed",
+            "source_segment_id": "hone",
+            "source_text": "孔(通孔)位于A侧，且实际尺寸精度≤IT6时安排珩孔。",
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00"
+          }
+        ],
+        "test_cases": [
+          {
+            "case_id": "default-smoke",
+            "input": {
+              "project_factor": {
+                "feature_5b54_28_901a_5b54_29": {
+                  "present": true,
+                  "direction": "A侧",
+                  "it": 7
+                }
+              }
+            },
+            "expect": {
+              "included_process_ids": [
+                "prepare"
+              ],
+              "excluded_process_ids": []
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "shared-it-ra",
+      "cards": [
+        {
+          "segment": {
+            "id": "grind",
+            "export_process_id": "grind",
+            "normalized_step_name": "磨孔",
+            "sequence": 1,
+            "source_nodes": [],
+            "doc_coverage": {
+              "total_docs": 2,
+              "hit_docs": 1
+            }
+          },
+          "edited": true,
+          "conditionText": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+          "conditionReview": {
+            "source_text": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+            "status": "confirmed",
+            "confirmed": {
+              "kind": "process_configuration",
+              "configuration": {
+                "process_id": "grind",
+                "occurrence": "conditional",
+                "when": {
+                  "all": [
+                    {
+                      "field": "project_factor.operation_4a95de15.features",
+                      "op": "contains_any",
+                      "value": [
+                        "孔(通孔)"
+                      ]
+                    },
+                    {
+                      "field": "project_factor.operation_4a95de15.direction",
+                      "op": "eq",
+                      "value": "A侧"
+                    },
+                    {
+                      "field": "project_factor.operation_4a95de15.it",
+                      "op": "lte",
+                      "value": 7
+                    }
+                  ]
+                },
+                "relations": []
+              },
+              "field_definitions": [
+                {
+                  "key": "project_factor.operation_4a95de15.features",
+                  "label": "加工对象的特征",
+                  "type": "multi_select",
+                  "category": "磨孔 · 孔(通孔)",
+                  "operators": [
+                    "contains_any"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [
+                    {
+                      "value": "孔(通孔)",
+                      "label": "孔(通孔)"
+                    },
+                    {
+                      "value": "孔(盲孔)",
+                      "label": "孔(盲孔)"
+                    }
+                  ],
+                  "allow_custom": false
+                },
+                {
+                  "key": "project_factor.operation_4a95de15.direction",
+                  "label": "同一加工对象的方位",
+                  "type": "single_select",
+                  "category": "磨孔 · 孔(通孔)",
+                  "operators": [
+                    "eq"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [
+                    {
+                      "value": "A侧",
+                      "label": "A侧"
+                    },
+                    {
+                      "value": "B侧",
+                      "label": "B侧"
+                    },
+                    {
+                      "value": "中间",
+                      "label": "中间"
+                    },
+                    {
+                      "value": "周边",
+                      "label": "周边"
+                    },
+                    {
+                      "value": "所有方位",
+                      "label": "所有方位"
+                    }
+                  ],
+                  "allow_custom": false
+                },
+                {
+                  "key": "project_factor.operation_4a95de15.it",
+                  "label": "孔(通孔)的实际尺寸精度等级",
+                  "type": "number",
+                  "category": "磨孔 · 孔(通孔)",
+                  "operators": [
+                    "lte"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [],
+                  "allow_custom": false,
+                  "unit": "IT",
+                  "validation": {
+                    "min": 1,
+                    "max": 18
+                  }
+                }
+              ],
+              "preview": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+              "evidence": "用户确认的第三步回答"
+            },
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00",
+            "issues": []
+          }
+        },
+        {
+          "segment": {
+            "id": "hone",
+            "export_process_id": "hone",
+            "normalized_step_name": "珩孔",
+            "sequence": 2,
+            "source_nodes": [],
+            "doc_coverage": {
+              "total_docs": 2,
+              "hit_docs": 1
+            }
+          },
+          "edited": true,
+          "conditionText": "孔(通孔)位于A侧，且实际Ra要求值≤0.8 μm时安排珩孔。",
+          "conditionReview": {
+            "source_text": "孔(通孔)位于A侧，且实际Ra要求值≤0.8 μm时安排珩孔。",
+            "status": "confirmed",
+            "confirmed": {
+              "kind": "process_configuration",
+              "configuration": {
+                "process_id": "hone",
+                "occurrence": "conditional",
+                "when": {
+                  "all": [
+                    {
+                      "field": "project_factor.operation_c2cae7f5.features",
+                      "op": "contains_any",
+                      "value": [
+                        "孔(通孔)"
+                      ]
+                    },
+                    {
+                      "field": "project_factor.operation_c2cae7f5.direction",
+                      "op": "eq",
+                      "value": "A侧"
+                    },
+                    {
+                      "field": "project_factor.operation_c2cae7f5.ra",
+                      "op": "lte",
+                      "value": 0.8
+                    }
+                  ]
+                },
+                "relations": []
+              },
+              "field_definitions": [
+                {
+                  "key": "project_factor.operation_c2cae7f5.features",
+                  "label": "加工对象的特征",
+                  "category": "本项目条件",
+                  "type": "multi_select",
+                  "operators": [
+                    "contains_any"
+                  ],
+                  "aliases": [],
+                  "source": "项目问答配置；同一加工对象；工序=hone",
+                  "options": [
+                    {
+                      "value": "孔(通孔)",
+                      "label": "孔(通孔)"
+                    },
+                    {
+                      "value": "孔(盲孔)",
+                      "label": "孔(盲孔)"
+                    }
+                  ],
+                  "allow_custom": false,
+                  "required": false
+                },
+                {
+                  "key": "project_factor.operation_c2cae7f5.direction",
+                  "label": "同一加工对象的方位",
+                  "category": "本项目条件",
+                  "type": "single_select",
+                  "operators": [
+                    "eq"
+                  ],
+                  "aliases": [],
+                  "source": "项目问答配置；同一加工对象；工序=hone",
+                  "options": [
+                    {
+                      "value": "A侧",
+                      "label": "A侧"
+                    },
+                    {
+                      "value": "B侧",
+                      "label": "B侧"
+                    },
+                    {
+                      "value": "中间",
+                      "label": "中间"
+                    },
+                    {
+                      "value": "周边",
+                      "label": "周边"
+                    },
+                    {
+                      "value": "所有方位",
+                      "label": "所有方位"
+                    }
+                  ],
+                  "allow_custom": false,
+                  "required": false
+                },
+                {
+                  "key": "project_factor.operation_c2cae7f5.ra",
+                  "label": "孔(通孔)、孔(盲孔)的实际Ra要求值",
+                  "category": "本项目条件",
+                  "type": "number",
+                  "operators": [
+                    "lte"
+                  ],
+                  "aliases": [],
+                  "source": "项目问答配置；同一加工对象；工序=hone",
+                  "options": [],
+                  "allow_custom": false,
+                  "required": false,
+                  "unit": "μm",
+                  "validation": {
+                    "min": 0
+                  }
+                }
+              ],
+              "preview": "孔(通孔)位于A侧，且实际Ra要求值≤0.8 μm时安排珩孔。",
+              "evidence": "用户确认的第三步回答"
+            },
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00",
+            "issues": []
+          }
+        }
+      ],
+      "request": {
+        "project_id": 7,
+        "package_name": "shared-it-ra",
+        "route_version_id": 1,
+        "applicability": {
+          "part_families": [],
+          "manufacturing_modes": [
+            "machining"
+          ]
+        },
+        "factor_dictionary": {
+          "schema_version": "2.0",
+          "fields": [
+            {
+              "key": "project_factor.operation_4a95de15.features",
+              "label": "加工对象的特征",
+              "type": "multi_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [
+                {
+                  "value": "孔(通孔)",
+                  "label": "孔(通孔)"
+                },
+                {
+                  "value": "孔(盲孔)",
+                  "label": "孔(盲孔)"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_4a95de15.direction",
+              "label": "同一加工对象的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_4a95de15.it",
+              "label": "孔(通孔)的实际尺寸精度等级",
+              "type": "number",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [],
+              "allow_custom": false,
+              "unit": "IT",
+              "validation": {
+                "min": 1,
+                "max": 18
+              }
+            },
+            {
+              "key": "project_factor.operation_c2cae7f5.features",
+              "label": "加工对象的特征",
+              "type": "multi_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=hone",
+              "options": [
+                {
+                  "value": "孔(通孔)",
+                  "label": "孔(通孔)"
+                },
+                {
+                  "value": "孔(盲孔)",
+                  "label": "孔(盲孔)"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_c2cae7f5.direction",
+              "label": "同一加工对象的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=hone",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_c2cae7f5.ra",
+              "label": "孔(通孔)、孔(盲孔)的实际Ra要求值",
+              "type": "number",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=hone",
+              "options": [],
+              "allow_custom": false,
+              "unit": "μm",
+              "validation": {
+                "min": 0
+              }
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+              "label": "孔(通孔)",
+              "type": "boolean",
+              "required": false,
+              "source": "本项目特征输入",
+              "allow_custom": false
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+              "label": "孔(通孔)的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "本项目特征输入",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+              "label": "孔(通孔)的实际尺寸精度等级",
+              "type": "number",
+              "required": false,
+              "source": "本项目特征输入",
+              "options": [],
+              "allow_custom": false,
+              "unit": "IT",
+              "validation": {
+                "min": 5,
+                "max": 10
+              }
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.ra",
+              "label": "孔(通孔)的实际Ra要求值",
+              "type": "number",
+              "required": false,
+              "source": "本项目特征输入",
+              "options": [],
+              "allow_custom": false,
+              "unit": "μm",
+              "validation": {
+                "min": 0
+              }
+            }
+          ]
+        },
+        "fields": [
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+            "label": "孔(通孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+            "label": "孔(通孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "中间",
+                "label": "中间"
+              },
+              {
+                "value": "周边",
+                "label": "周边"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "allow_custom": false,
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+            "label": "孔(通孔)的实际尺寸精度等级",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "options": [],
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            }
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.ra",
+            "label": "孔(通孔)的实际Ra要求值",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "options": [],
+            "allow_custom": false,
+            "unit": "μm",
+            "validation": {
+              "min": 0
+            }
+          }
+        ],
+        "processes": [
+          {
+            "process_id": "prepare",
+            "process_code": "PREPARE",
+            "display_name": "备料",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 0,
+            "main": true,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "prepare.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          },
+          {
+            "process_id": "grind",
+            "process_code": "GRIND",
+            "display_name": "磨孔",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 10,
+            "main": false,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "grind.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          },
+          {
+            "process_id": "hone",
+            "process_code": "HONE",
+            "display_name": "珩孔",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 20,
+            "main": false,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "hone.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          }
+        ],
+        "rules": [],
+        "process_relations": [],
+        "process_configurations": [
+          {
+            "process_id": "grind",
+            "occurrence": "conditional",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                  "op": "in",
+                  "value": [
+                    "A侧",
+                    "所有方位"
+                  ]
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.it",
+                  "op": "lte",
+                  "value": 7
+                }
+              ]
+            },
+            "relations": [],
+            "enabled": true,
+            "source": "user_confirmed",
+            "source_segment_id": "grind",
+            "source_text": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00"
+          },
+          {
+            "process_id": "hone",
+            "occurrence": "conditional",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                  "op": "in",
+                  "value": [
+                    "A侧",
+                    "所有方位"
+                  ]
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.ra",
+                  "op": "lte",
+                  "value": 0.8
+                }
+              ]
+            },
+            "relations": [],
+            "enabled": true,
+            "source": "user_confirmed",
+            "source_segment_id": "hone",
+            "source_text": "孔(通孔)位于A侧，且实际Ra要求值≤0.8 μm时安排珩孔。",
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00"
+          }
+        ],
+        "test_cases": [
+          {
+            "case_id": "default-smoke",
+            "input": {
+              "project_factor": {
+                "feature_5b54_28_901a_5b54_29": {
+                  "present": true,
+                  "direction": "A侧",
+                  "it": 7,
+                  "ra": 1
+                }
+              }
+            },
+            "expect": {
+              "included_process_ids": [
+                "prepare"
+              ],
+              "excluded_process_ids": []
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "legacy-rule-it",
+      "cards": [
+        {
+          "segment": {
+            "id": "grind",
+            "export_process_id": "grind",
+            "normalized_step_name": "磨孔",
+            "sequence": 1,
+            "source_nodes": [],
+            "doc_coverage": {
+              "total_docs": 2,
+              "hit_docs": 1
+            }
+          },
+          "edited": true,
+          "conditionText": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+          "conditionReview": {
+            "source_text": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+            "status": "confirmed",
+            "confirmed": {
+              "kind": "condition",
+              "field_definitions": [
+                {
+                  "key": "project_factor.operation_4a95de15.features",
+                  "label": "加工对象的特征",
+                  "type": "multi_select",
+                  "category": "磨孔 · 孔(通孔)",
+                  "operators": [
+                    "contains_any"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [
+                    {
+                      "value": "孔(通孔)",
+                      "label": "孔(通孔)"
+                    },
+                    {
+                      "value": "孔(盲孔)",
+                      "label": "孔(盲孔)"
+                    }
+                  ],
+                  "allow_custom": false
+                },
+                {
+                  "key": "project_factor.operation_4a95de15.direction",
+                  "label": "同一加工对象的方位",
+                  "type": "single_select",
+                  "category": "磨孔 · 孔(通孔)",
+                  "operators": [
+                    "eq"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [
+                    {
+                      "value": "A侧",
+                      "label": "A侧"
+                    },
+                    {
+                      "value": "B侧",
+                      "label": "B侧"
+                    },
+                    {
+                      "value": "中间",
+                      "label": "中间"
+                    },
+                    {
+                      "value": "周边",
+                      "label": "周边"
+                    },
+                    {
+                      "value": "所有方位",
+                      "label": "所有方位"
+                    }
+                  ],
+                  "allow_custom": false
+                },
+                {
+                  "key": "project_factor.operation_4a95de15.it",
+                  "label": "孔(通孔)的实际尺寸精度等级",
+                  "type": "number",
+                  "category": "磨孔 · 孔(通孔)",
+                  "operators": [
+                    "lte"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [],
+                  "allow_custom": false,
+                  "unit": "IT",
+                  "validation": {
+                    "min": 1,
+                    "max": 18
+                  }
+                }
+              ],
+              "preview": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+              "evidence": "用户确认的第三步回答",
+              "when": {
+                "all": [
+                  {
+                    "field": "project_factor.operation_4a95de15.features",
+                    "op": "contains_any",
+                    "value": [
+                      "孔(通孔)"
+                    ]
+                  },
+                  {
+                    "field": "project_factor.operation_4a95de15.direction",
+                    "op": "eq",
+                    "value": "A侧"
+                  },
+                  {
+                    "field": "project_factor.operation_4a95de15.it",
+                    "op": "lte",
+                    "value": 7
+                  }
+                ]
+              },
+              "then": {
+                "include_process_ids": [
+                  "grind"
+                ],
+                "exclude_process_ids": []
+              }
+            },
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00",
+            "issues": []
+          }
+        }
+      ],
+      "request": {
+        "project_id": 7,
+        "package_name": "legacy-rule-it",
+        "route_version_id": 1,
+        "applicability": {
+          "part_families": [],
+          "manufacturing_modes": [
+            "machining"
+          ]
+        },
+        "factor_dictionary": {
+          "schema_version": "2.0",
+          "fields": [
+            {
+              "key": "project_factor.operation_4a95de15.features",
+              "label": "加工对象的特征",
+              "type": "multi_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [
+                {
+                  "value": "孔(通孔)",
+                  "label": "孔(通孔)"
+                },
+                {
+                  "value": "孔(盲孔)",
+                  "label": "孔(盲孔)"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_4a95de15.direction",
+              "label": "同一加工对象的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_4a95de15.it",
+              "label": "孔(通孔)的实际尺寸精度等级",
+              "type": "number",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [],
+              "allow_custom": false,
+              "unit": "IT",
+              "validation": {
+                "min": 1,
+                "max": 18
+              }
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+              "label": "孔(通孔)",
+              "type": "boolean",
+              "required": false,
+              "source": "本项目特征输入",
+              "allow_custom": false
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+              "label": "孔(通孔)的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "本项目特征输入",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+              "label": "孔(通孔)的实际尺寸精度等级",
+              "type": "number",
+              "required": false,
+              "source": "本项目特征输入",
+              "options": [],
+              "allow_custom": false,
+              "unit": "IT",
+              "validation": {
+                "min": 5,
+                "max": 10
+              }
+            }
+          ]
+        },
+        "fields": [
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+            "label": "孔(通孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+            "label": "孔(通孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "中间",
+                "label": "中间"
+              },
+              {
+                "value": "周边",
+                "label": "周边"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "allow_custom": false,
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+            "label": "孔(通孔)的实际尺寸精度等级",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "options": [],
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            }
+          }
+        ],
+        "processes": [
+          {
+            "process_id": "prepare",
+            "process_code": "PREPARE",
+            "display_name": "备料",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 0,
+            "main": true,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "prepare.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          },
+          {
+            "process_id": "grind",
+            "process_code": "GRIND",
+            "display_name": "磨孔",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 10,
+            "main": false,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "grind.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "user.grind",
+            "priority": 1999,
+            "enabled": true,
+            "source": "user_confirmed",
+            "source_segment_id": "grind",
+            "source_text": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                  "op": "in",
+                  "value": [
+                    "A侧",
+                    "所有方位"
+                  ]
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.it",
+                  "op": "lte",
+                  "value": 7
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "grind"
+              ],
+              "exclude_process_ids": [],
+              "reason": "用户确认条件：孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。"
+            }
+          }
+        ],
+        "process_relations": [],
+        "test_cases": [
+          {
+            "case_id": "default-smoke",
+            "input": {
+              "project_factor": {
+                "feature_5b54_28_901a_5b54_29": {
+                  "present": true,
+                  "direction": "A侧",
+                  "it": 7
+                }
+              }
+            },
+            "expect": {
+              "included_process_ids": [
+                "prepare"
+              ],
+              "excluded_process_ids": []
+            }
+          },
+          {
+            "case_id": "rule-user.grind",
+            "input": {
+              "project_factor": {
+                "feature_5b54_28_901a_5b54_29": {
+                  "present": true,
+                  "direction": "A侧",
+                  "it": 7
+                }
+              }
+            },
+            "expect": {
+              "included_process_ids": [
+                "grind"
+              ],
+              "excluded_process_ids": []
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "legacy-rule-ra",
+      "cards": [
+        {
+          "segment": {
+            "id": "grind",
+            "export_process_id": "grind",
+            "normalized_step_name": "磨孔",
+            "sequence": 1,
+            "source_nodes": [],
+            "doc_coverage": {
+              "total_docs": 2,
+              "hit_docs": 1
+            }
+          },
+          "edited": true,
+          "conditionText": "孔(通孔)位于A侧，且实际Ra要求值≤0.8 μm时安排磨孔。",
+          "conditionReview": {
+            "source_text": "孔(通孔)位于A侧，且实际Ra要求值≤0.8 μm时安排磨孔。",
+            "status": "confirmed",
+            "confirmed": {
+              "kind": "condition",
+              "field_definitions": [
+                {
+                  "key": "project_factor.operation_4a95de15.features",
+                  "label": "加工对象的特征",
+                  "type": "multi_select",
+                  "category": "磨孔 · 孔(通孔)",
+                  "operators": [
+                    "contains_any"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [
+                    {
+                      "value": "孔(通孔)",
+                      "label": "孔(通孔)"
+                    },
+                    {
+                      "value": "孔(盲孔)",
+                      "label": "孔(盲孔)"
+                    }
+                  ],
+                  "allow_custom": false
+                },
+                {
+                  "key": "project_factor.operation_4a95de15.direction",
+                  "label": "同一加工对象的方位",
+                  "type": "single_select",
+                  "category": "磨孔 · 孔(通孔)",
+                  "operators": [
+                    "eq"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [
+                    {
+                      "value": "A侧",
+                      "label": "A侧"
+                    },
+                    {
+                      "value": "B侧",
+                      "label": "B侧"
+                    },
+                    {
+                      "value": "中间",
+                      "label": "中间"
+                    },
+                    {
+                      "value": "周边",
+                      "label": "周边"
+                    },
+                    {
+                      "value": "所有方位",
+                      "label": "所有方位"
+                    }
+                  ],
+                  "allow_custom": false
+                },
+                {
+                  "key": "project_factor.operation_4a95de15.ra",
+                  "label": "孔(通孔)的实际Ra要求值",
+                  "type": "number",
+                  "category": "磨孔 · 孔(通孔)",
+                  "operators": [
+                    "lte"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [],
+                  "allow_custom": false,
+                  "unit": "μm",
+                  "validation": {
+                    "min": 0
+                  }
+                }
+              ],
+              "preview": "孔(通孔)位于A侧，且实际Ra要求值≤0.8 μm时安排磨孔。",
+              "evidence": "用户确认的第三步回答",
+              "when": {
+                "all": [
+                  {
+                    "field": "project_factor.operation_4a95de15.features",
+                    "op": "contains_any",
+                    "value": [
+                      "孔(通孔)"
+                    ]
+                  },
+                  {
+                    "field": "project_factor.operation_4a95de15.direction",
+                    "op": "eq",
+                    "value": "A侧"
+                  },
+                  {
+                    "field": "project_factor.operation_4a95de15.ra",
+                    "op": "lte",
+                    "value": 0.8
+                  }
+                ]
+              },
+              "then": {
+                "include_process_ids": [
+                  "grind"
+                ],
+                "exclude_process_ids": []
+              }
+            },
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00",
+            "issues": []
+          }
+        }
+      ],
+      "request": {
+        "project_id": 7,
+        "package_name": "legacy-rule-ra",
+        "route_version_id": 1,
+        "applicability": {
+          "part_families": [],
+          "manufacturing_modes": [
+            "machining"
+          ]
+        },
+        "factor_dictionary": {
+          "schema_version": "2.0",
+          "fields": [
+            {
+              "key": "project_factor.operation_4a95de15.features",
+              "label": "加工对象的特征",
+              "type": "multi_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [
+                {
+                  "value": "孔(通孔)",
+                  "label": "孔(通孔)"
+                },
+                {
+                  "value": "孔(盲孔)",
+                  "label": "孔(盲孔)"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_4a95de15.direction",
+              "label": "同一加工对象的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_4a95de15.ra",
+              "label": "孔(通孔)的实际Ra要求值",
+              "type": "number",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [],
+              "allow_custom": false,
+              "unit": "μm",
+              "validation": {
+                "min": 0
+              }
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+              "label": "孔(通孔)",
+              "type": "boolean",
+              "required": false,
+              "source": "本项目特征输入",
+              "allow_custom": false
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+              "label": "孔(通孔)的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "本项目特征输入",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.ra",
+              "label": "孔(通孔)的实际Ra要求值",
+              "type": "number",
+              "required": false,
+              "source": "本项目特征输入",
+              "options": [],
+              "allow_custom": false,
+              "unit": "μm",
+              "validation": {
+                "min": 0
+              }
+            }
+          ]
+        },
+        "fields": [
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+            "label": "孔(通孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+            "label": "孔(通孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "中间",
+                "label": "中间"
+              },
+              {
+                "value": "周边",
+                "label": "周边"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "allow_custom": false,
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.ra",
+            "label": "孔(通孔)的实际Ra要求值",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "options": [],
+            "allow_custom": false,
+            "unit": "μm",
+            "validation": {
+              "min": 0
+            }
+          }
+        ],
+        "processes": [
+          {
+            "process_id": "prepare",
+            "process_code": "PREPARE",
+            "display_name": "备料",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 0,
+            "main": true,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "prepare.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          },
+          {
+            "process_id": "grind",
+            "process_code": "GRIND",
+            "display_name": "磨孔",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 10,
+            "main": false,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "grind.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "user.grind",
+            "priority": 1999,
+            "enabled": true,
+            "source": "user_confirmed",
+            "source_segment_id": "grind",
+            "source_text": "孔(通孔)位于A侧，且实际Ra要求值≤0.8 μm时安排磨孔。",
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                  "op": "in",
+                  "value": [
+                    "A侧",
+                    "所有方位"
+                  ]
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.ra",
+                  "op": "lte",
+                  "value": 0.8
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "grind"
+              ],
+              "exclude_process_ids": [],
+              "reason": "用户确认条件：孔(通孔)位于A侧，且实际Ra要求值≤0.8 μm时安排磨孔。"
+            }
+          }
+        ],
+        "process_relations": [],
+        "test_cases": [
+          {
+            "case_id": "default-smoke",
+            "input": {
+              "project_factor": {
+                "feature_5b54_28_901a_5b54_29": {
+                  "present": true,
+                  "direction": "A侧",
+                  "ra": 1
+                }
+              }
+            },
+            "expect": {
+              "included_process_ids": [
+                "prepare"
+              ],
+              "excluded_process_ids": []
+            }
+          },
+          {
+            "case_id": "rule-user.grind",
+            "input": {
+              "project_factor": {
+                "feature_5b54_28_901a_5b54_29": {
+                  "present": true,
+                  "direction": "A侧",
+                  "ra": 0.8
+                }
+              }
+            },
+            "expect": {
+              "included_process_ids": [
+                "grind"
+              ],
+              "excluded_process_ids": []
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "legacy-mixed-it",
+      "cards": [
+        {
+          "segment": {
+            "id": "grind",
+            "export_process_id": "grind",
+            "normalized_step_name": "磨孔",
+            "sequence": 1,
+            "source_nodes": [],
+            "doc_coverage": {
+              "total_docs": 2,
+              "hit_docs": 1
+            }
+          },
+          "edited": true,
+          "conditionText": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+          "conditionReview": {
+            "source_text": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+            "status": "confirmed",
+            "confirmed": {
+              "kind": "condition",
+              "field_definitions": [
+                {
+                  "key": "project_factor.operation_4a95de15.features",
+                  "label": "加工对象的特征",
+                  "type": "multi_select",
+                  "category": "磨孔 · 孔(通孔)",
+                  "operators": [
+                    "contains_any"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [
+                    {
+                      "value": "孔(通孔)",
+                      "label": "孔(通孔)"
+                    },
+                    {
+                      "value": "孔(盲孔)",
+                      "label": "孔(盲孔)"
+                    }
+                  ],
+                  "allow_custom": false
+                },
+                {
+                  "key": "project_factor.operation_4a95de15.direction",
+                  "label": "同一加工对象的方位",
+                  "type": "single_select",
+                  "category": "磨孔 · 孔(通孔)",
+                  "operators": [
+                    "eq"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [
+                    {
+                      "value": "A侧",
+                      "label": "A侧"
+                    },
+                    {
+                      "value": "B侧",
+                      "label": "B侧"
+                    },
+                    {
+                      "value": "中间",
+                      "label": "中间"
+                    },
+                    {
+                      "value": "周边",
+                      "label": "周边"
+                    },
+                    {
+                      "value": "所有方位",
+                      "label": "所有方位"
+                    }
+                  ],
+                  "allow_custom": false
+                },
+                {
+                  "key": "project_factor.operation_4a95de15.it",
+                  "label": "孔(通孔)的实际尺寸精度等级",
+                  "type": "number",
+                  "category": "磨孔 · 孔(通孔)",
+                  "operators": [
+                    "lte"
+                  ],
+                  "aliases": [],
+                  "required": false,
+                  "source": "项目问答配置；同一加工对象；工序=grind",
+                  "options": [],
+                  "allow_custom": false,
+                  "unit": "IT",
+                  "validation": {
+                    "min": 1,
+                    "max": 18
+                  }
+                }
+              ],
+              "preview": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+              "evidence": "用户确认的第三步回答",
+              "when": {
+                "all": [
+                  {
+                    "field": "project_factor.operation_4a95de15.features",
+                    "op": "contains_any",
+                    "value": [
+                      "孔(通孔)"
+                    ]
+                  },
+                  {
+                    "field": "project_factor.operation_4a95de15.direction",
+                    "op": "eq",
+                    "value": "A侧"
+                  },
+                  {
+                    "field": "project_factor.operation_4a95de15.it",
+                    "op": "lte",
+                    "value": 7
+                  }
+                ]
+              },
+              "then": {
+                "include_process_ids": [
+                  "grind"
+                ],
+                "exclude_process_ids": []
+              }
+            },
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00",
+            "issues": []
+          }
+        },
+        {
+          "segment": {
+            "id": "hone",
+            "export_process_id": "hone",
+            "normalized_step_name": "珩孔",
+            "sequence": 2,
+            "source_nodes": [],
+            "doc_coverage": {
+              "total_docs": 2,
+              "hit_docs": 1
+            }
+          },
+          "edited": true,
+          "conditionText": "孔(通孔)位于A侧，且实际尺寸精度≤IT6时安排珩孔。",
+          "conditionReview": {
+            "source_text": "孔(通孔)位于A侧，且实际尺寸精度≤IT6时安排珩孔。",
+            "status": "confirmed",
+            "confirmed": {
+              "kind": "condition",
+              "field_definitions": [
+                {
+                  "key": "project_factor.operation_c2cae7f5.features",
+                  "label": "加工对象的特征",
+                  "category": "本项目条件",
+                  "type": "multi_select",
+                  "operators": [
+                    "contains_any"
+                  ],
+                  "aliases": [],
+                  "source": "项目问答配置；同一加工对象；工序=hone",
+                  "options": [
+                    {
+                      "value": "孔(通孔)",
+                      "label": "孔(通孔)"
+                    },
+                    {
+                      "value": "孔(盲孔)",
+                      "label": "孔(盲孔)"
+                    }
+                  ],
+                  "allow_custom": false,
+                  "required": false
+                },
+                {
+                  "key": "project_factor.operation_c2cae7f5.direction",
+                  "label": "同一加工对象的方位",
+                  "category": "本项目条件",
+                  "type": "single_select",
+                  "operators": [
+                    "eq"
+                  ],
+                  "aliases": [],
+                  "source": "项目问答配置；同一加工对象；工序=hone",
+                  "options": [
+                    {
+                      "value": "A侧",
+                      "label": "A侧"
+                    },
+                    {
+                      "value": "B侧",
+                      "label": "B侧"
+                    },
+                    {
+                      "value": "中间",
+                      "label": "中间"
+                    },
+                    {
+                      "value": "周边",
+                      "label": "周边"
+                    },
+                    {
+                      "value": "所有方位",
+                      "label": "所有方位"
+                    }
+                  ],
+                  "allow_custom": false,
+                  "required": false
+                },
+                {
+                  "key": "project_factor.operation_c2cae7f5.it",
+                  "label": "孔(通孔)、孔(盲孔)的实际尺寸精度等级",
+                  "category": "本项目条件",
+                  "type": "number",
+                  "operators": [
+                    "lte"
+                  ],
+                  "aliases": [],
+                  "source": "项目问答配置；同一加工对象；工序=hone",
+                  "options": [
+                    {
+                      "value": "-1",
+                      "label": "IT01"
+                    },
+                    {
+                      "value": "0",
+                      "label": "IT0"
+                    },
+                    {
+                      "value": "1",
+                      "label": "IT1"
+                    },
+                    {
+                      "value": "2",
+                      "label": "IT2"
+                    },
+                    {
+                      "value": "3",
+                      "label": "IT3"
+                    },
+                    {
+                      "value": "4",
+                      "label": "IT4"
+                    },
+                    {
+                      "value": "5",
+                      "label": "IT5"
+                    },
+                    {
+                      "value": "6",
+                      "label": "IT6"
+                    },
+                    {
+                      "value": "7",
+                      "label": "IT7"
+                    },
+                    {
+                      "value": "8",
+                      "label": "IT8"
+                    },
+                    {
+                      "value": "9",
+                      "label": "IT9"
+                    },
+                    {
+                      "value": "10",
+                      "label": "IT10"
+                    },
+                    {
+                      "value": "11",
+                      "label": "IT11"
+                    },
+                    {
+                      "value": "12",
+                      "label": "IT12"
+                    },
+                    {
+                      "value": "13",
+                      "label": "IT13"
+                    },
+                    {
+                      "value": "14",
+                      "label": "IT14"
+                    },
+                    {
+                      "value": "15",
+                      "label": "IT15"
+                    },
+                    {
+                      "value": "16",
+                      "label": "IT16"
+                    },
+                    {
+                      "value": "17",
+                      "label": "IT17"
+                    },
+                    {
+                      "value": "18",
+                      "label": "IT18"
+                    }
+                  ],
+                  "allow_custom": false,
+                  "required": false,
+                  "unit": "IT",
+                  "validation": {
+                    "min": -1,
+                    "max": 18
+                  }
+                }
+              ],
+              "preview": "孔(通孔)位于A侧，且实际尺寸精度≤IT6时安排珩孔。",
+              "evidence": "用户确认的第三步回答",
+              "when": {
+                "all": [
+                  {
+                    "field": "project_factor.operation_c2cae7f5.features",
+                    "op": "contains_any",
+                    "value": [
+                      "孔(通孔)"
+                    ]
+                  },
+                  {
+                    "field": "project_factor.operation_c2cae7f5.direction",
+                    "op": "eq",
+                    "value": "A侧"
+                  },
+                  {
+                    "field": "project_factor.operation_c2cae7f5.it",
+                    "op": "lte",
+                    "value": 6
+                  }
+                ]
+              },
+              "then": {
+                "include_process_ids": [
+                  "hone"
+                ],
+                "exclude_process_ids": []
+              }
+            },
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00",
+            "issues": []
+          }
+        }
+      ],
+      "request": {
+        "project_id": 7,
+        "package_name": "legacy-mixed-it",
+        "route_version_id": 1,
+        "applicability": {
+          "part_families": [],
+          "manufacturing_modes": [
+            "machining"
+          ]
+        },
+        "factor_dictionary": {
+          "schema_version": "2.0",
+          "fields": [
+            {
+              "key": "project_factor.operation_4a95de15.features",
+              "label": "加工对象的特征",
+              "type": "multi_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [
+                {
+                  "value": "孔(通孔)",
+                  "label": "孔(通孔)"
+                },
+                {
+                  "value": "孔(盲孔)",
+                  "label": "孔(盲孔)"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_4a95de15.direction",
+              "label": "同一加工对象的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_4a95de15.it",
+              "label": "孔(通孔)的实际尺寸精度等级",
+              "type": "number",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=grind",
+              "options": [],
+              "allow_custom": false,
+              "unit": "IT",
+              "validation": {
+                "min": 1,
+                "max": 18
+              }
+            },
+            {
+              "key": "project_factor.operation_c2cae7f5.features",
+              "label": "加工对象的特征",
+              "type": "multi_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=hone",
+              "options": [
+                {
+                  "value": "孔(通孔)",
+                  "label": "孔(通孔)"
+                },
+                {
+                  "value": "孔(盲孔)",
+                  "label": "孔(盲孔)"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_c2cae7f5.direction",
+              "label": "同一加工对象的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=hone",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.operation_c2cae7f5.it",
+              "label": "孔(通孔)、孔(盲孔)的实际尺寸精度等级",
+              "type": "number",
+              "required": false,
+              "source": "项目问答配置；同一加工对象；工序=hone",
+              "options": [
+                {
+                  "value": "-1",
+                  "label": "IT01"
+                },
+                {
+                  "value": "0",
+                  "label": "IT0"
+                },
+                {
+                  "value": "1",
+                  "label": "IT1"
+                },
+                {
+                  "value": "2",
+                  "label": "IT2"
+                },
+                {
+                  "value": "3",
+                  "label": "IT3"
+                },
+                {
+                  "value": "4",
+                  "label": "IT4"
+                },
+                {
+                  "value": "5",
+                  "label": "IT5"
+                },
+                {
+                  "value": "6",
+                  "label": "IT6"
+                },
+                {
+                  "value": "7",
+                  "label": "IT7"
+                },
+                {
+                  "value": "8",
+                  "label": "IT8"
+                },
+                {
+                  "value": "9",
+                  "label": "IT9"
+                },
+                {
+                  "value": "10",
+                  "label": "IT10"
+                },
+                {
+                  "value": "11",
+                  "label": "IT11"
+                },
+                {
+                  "value": "12",
+                  "label": "IT12"
+                },
+                {
+                  "value": "13",
+                  "label": "IT13"
+                },
+                {
+                  "value": "14",
+                  "label": "IT14"
+                },
+                {
+                  "value": "15",
+                  "label": "IT15"
+                },
+                {
+                  "value": "16",
+                  "label": "IT16"
+                },
+                {
+                  "value": "17",
+                  "label": "IT17"
+                },
+                {
+                  "value": "18",
+                  "label": "IT18"
+                }
+              ],
+              "allow_custom": false,
+              "unit": "IT",
+              "validation": {
+                "min": -1,
+                "max": 18
+              }
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+              "label": "孔(通孔)",
+              "type": "boolean",
+              "required": false,
+              "source": "本项目特征输入",
+              "allow_custom": false
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+              "label": "孔(通孔)的方位",
+              "type": "single_select",
+              "required": false,
+              "source": "本项目特征输入",
+              "options": [
+                {
+                  "value": "A侧",
+                  "label": "A侧"
+                },
+                {
+                  "value": "B侧",
+                  "label": "B侧"
+                },
+                {
+                  "value": "中间",
+                  "label": "中间"
+                },
+                {
+                  "value": "周边",
+                  "label": "周边"
+                },
+                {
+                  "value": "所有方位",
+                  "label": "所有方位"
+                }
+              ],
+              "allow_custom": false,
+              "unit": null,
+              "validation": null
+            },
+            {
+              "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+              "label": "孔(通孔)的实际尺寸精度等级",
+              "type": "number",
+              "required": false,
+              "source": "本项目特征输入",
+              "options": [],
+              "allow_custom": false,
+              "unit": "IT",
+              "validation": {
+                "min": 5,
+                "max": 10
+              }
+            }
+          ]
+        },
+        "fields": [
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+            "label": "孔(通孔)",
+            "type": "boolean",
+            "required": false,
+            "source": "本项目特征输入",
+            "allow_custom": false
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+            "label": "孔(通孔)的方位",
+            "type": "single_select",
+            "required": false,
+            "source": "本项目特征输入",
+            "options": [
+              {
+                "value": "A侧",
+                "label": "A侧"
+              },
+              {
+                "value": "B侧",
+                "label": "B侧"
+              },
+              {
+                "value": "中间",
+                "label": "中间"
+              },
+              {
+                "value": "周边",
+                "label": "周边"
+              },
+              {
+                "value": "所有方位",
+                "label": "所有方位"
+              }
+            ],
+            "allow_custom": false,
+            "unit": null,
+            "validation": null
+          },
+          {
+            "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+            "label": "孔(通孔)的实际尺寸精度等级",
+            "type": "number",
+            "required": false,
+            "source": "本项目特征输入",
+            "options": [],
+            "allow_custom": false,
+            "unit": "IT",
+            "validation": {
+              "min": 5,
+              "max": 10
+            }
+          }
+        ],
+        "processes": [
+          {
+            "process_id": "prepare",
+            "process_code": "PREPARE",
+            "display_name": "备料",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 0,
+            "main": true,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "prepare.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          },
+          {
+            "process_id": "grind",
+            "process_code": "GRIND",
+            "display_name": "磨孔",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 10,
+            "main": false,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "grind.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          },
+          {
+            "process_id": "hone",
+            "process_code": "HONE",
+            "display_name": "珩孔",
+            "source_operation_ids": [],
+            "phase": "finishing",
+            "default_sequence": 20,
+            "main": false,
+            "template_group_aliases": [],
+            "steps": [
+              {
+                "step_id": "hone.primary.加工内孔",
+                "name": "加工内孔",
+                "kind": "primary"
+              }
+            ],
+            "constraints": {
+              "requires": [],
+              "must_run_after": [],
+              "must_run_before": [],
+              "conflicts_with": []
+            }
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "user.grind",
+            "priority": 1999,
+            "enabled": true,
+            "source": "user_confirmed",
+            "source_segment_id": "grind",
+            "source_text": "孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。",
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                  "op": "in",
+                  "value": [
+                    "A侧",
+                    "所有方位"
+                  ]
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.it",
+                  "op": "lte",
+                  "value": 7
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "grind"
+              ],
+              "exclude_process_ids": [],
+              "reason": "用户确认条件：孔(通孔)位于A侧，且实际尺寸精度≤IT7时安排磨孔。"
+            }
+          },
+          {
+            "rule_id": "user.hone",
+            "priority": 1998,
+            "enabled": true,
+            "source": "user_confirmed",
+            "source_segment_id": "hone",
+            "source_text": "孔(通孔)位于A侧，且实际尺寸精度≤IT6时安排珩孔。",
+            "confirmed_by": "隔离回归",
+            "confirmed_at": "2026-11-16T08:00:00+00:00",
+            "when": {
+              "all": [
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                  "op": "in",
+                  "value": [
+                    "A侧",
+                    "所有方位"
+                  ]
+                },
+                {
+                  "field": "project_factor.feature_5b54_28_901a_5b54_29.it",
+                  "op": "lte",
+                  "value": 6
+                }
+              ]
+            },
+            "then": {
+              "include_process_ids": [
+                "hone"
+              ],
+              "exclude_process_ids": [],
+              "reason": "用户确认条件：孔(通孔)位于A侧，且实际尺寸精度≤IT6时安排珩孔。"
+            }
+          }
+        ],
+        "process_relations": [],
+        "test_cases": [
+          {
+            "case_id": "default-smoke",
+            "input": {
+              "project_factor": {
+                "feature_5b54_28_901a_5b54_29": {
+                  "present": true,
+                  "direction": "A侧",
+                  "it": 7
+                }
+              }
+            },
+            "expect": {
+              "included_process_ids": [
+                "prepare"
+              ],
+              "excluded_process_ids": []
+            }
+          },
+          {
+            "case_id": "rule-user.grind",
+            "input": {
+              "project_factor": {
+                "feature_5b54_28_901a_5b54_29": {
+                  "present": true,
+                  "direction": "A侧",
+                  "it": 7
+                }
+              }
+            },
+            "expect": {
+              "included_process_ids": [
+                "grind"
+              ],
+              "excluded_process_ids": []
+            }
+          },
+          {
+            "case_id": "rule-user.hone",
+            "input": {
+              "project_factor": {
+                "feature_5b54_28_901a_5b54_29": {
+                  "present": true,
+                  "direction": "A侧",
+                  "it": 6
+                }
+              }
+            },
+            "expect": {
+              "included_process_ids": [
+                "hone"
+              ],
+              "excluded_process_ids": []
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

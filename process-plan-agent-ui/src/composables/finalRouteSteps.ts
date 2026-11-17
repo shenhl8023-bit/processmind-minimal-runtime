@@ -57,10 +57,16 @@ export function buildFinalRouteSteps(segment: any, sources: OperationItem[]): Fi
     return nodes
   })
 }
+export function isMaterialPreparationProcess(segment: any) {
+  const name = String(segment?.normalized_step_name || segment?.display_name || '')
+    .replace(/[（(].*?[）)]/g, '').replace(/\s+/g, '').replace(/#\d+$/, '')
+  return /^(?:下料|备料|毛坯准备|下料备料|下料准备|开料|切料)(?:[/／、](?:下料|备料|毛坯准备|下料备料|下料准备|开料|切料))*$/.test(name)
+}
 export function finalProcessMetadata(segment: any, steps: FinalRouteStep[]) {
   const phase = String(segment?.phase || '')
   const family = String(segment?.step_family || '')
-  const auxiliary = ['auxiliary', 'inspection', 'heat_treatment', 'surface_treatment', 'surface_or_heat_treatment'].includes(phase)
+  const auxiliary = isMaterialPreparationProcess(segment)
+    || ['auxiliary', 'inspection', 'heat_treatment', 'surface_treatment', 'surface_or_heat_treatment'].includes(phase)
     || ['heat', 'surface', 'inspection', 'release'].includes(family)
   const machining = !auxiliary && (['shape', 'hole', 'feature', 'finish', '孔加工类', '特征加工类', '车削类', '车削/成形类'].includes(family)
     || /车|铣|钻|镗|铰|攻丝|磨|研|珩|切槽|挖槽|倒角|倒圆|成形|割型|打型|打孔|割扁|刻线|电火花|线切割|平端面/.test(String(segment?.normalized_step_name || '') + steps.map(step => step.step_name).join(' ')))

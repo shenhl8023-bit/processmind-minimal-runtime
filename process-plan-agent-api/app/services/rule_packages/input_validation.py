@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from copy import deepcopy
 import math
+import re
 from typing import Any
 
 from pydantic import Field
 
 from app.services.rule_packages.contracts import InputField, InputSchemaV2, ValidationIssue
 from app.services.rule_packages.expression_engine import MISSING, resolve_field
+from app.services.rule_packages.project_conditions import PROJECT_ACTUAL_IT_GRADES, is_project_actual_it
 
 
 class InputValidationIssue(ValidationIssue):
@@ -137,6 +139,10 @@ def canonicalize_inputs(
 
 def validate_inputs(schema: InputSchemaV2, inputs: dict[str, Any]) -> list[InputValidationIssue]:
     normalized_inputs, errors = canonicalize_inputs(schema, inputs)
+    shared_feature_scopes = {
+        field.key.rsplit(".", 1)[0] for field in schema.fields
+        if field.type == "boolean" and re.fullmatch(r"project_factor\.feature_[^.]+\.present", field.key)
+    }
 
     def add(code: str, field: InputField, message: str) -> None:
         errors.append(
@@ -153,7 +159,14 @@ def validate_inputs(schema: InputSchemaV2, inputs: dict[str, Any]) -> list[Input
     for field in schema.fields:
         value = resolve_field(normalized_inputs, field.key)
         if not _present(value):
-            if field.required:
+            shared_param = re.fullmatch(r"(project_factor\.feature_[^.]+)\.(direction|it|ra)", field.key)
+            # A selected shared feature requires only its declared parameters.
+            # Use strict True so malformed flags retain their own type error.
+            required = (
+                resolve_field(normalized_inputs, shared_param.group(1) + ".present") is True
+                if shared_param and shared_param.group(1) in shared_feature_scopes else field.required
+            )
+            if required:
                 add("required_input_missing", field, f"必填输入 {field.label} 未填写")
             continue
 
@@ -168,6 +181,12 @@ def validate_inputs(schema: InputSchemaV2, inputs: dict[str, Any]) -> list[Input
             if not finite:
                 add("input_number_not_finite", field, f"输入 {field.label} 必须是有限且在支持范围内的数值")
                 continue
+            scoped = re.fullmatch(r"project_factor\.(?:operation_[^.]+|feature_[^.]+)\.(it|ra|hardness_min|hardness_max)", field.key)
+            if is_project_actual_it(field.key, field.unit) and (value not in PROJECT_ACTUAL_IT_GRADES or value != int(value)):
+                add("input_it_invalid", field, f"输入 {field.label} 必须选择 IT5、IT6、IT7、IT8、IT9 或 IT10")
+                errors[-1].allowed_values = list(PROJECT_ACTUAL_IT_GRADES)
+            if scoped and scoped.group(1) == "ra" and value <= 0:
+                add("input_ra_invalid", field, f"输入 {field.label} 必须大于 0")
             if field.validation and field.validation.min is not None and value < field.validation.min:
                 add("input_below_min", field, f"输入 {field.label} 不能小于 {field.validation.min:g}")
             if field.validation and field.validation.max is not None and value > field.validation.max:
@@ -186,7 +205,7 @@ def validate_inputs(schema: InputSchemaV2, inputs: dict[str, Any]) -> list[Input
             add("input_type_mismatch", field, f"输入 {field.label} 必须是字符串")
             continue
 
-        if field.type in {"single_select", "multi_select"} and field.options and not field.allow_custom:
+        if field.type in {"single_select", "multi_select"} and not field.allow_custom:
             allowed = {option.value.strip().casefold() for option in field.options}
             for option in field.options:
                 allowed.update(alias.strip().casefold() for alias in option.aliases)
@@ -201,6 +220,14 @@ def validate_inputs(schema: InputSchemaV2, inputs: dict[str, Any]) -> list[Input
             if field.validation.max_length is not None and len(value) > field.validation.max_length:
                 add("input_too_long", field, f"输入 {field.label} 长度不能大于 {field.validation.max_length}")
 
+    for field in schema.fields:
+        if not re.fullmatch(r"project_factor\.operation_[^.]+\.hardness_min", field.key):
+            continue
+        lower = resolve_field(normalized_inputs, field.key)
+        upper = resolve_field(normalized_inputs, field.key.rsplit(".", 1)[0] + ".hardness_max")
+        if (isinstance(lower, (int, float)) and not isinstance(lower, bool)
+                and isinstance(upper, (int, float)) and not isinstance(upper, bool) and lower > upper):
+            add("input_hardness_interval_invalid", field, "同一加工对象的硬度下限不能大于硬度上限")
     return errors
 
 

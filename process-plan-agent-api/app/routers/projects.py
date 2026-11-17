@@ -14,6 +14,7 @@ from app.database import get_db
 from app.models.models import (
     Document,
     DocumentOperationDetail,
+    ExecutableRuleRevision,
     Factor,
     FinalizedRulePackage,
     GeneratedRoute,
@@ -24,7 +25,6 @@ from app.models.models import (
     ParamAuditAnswer,
     ParamRuleSnapshot,
     Project,
-    Reference,
     RouteMergeSnapshot,
 )
 from app.schemas.schemas import ProjectCreate, ProjectOut, ProjectWorkflowProgressOut
@@ -147,10 +147,12 @@ async def delete_project(project_id: int, db: AsyncSession = Depends(get_db)):
     cancel_document_detail_cache_prewarm(project_id)
 
     docs = (await db.execute(select(Document).where(Document.project_id == project_id))).scalars().all()
-    refs = (await db.execute(select(Reference).where(Reference.project_id == project_id))).scalars().all()
     ops = (await db.execute(select(Operation).where(Operation.project_id == project_id))).scalars().all()
     detail_rows = (await db.execute(select(DocumentOperationDetail).where(DocumentOperationDetail.project_id == project_id))).scalars().all()
     routes = (await db.execute(select(GeneratedRoute).where(GeneratedRoute.project_id == project_id))).scalars().all()
+    executable_revisions = (await db.execute(
+        select(ExecutableRuleRevision).where(ExecutableRuleRevision.project_id == project_id)
+    )).scalars().all()
     param_answers = (await db.execute(select(ParamAuditAnswer).where(ParamAuditAnswer.project_id == project_id))).scalars().all()
     param_snapshots = (await db.execute(select(ParamRuleSnapshot).where(ParamRuleSnapshot.project_id == project_id))).scalars().all()
     route_merge_snapshots = (await db.execute(select(RouteMergeSnapshot).where(RouteMergeSnapshot.project_id == project_id))).scalars().all()
@@ -162,17 +164,10 @@ async def delete_project(project_id: int, db: AsyncSession = Depends(get_db)):
         UPLOAD_DIR / doc.filename
         for doc in docs
         if doc.filename
-    ] + [
-        UPLOAD_DIR / ref.filename
-        for ref in refs
-        if ref.ref_type == "uploaded" and ref.filename
     ]
 
     for row in detail_rows:
         await db.delete(row)
-
-    for ref in refs:
-        await db.delete(ref)
 
     for doc in docs:
         await db.delete(doc)
@@ -185,6 +180,11 @@ async def delete_project(project_id: int, db: AsyncSession = Depends(get_db)):
 
     for route in routes:
         await db.delete(route)
+    await db.flush()
+
+    for revision in executable_revisions:
+        await db.delete(revision)
+    await db.flush()
 
     if finalized_rule_packages:
         package_ids = [package.id for package in finalized_rule_packages]

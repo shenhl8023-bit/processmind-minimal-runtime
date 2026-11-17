@@ -8,8 +8,8 @@ from app.services.rule_packages.contracts import RulePackageV2
 from app.services.rule_packages.demo_tables import DemoTableError, _join, _negate, validate_demo_tables
 
 
-PUBLICATION_COMPILER_VERSION = "demo-three-table/5"
-PROJECTED_COMPILER_VERSIONS = frozenset({"demo-three-table/3", "demo-three-table/4", PUBLICATION_COMPILER_VERSION})
+PUBLICATION_COMPILER_VERSION = "demo-three-table/6"
+PROJECTED_COMPILER_VERSIONS = frozenset({"demo-three-table/3", "demo-three-table/4", "demo-three-table/5", PUBLICATION_COMPILER_VERSION})
 
 
 def _rewrite(condition, removed_processes):

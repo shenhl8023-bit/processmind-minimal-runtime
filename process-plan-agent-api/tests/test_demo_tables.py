@@ -721,6 +721,64 @@ def test_actual_downstream_engine_accepts_compiled_material_and_manual_toggle(do
     assert [p["process_name"] for p in engine.run(request)["route"]] == ["清洗", "清洗"]
 
 
+@pytest.fixture
+def shared_feature_export():
+    # Independently executed frontend output is the input to the real exporter.
+    fixture = json.loads((Path(__file__).parent / 'fixtures/shared_feature_projection.json').read_text(encoding='utf-8'))
+    projected = next(case['expected'] for case in fixture['cases'] if case['id'] == 'scalar-A-and-IT')
+    rules = deepcopy(projected['rules'])
+    finishing = deepcopy(rules[0])
+    finishing['rule_id'] = 'confirmed.hone'
+    finishing['then'] = {'include_process_ids': ['hone']}
+    for branch in finishing['when']['any']:
+        branch['all'][2]['value'] = 6
+    rules.append(finishing)
+    value = package(fields=projected['fields'], rules=rules, processes=[
+        {'process_id': 'prepare', 'display_name': '准备', 'main': True, 'default_sequence': 1},
+        {'process_id': 'drill', 'display_name': '钻孔', 'default_sequence': 2},
+        {'process_id': 'hone', 'display_name': '珩孔', 'default_sequence': 3},
+    ])
+    tables = compile_demo_tables(value, route_for(value))
+    validate_demo_tables(tables)
+    validate_publication_input_constraints(value, tables)
+    return value, tables
+
+
+@pytest.mark.parametrize('through_it,through_selected,expected', [
+    (9, True, ['prepare']), (7, True, ['prepare', 'drill']),
+    (6, True, ['prepare', 'drill', 'hone']), (6, False, ['prepare']),
+])
+def test_shared_feature_three_tables_preserve_same_object_and_per_operation_thresholds(
+    shared_feature_export, through_it, through_selected, expected,
+):
+    value, tables = shared_feature_export
+    through = 'project_factor.feature_5b54_28_901a_5b54_29'
+    blind = 'project_factor.feature_5b54_28_76f2_5b54_29'
+    facts = {through + '.present': through_selected, through + '.direction': 'A侧', through + '.it': through_it,
+             blind + '.present': True, blind + '.direction': 'B侧', blind + '.it': 6}
+    assert set(tables) == {'factor_table', 'full_route_table', 'rule_table'}
+    assert all(isinstance(table, list) for table in tables.values())
+    assert {factor['key'] for factor in tables['factor_table']} == {field.key for field in value.input_schema.fields}
+    assert len(tables['factor_table']) == 6  # one shared set, even with two operations
+    assert [process['process_id'] for process in tables['full_route_table']] == ['prepare', 'drill', 'hone']
+    assert [rule['target'] for rule in tables['rule_table'] if enabled(tables['rule_table'], rule['target'], facts)] == expected
+    assert plan_route(value, facts).selected_process_ids == expected
+
+
+def test_actual_downstream_shared_feature_export_does_not_mix_objects(downstream_engine, shared_feature_export):
+    _, tables = shared_feature_export
+    engine = downstream_engine(tables['factor_table'], tables['full_route_table'], tables['rule_table'])
+    through = 'project_factor.feature_5b54_28_901a_5b54_29'
+    blind = 'project_factor.feature_5b54_28_76f2_5b54_29'
+    facts = {through + '.present': True, through + '.direction': 'A侧', through + '.it': 9,
+             blind + '.present': True, blind + '.direction': 'B侧', blind + '.it': 6}
+    for actual_it, expected in [(9, ['准备']), (7, ['准备', '钻孔']), (6, ['准备', '钻孔', '珩孔'])]:
+        facts[through + '.it'] = actual_it
+        assert [process['process_name'] for process in engine.run({'factor_overrides': facts})['route']] == expected
+    facts[through + '.present'] = False
+    assert [process['process_name'] for process in engine.run({'factor_overrides': facts})['route']] == ['准备']
+
+
 def test_actual_downstream_feature_category_uses_exact_membership(downstream_engine):
     value = package(fields=[{
         "key": "cad.features", "label": "CAD 特征集合", "type": "multi_select",

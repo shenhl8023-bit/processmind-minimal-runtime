@@ -12,14 +12,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.models import NormalizedRouteSegmentRuleReview, NormalizedRouteVersion
 from app.services.process_knowledge import canonicalize_route_label
 from app.services.rule_packages.condition_contracts import RuleConditionCandidate
+from app.services.rule_packages.authoring_validation import validate_authored_candidate
 from app.services.rule_packages.contracts import InputField, RuleAction, RulePackageV2
+from app.services.rule_packages.shared_feature_projection import SHARED_FEATURE_FIELD, project_feature_candidate
 
 
-def _load_confirmed_candidate(row: NormalizedRouteSegmentRuleReview) -> RuleConditionCandidate | None:
+def _load_confirmed_candidate(
+    row: NormalizedRouteSegmentRuleReview, *, project_shared_features: bool = False,
+) -> RuleConditionCandidate | None:
     if row.condition_status != "confirmed" or not row.condition_confirmed_json:
         return None
     try:
-        return RuleConditionCandidate.model_validate(json.loads(row.condition_confirmed_json))
+        candidate = RuleConditionCandidate.model_validate(json.loads(row.condition_confirmed_json))
+        # Validate the saved original before lowering; projection never expands
+        # the accepted authoring grammar or trusts a client-supplied original.
+        if validate_authored_candidate(candidate):
+            return None
+        return project_feature_candidate(candidate) if project_shared_features else candidate
     except Exception:
         return None
 
@@ -116,7 +125,7 @@ async def _saved_mainline_segments(
     project_id: int,
     route_version_id: int,
     db: AsyncSession,
-) -> dict[str, str]:
+) -> dict[str, tuple[str, str]]:
     route = (
         await db.execute(select(NormalizedRouteVersion).where(
             NormalizedRouteVersion.id == route_version_id,
@@ -131,7 +140,10 @@ async def _saved_mainline_segments(
         return {}
     main_process_ids = {process.process_id for process in package.route_catalog.processes if process.main}
     return {
-        str(segment["id"]): str(segment.get("normalized_step_name") or "").strip()
+        str(segment["id"]): (
+            str(segment.get("export_process_id") or segment["id"]),
+            str(segment.get("normalized_step_name") or "").strip(),
+        )
         for segment in segments
         if isinstance(segment, dict)
         and segment.get("id")
@@ -160,13 +172,24 @@ async def require_confirmed_user_rule_sources(
         )
     ).scalars().all()
     reviews = {row.segment_id: row for row in rows}
+    # Historical packages retain literal source checks. Shared-schema packages
+    # are compared against deterministic projections of server-owned originals.
+    project_shared_features = any(SHARED_FEATURE_FIELD.fullmatch(field.key) for field in package.input_schema.fields)
+    candidates = {row.segment_id: _load_confirmed_candidate(
+        row, project_shared_features=project_shared_features,
+    ) for row in rows}
+    main_process_ids = {process.process_id for process in package.route_catalog.processes if process.main}
+    mainline_segments = await _saved_mainline_segments(
+        package, project_id=project_id, route_version_id=route_version_id, db=db,
+    ) if rows else {}
     failures: list[str] = []
     failure_segments: list[str] = []
     covered_segments: set[str] = set()
+    association_mode_conflicts: set[str] = set()
 
     for rule in user_rules:
         row = reviews.get(rule.source_segment_id)
-        candidate = _load_confirmed_candidate(row) if row else None
+        candidate = candidates.get(row.segment_id) if row else None
         if (
             candidate is None
             or row.condition_source_text != rule.source_text
@@ -178,17 +201,65 @@ async def require_confirmed_user_rule_sources(
                 failure_segments.append(rule.source_segment_id)
         elif (
             rule.enabled
+            and main_process_ids.intersection(rule.then.include_process_ids)
+            and mainline_segments.get(row.segment_id, (None, ""))[0]
+            in main_process_ids.intersection(rule.then.include_process_ids)
+        ):
+            manual_mainline = bool(
+                row.condition_parser_version == "manual"
+                and row.condition_confirmed_by == "用户直接设定"
+                and candidate.kind == "condition"
+                and candidate.when is not None
+                and candidate.when.field
+                and candidate.when.field.startswith("project_factor.manual_process_")
+                and candidate.when.op == "eq"
+                and candidate.when.value is True
+                and candidate.then is not None
+                and set(candidate.then.include_process_ids) == main_process_ids.intersection(rule.then.include_process_ids)
+                and not candidate.then.exclude_process_ids
+                and any(
+                    companion.enabled
+                    and companion.source_segment_id == row.segment_id
+                    and _matches_manual_false_rule(companion, candidate, row)
+                    for companion in user_rules
+                )
+            )
+            if not manual_mainline:
+                failures.append(rule.rule_id)
+                if rule.source_segment_id:
+                    failure_segments.append(rule.source_segment_id)
+                continue
+        elif (
+            rule.enabled
             and candidate.kind == "condition"
             and rule.when == candidate.when
             and _same_action(rule.then, candidate.then)
         ):
             # The generated manual "false" companion cannot stand in for the
             # user's positive condition if the positive rule was omitted.
+            # A positive-only export also loses the user's ability to turn the
+            # process off when a mainline, trigger or another rule includes it.
+            if (
+                row.condition_parser_version == "manual"
+                and row.condition_confirmed_by == "用户直接设定"
+                and not any(
+                    companion.enabled
+                    and companion.priority == rule.priority
+                    and companion.source_segment_id == row.segment_id
+                    and companion.source_text == row.condition_source_text
+                    and _same_confirmation(row, companion.confirmed_by, companion.confirmed_at)
+                    and _matches_manual_false_rule(companion, candidate, row)
+                    for companion in user_rules
+                )
+            ):
+                failures.append(rule.rule_id)
+                failure_segments.append(row.segment_id)
+                continue
             covered_segments.add(row.segment_id)
 
     for relation in user_relations:
         row = reviews.get(relation.source_segment_id)
-        candidate = _load_confirmed_candidate(row) if row else None
+        candidate = candidates.get(row.segment_id) if row else None
         if (
             candidate is None
             or candidate.kind != "process_relation"
@@ -204,7 +275,31 @@ async def require_confirmed_user_rule_sources(
             if relation.source_segment_id:
                 failure_segments.append(relation.source_segment_id)
         elif relation.enabled:
-            covered_segments.add(row.segment_id)
+            # A current association is its target's only inclusion mode. A
+            # matching confirmation cannot authorize an extra static/mainline
+            # path that makes the target appear while its source is absent.
+            targets = set(relation.target_process_ids)
+            independent_inclusion = (
+                any(process.main and process.process_id in targets for process in package.route_catalog.processes)
+                or any(rule.enabled and targets.intersection(rule.then.include_process_ids)
+                       for rule in package.route_rules.rules)
+                or any(other.enabled and other is not relation and (
+                           (other.relation_type == "trigger_after" and targets.intersection(other.target_process_ids))
+                           or (other.relation_type == "requires" and targets.intersection(other.source_process_ids)))
+                       for other in package.route_rules.process_relations)
+                or any(targets.intersection(process.constraints.requires) for process in package.route_catalog.processes)
+                or any(config.enabled and (
+                           config.process_id in targets
+                           or any(embedded.relation_type == "requires" and targets.intersection(embedded.source_process_ids)
+                                  for embedded in config.relations))
+                       for config in package.route_rules.process_configurations)
+            )
+            if independent_inclusion:
+                failures.append(relation.relation_id)
+                failure_segments.append(row.segment_id)
+                association_mode_conflicts.update(targets)
+            else:
+                covered_segments.add(row.segment_id)
 
     # A shared dynamic field may be witnessed with different options in several
     # confirmations. Audit the exact server-owned union, keeping all other
@@ -212,7 +307,7 @@ async def require_confirmed_user_rule_sources(
     confirmed_fields: dict[str, InputField] = {}
     conflicting_fields: set[str] = set()
     for row in rows:
-        saved = _load_confirmed_candidate(row)
+        saved = candidates.get(row.segment_id)
         if saved is None:
             continue
         for field in saved.field_definitions:
@@ -245,7 +340,7 @@ async def require_confirmed_user_rule_sources(
     for row in rows:
         if row.segment_id not in covered_segments:
             continue
-        candidate = _load_confirmed_candidate(row)
+        candidate = candidates.get(row.segment_id)
         if any(
             field.key in conflicting_fields
             or not matches_confirmed_field(input_fields.get(field.key), confirmed_fields[field.key])
@@ -257,7 +352,7 @@ async def require_confirmed_user_rule_sources(
         if config.source != "user_confirmed":
             continue
         row = reviews.get(config.source_segment_id)
-        candidate = _load_confirmed_candidate(row) if row else None
+        candidate = candidates.get(row.segment_id) if row else None
         valid = bool(
             candidate and candidate.kind == "process_configuration" and candidate.configuration
             and config.enabled and row.condition_source_text == config.source_text
@@ -287,9 +382,6 @@ async def require_confirmed_user_rule_sources(
             if config.source_segment_id:
                 failure_segments.append(config.source_segment_id)
 
-    mainline_segments = await _saved_mainline_segments(
-        package, project_id=project_id, route_version_id=route_version_id, db=db,
-    ) if rows else {}
     missing_segments: list[str] = []
     for row in rows:
         has_condition_state = bool(
@@ -306,7 +398,10 @@ async def require_confirmed_user_rule_sources(
             row.condition_status == "draft"
             and not row.condition_candidate_json
             and not row.condition_confirmed_json
-            and _is_explicit_mainline_source(row.condition_source_text, mainline_segments.get(row.segment_id))
+            and _is_explicit_mainline_source(
+                row.condition_source_text,
+                mainline_segments.get(row.segment_id, (None, ""))[1],
+            )
         ):
             # "Always keep" is saved through the existing text-draft endpoint.
             # The authoritative saved instruction and route ID must agree
@@ -316,8 +411,13 @@ async def require_confirmed_user_rule_sources(
             missing_segments.append(row.segment_id)
 
     if failures or missing_segments:
+        message = "规则包中的用户规则与数据库中的已确认规则不一致，或存在未确认、遗漏的规则，请刷新规则定稿后重新审核。"
+        if association_mode_conflicts:
+            names = "、".join(process.display_name for process in package.route_catalog.processes
+                             if process.process_id in association_mode_conflicts)
+            message = f"关联工序“{names}”还存在独立生成的规则，无法按跟随来源生成。请返回规则定稿重新构建规则包。"
         raise HTTPException(409, {
-            "message": "规则包中的用户规则与数据库中的已确认规则不一致，或存在未确认、遗漏的规则，请刷新规则定稿后重新审核。",
+            "message": message,
             "rule_ids": failures,
             "segment_ids": list(dict.fromkeys([*failure_segments, *missing_segments])),
         })

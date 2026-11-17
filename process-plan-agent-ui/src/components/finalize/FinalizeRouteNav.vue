@@ -39,12 +39,13 @@
           type="button"
           class="phase-item"
           :class="{ active: activeSegmentId === item.segment.id }"
+          :aria-current="activeSegmentId === item.segment.id ? 'step' : undefined"
           @click="$emit('focus', item.segment.id)"
         >
           <div class="phase-header-row">
             <div class="phase-title-group">
               <span class="phase-item-seq">{{ item.segment.sequence }}</span>
-              <span class="phase-item-name">{{ displayName(item.segment) }}</span>
+              <span class="phase-item-name" :title="displayName(item.segment)">{{ displayName(item.segment) }}</span>
             </div>
             <div class="phase-badges">
               <!-- Pending indicator badge -->
@@ -55,21 +56,13 @@
               ></span>
               <span v-if="item.edited" class="phase-item-edited">已改</span>
             </div>
-          </div>
-
-          <div v-if="metaLabel(item.segment)" class="phase-meta-row">
-            <span class="phase-item-meta">{{ metaLabel(item.segment) }}</span>
-          </div>
-
-          <div
-            v-if="stepCount(item.segment) > 0"
-            class="phase-steps-row"
-            @click.stop
-          >
             <span
+              v-if="stepCount(item.segment) > 0"
               class="phase-steps-btn"
               role="button"
               tabindex="0"
+              :aria-expanded="isStepsExpanded(item.segment.id)"
+              :aria-label="`${isStepsExpanded(item.segment.id) ? '收起' : '展开'}${displayName(item.segment)}的工步（${stepCount(item.segment)}项）`"
               @click.stop="$emit('toggle-steps', item.segment.id)"
               @keydown.enter.prevent="$emit('toggle-steps', item.segment.id)"
               @keydown.space.prevent="$emit('toggle-steps', item.segment.id)"
@@ -93,24 +86,30 @@
               <span>工步</span>
               <span class="phase-steps-count">{{ stepCount(item.segment) }}</span>
             </span>
-            <Transition name="phase-item-steps-expand">
-              <div
-                v-if="isStepsExpanded(item.segment.id)"
-                class="phase-item-step-chips"
-              >
-                <span
-                  v-for="step in primarySteps(item.segment)"
-                  :key="`${item.segment.id}-step-${step}`"
-                  class="phase-item-step-chip"
-                >{{ step }}</span>
-                <span
-                  v-for="step in attachedSteps(item.segment)"
-                  :key="`${item.segment.id}-attached-${step}`"
-                  class="phase-item-step-chip phase-item-step-chip-attached"
-                >{{ step }}</span>
-              </div>
-            </Transition>
           </div>
+
+          <div v-if="metaLabel(item.segment)" class="phase-meta-row">
+            <span class="phase-item-meta">{{ metaLabel(item.segment) }}</span>
+          </div>
+
+          <Transition name="phase-item-steps-expand">
+            <div
+              v-if="stepCount(item.segment) > 0 && isStepsExpanded(item.segment.id)"
+              class="phase-item-step-chips"
+              @click.stop
+            >
+              <span
+                v-for="step in primarySteps(item.segment)"
+                :key="`${item.segment.id}-step-${step}`"
+                class="phase-item-step-chip"
+              >{{ step }}</span>
+              <span
+                v-for="step in attachedSteps(item.segment)"
+                :key="`${item.segment.id}-attached-${step}`"
+                class="phase-item-step-chip phase-item-step-chip-attached"
+              >{{ step }}</span>
+            </div>
+          </Transition>
         </button>
       </div>
 
@@ -151,14 +150,14 @@ defineEmits<{
 </script>
 
 <style scoped>
-.route-nav {
+aside.route-nav.card {
   min-width: 0;
   overflow-y: auto;
   border-radius: 14px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
-  padding: 14px;
+  padding: 0;
 }
 .route-nav::-webkit-scrollbar { width: 6px; height: 6px; }
 .route-nav::-webkit-scrollbar-track { background: #f8fafc; border-radius: 6px; }
@@ -167,14 +166,22 @@ defineEmits<{
 
 /* ===== Header ===== */
 .route-nav-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 6px;
-  margin-bottom: 12px;
+  flex-wrap: wrap;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--pm-border);
+  background: var(--pm-surface-subtle);
+  margin-bottom: 0;
 }
 .section-title {
-  font-size: 14px;
+  font-size: 13px;
+  line-height: 20px;
   font-weight: 700;
   color: #0f172a;
   display: flex;
@@ -242,13 +249,16 @@ defineEmits<{
 
 /* ===== Phase list ===== */
 .phase-list {
-  margin-top: 4px;
+  margin-top: 0;
+  padding: 8px 12px 12px;
   display: flex;
   flex-direction: column;
   gap: 0;
 }
 
 .phase-item-wrap {
+  min-width: 0;
+  flex-shrink: 0;
   display: flex;
   gap: 8px;
   position: relative;
@@ -260,7 +270,7 @@ defineEmits<{
   align-items: center;
   flex-shrink: 0;
   width: 14px;
-  padding-top: 13px;
+  padding-top: 12px;
 }
 .phase-dot {
   width: 8px; height: 8px;
@@ -285,11 +295,13 @@ defineEmits<{
 /* ===== Phase item button ===== */
 .phase-item {
   flex: 1;
-  display: flex; flex-direction: column; gap: 4px;
-  padding: 7px 10px;
+  min-width: 0;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 5px 8px;
   border-radius: 6px; border: 1px solid #f1f5f9;
   background: #ffffff; cursor: pointer; text-align: left;
-  position: relative; margin-bottom: 4px;
+  position: relative; margin-bottom: 2px;
+  font: inherit;
   transition: background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
 }
 .phase-item:hover { background: #f8fafc; border-color: #cbd5e1; box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04); }
@@ -312,9 +324,9 @@ defineEmits<{
 }
 
 .phase-header-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; width: 100%; min-height: 24px;
 }
-.phase-title-group { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.phase-title-group { flex: 1 1 90px; display: flex; align-items: center; gap: 6px; min-width: 0; }
 .phase-badges { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
 
 .phase-item-seq {
@@ -328,7 +340,7 @@ defineEmits<{
 
 .phase-item-name {
   font-size: 13px; font-weight: 600; color: #0f172a;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+  white-space: normal; overflow-wrap: anywhere; min-width: 0; line-height: 18px;
 }
 
 /* ===== Pending badge (orange dot) ===== */
@@ -356,13 +368,13 @@ defineEmits<{
 .phase-meta-row { padding-left: 0; }
 .phase-item-meta {
   font-size: 11px; color: #94a3b8;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;
+  white-space: normal; overflow-wrap: anywhere; display: block; line-height: 18px;
 }
 
 /* ===== Steps row ===== */
-.phase-steps-row { margin-top: 3px; padding-top: 5px; border-top: 1px solid #f1f5f9; }
-.phase-steps-btn {
+.route-nav .phase-header-row .phase-steps-btn {
   display: inline-flex; align-items: center; gap: 5px;
+  flex: 0 0 auto; min-height: 24px; white-space: nowrap;
   padding: 0; border: none; background: transparent; cursor: pointer;
   font-size: 11px; font-weight: 600; color: #64748b; transition: color 0.12s ease;
 }
@@ -379,8 +391,9 @@ defineEmits<{
   background: rgba(99, 102, 241, 0.08); border-color: rgba(99, 102, 241, 0.15); color: #6366f1;
 }
 
-.phase-item-step-chips { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+.phase-item-step-chips { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--pm-border); display: flex; flex-wrap: wrap; gap: 4px; }
 .phase-item-step-chip {
+  max-width: 100%; overflow-wrap: anywhere;
   display: inline-block; font-size: 11px; color: #475569;
   background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 4px; padding: 2px 6px; line-height: 1.4;
 }

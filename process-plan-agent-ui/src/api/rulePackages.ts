@@ -120,7 +120,7 @@ export type ProcessRelationCandidate = {
 
 export type ProcessConfiguration = {
   process_id: string
-  occurrence: 'always' | 'manual' | 'conditional'
+  occurrence: 'always' | 'manual' | 'conditional' | 'associated'
   when: RulePackageCondition | null
   relations: ProcessRelationCandidate[]
 }
@@ -151,6 +151,7 @@ export type RuleConditionCandidate = {
 }
 
 export type RuleConditionReview = {
+  review_token?: string
   source_text: string
   source_hash: string
   status: 'draft' | 'parsing' | 'pending_confirmation' | 'confirmed' | 'invalid'
@@ -262,8 +263,8 @@ export async function compileRulePackage(body: CompileRulePackageRequest) {
   return data as CompileRulePackageResponse
 }
 
-export async function getConditionFieldRegistry() {
-  const { data } = await api.get('/api/extract/finalized-rule-packages/condition-fields')
+export async function getConditionFieldRegistry(context?: {processId: string; processName: string}) {
+  const { data } = await api.get('/api/extract/finalized-rule-packages/condition-fields', context ? { params: { process_id: context.processId, process_name: context.processName } } : undefined)
   return data as { version: string; fields: CanonicalConditionField[] }
 }
 
@@ -271,6 +272,7 @@ export async function saveRuleConditionDraft(body: {
   project_id: number
   route_id: number
   expected_workflow_revision: number
+  expected_review_token?: string
   segment_id: string
   source_text: string
   knowledge_suggestion_id?: number
@@ -283,6 +285,7 @@ export async function parseRuleCondition(body: {
   project_id: number
   route_id: number
   expected_workflow_revision: number
+  expected_review_token?: string
   segment_id: string
   source_text: string
   process_id: string
@@ -297,6 +300,7 @@ export async function confirmRuleCondition(body: {
   project_id: number
   route_id: number
   expected_workflow_revision: number
+  expected_review_token?: string
   segment_id: string
   source_text: string
   source_hash: string
@@ -312,6 +316,7 @@ export async function setManualRuleCondition(body: {
   project_id: number
   route_id: number
   expected_workflow_revision: number
+  expected_review_token?: string
   segment_id: string
   process_id: string
   source_text: string
@@ -327,6 +332,7 @@ export async function saveProcessConfiguration(body: {
   project_id: number
   route_id: number
   expected_workflow_revision: number
+  expected_review_token?: string
   segment_id: string
   process_id: string
   source_text: string

@@ -12,7 +12,6 @@
       <span class="tag tag-accent" style="margin-left: auto">主输入</span>
     </div>
     <p class="card-desc">{{ desc }}</p>
-    <p class="card-desc" title="JSON 须保留工序号、工序名称和全部工步；工序号按原顺序递增。也支持工序到工步的字典。">JSON 需使用“工艺路线”数组或“工序→工步”字典；Word / Excel 的工步明细需要已配置的模型。</p>
 
     <div
       :class="['drop-zone', { 'has-files': files.length > 0 }]"
@@ -29,7 +28,7 @@
           </svg>
         </div>
         <div class="drop-text">点击或拖拽文件到此处上传</div>
-        <div class="drop-hint">支持 .pdf, .docx, .xlsx, .json 格式</div>
+        <div class="drop-hint">可一次上传多份文件</div>
       </div>
 
       <div class="file-list-embedded" v-else @click.stop>
@@ -64,7 +63,7 @@
         </div>
       </div>
 
-      <input ref="fileInput" type="file" multiple accept=".pdf,.docx,.xlsx,.json" style="display:none" @change="onFileSelected" />
+      <input ref="fileInput" type="file" multiple accept=".pdf" style="display:none" @change="onFileSelected" />
     </div>
 
     <div v-if="uploading" class="upload-progress">

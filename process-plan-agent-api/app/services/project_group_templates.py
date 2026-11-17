@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 import hashlib
 import json
 import re
 from typing import Any
 
 from fastapi import HTTPException
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +18,9 @@ from app.services.group_template_xml import (
     GroupTemplateParseResult,
     is_feature_mapping_target,
     normalize_name,
+)
+from app.services.template_mapping_exceptions import (
+    resolve_waived_group_paths,
 )
 
 
@@ -70,6 +74,11 @@ class ProjectTemplateSnapshot:
     template_revision: int
     group_count: int
     feature_selection_count: int
+    step_order_by_process: dict[str, list[str]] = field(default_factory=dict)
+    mapping_context: dict = field(default_factory=dict)
+    mapping_operations: list[dict] = field(default_factory=list)
+    hidden_step_keys: list[str] = field(default_factory=list)
+    waived_group_paths: list[list[str]] = field(default_factory=list)
     created_at: Any = None
     updated_at: Any = None
 
@@ -238,6 +247,20 @@ def _legacy_operations(operations: list[object] | None, mappings: list[ProjectGr
 
 
 def _build_mapping_output(operations: list[object] | None, mappings: list[ProjectGroupStepMapping]) -> list[dict[str, object]]:
+    # Consumers use slash-separated paths. Reject ambiguous identities before
+    # emitting or persisting an output instead of silently merging their features.
+    output_paths: dict[str, str] = {}
+    for mapping in mappings:
+        if mapping.status != "confirmed" or not mapping.template_group_path:
+            continue
+        key = "/".join(mapping.template_group_path)
+        path = _canonical_path(mapping.template_group_path)
+        previous_path = output_paths.setdefault(key, path)
+        if previous_path != path:
+            raise HTTPException(
+                422,
+                f"分组路径导出键冲突：{previous_path} 与 {path} 都输出为“{key}”，请重命名含“/”的分组后重新保存。",
+            )
     explicit_final_tree = any(_mapping_value(operation, "process_id", "") for operation in operations or [])
     operations = list(operations or []) if explicit_final_tree else _legacy_operations(operations, mappings)
     if explicit_final_tree:
@@ -356,6 +379,91 @@ def _restore_mapping_operations(
         used_ids.add(operation_id)
         operations.append({"operation_id": operation_id, "operation_name": name, "step_items": steps})
     return operations
+
+
+async def _resolve_hidden_step_keys(
+    db: AsyncSession, project_id: int, operations: list[object],
+    mappings: list[ProjectGroupStepMapping], output: list[dict], keys: list[str],
+) -> list[str]:
+    if not keys:
+        return []
+    explicit = any(_mapping_value(operation, "process_id", "") for operation in operations)
+    identities = {}
+    source_inputs = {}
+    for operation in operations:
+        operation_id = _operation_id(operation)
+        process_id = normalize_name(_mapping_value(operation, "process_id", "")) or f"op_{operation_id}"
+        if explicit:
+            steps = [(str(_mapping_value(step, "step_id", "")),
+                      normalize_name(_mapping_value(step, "step_name", "")))
+                     for step in _mapping_value(operation, "steps", []) or []]
+        else:
+            steps = [(stable_step_key(operation_id, order), normalize_name(name))
+                     for order, name in enumerate(_mapping_value(operation, "step_items", []) or [], 1)
+                     if normalize_name(name)]
+        for key, name in steps:
+            if key in identities or not key or not name:
+                raise HTTPException(422, "隐藏工步的来源标识缺失或重复，请提交完整母路线。")
+            identities[key] = (process_id, name)
+        if explicit:
+            for step in _mapping_value(operation, "steps", []) or []:
+                source_inputs[str(_mapping_value(step, "step_id", ""))] = (operation, step)
+    resolved = []
+    for key in keys:
+        if not isinstance(key, str) or not key or key != normalize_name(key) or key not in identities:
+            raise HTTPException(422, "隐藏工步标识不属于当前完整母路线，请重新加载模板映射。")
+        if key not in resolved:
+            resolved.append(key)
+    # A browser-supplied ID is not authoritative when a validated core exists.
+    from app.services.rule_packages.executable_revisions import current_revision
+
+    executable = await current_revision(db, project_id, required=False)
+    if executable is not None:
+        from app.services.rule_packages.contracts import RulePackageV2
+
+        package = RulePackageV2.model_validate_json(executable.package_json)
+        current_steps = {(process.process_id, step.step_id): normalize_name(step.name)
+                         for process in package.route_catalog.processes for step in process.steps}
+        core_processes = {process.process_id: process for process in package.route_catalog.processes}
+        mother = None
+        for key in resolved:
+            process_id, name = identities[key]
+            if current_steps.get((process_id, key)) == name:
+                continue
+            core = core_processes.get(process_id)
+            operation, step = source_inputs.get(key, (None, None))
+            if (core is None or core.steps
+                    or _mapping_value(operation, "process_type", "") != "辅助工序"):
+                raise HTTPException(422, "隐藏工步不属于当前已验证母路线，请重新加载。")
+            # Auxiliary steps are deliberately absent from the frontend's core.
+            # Only frozen mother-route/source authority can establish those IDs.
+            from app.services.rule_packages.mother_route import MotherRouteError, load_mother_route
+
+            if mother is None:
+                try:
+                    mother = await load_mother_route(db, project_id, _json_list(executable.normalized_route_json))
+                except MotherRouteError as exc:
+                    raise HTTPException(422, str(exc)) from exc
+            process = mother.get(process_id, {})
+            authoritative = next((step for step in process.get("steps", []) if step["step_id"] == key), None)
+            if (not process.get("auxiliary") or authoritative is None
+                    or normalize_name(authoritative["name"]) != name):
+                raise HTTPException(422, "隐藏工步不属于当前已验证母路线，请重新加载。")
+            source_ids = set(process.get("source_operation_ids", []))
+            if set(_mapping_value(operation, "source_operation_ids", []) or []) != source_ids:
+                raise HTTPException(422, "隐藏辅助工步的来源工序与当前母路线不一致。")
+            refs = _source_step_refs(step)
+            expected_refs = _source_step_refs(authoritative)
+            # Check the primary source too; source_steps must not mask a forged
+            # top-level source/order/name in the same request.
+            primary = _source_step_refs({
+                "source_operation_id": _mapping_value(step, "source_operation_id", 0),
+                "source_step_order": _mapping_value(step, "source_step_order", 0),
+                "source_step_name": _mapping_value(step, "source_step_name", ""),
+            })
+            if set(refs) != set(expected_refs) or primary != expected_refs[:1]:
+                raise HTTPException(422, "隐藏辅助工步的来源身份已变化，请重新加载。")
+    return resolved
 
 
 def _mapping_snapshot(mapping: object) -> ProjectGroupMapping:
@@ -583,6 +691,16 @@ def _step_mapping_path_key(mapping: object) -> str:
     return _canonical_path(path if isinstance(path, list) else [])
 
 
+def _individual_step_mapping_targets(
+    mappings: list[ProjectGroupStepMapping],
+) -> list[ProjectGroupStepMapping]:
+    return [
+        replace(mapping, final_targets=[target]) if target is not None else mapping
+        for mapping in mappings
+        for target in (mapping.final_targets or [None])
+    ]
+
+
 def _merge_step_mappings(
     current: list[ProjectGroupStepMapping],
     incoming: list[ProjectGroupStepMapping],
@@ -594,8 +712,10 @@ def _merge_step_mappings(
     decision clears all entries for that source/target.  Other confirmed groups
     remain available for the same source step.
     """
-    merged = list(current)
-    for candidate in incoming:
+    # Match decisions per final target so a change to A can preserve the B part
+    # of a previously inferred [A, B] mapping, including its selected features.
+    merged = _individual_step_mapping_targets(current)
+    for candidate in _individual_step_mapping_targets(incoming):
         candidate_scope = _step_mapping_scope_key(candidate)
         candidate_path = _step_mapping_path_key(candidate)
         if candidate.status == "not_applicable":
@@ -643,6 +763,11 @@ def serialize_project_group_template(row: ProjectGroupTemplate) -> ProjectTempla
             for mapping in _json_list(getattr(row, "step_mappings_json", "[]"))
         ],
         mapping_output=_json_list(getattr(row, "mapping_output_json", "[]")),
+        step_order_by_process=json.loads(getattr(row, "step_order_by_process_json", "{}") or "{}"),
+        mapping_context=json.loads(getattr(row, "mapping_context_json", "{}") or "{}"),
+        mapping_operations=_json_list(getattr(row, "mapping_operations_json", "[]")),
+        hidden_step_keys=_json_list(getattr(row, "hidden_step_keys_json", "[]")),
+        waived_group_paths=_json_list(getattr(row, "waived_group_paths_json", "[]")),
         template_revision=int(row.template_revision),
         group_count=int(row.group_count),
         feature_selection_count=int(row.feature_selection_count),
@@ -696,7 +821,6 @@ async def _invalidate_template_dependent_outputs(db: AsyncSession, project_id: i
     from app.services.rule_packages.lifecycle import supersede_published_rule_packages
 
     await supersede_published_rule_packages(project_id, db)
-    await db.execute(delete(GeneratedRoute).where(GeneratedRoute.project_id == project_id))
     await db.flush()
 
 
@@ -719,11 +843,12 @@ async def commit_project_group_template(
                         project_id, original_filename, source_encoding, part_filename,
                         content_hash, feature_dictionary_version, source_xml, tree_json,
                         validation_json, mappings_json, step_mappings_json, mapping_output_json,
+                        hidden_step_keys_json, waived_group_paths_json, mapping_operations_json,
                         template_revision, group_count, feature_selection_count
                     )
                     SELECT :project_id, :original_filename, :source_encoding, :part_filename,
                            :content_hash, :feature_dictionary_version, :source_xml, :tree_json,
-                           :validation_json, '[]', '[]', '[]', 1, :group_count, :feature_selection_count
+                           :validation_json, '[]', '[]', '[]', '[]', '[]', '[]', 1, :group_count, :feature_selection_count
                     FROM projects WHERE id = :project_id
                     RETURNING id
                 """),
@@ -760,11 +885,38 @@ async def commit_project_group_template(
             migrated_steps.append(_resolve_step_mapping(old_mapping, new_index))
         except HTTPException:
             invalidated_steps.append(_step_mapping_snapshot(old_mapping))
-    source_operations = _restore_mapping_operations(
+    source_operations = _json_list(getattr(current, "mapping_operations_json", "[]")) or _restore_mapping_operations(
         _json_list(current.mapping_output_json),
         [_step_mapping_snapshot(mapping) for mapping in old_step_mappings],
     )
     mapping_output = _build_mapping_output(source_operations, migrated_steps)
+    from app.services.template_mapping_projection import (
+        MappingProjectionError, project_mapping_route, step_order, validate_mapping_attachment,
+    )
+    canonical_operations = source_operations if any(op.get("process_id") for op in source_operations) else _restore_mapping_operations(
+        mapping_output, migrated_steps,
+    )
+    saved_order = json.loads(getattr(current, "step_order_by_process_json", "{}") or "{}")
+    context = json.loads(getattr(current, "mapping_context_json", "{}") or "{}")
+    try:
+        ordered = step_order(canonical_operations, saved_order or None)
+        mapping_output = project_mapping_route(mapping_output, canonical_operations, ordered)
+        if context:
+            from app.services.rule_packages.executable_revisions import current_revision
+            from app.services.rule_packages.contracts import RulePackageV2
+            from app.services.rule_packages.mother_route import load_mother_route
+            executable = await current_revision(db, project_id)
+            package = RulePackageV2.model_validate_json(executable.package_json)
+            context["template_content_hash"] = values["content_hash"]
+            mother = await load_mother_route(db, project_id, _json_list(executable.normalized_route_json))
+            validate_mapping_attachment(package, {
+                "mapping_operations": canonical_operations, "mapping_context": context,
+                "tree": parsed.tree,
+                "content_hash": values["content_hash"], "step_mappings": _step_mapping_dicts(migrated_steps),
+                "step_order_by_process": ordered, "hidden_step_keys": [], "mapping_output": mapping_output,
+            }, mother)
+    except MappingProjectionError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
     revision = (
         await db.execute(
@@ -781,6 +933,11 @@ async def commit_project_group_template(
                     mappings_json = :mappings_json,
                     step_mappings_json = :step_mappings_json,
                     mapping_output_json = :mapping_output_json,
+                    mapping_context_json = :mapping_context_json,
+                    step_order_by_process_json = :step_order_by_process_json,
+                    hidden_step_keys_json = '[]',
+                    waived_group_paths_json = '[]',
+                    mapping_operations_json = :mapping_operations_json,
                     group_count = :group_count,
                     feature_selection_count = :feature_selection_count,
                     template_revision = template_revision + 1,
@@ -794,6 +951,9 @@ async def commit_project_group_template(
                 "mappings_json": _json_dump(_mapping_dicts(migrated)),
                 "step_mappings_json": _json_dump(_step_mapping_dicts(migrated_steps)),
                 "mapping_output_json": _json_dump(mapping_output),
+                "mapping_context_json": _json_dump(context),
+                "step_order_by_process_json": _json_dump(ordered),
+                "mapping_operations_json": _json_dump(source_operations),
                 **values,
             },
         )
@@ -865,13 +1025,18 @@ async def replace_project_group_step_mappings(
     expected_revision: int,
     operations: list[object] | None = None,
     replace_all: bool = True,
+    *,
+    step_order_by_process: dict[str, list[str]] | None = None,
+    expected_route_version_id: int | None = None,
+    hidden_step_keys: list[str] | None = None,
+    waived_group_paths: list[list[str]] | None = None,
 ) -> ProjectTemplateSnapshot:
     current = await get_project_group_template(db, project_id)
     if current is None or int(current.template_revision) != expected_revision:
         raise _conflict()
     index = _path_index(_json_list(current.tree_json))
     resolved: list[ProjectGroupStepMapping] = []
-    seen_targets: set[tuple[str, tuple[tuple[str, str], ...], str]] = set()
+    seen_targets: dict[tuple[str, tuple[tuple[str, str], ...], str], ProjectGroupStepMapping] = {}
     explicit_final_tree = any(_mapping_value(operation, "process_id", "") for operation in operations or [])
     saved_output = _json_list(current.mapping_output_json)
     saved_output_mode = str(getattr(current, "mapping_output_mode", "unknown") or "unknown")
@@ -908,6 +1073,10 @@ async def replace_project_group_step_mappings(
                       int(_mapping_value(mapping, "source_step_order", 0) or 0),
                       normalize_name(_mapping_value(mapping, "source_step_name", "")))
         requested_targets = _mapping_final_targets(mapping)
+        # Legacy snapshots serialize an omitted target list as []; accept their
+        # read/modify/write form while keeping explicit final-tree targets strict.
+        if requested_targets == [] and not explicit_final_tree:
+            requested_targets = None
         allowed_targets = final_targets.get(source_ref, [])
         if requested_targets is not None:
             if not explicit_final_tree or not requested_targets or any(
@@ -922,9 +1091,13 @@ async def replace_project_group_step_mappings(
         target_ids = tuple(sorted((target["process_id"], target["step_id"]) for target in server_mapping.final_targets))
         target_key = _canonical_path(server_mapping.template_group_path)
         dedupe_key = (server_mapping.source_step_key, target_ids, target_key)
-        if dedupe_key in seen_targets:
+        previous_mapping = seen_targets.get(dedupe_key)
+        if previous_mapping is not None:
+            previous_mapping.candidate_features = list(dict.fromkeys(
+                [*previous_mapping.candidate_features, *server_mapping.candidate_features]
+            ))
             continue
-        seen_targets.add(dedupe_key)
+        seen_targets[dedupe_key] = server_mapping
         resolved.append(server_mapping)
 
     if not replace_all:
@@ -957,7 +1130,68 @@ async def replace_project_group_step_mappings(
     if any(len(step_statuses) > 1 for step_statuses in statuses.values()):
         raise HTTPException(422, "同一工步不能同时确认映射和标记为不依赖模板特征。")
 
-    mapping_output = _build_mapping_output(operations, resolved)
+    source_operations = list(operations or [])
+    if not explicit_final_tree and not source_operations:
+        source_operations = _json_list(getattr(current, "mapping_operations_json", "[]")) or _legacy_operations(None, resolved)
+    mapping_output = _build_mapping_output(source_operations, resolved)
+    hidden = await _resolve_hidden_step_keys(
+        db, project_id, source_operations, resolved, mapping_output,
+        hidden_step_keys if hidden_step_keys is not None else _json_list(getattr(current, "hidden_step_keys_json", "[]")),
+    )
+    waived = resolve_waived_group_paths(
+        _json_list(current.tree_json),
+        waived_group_paths if waived_group_paths is not None else _json_list(getattr(current, "waived_group_paths_json", "[]")),
+    )
+    # Deleting a final target releases only that target, including split-source bindings.
+    kept = []
+    for mapping in resolved:
+        if mapping.final_targets:
+            targets = [target for target in mapping.final_targets if target["step_id"] not in hidden]
+            if targets:
+                kept.append(replace(mapping, final_targets=targets))
+        elif mapping.source_step_key not in hidden:
+            kept.append(mapping)
+    resolved = kept
+    mapping_output = _build_mapping_output(source_operations, resolved)
+    from app.services.template_mapping_projection import (
+        MappingProjectionError, project_mapping_route, step_order, validate_mapping_attachment,
+    )
+    canonical_operations = jsonable_encoder(source_operations)
+    if not explicit_final_tree:
+        canonical_operations = _restore_mapping_operations(mapping_output, resolved)
+    saved_order = json.loads(getattr(current, "step_order_by_process_json", "{}") or "{}")
+    if step_order_by_process is None and not json.loads(getattr(current, "mapping_context_json", "{}") or "{}"):
+        # Pre-core legacy editing may replace its source tree; carry surviving IDs only.
+        expected_order = step_order(canonical_operations)
+        saved_order = {pid: [sid for sid in saved_order.get(pid, []) if sid in ids]
+                       + [sid for sid in ids if sid not in saved_order.get(pid, [])]
+                       for pid, ids in expected_order.items()}
+    requested_order = step_order_by_process if step_order_by_process is not None else (saved_order or None)
+    context = {}
+    try:
+        ordered = step_order(canonical_operations, requested_order)
+        mapping_output = project_mapping_route(mapping_output, canonical_operations, ordered, hidden)
+        from app.services.rule_packages.executable_revisions import current_revision
+        executable = await current_revision(db, project_id, required=expected_route_version_id is not None)
+        if executable is not None:
+            from app.services.rule_packages.contracts import RulePackageV2
+            from app.services.rule_packages.mother_route import load_mother_route
+            package = RulePackageV2.model_validate_json(executable.package_json)
+            if expected_route_version_id is not None and expected_route_version_id != executable.route_version_id:
+                raise HTTPException(409, "映射的路线版本已更新，请重新加载。")
+            context = {"project_id": project_id, "route_version_id": executable.route_version_id,
+                       "core_content_hash": executable.content_hash, "template_content_hash": current.content_hash}
+            mother = await load_mother_route(db, project_id, _json_list(executable.normalized_route_json))
+            from app.services.rule_packages.template_mapping_requirements import _load_source_step_items
+            context["source_step_items"] = {str(key): values for key, values in (await _load_source_step_items(db, project_id)).items()}
+            validate_mapping_attachment(package, {
+                "mapping_operations": canonical_operations, "mapping_context": context,
+                "tree": _json_list(current.tree_json),
+                "content_hash": current.content_hash, "step_mappings": _step_mapping_dicts(resolved),
+                "step_order_by_process": ordered, "hidden_step_keys": hidden, "mapping_output": mapping_output,
+            }, mother)
+    except MappingProjectionError as exc:
+        raise HTTPException(422, str(exc)) from exc
     if explicit_final_tree:
         invalid_precision = [process for process in mapping_output
                              if process["process_type"] == "加工工序"
@@ -977,6 +1211,11 @@ async def replace_project_group_step_mappings(
                 SET step_mappings_json = :step_mappings_json,
                     mapping_output_json = :mapping_output_json,
                     mapping_output_mode = :mapping_output_mode,
+                    step_order_by_process_json = :step_order_by_process_json,
+                    mapping_context_json = :mapping_context_json,
+                    hidden_step_keys_json = :hidden_step_keys_json,
+                    waived_group_paths_json = :waived_group_paths_json,
+                    mapping_operations_json = :mapping_operations_json,
                     template_revision = template_revision + 1,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE project_id = :project_id AND template_revision = :expected_revision
@@ -988,6 +1227,11 @@ async def replace_project_group_step_mappings(
                 "step_mappings_json": _json_dump(_step_mapping_dicts(resolved)),
                 "mapping_output_json": _json_dump(mapping_output),
                 "mapping_output_mode": "final_tree" if explicit_final_tree else "legacy",
+                "step_order_by_process_json": _json_dump(ordered),
+                "mapping_context_json": _json_dump(context),
+                "hidden_step_keys_json": _json_dump(hidden),
+                "waived_group_paths_json": _json_dump(waived),
+                "mapping_operations_json": _json_dump(jsonable_encoder(source_operations)),
             },
         )
     ).scalar_one_or_none()

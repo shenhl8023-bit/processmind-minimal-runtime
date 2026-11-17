@@ -12,7 +12,7 @@ from typing import Callable
 
 from app.core.paths import UPLOAD_DIR
 from app.models.models import Document, DocumentOperationDetail
-from app.services.extraction_parallel import run_extraction_cpu
+from app.services.extraction_parallel import run_extraction_cpu, run_pdf_extraction_cpu
 from app.services.file_parser import extract_text
 from app.services.route_candidate_summary import (
     build_missing_route_candidates as _build_missing_route_candidates,
@@ -37,11 +37,10 @@ describe_route_set_candidate = _describe_route_set_candidate
 
 
 def _summarize_one_document(
-    filename: str,
+    filepath: str,
     file_type: str | None,
     original_name: str,
 ) -> tuple[str, list[dict], list[str]]:
-    filepath = os.path.join(UPLOAD_DIR, filename)
     text = extract_text(filepath, file_type, max_chars=None)
     logger.info("[Extract] 已提取文档 %s 内容，长度: %s 字符", original_name, len(text))
     candidates = _extract_operations_from_text(text, original_name)
@@ -108,9 +107,10 @@ async def _collect_candidate_summary(
     async def _run_one(index: int, doc: Document) -> None:
         nonlocal completed
         original_name = str(doc.original_name or doc.filename or "")
-        results[index] = await run_extraction_cpu(
+        runner = run_pdf_extraction_cpu if (doc.file_type or "").lower() == "pdf" else run_extraction_cpu
+        results[index] = await runner(
             _summarize_one_document,
-            str(doc.filename or ""),
+            os.path.abspath(os.path.join(UPLOAD_DIR, str(doc.filename or ""))),
             doc.file_type,
             original_name,
         )
@@ -124,7 +124,24 @@ async def _collect_candidate_summary(
             )
 
     if docs:
-        await asyncio.gather(*[_run_one(index, doc) for index, doc in enumerate(docs)])
+        tasks = [asyncio.create_task(_run_one(index, doc)) for index, doc in enumerate(docs)]
+        batch = asyncio.gather(*tasks)
+        try:
+            # Own cancellation so gather cannot interrupt sibling cleanup twice.
+            await asyncio.shield(batch)
+        except BaseException:
+            for task in tasks:
+                task.cancel()
+            cleanup = asyncio.gather(batch, *tasks, return_exceptions=True)
+            cancellation = None
+            while not cleanup.done():
+                try:
+                    await asyncio.shield(cleanup)
+                except asyncio.CancelledError as exc:
+                    cancellation = exc
+            if cancellation is not None:
+                raise cancellation
+            raise
 
     for result in results:
         if result is None:

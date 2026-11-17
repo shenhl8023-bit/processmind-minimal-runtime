@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.paths import UPLOAD_DIR
 from app.models.models import Document, DocumentOperationDetail
 from app.services.document_operation_details import extract_pdf_operation_details
-from app.services.extraction_parallel import run_extraction_cpu
+from app.services.extraction_parallel import run_pdf_extraction_cpu
 from fastapi import HTTPException
 from app.services.document_operation_non_pdf_parser import SUPPORTED_DETAIL_FILE_TYPES, extract_non_pdf_operation_details
 
@@ -54,14 +54,31 @@ async def extract_document_operation_details(
             except ValueError as exc:
                 raise HTTPException(422, f"文档 {doc.original_name} 工序工步解析失败：{exc}") from exc
         try:
-            return doc, await run_extraction_cpu(extract_pdf_operation_details, filepath)
+            return doc, await run_pdf_extraction_cpu(extract_pdf_operation_details, filepath)
         except Exception:
             return doc, []
 
     saved_rows: list[DocumentOperationDetail] = []
-    parsed_docs = []
-    for doc in docs:
-        parsed_docs.append(await _parse_document(doc))
+    parsed_docs: list = [None] * len(docs)
+    pdf_tasks = {
+        index: asyncio.create_task(_parse_document(doc))
+        for index, doc in enumerate(docs) if (doc.file_type or "").lower() == "pdf"
+    }
+    try:
+        # Office parsing may call a model: keep those calls serial as before.
+        # Workers never see the database session or ORM objects.
+        for index, doc in enumerate(docs):
+            if index not in pdf_tasks:
+                parsed_docs[index] = await _parse_document(doc)
+        if pdf_tasks:
+            results = await asyncio.gather(*pdf_tasks.values())
+            for index, result in zip(pdf_tasks, results):
+                parsed_docs[index] = result
+    except BaseException:
+        for task in pdf_tasks.values():
+            task.cancel()
+        await asyncio.gather(*pdf_tasks.values(), return_exceptions=True)
+        raise
     for doc, extracted_rows in parsed_docs:
         for item in extracted_rows:
             normalized_names = detail_row_normalized_names(item.normalized_name or item.operation_name)
@@ -159,8 +176,7 @@ async def _ensure_document_operation_details_locked(
             await db.delete(row)
             modified = True
             continue
-        if row not in reusable_rows:
-            reusable_rows.append(row)
+        reusable_rows.append(row)
 
     for doc in available_docs:
         if existing_by_doc.get(int(doc.id)):

@@ -64,6 +64,44 @@ describe('useAnalysisReviewPersistence', () => {
     expect(onRuleReviewSaved).toHaveBeenCalledTimes(1)
   })
 
+  it('sends an executable draft and blocks accepting a still incomplete configured tree', async () => {
+    const { options, selectedSegment } = createPersistence()
+    const draft: any = { scope: 'current', object: 'hole', condition_text: 'test', status: 'confirmed', missing: [], provenance: [], candidate: { preview: 'test' } }
+    const getAnalysisDraft = vi.fn(() => draft)
+    const persistence = useAnalysisReviewPersistence({ ...options, getAnalysisDraft })
+    await persistence.persistRuleReview('accepted')
+    expect(mocks.saveSegmentRuleReview.mock.calls[0]![0].analysis_draft).toEqual(draft)
+    expect(getAnalysisDraft).toHaveBeenCalledWith(selectedSegment.value)
+    getAnalysisDraft.mockReturnValueOnce(null)
+    await persistence.persistRuleReview('accepted')
+    expect(mocks.saveSegmentRuleReview).toHaveBeenCalledTimes(1)
+    expect(options.error.value).toContain('完成')
+  })
+
+  it('does not save or advance a route locked by finalization', async () => {
+    const { persistence, options, savedRoute } = createPersistence()
+    savedRoute.value.analysis_locked = true
+    await persistence.persistRuleReview('accepted', { autoAdvance: true })
+    expect(mocks.saveSegmentRuleReview).not.toHaveBeenCalled()
+    expect(options.goToNextPendingSegment).not.toHaveBeenCalled()
+    expect(savedRoute.value.segments[0].rule_review).toBeNull()
+  })
+
+  it('refreshes the route after the server rejects an old tab because of finalization', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { options, savedRoute } = createPersistence()
+    const onWorkflowConflict = vi.fn(async () => { savedRoute.value.analysis_locked = true })
+    mocks.saveSegmentRuleReview.mockRejectedValueOnce({ response: { status: 409, data: {
+      detail: { code: 'analysis_locked', message: '已进入规则定稿' },
+    } } })
+    const persistence = useAnalysisReviewPersistence({ ...options, onWorkflowConflict })
+    await persistence.persistRuleReview('accepted')
+    expect(savedRoute.value.analysis_locked).toBe(true)
+    expect(savedRoute.value.segments[0].rule_review).toBeNull()
+    expect(options.error.value).toBe('')
+    consoleError.mockRestore()
+  })
+
   it('does not fail the save flow when the background preprocessing trigger fails', async () => {
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { persistence, onRuleReviewSaved } = createPersistence(
@@ -131,5 +169,20 @@ describe('useAnalysisReviewPersistence', () => {
     expect(options.clearQuestionTreeRejudging).not.toHaveBeenCalled()
     expect(options.goToNextPendingSegment).not.toHaveBeenCalled()
     expect(onRuleReviewSaved).not.toHaveBeenCalled()
+  })
+
+  it('discards queued snapshots when a route object is reloaded with the same identity fields', async () => {
+    let finish!: (value: any) => void
+    const { persistence, options, selectedSegment, savedRoute } = createPersistence()
+    mocks.saveSegmentRuleReview.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const first = persistence.persistRuleReview('accepted')
+    selectedSegment.value = { id: 'seg-2', rule_review: null }
+    options.selectedSegmentId.value = 'seg-2'
+    const second = persistence.persistRuleReview('accepted')
+    savedRoute.value = { route_id: 9, workflow_revision: 3, segments: [{ id: 'seg-1', rule_review: null }] }
+    finish({ project_id: 12, route_id: 9, segment_id: 'seg-1', analysis_status: 'reviewed', rule_review: { decision: 'accepted' } })
+    await Promise.all([first, second])
+    expect(mocks.saveSegmentRuleReview).toHaveBeenCalledTimes(1)
+    expect(savedRoute.value.segments[0].rule_review).toBeNull()
   })
 })

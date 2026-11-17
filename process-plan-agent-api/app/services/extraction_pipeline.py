@@ -219,8 +219,11 @@ async def run_extraction_pipeline(
             project_status="EXTRACT_ERROR",
         )
     finally:
-        EXTRACTION_JOBS.pop(project_id, None)
-        EXTRACTION_RUNNING.discard(project_id)
+        # Cancellation may finish after a replacement has been registered.
+        # Only the registered job owns this project's runtime bookkeeping.
+        if EXTRACTION_JOBS.get(project_id) is asyncio.current_task():
+            EXTRACTION_JOBS.pop(project_id, None)
+            EXTRACTION_RUNNING.discard(project_id)
 
 
 async def queue_extraction_job(

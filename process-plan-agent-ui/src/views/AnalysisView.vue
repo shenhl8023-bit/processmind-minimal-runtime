@@ -1,16 +1,14 @@
 <template>
   <div class="analysis-view">
-    <div class="analysis-hero">
-      <div class="analysis-hero-info">
-        <div class="analysis-hero-title">规则分析</div>
-        <span class="analysis-hero-sep">·</span>
-        <div class="analysis-hero-desc">已保存路线版本一览，左侧选工序、右侧看证据。</div>
+    <div class="analysis-hero workflow-page-header">
+      <div class="analysis-hero-info workflow-page-info">
+        <div class="analysis-hero-title workflow-page-title">规则分析</div>
       </div>
-      <div class="analysis-actions">
+      <div class="analysis-actions workflow-page-actions">
         <button
           class="btn-accept-all-global"
           @click="acceptAllRecommendedForAllSegments"
-          :disabled="loading || resettingWorkflow || batchAcceptingAll || !savedRoute || !pendingSegmentCount"
+          :disabled="analysisReadOnly || loading || guidanceGenerating || resettingWorkflow || batchAcceptingAll || !analysisGuidance || !savedRoute || !pendingSegmentCount"
         >
           <span v-if="batchAcceptingAll" class="btn-accept-all-spinner" />
           <svg v-else xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="btn-accept-all-global-icon">
@@ -19,11 +17,8 @@
           {{ batchAcceptingAll ? `正在采纳 (${batchAcceptProgress})...` : '一键采纳全部推荐' }}
           <span v-if="pendingSegmentCount && !batchAcceptingAll" class="btn-accept-all-global-count">{{ pendingSegmentCount }}</span>
         </button>
-        <button class="btn btn-outline btn-sm" @click="resetDialogVisible = true" :disabled="loading || resettingWorkflow || !savedRoute">
+        <button class="btn btn-outline btn-sm" @click="resetDialogVisible = true" :disabled="loading || guidanceGenerating || resettingWorkflow || !savedRoute">
           重新回答全部
-        </button>
-        <button class="btn btn-outline btn-sm" @click="loadSavedRoute(true)" :disabled="loading || !projectId">
-          刷新路线
         </button>
       </div>
     </div>
@@ -48,39 +43,6 @@
     </div>
 
     <template v-else-if="savedRoute">
-      <div v-if="error" class="analysis-inline-error" role="alert">
-        <span>{{ error }}</span>
-        <button type="button" class="btn-clear-error" @click="error = ''">×</button>
-      </div>
-
-      <div class="analysis-filter-bar">
-        <label class="analysis-search">
-          <span class="analysis-search-icon" aria-hidden="true">⌕</span>
-          <input
-            v-model="segmentSearch"
-            type="search"
-            placeholder="搜索工序名称"
-            aria-label="搜索工序名称"
-          />
-        </label>
-        <div class="analysis-filter-options" aria-label="工序审核状态筛选">
-          <button
-            v-for="option in segmentFilterOptions"
-            :key="option.value"
-            type="button"
-            class="analysis-filter-btn"
-            :class="{ active: segmentFilter === option.value }"
-            @click="segmentFilter = option.value"
-          >
-            {{ option.label }}
-            <span>{{ option.count }}</span>
-          </button>
-        </div>
-        <div class="analysis-filter-result">
-          显示 {{ filteredSegments.length }} / {{ savedRoute.segments.length }} 道工序
-        </div>
-      </div>
-
       <div class="analysis-layout">
         <AnalysisRouteList
           :segments="filteredSegments"
@@ -96,7 +58,23 @@
           :segment-primary-steps="segmentPrimarySteps"
           :segment-attached-steps="segmentAttachedSteps"
           @select="selectedSegmentId = $event"
-        />
+        >
+          <template #filters>
+            <div class="analysis-filter-options" role="group" aria-label="工序筛选">
+              <button
+                v-for="option in segmentFilterOptions"
+                :key="option.value"
+                type="button"
+                class="analysis-filter-btn"
+                :class="{ active: segmentFilter === option.value }"
+                :aria-pressed="segmentFilter === option.value"
+                @click="segmentFilter = option.value"
+              >
+                {{ option.label }} <span>{{ option.count }}</span>
+              </button>
+            </div>
+          </template>
+        </AnalysisRouteList>
 
         <section class="analysis-column analysis-column-right" v-if="selectedSegment && filteredSegments.length">
           <div class="detail-hero">
@@ -110,8 +88,6 @@
                     {{ segmentProgressLabel(selectedSegment) }}
                   </span>
                   <span class="detail-tag detail-tag-index">第 {{ selectedSegmentIndex + 1 }} / {{ savedRoute.segments.length }}</span>
-                  <span v-if="selectedSegment.step_family" class="detail-tag">{{ selectedSegment.step_family }}</span>
-                  <span v-if="segmentPhaseLabel(selectedSegment)" class="detail-tag">{{ segmentPhaseLabel(selectedSegment) }}</span>
                 </div>
               </div>
               <div class="detail-nav-actions">
@@ -120,50 +96,36 @@
                 <button class="nav-action-btn nav-action-btn-primary" :disabled="selectedSegmentIndex >= savedRoute.segments.length - 1" @click="goToNextSegment">下一段</button>
               </div>
             </div>
-            <div class="detail-hero-row detail-hero-row-actions">
-              <div class="detail-stats">
-                <span>文档 <strong>{{ selectedSegment.doc_coverage.hit_docs }}/{{ selectedSegment.doc_coverage.total_docs }}</strong></span>
-                <span>明细 <strong>{{ selectedSegment.detail_coverage.matched_rows }}</strong></span>
-                <span>覆盖 <strong>{{ formatRatio(selectedSegment.doc_coverage.ratio) }}</strong></span>
-                <span v-if="selectedSegment.source_nodes.length">来源 <strong>{{ selectedSegment.source_nodes.join(', ') }}</strong></span>
-              </div>
-            </div>
           </div>
 
           <QuestionTreePanel
+            hide-read-only-notice
             v-if="showQuestionTreePanel"
             :key="`${selectedSegment.id}-${questionTreeCurrentQuestion?.id || 'resolved'}-${questionTreeTrail.length}`"
             :visible="questionTreeVisible"
+            :read-only="analysisReadOnly || guidanceGenerating"
+            :read-only-reason="guidanceGenerating ? '问答与推荐正在生成，完成后即可回答。' : undefined"
             :empty-reason="questionTreeEmptyReason"
             :current-question="questionTreeCurrentQuestion"
             :source-hint="questionTreeSourceHint"
             :trail="questionTreeTrail"
             :result-summary="questionTreeResultSummary"
             :note-draft="questionTreeNoteDraft"
-            :saved-summary-lines="questionTreeSavedSummaryLines"
             :saved-trail="questionTreeSavedTrail"
             @choose-option="chooseQuestionTreeOption"
             @choose-options="chooseQuestionTreeOptions"
             @update-note="updateQuestionTreeNote"
             @reanswer-last="reanswerLastQuestionTree"
             @reset="resetQuestionTree"
+            @edit-custom="openCustomEditor"
           />
 
             <SampleComparePanel
               :expanded="sampleCompareExpanded"
               :hit-documents="hitDocuments"
               :missing-documents="missingDocuments"
-              :hit-highlights="hitDocOperationHighlights"
-              :missing-highlights="missingDocOperationHighlights"
-              :variant-names="selectedSegmentVariantNames"
               @toggle="sampleCompareExpanded = !sampleCompareExpanded"
               @select-document="openDocumentPreview"
-            />
-
-            <EvidenceExcerptPanel
-              :expanded="evidenceExcerptExpanded"
-              :excerpts="selectedSegment.evidence_excerpt"
-              @toggle="evidenceExcerptExpanded = !evidenceExcerptExpanded"
             />
 
             <EvidenceRowsPanel
@@ -177,7 +139,7 @@
         <section v-else class="analysis-column analysis-column-right analysis-filter-empty">
           <div class="empty-mark">0</div>
           <div class="empty-title">没有匹配的工序</div>
-          <div class="empty-text">调整搜索词或审核状态后再试。</div>
+          <div class="empty-text">切换审核状态查看，或显示全部工序。</div>
           <button type="button" class="btn btn-outline btn-sm" @click="resetSegmentFilters">清除筛选</button>
         </section>
       </div>
@@ -223,10 +185,11 @@
 
     <WorkflowNavFooter
       :summary="analysisNavSummary"
+      :notices="analysisNotices"
       previous-label="← 返回路线归并"
-      next-label="进入模板分组映射 →"
+      next-label="进入规则定稿 →"
       :previous-disabled="!projectId"
-      :next-disabled="!projectId || !savedRoute || loading"
+      :next-disabled="!projectId || !savedRoute || loading || resettingWorkflow || batchAcceptingAll || guidanceGenerating || (!analysisGuidance && !!guidanceError) || pendingSegmentCount > 0 || inProgressSegmentCount > 0"
       @previous="goBackToExtract"
       @next="goToFinalize"
     />
@@ -243,6 +206,12 @@
       @confirm="confirmResetAllAnswers"
     />
 
+    <el-dialog v-model="customEditorVisible" title="自行设置工序规则" width="900px" :close-on-click-modal="false" :show-close="false" destroy-on-close>
+      <p v-if="customEditorError" role="alert">{{ customEditorError }}</p>
+      <ProcessConfigurationEditor v-if="customCandidate && customCard && selectedSegment" v-model="customCandidate" :item="customCard" :display-name="segmentDisplayName(selectedSegment)" :fields="customFields" :processes="customProcesses" :disabled="analysisReadOnly" @save="confirmCustomRule" @cancel="cancelCustomRule" />
+      <button v-else type="button" @click="cancelCustomRule">返回问题</button>
+    </el-dialog>
+
 
   </div>
 </template>
@@ -252,29 +221,48 @@ import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AnalysisRouteList from '@/components/analysis/AnalysisRouteList.vue'
 import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
+import type { WorkflowNotice } from '@/components/workflow/workflowNotice'
 import WorkflowResetDialog from '@/components/workflow/WorkflowResetDialog.vue'
 import { buildProjectRouteQuery } from '@/composables/useCurrentProject'
 import { useAnalysisWorkspace } from '@/composables/useAnalysisWorkspace'
 import { useRouteSegmentSteps } from '@/composables/useRouteSegmentSteps'
 import { formatRoutePhaseLabel } from '@/composables/routeNameDisplay'
 import { startRulePreprocessingForSavedRoute } from '@/composables/rulePreprocessingTrigger'
-import { thirdStepResetCopy } from '@/composables/workflowResetCopy'
+import { resetCopyForEdition } from '@/composables/workflowResetCopy'
+import { templateMappingVisible } from '@/composables/productStatus'
+import ProcessConfigurationEditor from '@/components/finalize/ProcessConfigurationEditor.vue'
+import { buildFinalizeCards } from '@/composables/finalizeViewHelpers'
+import { guidedProcessId } from '@/composables/analysisGuidanceFlow'
+import { projectConditionFields } from '@/utils/projectConditionFields'
+import { getConditionFieldRegistry, type CanonicalConditionField, type RuleConditionCandidate } from '@/api/rulePackages'
 
-const EvidenceExcerptPanel = defineAsyncComponent(() => import('@/components/analysis/EvidenceExcerptPanel.vue'))
+const thirdStepResetCopy = computed(() => resetCopyForEdition('analysis', templateMappingVisible.value))
+
 const EvidenceRowsPanel = defineAsyncComponent(() => import('@/components/analysis/EvidenceRowsPanel.vue'))
 const QuestionTreePanel = defineAsyncComponent(() => import('@/components/analysis/QuestionTreePanel.vue'))
 const SampleComparePanel = defineAsyncComponent(() => import('@/components/analysis/SampleComparePanel.vue'))
 
 const router = useRouter()
 
-type SegmentFilter = 'all' | 'pending' | 'started' | 'completed'
+type SegmentFilter = 'all' | 'pending'
 
-const segmentSearch = ref('')
 const segmentFilter = ref<SegmentFilter>('pending')
 const resetDialogVisible = ref(false)
+const customEditorVisible = ref(false)
+const customCandidate = ref<RuleConditionCandidate | null>(null)
+const customFields = ref<CanonicalConditionField[]>([])
+const customEditorError = ref('')
 
 const {
   loading,
+  analysisReadOnly,
+  analysisGuidance,
+  guidanceError,
+  guidanceErrorReason,
+  guidanceGenerating,
+  generationElapsedSeconds,
+  recommendationSummary,
+  getGuidanceForSegment,
   resettingWorkflow,
   error,
   projectId,
@@ -282,7 +270,6 @@ const {
   selectedSegmentId,
   supersetOperations,
   sampleCompareExpanded,
-  evidenceExcerptExpanded,
   evidenceRowsExpanded,
   documentPreviewLoading,
   documentPreviewError,
@@ -297,9 +284,6 @@ const {
   hasNextPendingSegment,
   hitDocuments,
   missingDocuments,
-  selectedSegmentVariantNames,
-  hitDocOperationHighlights,
-  missingDocOperationHighlights,
   questionTreeVisible,
   showQuestionTreePanel,
   questionTreeEmptyReason,
@@ -308,7 +292,6 @@ const {
   questionTreeTrail,
   questionTreeResultSummary,
   questionTreeNoteDraft,
-  questionTreeSavedSummaryLines,
   questionTreeSavedTrail,
   loadSavedRoute,
   resetAllAnalysisAnswers,
@@ -316,7 +299,6 @@ const {
   openDocumentPreview,
   closeDocumentPreview,
   openDocumentOriginal,
-  formatRatio,
   segmentCoverageLabel,
   segmentDisplayName,
   segmentProgressClass,
@@ -334,6 +316,41 @@ const {
   acceptAllRecommendedForAllSegments,
 } = useAnalysisWorkspace()
 
+const recommendationRetryAvailable = computed(() => Object.values(analysisGuidance.value?.operation_guidance || {})
+  .some(operation => !operation.recommendation && !!operation.recommendation_issues?.length))
+
+const customCard = computed(() => selectedSegment.value ? buildFinalizeCards([selectedSegment.value], supersetOperations.value, {})[0] || null : null)
+const customProcesses = computed(() => {
+  const segments = savedRoute.value?.segments || []
+  const index = segments.findIndex(s => s.id === selectedSegment.value?.id)
+  return segments.slice(0, index + 1).map(s => ({ process_id: guidedProcessId(s), display_name: segmentDisplayName(s), main: false }))
+})
+async function openCustomEditor() {
+  if (!selectedSegment.value || analysisReadOnly.value) return
+  const targetId = selectedSegment.value.id, routeId = savedRoute.value?.route_id
+  customEditorError.value = ''
+  customCandidate.value = null
+  customEditorVisible.value = true
+  try {
+    const registry = await getConditionFieldRegistry({ processId: guidedProcessId(selectedSegment.value), processName: selectedSegment.value.normalized_step_name })
+    if (!customEditorVisible.value || selectedSegment.value?.id !== targetId || savedRoute.value?.route_id !== routeId || analysisReadOnly.value) return
+    customFields.value = projectConditionFields(guidedProcessId(selectedSegment.value), selectedSegment.value.normalized_step_name, getGuidanceForSegment(selectedSegment.value) || undefined)
+    if (!customFields.value.length) customFields.value = registry.fields
+    customCandidate.value = { kind: 'process_configuration', configuration: { process_id: guidedProcessId(selectedSegment.value), occurrence: 'always', when: null, relations: [] }, preview: `${selectedSegment.value.normalized_step_name}固定安排。`, field_definitions: [] }
+  } catch { customEditorError.value = '规则字段加载失败，请返回后重试。' }
+}
+function confirmCustomRule(candidate: RuleConditionCandidate) {
+  if (analysisReadOnly.value) return
+  chooseQuestionTreeOption({ value: JSON.stringify(candidate), label: candidate.preview || '已自行设置并确认规则' })
+  customEditorVisible.value = false
+  customCandidate.value = null
+}
+function cancelCustomRule() {
+  customEditorVisible.value = false
+  customCandidate.value = null
+  reanswerLastQuestionTree()
+}
+
 const {
   isSegmentStepsExpanded,
   segmentAttachedSteps,
@@ -343,33 +360,37 @@ const {
 } = useRouteSegmentSteps(supersetOperations)
 
 const filteredSegments = computed(() => {
-  const query = segmentSearch.value.trim().toLocaleLowerCase()
   return (savedRoute.value?.segments || []).filter((segment) => {
     const progressClass = segmentProgressClass(segment)
-    const statusMatches = segmentFilter.value === 'all'
-      || (segmentFilter.value === 'completed' && progressClass === 'is-completed')
-      || (segmentFilter.value === 'started' && progressClass === 'is-started')
-      || (segmentFilter.value === 'pending' && progressClass === 'is-pending')
-    if (!statusMatches) return false
-    if (!query) return true
-    return [
-      segmentDisplayName(segment),
-      ...(segment.source_operation_names || []),
-      ...(segment.source_nodes || []),
-    ].some(value => String(value || '').toLocaleLowerCase().includes(query))
+    return segmentFilter.value === 'all'
+      || (segmentFilter.value === 'pending' && progressClass !== 'is-completed')
   })
 })
 
 const segmentFilterOptions = computed(() => [
-  { value: 'pending' as const, label: '待确认', count: pendingSegmentCount.value },
-  { value: 'started' as const, label: '确认中', count: inProgressSegmentCount.value },
-  { value: 'completed' as const, label: '已确认', count: completedSegmentCount.value },
   { value: 'all' as const, label: '全部', count: savedRoute.value?.segments.length || 0 },
+  { value: 'pending' as const, label: '待处理', count: pendingSegmentCount.value + inProgressSegmentCount.value },
 ])
+const analysisNotices = computed<WorkflowNotice[]>(() => {
+  const notices: WorkflowNotice[] = []
+  const retry = () => loadSavedRoute(true, true)
+  const retryDisabled = loading.value || guidanceGenerating.value || analysisReadOnly.value || resettingWorkflow.value
+  if (error.value && savedRoute.value) notices.push({ id: 'analysis-error', level: 'error', summary: '规则分析操作未完成', detail: error.value, actions: [{ label: '关闭提示', run: () => { error.value = '' } }] })
+  if (guidanceGenerating.value) notices.push({ id: 'generation', level: 'progress', summary: `正在生成问答与推荐 · ${generationElapsedSeconds.value}秒`, detail: '生成并校验完成后即可回答，可以先查看工序与样本依据。' })
+  else if (guidanceError.value) notices.push({ id: 'generation-failed', level: 'error', summary: guidanceError.value, detail: guidanceErrorReason.value, actions: [{ label: '重新生成问答', run: retry, disabled: retryDisabled }] })
+  else {
+    if (recommendationRetryAvailable.value && !analysisReadOnly.value) notices.push({ id: 'recommendation-missing', level: 'warning', summary: '部分工序暂无有效推荐', detail: '可手动回答或重试。已开始回答的工序保持原问答版本。', actions: [{ label: '重试推荐', run: retry, disabled: retryDisabled }] })
+    if (recommendationSummary.value) notices.push({ id: 'adoption', level: 'success', summary: recommendationSummary.value })
+    else if (!recommendationRetryAvailable.value && analysisGuidance.value && !analysisReadOnly.value) notices.push({ id: 'ready', level: 'info', summary: '问答与推荐已就绪', detail: analysisNavSummary.value })
+  }
+  if (analysisReadOnly.value) notices.push({ id: 'readonly', level: 'info', summary: '已进入规则定稿，当前仅供查看', detail: '请到规则定稿页调整，或使用“重新回答全部”重新分析。' })
+  return notices
+})
+
 const analysisNavSummary = computed(() => {
   if (!projectId.value) return '请先完成第二步路线归并并保存标准化母路线。'
   if (loading.value) return '正在装载规则分析工作区。'
-  if (error.value) return '当前没有可分析的已保存路线，请返回路线归并。'
+  if (error.value && !savedRoute.value) return '当前没有可分析的已保存路线，请返回路线归并。'
   const total = savedRoute.value?.segments.length || 0
   return `规则分析进度：已确认 ${completedSegmentCount.value}/${total}，确认中 ${inProgressSegmentCount.value}，待确认 ${pendingSegmentCount.value}。`
 })
@@ -382,16 +403,14 @@ watch(filteredSegments, (segments) => {
 }, { immediate: true })
 
 function resetSegmentFilters() {
-  segmentSearch.value = ''
   segmentFilter.value = 'all'
 }
 
 async function confirmResetAllAnswers() {
-  const reset = await resetAllAnalysisAnswers()
-  if (!reset) return
-  resetDialogVisible.value = false
-  segmentSearch.value = ''
-  segmentFilter.value = 'pending'
+  await resetAllAnalysisAnswers(() => {
+    resetDialogVisible.value = false
+    segmentFilter.value = 'pending'
+  })
 }
 
 function segmentPhaseLabel(segment: any) {
@@ -408,13 +427,36 @@ function goToFinalize() {
     console.warn('进入第4步前启动规则预处理失败', error)
   })
   router.push({
-    path: '/template-mapping',
+    path: '/finalize',
     query: buildProjectRouteQuery(projectId.value),
   })
 }
 </script>
 
 <style scoped>
+.analysis-generation-status {
+  padding: 12px 16px;
+  border: 1px solid var(--pm-border);
+  border-radius: var(--pm-radius-card);
+  background: var(--pm-surface);
+  color: var(--pm-text-muted);
+}
+.analysis-generation-steps { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 20px; font-size: 13px; }
+.analysis-generation-steps strong { color: var(--pm-primary); font-weight: 600; }
+.analysis-generation-progress { display: block; width: 100%; height: 5px; margin: 10px 0 8px; accent-color: var(--pm-primary); }
+.analysis-generation-status small { font-size: 12px; }
+.analysis-guidance-notice details { font-size: 12px; overflow-wrap: anywhere; }
+.analysis-guidance-notice summary { cursor: pointer; }
+.analysis-readonly-notice {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  color: var(--pm-text-secondary);
+  background: var(--pm-primary-soft);
+  border: 1px solid var(--pm-primary-border);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
 .analysis-view {
   padding: 0;
   display: flex;
@@ -422,7 +464,7 @@ function goToFinalize() {
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background: #f8fafc;
+  background: var(--pm-surface-subtle);
 }
 
 .analysis-hero {
@@ -431,9 +473,9 @@ function goToFinalize() {
   justify-content: space-between;
   gap: 10px;
   padding: 5px 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--pm-border);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--pm-surface);
   box-shadow: 0 1.5px 5px rgba(15, 23, 42, 0.02);
   margin-bottom: 6px;
   flex-shrink: 0;
@@ -447,7 +489,7 @@ function goToFinalize() {
 }
 
 .analysis-hero-sep {
-  color: #cbd5e1;
+  color: var(--pm-border-strong);
   font-size: 12px;
   flex-shrink: 0;
 }
@@ -455,14 +497,14 @@ function goToFinalize() {
 .analysis-hero-title {
   font-size: 15px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--pm-text);
   white-space: nowrap;
   flex-shrink: 0;
 }
 
 .analysis-hero-desc {
   font-size: 13px;
-  color: #94a3b8;
+  color: var(--pm-text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -482,25 +524,25 @@ function goToFinalize() {
   padding: 5px 14px;
   font-size: 12px;
   font-weight: 600;
-  color: #ffffff;
-  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  color: var(--pm-surface);
+  background: var(--pm-primary);
   border: none;
   border-radius: 7px;
   cursor: pointer;
   transition: all 0.2s ease;
-  box-shadow: 0 1px 4px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 1px 4px rgba(36, 95, 168, 0.3);
   white-space: nowrap;
 }
 
 .btn-accept-all-global:hover:not(:disabled) {
-  background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
-  transform: translateY(-0.5px);
+  background: var(--pm-primary);
+  box-shadow: 0 2px 8px rgba(36, 95, 168, 0.4);
+  transform: none;
 }
 
 .btn-accept-all-global:active:not(:disabled) {
   transform: translateY(0);
-  box-shadow: 0 1px 2px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 1px 2px rgba(36, 95, 168, 0.3);
 }
 
 .btn-accept-all-global:disabled {
@@ -519,7 +561,7 @@ function goToFinalize() {
   width: 13px;
   height: 13px;
   border: 2px solid rgba(255, 255, 255, 0.35);
-  border-top-color: #ffffff;
+  border-top-color: var(--pm-surface);
   border-radius: 50%;
   animation: btn-spin 0.75s linear infinite;
   flex-shrink: 0;
@@ -538,8 +580,8 @@ function goToFinalize() {
   padding: 0 5px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.25);
-  color: #ffffff;
-  font-size: 10px;
+  color: var(--pm-surface);
+  font-size: 12px;
   font-weight: 700;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
@@ -558,17 +600,17 @@ function goToFinalize() {
   min-height: 22px;
   padding: 0 8px;
   border-radius: 999px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--pm-border);
   background: rgba(255, 255, 255, 0.86);
-  font-size: 10.5px;
-  color: #64748b;
+  font-size: 12px;
+  color: var(--pm-text-muted);
   white-space: nowrap;
 }
 
 .analysis-hero-stat strong {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--pm-text);
 }
 
 .analysis-layout {
@@ -586,128 +628,79 @@ function goToFinalize() {
   justify-content: space-between;
   padding: 8px 14px;
   margin-bottom: 10px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  border-left: 4px solid #ef4444;
+  background: var(--pm-danger-soft);
+  border: 1px solid var(--pm-danger-border);
+  border-left: 4px solid var(--pm-danger);
   border-radius: 8px;
-  color: #b91c1c;
-  font-size: 12.5px;
+  color: var(--pm-danger);
+  font-size: 13px;
 }
 
 .btn-clear-error {
   background: transparent;
   border: none;
-  color: #ef4444;
+  color: var(--pm-danger);
   font-size: 16px;
   font-weight: bold;
   cursor: pointer;
   padding: 0 4px;
 }
 
-.analysis-filter-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 8px 0 10px;
-  padding: 5px 10px;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  background: #ffffff;
-  flex-shrink: 0;
-}
-
-.analysis-search {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 289px;
-  flex-shrink: 0;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid #cbd5e1;
-  border-radius: 7px;
-  background: #ffffff;
-}
-
-.analysis-search:focus-within {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-}
-
-.analysis-search-icon {
-  color: #64748b;
-  font-size: 16px;
-}
-
-.analysis-search input {
-  width: 100%;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: #0f172a;
-  font: inherit;
-  font-size: 12.5px;
-}
-
 .analysis-filter-options {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--pm-surface-subtle);
 }
 
 .analysis-filter-btn {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  height: 28px;
-  padding: 0 10px;
+  justify-content: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 3px 6px;
   border: 1px solid transparent;
-  border-radius: 7px;
-  background: #f8fafc;
-  color: #475569;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--pm-text-secondary);
+  font: inherit;
   font-size: 12px;
-  font-weight: 600;
+  line-height: 1.55;
+  white-space: nowrap;
   cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.analysis-filter-btn:hover:not(.active) {
-  background: #f1f5f9;
-  color: #0f172a;
-}
-
-.analysis-filter-btn:hover:not(.active) span {
-  background: #cbd5e1;
-  color: #0f172a;
+  transition: background-color .15s ease, color .15s ease, border-color .15s ease;
 }
 
 .analysis-filter-btn span {
-  min-width: 18px;
-  padding: 1px 5px;
+  min-width: 16px;
+  padding: 0 4px;
   border-radius: 999px;
-  background: #e2e8f0;
-  color: #475569;
-  font-size: 10px;
-  text-align: center;
+  background: var(--pm-disabled-bg);
+  color: var(--pm-text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .analysis-filter-btn.active {
-  border-color: #c7d2fe;
-  background: #eef2ff;
-  color: #4338ca;
+  border-color: var(--pm-primary-border);
+  background: var(--pm-surface);
+  color: var(--pm-primary);
+  font-weight: 650;
+  box-shadow: none;
 }
 
 .analysis-filter-btn.active span {
-  background: #4f46e5;
-  color: #ffffff;
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary);
 }
 
-.analysis-filter-result {
-  margin-left: auto;
-  color: #64748b;
-  font-size: 11.5px;
-  white-space: nowrap;
+.analysis-filter-btn:focus-visible {
+  outline: 2px solid var(--pm-primary);
+  outline-offset: 2px;
 }
 
 .analysis-filter-empty {
@@ -729,24 +722,24 @@ function goToFinalize() {
 }
 
 .analysis-column::-webkit-scrollbar-track {
-  background: #f8fafc;
+  background: var(--pm-surface-subtle);
   border-radius: 6px;
 }
 
 .analysis-column::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: var(--pm-border-strong);
   border-radius: 6px;
 }
 
 .analysis-column::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: var(--pm-text-muted);
 }
 
 .analysis-column-left,
 .analysis-column-right {
   border-radius: 14px;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--pm-surface);
+  border: 1px solid var(--pm-border);
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
 }
 
@@ -759,22 +752,22 @@ function goToFinalize() {
 }
 
 .tree-recommend-text {
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.4;
   font-weight: 500;
-  color: #475569;
+  color: var(--pm-text-secondary);
 }
 
 .tree-recommend-reason {
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.4;
-  color: #94a3b8;
+  color: var(--pm-text-muted);
   margin-top: 2px;
 }
 
 .detail-card-evidence-overview {
-  background: linear-gradient(135deg, #fafbff 0%, #f8fafc 100%);
-  border: 1px solid #e2e8f0;
+  background: var(--pm-surface-subtle);
+  border: 1px solid var(--pm-border);
 }
 
 .evidence-overview-row {
@@ -788,13 +781,13 @@ function goToFinalize() {
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.6;
-  color: #64748b;
+  color: var(--pm-text-muted);
 }
 
 .detail-hero {
-  padding-bottom: 14px;
-  margin-bottom: 16px;
-  border-bottom: 1px solid #f1f5f9;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--pm-border);
 }
 
 .detail-hero-row {
@@ -810,14 +803,14 @@ function goToFinalize() {
   font-size: 17px;
   font-weight: 700;
   line-height: 1.25;
-  color: #0f172a;
+  color: var(--pm-text);
   letter-spacing: -0.01em;
 }
 
 .detail-hero-title-group {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -829,27 +822,8 @@ function goToFinalize() {
 
 .detail-hero-subtitle {
   font-size: 13px;
-  color: #64748b;
+  color: var(--pm-text-muted);
   line-height: 1.5;
-}
-
-.detail-hero-row-actions {
-  margin-top: 14px;
-  align-items: flex-start;
-}
-
-.detail-stats {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  font-size: 12px;
-  color: #94a3b8;
-}
-
-.detail-stats strong {
-  color: #0f172a;
-  font-weight: 700;
-  margin-left: 2px;
 }
 
 .detail-tags {
@@ -861,30 +835,30 @@ function goToFinalize() {
 .detail-tag {
   border-radius: 6px;
   padding: 3px 7px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   background: rgba(15, 23, 42, 0.06);
-  color: #334155;
+  color: var(--pm-text-secondary);
 }
 
 .detail-tag-progress.is-completed {
-  background: rgba(34, 197, 94, 0.14);
-  color: #15803d;
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary);
 }
 
 .detail-tag-progress.is-started {
-  background: rgba(99, 102, 241, 0.12);
-  color: #4338ca;
+  background: rgba(36, 95, 168, 0.12);
+  color: var(--pm-primary-hover);
 }
 
 .detail-tag-progress.is-pending {
-  background: #e2e8f0;
-  color: #64748b;
+  background: var(--pm-border);
+  color: var(--pm-text-muted);
 }
 
 .detail-tag-index {
   background: rgba(15, 23, 42, 0.06);
-  color: #334155;
+  color: var(--pm-text-secondary);
 }
 
 .detail-nav-actions {
@@ -895,12 +869,12 @@ function goToFinalize() {
 }
 
 .nav-action-btn {
-  border: 1px solid #cbd5e1;
-  background: #fff;
-  color: #334155;
+  border: 1px solid var(--pm-border-strong);
+  background: var(--pm-surface);
+  color: var(--pm-text-secondary);
   border-radius: 6px;
   padding: 4px 12px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -908,8 +882,8 @@ function goToFinalize() {
 }
 
 .nav-action-btn:hover:not(:disabled) {
-  border-color: #6366f1;
-  color: #4338ca;
+  border-color: var(--pm-primary);
+  color: var(--pm-primary-hover);
 }
 
 .nav-action-btn:disabled {
@@ -918,21 +892,21 @@ function goToFinalize() {
 }
 
 .nav-action-btn-primary {
-  background: #6366f1;
-  border-color: #4f46e5;
-  color: #fff;
+  background: var(--pm-primary);
+  border-color: var(--pm-primary);
+  color: var(--pm-surface);
 }
 
 .nav-action-btn-primary:hover:not(:disabled) {
-  background: #4f46e5;
-  color: #fff;
+  background: var(--pm-primary);
+  color: var(--pm-surface);
 }
 
 .detail-card {
   padding: 12px;
   border-radius: 12px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: var(--pm-surface-subtle);
+  border: 1px solid var(--pm-border);
 }
 
 .detail-card-wide {
@@ -956,7 +930,7 @@ function goToFinalize() {
 
 .detail-collapse-toggle:focus-visible {
   border-radius: 4px;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 0 0 2px rgba(36, 95, 168, 0.4);
 }
 
 .detail-collapse-toggle + * {
@@ -969,10 +943,10 @@ function goToFinalize() {
 
 .detail-collapse-indicator {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
-  color: #6366f1;
-  background: rgba(99, 102, 241, 0.08);
+  color: var(--pm-primary);
+  background: rgba(36, 95, 168, 0.08);
   padding: 2px 8px;
   border-radius: 999px;
 }
@@ -980,7 +954,7 @@ function goToFinalize() {
 .detail-card-title {
   font-size: 13px;
   font-weight: 700;
-  color: #1e293b;
+  color: var(--pm-text);
   margin-bottom: 12px;
   text-transform: none;
   letter-spacing: normal;
@@ -994,7 +968,7 @@ function goToFinalize() {
   display: inline-block;
   width: 3px;
   height: 14px;
-  background: var(--accent, #6366f1);
+  background: var(--accent, var(--pm-primary));
   border-radius: 2px;
   opacity: 0.8;
 }
@@ -1003,28 +977,28 @@ function goToFinalize() {
   margin: 0 0 12px;
   font-size: 12px;
   line-height: 1.6;
-  color: #94a3b8;
+  color: var(--pm-text-muted);
   font-weight: 400;
 }
 
 .detail-card-focus {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.04), rgba(255, 255, 255, 0.95));
+  background: var(--pm-primary-soft);
   border-color: #dbe4f4;
 }
 
 .focus-kicker {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #6366f1;
+  color: var(--pm-primary);
 }
 
 .focus-summary {
   margin-top: 8px;
   font-size: 16px;
   line-height: 1.7;
-  color: #0f172a;
+  color: var(--pm-text);
   font-weight: 700;
 }
 
@@ -1051,96 +1025,96 @@ function goToFinalize() {
 
 .focus-chip-confirmed {
   background: rgba(34, 197, 94, 0.14);
-  color: #15803d;
+  color: var(--pm-success);
 }
 
 .focus-chip-excluded {
   background: rgba(239, 68, 68, 0.12);
-  color: #b91c1c;
+  color: var(--pm-danger);
 }
 
 .focus-chip-pending {
   background: #eef2f7;
-  color: #475569;
+  color: var(--pm-text-secondary);
 }
 
 /* 紧凑版因素分析与结论样式 */
 .factor-progress-summary { margin-bottom: 12px; }
-.factor-progress-track-mini { height: 4px; background: #e2e8f0; border-radius: 2px; overflow: hidden; display: flex; margin-bottom: 6px; }
+.factor-progress-track-mini { height: 4px; background: var(--pm-border); border-radius: 2px; overflow: hidden; display: flex; margin-bottom: 6px; }
 .factor-progress-fill-mini { height: 100%; transition: width 0.3s ease; }
-.factor-progress-fill-mini.is-confirmed { background: #22c55e; }
-.factor-progress-fill-mini.is-excluded { background: #ef4444; }
+.factor-progress-fill-mini.is-confirmed { background: var(--pm-success); }
+.factor-progress-fill-mini.is-excluded { background: var(--pm-danger); }
 .factor-progress-badges { display: flex; gap: 12px; }
-.badge-mini { font-size: 11px; color: #64748b; }
-.badge-mini strong { color: #0f172a; margin-left: 2px; }
+.badge-mini { font-size: 12px; color: var(--pm-text-muted); }
+.badge-mini strong { color: var(--pm-text); margin-left: 2px; }
 
 .factor-grid-compact { display: flex; flex-direction: column; gap: 4px; }
-.factor-card-mini { padding: 8px 12px; border-radius: 8px; background: #f8fafc; border: 1px solid transparent; transition: all 0.2s ease; }
-.factor-card-mini:hover { background: #f1f5f9; border-color: #e2e8f0; }
-.factor-card-mini.is-confirmed { border-left: 3px solid #22c55e; background: rgba(34, 197, 94, 0.03); }
-.factor-card-mini.is-excluded { border-left: 3px solid #ef4444; background: rgba(239, 68, 68, 0.02); opacity: 0.8; }
+.factor-card-mini { padding: 8px 12px; border-radius: 8px; background: var(--pm-surface-subtle); border: 1px solid transparent; transition: all 0.2s ease; }
+.factor-card-mini:hover { background: var(--pm-surface-subtle); border-color: var(--pm-border); }
+.factor-card-mini.is-confirmed { border-left: 3px solid var(--pm-success); background: rgba(34, 197, 94, 0.03); }
+.factor-card-mini.is-excluded { border-left: 3px solid var(--pm-danger); background: rgba(239, 68, 68, 0.02); opacity: 0.8; }
 
 .factor-info-mini { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .factor-main-mini { flex: 1; min-width: 0; }
-.factor-name-mini { font-size: 13px; font-weight: 700; color: #1e293b; margin-bottom: 2px; }
-.factor-meta-mini { font-size: 11px; color: #94a3b8; display: flex; gap: 8px; align-items: center; }
+.factor-name-mini { font-size: 13px; font-weight: 700; color: var(--pm-text); margin-bottom: 2px; }
+.factor-meta-mini { font-size: 12px; color: var(--pm-text-muted); display: flex; gap: 8px; align-items: center; }
 .tag-mini { background: rgba(15, 23, 42, 0.04); padding: 1px 6px; border-radius: 4px; }
 
 .factor-ops-mini { display: flex; align-items: center; gap: 6px; }
-.btn-mini { padding: 3px 10px; font-size: 11px; font-weight: 700; border-radius: 6px; border: 1px solid #e2e8f0; background: #fff; color: #475569; cursor: pointer; transition: all 0.15s ease; }
-.btn-mini:hover { border-color: #6366f1; color: #4338ca; }
-.btn-mini.active { background: #6366f1; border-color: #4f46e5; color: #fff; }
-.btn-confirm.active { background: #22c55e; border-color: #16a34a; }
-.btn-exclude.active { background: #ef4444; border-color: #dc2626; }
-.btn-mini-text { font-size: 11px; color: #94a3b8; background: none; border: none; cursor: pointer; padding: 2px 4px; }
-.btn-mini-text:hover { color: #64748b; text-decoration: underline; }
+.btn-mini { padding: 3px 10px; font-size: 12px; font-weight: 700; border-radius: 6px; border: 1px solid var(--pm-border); background: var(--pm-surface); color: var(--pm-text-secondary); cursor: pointer; transition: all 0.15s ease; }
+.btn-mini:hover { border-color: var(--pm-primary); color: var(--pm-primary-hover); }
+.btn-mini.active { background: var(--pm-primary); border-color: var(--pm-primary); color: var(--pm-surface); }
+.btn-confirm.active { background: var(--pm-success); border-color: var(--pm-success); }
+.btn-exclude.active { background: var(--pm-danger); border-color: var(--pm-danger); }
+.btn-mini-text { font-size: 12px; color: var(--pm-text-muted); background: none; border: none; cursor: pointer; padding: 2px 4px; }
+.btn-mini-text:hover { color: var(--pm-text-muted); text-decoration: underline; }
 
-.detail-card-focus-compact { background: #fff; border: 1px solid #e0e7ff; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.04); }
-.focus-header-row { display: flex; align-items: center; justify-content: space-between; padding-bottom: 8px; border-bottom: 1px dashed #f1f5f9; margin-bottom: 10px; }
-.focus-kicker-mini { font-size: 11px; font-weight: 700; color: #6366f1; text-transform: uppercase; letter-spacing: 0.05em; }
-.focus-status-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+.detail-card-focus-compact { background: var(--pm-surface); border: 1px solid var(--pm-primary-soft); box-shadow: 0 4px 12px rgba(36, 95, 168, 0.04); }
+.focus-header-row { display: flex; align-items: center; justify-content: space-between; padding-bottom: 8px; border-bottom: 1px dashed var(--pm-surface-subtle); margin-bottom: 10px; }
+.focus-kicker-mini { font-size: 12px; font-weight: 700; color: var(--pm-primary); text-transform: uppercase; letter-spacing: 0.05em; }
+.focus-status-badge { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
 
 .focus-content-compact { display: flex; flex-direction: column; gap: 8px; }
-.focus-summary-text { font-size: 14px; font-weight: 700; color: #0f172a; line-height: 1.6; }
-.focus-next-tip { font-size: 12px; color: #64748b; display: flex; align-items: center; gap: 6px; background: #f8fafc; padding: 6px 10px; border-radius: 6px; }
+.focus-summary-text { font-size: 14px; font-weight: 700; color: var(--pm-text); line-height: 1.6; }
+.focus-next-tip { font-size: 12px; color: var(--pm-text-muted); display: flex; align-items: center; gap: 6px; background: var(--pm-surface-subtle); padding: 6px 10px; border-radius: 6px; }
 .tip-icon { font-size: 14px; }
 
 .focus-next-step {
   margin-top: 12px;
   font-size: 13px;
   line-height: 1.7;
-  color: #64748b;
+  color: var(--pm-text-muted);
 }
 
 /* 极致精简版因素分析样式 */
 .section-compact-slim { padding: 12px 14px; }
-.factor-mini-status { display: flex; align-items: center; gap: 10px; margin-left: auto; font-size: 11px; font-weight: 700; color: #64748b; }
+.factor-mini-status { display: flex; align-items: center; gap: 10px; margin-left: auto; font-size: 12px; font-weight: 700; color: var(--pm-text-muted); }
 .m-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 2px; vertical-align: middle; }
-.m-dot.c { background: #22c55e; }
-.m-dot.e { background: #ef4444; }
-.m-dot.p { background: #e2e8f0; }
+.m-dot.c { background: var(--pm-success); }
+.m-dot.e { background: var(--pm-danger); }
+.m-dot.p { background: var(--pm-border); }
 
 .factor-list-slim { display: flex; flex-direction: column; gap: 4px; }
-.factor-row-slim { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 8px; background: #f8fafc; border: 1px solid transparent; transition: all 0.15s ease; gap: 12px; }
-.factor-row-slim:hover { background: #f1f5f9; border-color: #e2e8f0; }
-.factor-row-slim.is-c { border-left: 3px solid #22c55e; background: rgba(34, 197, 94, 0.03); }
-.factor-row-slim.is-e { border-left: 3px solid #ef4444; background: rgba(239, 68, 68, 0.02); opacity: 0.7; }
+.factor-row-slim { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 8px; background: var(--pm-surface-subtle); border: 1px solid transparent; transition: all 0.15s ease; gap: 12px; }
+.factor-row-slim:hover { background: var(--pm-surface-subtle); border-color: var(--pm-border); }
+.factor-row-slim.is-c { border-left: 3px solid var(--pm-success); background: rgba(34, 197, 94, 0.03); }
+.factor-row-slim.is-e { border-left: 3px solid var(--pm-danger); background: rgba(239, 68, 68, 0.02); opacity: 0.7; }
 
 .f-info-slim { flex: 1; min-width: 0; }
-.f-name-slim { font-size: 13px; font-weight: 600; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.f-tag-mini { font-size: 10px; background: rgba(15, 23, 42, 0.05); padding: 1px 6px; border-radius: 4px; color: #64748b; margin-left: 8px; font-weight: 500; }
+.f-name-slim { font-size: 13px; font-weight: 600; color: var(--pm-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.f-tag-mini { font-size: 12px; background: rgba(15, 23, 42, 0.05); padding: 1px 6px; border-radius: 4px; color: var(--pm-text-muted); margin-left: 8px; font-weight: 500; }
 
 .f-ops-slim { display: flex; align-items: center; gap: 6px; }
-.btn-xs-slim { padding: 2px 10px; font-size: 11px; font-weight: 700; border-radius: 6px; border: 1.5px solid #eef2f7; background: #fff; color: #475569; cursor: pointer; transition: all 0.1s ease; }
-.btn-xs-slim:hover { border-color: #cbd5e1; background: #f8fafc; }
-.btn-xs-slim.active { border-color: transparent; color: #fff; }
-.btn-xs-slim.confirm.active { background: #22c55e; }
-.btn-xs-slim.exclude.active { background: #ef4444; }
-.action-btn-text { font-size: 11px; color: #94a3b8; background: none; border: none; cursor: pointer; padding: 2px 4px; }
+.btn-xs-slim { padding: 2px 10px; font-size: 12px; font-weight: 700; border-radius: 6px; border: 1.5px solid #eef2f7; background: var(--pm-surface); color: var(--pm-text-secondary); cursor: pointer; transition: all 0.1s ease; }
+.btn-xs-slim:hover { border-color: var(--pm-border-strong); background: var(--pm-surface-subtle); }
+.btn-xs-slim.active { border-color: transparent; color: var(--pm-surface); }
+.btn-xs-slim.confirm.active { background: var(--pm-success); }
+.btn-xs-slim.exclude.active { background: var(--pm-danger); }
+.action-btn-text { font-size: 12px; color: var(--pm-text-muted); background: none; border: none; cursor: pointer; padding: 2px 4px; }
 
 .f-ev-slim { position: relative; }
-.f-ev-slim summary { list-style: none; font-size: 11px; font-weight: 700; color: #6366f1; cursor: pointer; opacity: 0.8; padding: 2px 6px; background: rgba(99, 102, 241, 0.05); border-radius: 4px; }
-.f-ev-slim summary:hover { opacity: 1; background: rgba(99, 102, 241, 0.1); }
+.f-ev-slim summary { list-style: none; font-size: 12px; font-weight: 700; color: var(--pm-primary); cursor: pointer; opacity: 0.8; padding: 2px 6px; background: rgba(36, 95, 168, 0.05); border-radius: 4px; }
+.f-ev-slim summary:hover { opacity: 1; background: rgba(36, 95, 168, 0.1); }
 .f-ev-slim[open] summary { margin-bottom: 8px; }
 
 .detail-helper-text-tight {
@@ -1148,9 +1122,9 @@ function goToFinalize() {
 }
 
 .detail-card-count {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
-  color: #94a3b8;
+  color: var(--pm-text-muted);
   margin-left: 4px;
 }
 
@@ -1165,8 +1139,8 @@ function goToFinalize() {
 
 .excerpt-item {
   padding: 6px 0 6px 12px;
-  border-left: 2px solid #e2e8f0;
-  color: #334155;
+  border-left: 2px solid var(--pm-border);
+  color: var(--pm-text-secondary);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -1186,9 +1160,9 @@ function goToFinalize() {
   grid-template-columns: 200px 80px minmax(0, 1fr);
   gap: 8px;
   padding: 6px 8px;
-  color: #334155;
+  color: var(--pm-text-secondary);
   font-size: 13px;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--pm-surface-subtle);
 }
 
 .evidence-row:last-child {
@@ -1198,10 +1172,10 @@ function goToFinalize() {
 .evidence-row-head {
   background: transparent;
   padding: 0 8px 4px;
-  color: #94a3b8;
-  font-size: 11px;
+  color: var(--pm-text-muted);
+  font-size: 12px;
   font-weight: 700;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--pm-border);
 }
 
 .evidence-source,
@@ -1215,12 +1189,12 @@ function goToFinalize() {
 
 .evidence-source {
   font-size: 12px;
-  color: #475569;
+  color: var(--pm-text-secondary);
 }
 
 .evidence-source small {
-  color: #94a3b8;
-  font-size: 11px;
+  color: var(--pm-text-muted);
+  font-size: 12px;
 }
 
 .evidence-operation {
@@ -1230,12 +1204,12 @@ function goToFinalize() {
 .detail-note,
 .detail-empty,
 .empty-text {
-  color: #64748b;
+  color: var(--pm-text-muted);
   line-height: 1.75;
 }
 
 .detail-empty-danger {
-  color: #b91c1c;
+  color: var(--pm-danger);
 }
 
 .factor-stack {
@@ -1266,37 +1240,37 @@ function goToFinalize() {
 .factor-name {
   font-size: 13px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--pm-text);
 }
 
 .factor-tag {
   border-radius: 4px;
   padding: 2px 8px;
-  font-size: 11px;
-  background: #f1f5f9;
-  color: #475569;
+  font-size: 12px;
+  background: var(--pm-surface-subtle);
+  color: var(--pm-text-secondary);
   font-weight: 600;
 }
 
 .factor-tag-strong {
-  background: rgba(124, 58, 237, 0.1);
-  color: #6d28d9;
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary);
 }
 
 .factor-tag-confirmed {
   background: rgba(34, 197, 94, 0.12);
-  color: #15803d;
+  color: var(--pm-success);
 }
 
 .factor-tag-excluded {
   background: rgba(239, 68, 68, 0.1);
-  color: #b91c1c;
+  color: var(--pm-danger);
 }
 
 .factor-source {
   margin-top: 4px;
-  font-size: 11px;
-  color: #94a3b8;
+  font-size: 12px;
+  color: var(--pm-text-muted);
 }
 
 .analysis-empty {
@@ -1315,13 +1289,13 @@ function goToFinalize() {
 
 .analysis-empty-warning {
   border-color: rgba(234, 88, 12, 0.2);
-  background: linear-gradient(180deg, #fffbf5 0%, #fff7ed 100%);
+  background: var(--pm-warning-soft);
 }
 
 .empty-mark {
   font-size: 36px;
   font-weight: 700;
-  color: #8b5cf6;
+  color: var(--pm-primary);
 }
 
 .empty-mark--warning {
@@ -1332,7 +1306,7 @@ function goToFinalize() {
   margin-top: 12px;
   font-size: 22px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--pm-text);
 }
 
 .empty-text {
@@ -1349,7 +1323,7 @@ function goToFinalize() {
   justify-content: center;
   padding: 24px;
   background: rgba(15, 23, 42, 0.45);
-  backdrop-filter: blur(8px);
+
 }
 
 .doc-preview-dialog {
@@ -1361,7 +1335,7 @@ function goToFinalize() {
   flex-direction: column;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.15);
-  background: #ffffff;
+  background: var(--pm-surface);
   box-shadow: 0 25px 80px -12px rgba(0, 0, 0, 0.4);
 }
 
@@ -1371,22 +1345,22 @@ function goToFinalize() {
   justify-content: space-between;
   gap: 16px;
   padding: 18px 24px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #ffffff;
+  border-bottom: 1px solid var(--pm-border);
+  background: var(--pm-surface);
   flex-shrink: 0;
 }
 
 .doc-preview-title {
   font-size: 17px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--pm-text);
   line-height: 1.4;
 }
 
 .doc-preview-subtitle {
   margin-top: 6px;
   font-size: 13px;
-  color: #64748b;
+  color: var(--pm-text-muted);
 }
 
 .doc-preview-actions {
@@ -1398,12 +1372,12 @@ function goToFinalize() {
 .doc-preview-state {
   padding: 32px 24px;
   font-size: 14px;
-  color: #64748b;
+  color: var(--pm-text-muted);
   flex: 1;
 }
 
 .doc-preview-state-error {
-  color: #b91c1c;
+  color: var(--pm-danger);
 }
 
 .doc-preview-body {
@@ -1415,7 +1389,7 @@ function goToFinalize() {
   word-break: break-word;
   font-size: 13px;
   line-height: 1.75;
-  color: #1e293b;
+  color: var(--pm-text);
   background: #fcfdff;
 }
 
@@ -1431,7 +1405,7 @@ function goToFinalize() {
   width: min(100%, 920px);
   height: auto;
   margin: 0 auto 18px;
-  background: #ffffff;
+  background: var(--pm-surface);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
 }
 
@@ -1472,29 +1446,6 @@ function goToFinalize() {
     grid-template-columns: 1fr;
   }
 
-  .analysis-filter-bar {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .analysis-search {
-    width: 100%;
-  }
-
-  .analysis-filter-options {
-    width: 100%;
-    overflow-x: auto;
-    padding-bottom: 2px;
-  }
-
-  .analysis-filter-btn {
-    flex: 0 0 auto;
-  }
-
-  .analysis-filter-result {
-    margin-left: 0;
-  }
-
   .analysis-layout {
     display: block;
     height: auto;
@@ -1523,11 +1474,6 @@ function goToFinalize() {
     justify-content: flex-end;
   }
 
-  .detail-hero-row-actions {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
   .detail-nav-actions {
     justify-content: flex-start;
   }
@@ -1539,4 +1485,90 @@ function goToFinalize() {
   border-radius: 7px;
   font-weight: 600;
 }
+
+/* PM016: retain the workspace scroll/diagram geometry and theme named UI only. */
+.analysis-view { background: transparent; }
+.analysis-hero { flex-wrap: wrap; gap: 8px 12px; padding: 10px 12px; margin-bottom: 12px; box-shadow: var(--pm-shadow-card); border-color: var(--pm-border); }
+.analysis-hero-info, .analysis-actions { flex-wrap: wrap; min-width: 0; }
+.analysis-hero-info { flex: 1 1 240px; }
+.analysis-hero-title { font-size: 20px; font-weight: 600; line-height: 28px; }
+.analysis-actions { gap: 6px; }
+.analysis-hero-stats { flex-wrap: wrap; }
+.analysis-hero-stat { border-radius: 4px; line-height: 20px; }
+.analysis-layout { gap: 12px; }
+.btn-accept-all-global { min-height: 32px; padding: 5px 12px; border-radius: var(--pm-radius-control); background: var(--pm-primary); box-shadow: none; font-size: 13px; line-height: 20px; font-weight: 500; }
+.btn-accept-all-global:hover:not(:disabled), .btn-accept-all-global:active:not(:disabled) { background: var(--pm-primary-hover); box-shadow: none; transform: none; }
+.analysis-view :deep(.tree-question-prompt::before), .analysis-view :deep(.tree-recommend-icon) { background: var(--pm-primary-soft); color: var(--pm-primary); }
+.analysis-view :deep(.tree-option-btn.active .tree-option-radio) { background: var(--pm-primary); border-color: var(--pm-primary); }
+.analysis-view :deep(.tree-saved-list li::before) { color: var(--pm-primary); }
+.analysis-view :deep(.tree-option-btn.active) { background: var(--pm-primary-soft); border-color: var(--pm-primary); }
+.analysis-view :deep(.tree-option-btn.active .tree-option-label), .analysis-view :deep(.tree-count-pill), .analysis-view :deep(.tree-table-add-btn) { color: var(--pm-primary); }
+.analysis-view :deep(.tree-option-btn:focus-visible) { outline: 2px solid var(--pm-primary); outline-offset: 2px; border-color: var(--pm-primary); }
+.analysis-view :deep(.tree-recommend-row) { background: var(--pm-surface-subtle); border-color: var(--pm-border); border-radius: var(--pm-radius-control); }
+.analysis-view :deep(.tree-recommend-text), .analysis-view :deep(.tree-recommend-reason), .analysis-view :deep(.tree-prompt-source) { font-size: 12px; line-height: 18px; }
+.analysis-view :deep(.tree-recommend-reason) { color: var(--pm-text-muted); }
+.analysis-view :deep(.tree-table-checkbox) { accent-color: var(--pm-primary); }
+.analysis-view :deep(.tree-table-input:focus), .analysis-view :deep(.tree-table-select:focus), .analysis-view :deep(.tree-note-input:focus) { border-color: var(--pm-primary); box-shadow: var(--pm-focus-ring); }
+.analysis-view :deep(.tree-action-btn-accent) { color: var(--pm-primary); background: var(--pm-primary-soft); border-color: var(--pm-primary-border); }
+.analysis-view :deep(.tree-action-btn-primary) { background: var(--pm-primary); border-color: var(--pm-primary); box-shadow: none; }
+.analysis-view :deep(.tree-action-btn-primary:hover:not(:disabled)) { background: var(--pm-primary-hover); }
+
+/* PM-066: match the saved-route navigator to Step 2's compact summaries.
+   Keep metadata and the step toggle on one row; expansion spans the full card. */
+.analysis-view :deep(.analysis-column-left) {
+  padding: 0;
+  min-width: 0;
+  border-radius: var(--pm-radius-card);
+}
+.analysis-view :deep(.panel-head) {
+  gap: 6px;
+  flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex-shrink: 0;
+  min-height: 34px;
+  margin: 0;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--pm-border);
+  background: var(--pm-surface-subtle);
+}
+.analysis-view :deep(.panel-title) { font-size: 13px; line-height: 20px; }
+.analysis-view :deep(.route-list) { padding: 8px 12px 12px; }
+.analysis-view :deep(.route-item-wrap) { min-width: 0; flex-shrink: 0; gap: 8px; }
+.analysis-view :deep(.route-track) { padding-top: 12px; }
+.analysis-view :deep(.route-item) {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 6px;
+  padding: 5px 8px;
+  margin-bottom: 2px;
+}
+.analysis-view :deep(.route-header-row) { grid-column: 1 / -1; min-height: 24px; gap: 6px; }
+.analysis-view :deep(.route-title-group) { flex: 1; gap: 6px; }
+.analysis-view :deep(.route-name) { min-width: 0; font-size: 13px; line-height: 18px; overflow-wrap: anywhere; }
+.analysis-view :deep(.route-main), .analysis-view :deep(.route-steps) { display: contents; }
+.analysis-view :deep(.route-meta-row) {
+  grid-column: 1;
+  margin-top: 0;
+  justify-content: flex-start;
+  gap: 0 6px;
+  font-size: 11px;
+  line-height: 18px;
+}
+.analysis-view :deep(.route-meta-details) { margin-left: 0; font-size: 11px; }
+.analysis-view :deep(.route-steps-btn) { grid-column: 2; grid-row: 2; min-height: 24px; gap: 4px; white-space: nowrap; }
+.analysis-view :deep(.route-step-chips) { grid-column: 1 / -1; margin-top: 2px; padding-top: 4px; border-top: 1px solid var(--pm-border); }
+.analysis-view :deep(.route-step-chip) { max-width: 100%; overflow-wrap: anywhere; }
+.analysis-view :deep(.route-state-badge) { font-size: 11px; line-height: 18px; padding: 0 5px; }
+.analysis-view :deep(.route-item:focus-visible), .analysis-view :deep(.route-steps-btn:focus-visible) { outline: 2px solid var(--pm-primary); outline-offset: 2px; }
+.doc-preview-head { flex-wrap: wrap; }
+@media (min-width: 901px) and (max-width: 1180px) { .analysis-layout { grid-template-columns: 260px minmax(0, 1fr); } }
+@media (max-width: 900px) {
+  .analysis-view { height: auto; min-height: 100%; overflow: visible; padding: 0; }
+  .analysis-layout { grid-template-columns: minmax(0, 1fr); }
+  .analysis-column { max-height: none; overflow: visible; }
+}
+@media (prefers-reduced-motion: reduce) { .analysis-view button { transition: none; } }
 </style>

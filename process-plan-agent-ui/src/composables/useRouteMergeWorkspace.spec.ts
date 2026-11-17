@@ -18,22 +18,18 @@ vi.mock('@/composables/workflowNavigation', () => ({
   refreshWorkflowNavigation: mocks.refreshWorkflowNavigation,
 }))
 
-vi.mock('@/composables/workflowDataCache', () => ({
-  clearWorkflowDataCache: vi.fn(),
-  clearWorkflowProjectDataCache: vi.fn(),
-  getWorkflowDataCache: vi.fn(),
-  getWorkflowDataRevision: vi.fn(() => 1),
-  setWorkflowDataCache: vi.fn(),
-}))
-
+import { clearAllWorkflowDataCache } from './workflowDataCache'
 import { useRouteMergeWorkspace } from './useRouteMergeWorkspace'
+import { buildRouteMergeGroupsFromSuggestions, findPreferredMergeGroupId, isMergeGroupActionable } from './extractViewHelpers'
 
 function createWorkspace({
   projectId = 12,
+  projectCreatedAt = '2026-11-02T06:00:00.000000',
   groups = [{ id: 'group-1', operation_ids: [101], status: 'pending', standard_name: '车削' }],
   suggestions = [{ suggestion_id: 'suggestion-1', target_group_id: 'group-1' }],
 }: {
   projectId?: number | null
+  projectCreatedAt?: string
   groups?: Array<Record<string, any>>
   suggestions?: Array<Record<string, any>>
 } = {}) {
@@ -41,6 +37,7 @@ function createWorkspace({
   const suggestionRef = ref(suggestions as any[])
   const options = {
     projectId: ref(projectId),
+    projectCreatedAt: ref(projectCreatedAt),
     workflowRevision: ref(3),
     routes: ref([]),
     routeMergeGroups: groupRef,
@@ -76,7 +73,12 @@ function createWorkspace({
 
 describe('useRouteMergeWorkspace merge review feedback', () => {
   beforeEach(() => {
-    vi.stubGlobal('localStorage', { getItem: vi.fn(() => null), setItem: vi.fn() })
+    const storage = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn((key: string) => storage.get(key) ?? null),
+      setItem: vi.fn((key: string, value: string) => storage.set(key, value)),
+    })
+    clearAllWorkflowDataCache()
     mocks.getRouteMergeWorkspace.mockReset()
     mocks.reviewMergeSuggestion.mockReset()
     mocks.saveNormalizedSupersetRoute.mockReset()
@@ -93,6 +95,97 @@ describe('useRouteMergeWorkspace merge review feedback', () => {
     mocks.reviewMergeSuggestion.mockResolvedValue({ ok: true })
   })
   afterEach(() => vi.unstubAllGlobals())
+
+  it('loads a new project without an update notice or clearing its draft', async () => {
+    const { workspace, options } = createWorkspace()
+
+    expect(await workspace.loadRouteMergeWorkspaceFromBackend()).toBe(true)
+    expect(workspace.routeMergeNotice.value).toBe('')
+    expect(options.clearRouteResultDraftStorage).not.toHaveBeenCalled()
+  })
+
+  it('ignores legacy snapshot metadata whose project identity is unknown', async () => {
+    localStorage.setItem('processmind_route_merge_snapshot_meta_v1_12', JSON.stringify({
+      algo_version: 'v37', source_signature: 'previous-installation',
+    }))
+    const { workspace, options } = createWorkspace()
+
+    expect(await workspace.loadRouteMergeWorkspaceFromBackend()).toBe(true)
+    expect(workspace.routeMergeNotice.value).toBe('')
+    expect(options.clearRouteResultDraftStorage).not.toHaveBeenCalled()
+  })
+
+  it('does not report an upgrade or clear the draft when a new database reuses a project id', async () => {
+    const oldProject = createWorkspace({ projectCreatedAt: '2026-10-30T03:00:00.000000' })
+    await oldProject.workspace.loadRouteMergeWorkspaceFromBackend()
+    mocks.getRouteMergeWorkspace.mockResolvedValue({
+      project_id: 12, superset_route: [{ id: 1201, name: '新项目工序' }],
+      source_signature: 'new-project', algo_version: 'v38',
+    })
+    const { workspace, options } = createWorkspace()
+
+    expect(await workspace.loadRouteMergeWorkspaceFromBackend(true, true)).toBe(true)
+    expect(options.routes.value).toEqual([{ id: 1201, name: '新项目工序' }])
+    expect(workspace.routeMergeNotice.value).toBe('')
+    expect(options.clearRouteResultDraftStorage).not.toHaveBeenCalled()
+  })
+
+  it('does not reuse the in-memory workspace of a different project with the same id', async () => {
+    const oldProject = createWorkspace({ projectCreatedAt: '2026-10-30T03:00:00.000000' })
+    await oldProject.workspace.loadRouteMergeWorkspaceFromBackend()
+    mocks.getRouteMergeWorkspace.mockResolvedValue({
+      project_id: 12, superset_route: [{ id: 1201, name: '新项目工序' }],
+      source_signature: 'new-project', algo_version: 'v38',
+    })
+    const { workspace, options } = createWorkspace()
+
+    expect(await workspace.loadRouteMergeWorkspaceFromBackend()).toBe(true)
+    expect(mocks.getRouteMergeWorkspace).toHaveBeenCalledTimes(2)
+    expect(options.routes.value).toEqual([{ id: 1201, name: '新项目工序' }])
+  })
+
+  it('invalidates a changed algorithm in the same project with a readable result notice', async () => {
+    const { workspace, options } = createWorkspace()
+    await workspace.loadRouteMergeWorkspaceFromBackend()
+    mocks.getRouteMergeWorkspace.mockResolvedValue({
+      project_id: 12, superset_route: [{ id: 1201, name: '更新工序' }],
+      source_signature: 'updated-signature', algo_version: 'v38',
+    })
+
+    expect(await workspace.loadRouteMergeWorkspaceFromBackend(true, true)).toBe(true)
+    expect(options.clearRouteResultDraftStorage).toHaveBeenCalledTimes(1)
+    expect(workspace.routeMergeNotice.value).toBe('当前项目的第二步归并结果已更新，请复核并按需重新提炼。')
+    expect(options.routes.value).toEqual([{ id: 1201, name: '更新工序' }])
+  })
+
+  it('still invalidates a changed source in the same project and stays quiet on repeated loads', async () => {
+    const { workspace, options } = createWorkspace()
+    await workspace.loadRouteMergeWorkspaceFromBackend()
+    mocks.getRouteMergeWorkspace.mockResolvedValue({
+      project_id: 12, source_signature: 'changed-documents', algo_version: 'v1',
+    })
+
+    await workspace.loadRouteMergeWorkspaceFromBackend(true, true)
+    expect(options.clearRouteResultDraftStorage).toHaveBeenCalledTimes(1)
+    expect(workspace.routeMergeNotice.value).toContain('归并结果已更新')
+    await workspace.loadRouteMergeWorkspaceFromBackend()
+    expect(options.clearRouteResultDraftStorage).toHaveBeenCalledTimes(1)
+    expect(workspace.routeMergeNotice.value).toBe('')
+  })
+
+  it('ignores a late response after project identity changes while the numeric id stays the same', async () => {
+    let finish!: (value: any) => void
+    mocks.getRouteMergeWorkspace.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    const { workspace, options } = createWorkspace()
+    const pending = workspace.loadRouteMergeWorkspaceFromBackend()
+    options.projectCreatedAt.value = '2026-11-02T07:00:00.000000'
+    options.routes.value = [{ id: 9901, name: '新项目工序' }]
+    finish({ project_id: 12, superset_route: [{ id: 1201, name: '旧项目工序' }] })
+
+    expect(await pending).toBe(false)
+    expect(options.routes.value).toEqual([{ id: 9901, name: '新项目工序' }])
+    expect(options.clearRouteResultDraftStorage).not.toHaveBeenCalled()
+  })
 
   it('refreshes workflow access and uses the new revision after saving a changed route', async () => {
     mocks.saveNormalizedSupersetRoute.mockResolvedValue({
@@ -197,6 +290,89 @@ describe('useRouteMergeWorkspace merge review feedback', () => {
     expect(setError).not.toHaveBeenCalled()
     expect(workspace.routeMergeNotice.value).toBe('已确认全部候选归并组。')
     vi.unstubAllGlobals()
+  })
+
+  it('does not accept the previous candidates while rerun results are loading', async () => {
+    const { workspace } = createWorkspace({
+      groups: [{ id: 'group-1', operation_ids: [900005, 900045], status: 'pending', standard_name: '车削加工（A侧）' }],
+    })
+    workspace.routeWorkspaceLoading.value = true
+
+    await workspace.confirmAllMergeGroups(vi.fn())
+
+    expect(mocks.reviewMergeSuggestion).not.toHaveBeenCalled()
+    expect(workspace.routeMergeNotice.value).not.toBe('已确认全部候选归并组。')
+  })
+
+  it('does not carry accept-all into the next inference when candidate ids are reused', async () => {
+    // Reruns retain these deterministic candidate ids even when model advice changes.
+    const turningId = 'segment-slot_deburr_into_turning-turning_internal_bore_into_turning-turning_internal_face_into_turning-900005-900011-900045-900046'
+    const suggestions = [
+      {
+        suggestion_id: 'suggestion-segment-blank_prep', target_group_id: 'segment-blank_prep',
+        source_operation_ids: [900001, 900002], normalized_step_name: '下料/备料',
+        sequence: 10, status: 'pending', suggestion_type: 'direct_merge',
+      },
+      {
+        suggestion_id: `suggestion-${turningId}`, target_group_id: turningId,
+        source_operation_ids: [900005, 900011, 900045, 900046], normalized_step_name: '车削加工（A侧）',
+        recommended_target_name: '车削加工（A侧）', sequence: 50, status: 'pending',
+        suggestion_type: 'absorb_into_parent', advice_source: 'local_rules',
+      },
+    ]
+    const { workspace, options } = createWorkspace({
+      groups: buildRouteMergeGroupsFromSuggestions(suggestions as any), suggestions,
+    })
+    options.buildRouteMergeGroupsFromSuggestions = buildRouteMergeGroupsFromSuggestions
+    options.findPreferredMergeGroupId = findPreferredMergeGroupId
+    options.routeMergeActionableGroupsSorted = computed(() => options.routeMergeGroups.value.filter(isMergeGroupActionable))
+    const reviewedSuggestions = [{ ...suggestions[0], status: 'merged' }, suggestions[1]]
+    mocks.getRouteMergeWorkspace.mockResolvedValue({
+      project_id: 12, superset_route: [], merge_suggestions: reviewedSuggestions,
+      normalized_superset_route: [], source_signature: 'signature', algo_version: 'v1',
+    })
+    const nextInference = [{
+      ...suggestions[1], advice_source: 'model', advice_action: 'absorb_into_parent',
+      // Controlled model response, not a claim about the historical model output.
+      recommended_target_name: '车削加工（A侧，含钻镗孔、平端面及挖槽去毛刺）',
+    }]
+    options.focusMergeGroup.mockImplementationOnce(() => {
+      // Finish the first review, then deliver the rerun before the batch resumes.
+      queueMicrotask(() => queueMicrotask(() => {
+        options.workflowRevision.value = 4
+        options.routeMergeSuggestions.value = nextInference
+        options.routeMergeGroups.value = buildRouteMergeGroupsFromSuggestions(nextInference as any)
+        workspace.routeMergeNotice.value = '新一轮推理结果待确认'
+      }))
+      return Promise.resolve()
+    })
+
+    await workspace.confirmAllMergeGroups(vi.fn())
+
+    expect(mocks.reviewMergeSuggestion.mock.calls.map(([body]) => body)).toEqual([{
+      project_id: 12, expected_workflow_revision: 3,
+      suggestion_id: 'suggestion-segment-blank_prep', action: 'accept',
+    }])
+    expect(options.routeMergeGroups.value[0].status).toBe('pending')
+    expect(options.routeMergeGroups.value[0].recommended_target_name)
+      .toBe('车削加工（A侧，含钻镗孔、平端面及挖槽去毛刺）')
+    expect(workspace.routeMergeNotice.value).toBe('新一轮推理结果待确认')
+
+    // A new explicit accept-all may accept that advice unchanged in revision 4.
+    const acceptedRoute = [{
+      id: turningId, source_operation_ids: [900005, 900011, 900045, 900046],
+      normalized_step_name: '车削加工（A侧，含钻镗孔、平端面及挖槽去毛刺）', review_status: 'merged',
+    }]
+    mocks.getRouteMergeWorkspace.mockResolvedValue({
+      project_id: 12, superset_route: [], normalized_superset_route: acceptedRoute,
+      merge_suggestions: [{ ...nextInference[0], status: 'merged' }],
+      source_signature: 'signature', algo_version: 'v1',
+    })
+    await workspace.confirmAllMergeGroups(vi.fn())
+
+    expect(mocks.reviewMergeSuggestion.mock.calls.map(([body]) => body.expected_workflow_revision)).toEqual([3, 4])
+    expect(options.routeMergeNormalizedSegments.value).toEqual(acceptedRoute)
+    expect(workspace.routeMergeNotice.value).toBe('已确认全部候选归并组。')
   })
 
   it('ignores a workspace response after switching tasks', async () => {

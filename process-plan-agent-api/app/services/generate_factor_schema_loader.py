@@ -6,21 +6,17 @@ from __future__ import annotations
 
 from typing import Callable
 
-from app.models.models import Operation, Reference
+from app.models.models import Operation
 from app.schemas.schemas import FactorFieldOut
 from app.services.generate_factor_schema import (
     build_factor_schema,
-    build_reference_factor_schema,
     build_standard_factor_schema,
     merge_schema_fields,
-    reference_material_options,
-    reference_structure_options,
 )
 
 
 def build_project_factor_schema(
     operations: list[Operation],
-    references: list[Reference],
     *,
     parse_factor_condition: Callable[[str], dict[str, object] | None],
     is_warning_factor_name: Callable[[str], bool],
@@ -29,8 +25,6 @@ def build_project_factor_schema(
         operations,
         parse_factor_condition=parse_factor_condition,
         is_warning_factor_name=is_warning_factor_name,
-        material_options_override=reference_material_options(references) or None,
-        structure_options_override=reference_structure_options(references) or None,
     )
     schema = merge_schema_fields(
         standard_schema,
@@ -40,7 +34,7 @@ def build_project_factor_schema(
             is_warning_factor_name=is_warning_factor_name,
         ),
     )
-    return merge_schema_fields(schema, build_reference_factor_schema(references))
+    return schema
 
 
 __all__ = ["build_project_factor_schema"]

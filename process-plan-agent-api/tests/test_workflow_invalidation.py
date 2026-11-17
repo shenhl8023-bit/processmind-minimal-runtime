@@ -621,7 +621,7 @@ def test_superset_read_reuses_saved_tree_without_model_reordering(workflow_clien
     assert response.json()['superset_route'][0]['id'] == 900001
 
 
-def test_rule_package_publish_rejects_user_rule_that_differs_from_confirmed_ast(
+def test_old_export_endpoint_requires_current_internal_revision_before_any_user_rule(
     workflow_client,
     rule_package_v2_payload,
 ):
@@ -655,7 +655,7 @@ def test_rule_package_publish_rejects_user_rule_that_differs_from_confirmed_ast(
     })
 
     assert response.status_code == 409, response.text
-    assert "数据库中的已确认规则不一致" in str(response.json()["detail"])
+    assert "可执行规则版本" in str(response.json()["detail"])
 
 
 def test_confirmed_user_rule_source_is_accepted(workflow_db, rule_package_v2_payload):

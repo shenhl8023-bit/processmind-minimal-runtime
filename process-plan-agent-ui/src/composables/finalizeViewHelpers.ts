@@ -112,7 +112,7 @@ function formatMaterialReason(values: string[]) {
 function normalizeFinalizeReasonLabel(value: string) {
   const text = String(value || '').trim()
   if (!text) return ''
-  if (/^(孔|孔结构|一般孔)$/.test(text)) return '零件存在孔类结构或孔加工要求'
+  if (/^(孔|孔结构|一般孔)$/.test(text)) return '零件存在孔类结构'
   if (/^(型孔|异形孔|异型孔)$/.test(text)) return '零件存在型孔或异形孔加工要求'
   if (/^(螺纹孔|螺孔)$/.test(text)) return '零件存在螺纹孔加工要求'
   if (/^(底孔|预孔|预钻孔)$/.test(text)) return '零件存在底孔或预孔加工要求'
@@ -288,8 +288,8 @@ export function buildFinalizeCards(
     const userAnswerLabels = draft ? draft.userAnswerLabels : detailLabels
     const userAnswerContextLabels = draft ? draft.userAnswerContextLabels : contextLabels
     const systemFactorLabels = factorLabels.filter(label => !userAnswerLabels.includes(label))
-    const defaultConditionText = buildUserFirstCondition(segment.normalized_step_name, userAnswerLabels, userAnswerContextLabels, factorNames, segment)
     const analysisDraft = segment.rule_review?.analysis_draft || null
+    const defaultConditionText = (analysisDraft?.status === 'confirmed' ? analysisDraft.condition_text : '') || buildUserFirstCondition(segment.normalized_step_name, userAnswerLabels, userAnswerContextLabels, factorNames, segment)
     const analysisDraftContext = analysisDraft
       ? `第三步问答树${analysisDraft.status === 'confirmed' ? '已确认' : '待补充'}：${analysisDraft.scope || '未填写范围'}；${analysisDraft.object || '未填写加工对象'}`
       : ''

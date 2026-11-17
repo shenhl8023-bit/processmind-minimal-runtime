@@ -18,6 +18,8 @@ import {
   requiresServerRuleConditionRefresh,
 } from './finalizeRulePackage'
 import { nestFactorValues } from '@/composables/useGenerateInputFields'
+import { projectConditionFields, projectConditionScope } from './projectConditionFields'
+import { featureInputScope } from './featureInputProjection'
 
 
 function finalizeItem(overrides: Record<string, any> = {}) {
@@ -48,8 +50,76 @@ function baseConditionFields() {
   ] as any
 }
 
+describe('current authoring confirmation and publication guards', () => {
+  const leaf = { field: 'material.grade', op: 'eq', value: '6061' }
+  const action = { include_process_ids: ['process_mark'], exclude_process_ids: [] }
+  const relation = { relation_type: 'trigger_after', source_process_ids: ['copper'], target_process_ids: ['process_mark'] }
+  it.each([
+    { kind: 'condition', when: { any: [leaf, { field: 'precision.it', op: 'lte', value: 8 }] }, then: action },
+    { kind: 'condition', when: { not: leaf }, then: action },
+    ...['in', 'contains_any', 'contains_all', 'between'].map(op => ({ kind: 'condition', when: { field: 'special.requirements', op, value: [] }, then: action })),
+    { kind: 'condition', when: { all: [leaf, { all: [] }] }, then: action },
+    { kind: 'condition', when: leaf, then: { include_process_ids: [], exclude_process_ids: ['process_mark'] } },
+    { kind: 'condition', when: leaf, then: { include_process_ids: ['process_mark', 'other'] } },
+    { kind: 'condition', when: leaf, then: action, relation },
+    { kind: 'process_relation', relation: { ...relation, source_process_ids: ['copper', 'inspect'] } },
+    { kind: 'process_relation', when: leaf, relation },
+    { kind: 'process_relation', relation: { ...relation, relation_type: 'order_after' } },
+    { kind: 'process_configuration', configuration: { process_id: 'process_mark', occurrence: 'associated', when: leaf, relations: [relation] } },
+    { kind: 'process_configuration', configuration: { process_id: 'process_mark', occurrence: 'manual', when: leaf, relations: [] } },
+  ])('blocks unsupported authored content without rewriting it: %j', candidate => {
+    const card: any = {
+      ...finalizeItem({ id: 'process_mark', normalized_step_name: '标记', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: candidate.kind === 'process_relation' ? '镀铜后安排标记' : '当材料为6061时纳入标记', edited: true,
+      conditionReview: { source_text: candidate.kind === 'process_relation' ? '镀铜后安排标记' : '当材料为6061时纳入标记', status: 'pending_confirmation', confidence: 0.99, issues: [], candidate },
+    }
+    const original = JSON.parse(JSON.stringify(candidate))
+    expect(isSafeForBatchRuleConfirmation(card)).toBe(false)
+    card.conditionReview.status = 'confirmed'; card.conditionReview.confirmed = candidate
+    expect(exportBlockingCards([card])).toEqual([card])
+    expect(card.conditionReview.confirmed).toEqual(original)
+  })
+
+  it.each(['in', 'contains_any', 'contains_all'])('accepts a nonempty %s leaf within all conditions', op => {
+    const candidate = { kind: 'condition', when: { all: [leaf, { field: 'special.requirements', op, value: ['无损检测要求'] }] }, then: action }
+    const card: any = { ...finalizeItem({ id: 'process_mark', normalized_step_name: '标记', doc_coverage: { total_docs: 3, hit_docs: 1 } }), edited: true, conditionText: '当材料为6061时纳入标记', conditionReview: { source_text: '当材料为6061时纳入标记', status: 'pending_confirmation', confidence: 0.99, issues: [], candidate } }
+    expect(isSafeForBatchRuleConfirmation(card)).toBe(true)
+    card.conditionReview.status = 'confirmed'; card.conditionReview.confirmed = candidate
+    expect(exportBlockingCards([card])).toEqual([])
+  })
+})
+
 
 describe('V2 compile DTO from finalize cards', () => {
+  it.each([
+    { suffix: 'it', unit: 'IT', validation: { min: 1, max: 18 }, threshold: 7 },
+    { suffix: 'it', unit: 'IT', validation: { min: 1, max: 18 }, threshold: 18 },
+    { suffix: 'ra', unit: 'μm', validation: { min: 0 }, threshold: 0.8 },
+  ])('uses a valid synthetic $suffix value in embedded smoke cases', ({ suffix, unit, validation, threshold }) => {
+    const key = `project_factor.operation_test.${suffix}`
+    const text = '按已确认的精度要求安排'
+    const candidate: any = {
+      kind: 'process_configuration',
+      configuration: { process_id: 'finish', occurrence: 'conditional', when: { field: key, op: 'lte', value: threshold }, relations: [] },
+      field_definitions: [{ key, label: '实际精度', category: '精度', type: 'number', unit, validation, operators: ['lte'], options: [], aliases: [], required: false }],
+    }
+    const card: any = { ...finalizeItem({ id: 'finish', doc_coverage: { total_docs: 2, hit_docs: 1 } }), conditionText: text, conditionReview: { source_text: text, status: 'confirmed', confirmed: candidate } }
+    const request = buildCompileRequestFromCards({ projectId: 12, packageName: 'numeric-smoke', cards: [card], displayName: segment => segment.normalized_step_name, phaseLabel: () => '', primarySteps: () => [], attachedSteps: () => [], conditionFields: [] })
+    for (const test of request.test_cases!) {
+      const actual = (test.input as any).project_factor.operation_test[suffix]
+      if (suffix === 'it') { expect(Number.isInteger(actual)).toBe(true); expect(actual).toBeGreaterThanOrEqual(5); expect(actual).toBeLessThanOrEqual(10) }
+      else expect(actual).toBeGreaterThan(0)
+    }
+  })
+
+  it('excludes legacy template aliases from a native compile request', () => {
+    const card = finalizeItem({ template_group_aliases: [{ source_operation_id: 1, alias: '旧模板别名', template_group_id: 'old', template_group_path: ['旧组'] }] })
+    const args = { projectId: 12, packageName: 'native', cards: [card], displayName: (segment: any) => segment.normalized_step_name, phaseLabel: () => '', primarySteps: () => ['原生工步'], attachedSteps: () => [] }
+    const native = buildCompileRequestFromCards({ ...args, includeTemplateMappings: false })
+    expect(native.processes[0]?.template_group_aliases).toEqual([])
+    expect(native.processes[0]?.steps?.map(step => step.name)).toEqual(['原生工步'])
+    expect(buildCompileRequestFromCards(args).processes[0]?.template_group_aliases).toHaveLength(1)
+  })
   it.each(['contains', 'contains_any', 'contains_all'])('keeps positive collection requirements when adding a negative %s test', (op) => {
     const text = '当有A要求且没有B要求时，安排当前工序'
     const key = 'special.requirements'
@@ -561,7 +631,7 @@ describe('V2 compile DTO from finalize cards', () => {
       },
     }
 
-    expect(exportBlockingCards([pending, confirmed])).toEqual([pending])
+    expect(exportBlockingCards([pending, confirmed])).toEqual([pending, confirmed])
   })
 
   it('builds a stable user-controlled boolean switch for the target process', () => {
@@ -1086,6 +1156,77 @@ describe('V2 compile DTO from finalize cards', () => {
     })
   })
 
+  it('keeps a quick-confirmed association target out of static inclusion when its Bool source is off', () => {
+    const copper: any = {
+      ...finalizeItem({ id: 'copper', sequence: 20, normalized_step_name: '镀铜', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: '当用户选择“是否需要镀铜”为是时，纳入“镀铜”工序。', factorNames: [], edited: true,
+    }
+    const manual = buildManualBooleanRuleCandidate(copper, '是否需要镀铜')
+    copper.conditionReview = { source_text: copper.conditionText, status: 'confirmed', candidate: manual, confirmed: manual }
+    const sourceText = '镀铜完成后安排除铜工序'
+    const relation = {
+      kind: 'process_relation', preview: '镀铜纳入路线时，带出除铜并排在镀铜之后',
+      relation: { relation_type: 'trigger_after', source_process_ids: ['copper'], target_process_ids: ['strip'], source_match: 'all' },
+    }
+    const strip: any = {
+      ...finalizeItem({ id: 'strip', sequence: 30, normalized_step_name: '除铜', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+      conditionText: sourceText, factorNames: [], edited: true,
+      conditionReview: { source_text: sourceText, status: 'confirmed', candidate: relation, confirmed: relation },
+    }
+    const cards = [finalizeItem(), copper, strip]
+    expect(exportBlockingCards(cards)).toEqual([])
+    const request = buildCompileRequestFromCards({
+      projectId: 12, packageName: 'quick-association-static-protection', cards,
+      displayName: segment => segment.normalized_step_name, phaseLabel: () => '',
+      primarySteps: () => [], attachedSteps: () => [], conditionFields: baseConditionFields(),
+    })
+
+    // The generated smoke input leaves the source unchecked. Selecting the
+    // nitriding requirement must not create a parallel path into its target.
+    const manualKey = manual.field_definitions![0]!.key
+    expect(request.fields.find(field => field.key === manualKey)?.required).toBe(false)
+    const smoke = request.test_cases!.find(test => test.case_id === 'default-smoke')!
+    expect((smoke.input as any).project_factor[manualKey.split('.')[1]!]).toBe(false)
+    expect(request.rules!.filter(rule => rule.source === 'system_static')
+      .flatMap(rule => rule.then.include_process_ids || [])).not.toContain('strip')
+    expect(request.rules!.filter(rule => rule.source === 'system_static')
+      .flatMap(rule => rule.then.include_process_ids || [])).not.toContain('copper')
+    expect(request.processes.find(process => process.process_id === 'strip')?.main).toBe(false)
+    expect(request.process_relations).toEqual([expect.objectContaining({
+      relation_type: 'trigger_after', source_process_ids: ['copper'], target_process_ids: ['strip'], source_match: 'all',
+    })])
+    // Enabling the source still includes it through its user rule; the
+    // unchanged association remains the sole path for bringing in the target.
+    expect(request.rules).toContainEqual(expect.objectContaining({
+      source: 'user_confirmed', when: { field: manualKey, op: 'eq', value: true },
+      then: expect.objectContaining({ include_process_ids: ['copper'], exclude_process_ids: [] }),
+    }))
+    expect(request.rules!.flatMap(rule => rule.then.include_process_ids || [])).not.toContain('strip')
+  })
+
+  it('removes an associated target from a shared static rule while retaining its other processes', () => {
+    const sourceText = '镀铜完成后安排除铜工序'
+    const request = buildCompileRequestFromCards({
+      projectId: 12, packageName: 'association-shared-static-target',
+      cards: [
+        { ...finalizeItem({ id: 'copper', normalized_step_name: '镀铜', doc_coverage: { total_docs: 3, hit_docs: 1 } }), factorNames: [], conditionText: '当有渗氮层要求时安排镀铜' },
+        {
+          ...finalizeItem({ id: 'strip', normalized_step_name: '除铜', doc_coverage: { total_docs: 3, hit_docs: 1 } }),
+          factorNames: [], conditionText: sourceText,
+          conditionReview: { source_text: sourceText, status: 'confirmed', confirmed: {
+            kind: 'process_relation', relation: { relation_type: 'trigger_after', source_process_ids: ['copper'], target_process_ids: ['strip'] },
+          } },
+        },
+      ],
+      displayName: segment => segment.normalized_step_name, phaseLabel: () => '',
+      primarySteps: () => [], attachedSteps: () => [], conditionFields: baseConditionFields(),
+    })
+    expect(request.rules!.find(rule => rule.rule_id === 'special.渗氮层要求')).toMatchObject({
+      source: 'system_static', when: { field: 'special.requirements', op: 'contains', value: '渗氮层要求' },
+      then: { include_process_ids: ['copper'], exclude_process_ids: [] },
+    })
+  })
+
   it('writes a confirmed process relation into the V2 compile request', () => {
     const sourceText = '前面存在淬火工序，就出现烧伤检查'
     const relationCard = {
@@ -1449,6 +1590,57 @@ describe('atomic process configuration export', () => {
     return card
   }
   const compile = (cards: any[]) => buildCompileRequestFromCards({ projectId: 11, packageName: 'configuration-test', cards, displayName: segment => segment.normalized_step_name, phaseLabel: () => 'surface', primarySteps: () => [], attachedSteps: () => [], conditionFields: baseConditionFields() }) as any
+  it('compiles backend-confirmed geometry into shared inputs and rebuilds candidates after a saved change', () => {
+    const scope = projectConditionScope('remove_copper')
+    const definitions = projectConditionFields('remove_copper', '钻孔').filter(field => /\.(features|direction|it)$/.test(field.key))
+    const when: any = { all: [
+      { field: `${scope}.features`, op: 'contains_any', value: ['孔(通孔)', '孔(盲孔)'] },
+      { any: ['A侧', 'B侧'].map(value => ({ field: `${scope}.direction`, op: 'eq', value, all: null, any: null, not: null })), all: null, field: null, not: null },
+      { field: `${scope}.it`, op: 'lte', value: 7 },
+    ], any: null, not: null, field: null, op: null, value: null }
+    const card = configured('conditional', when, [], definitions)
+    const first = compile([card])
+    expect(first.fields.filter((field: any) => field.key.endsWith('.present')).map((field: any) => field.label)).toEqual(['孔(通孔)', '孔(盲孔)'])
+    expect(first.fields.map((field: any) => field.key)).not.toContain(`${scope}.it`)
+    expect(first.factor_dictionary.fields.some((field: any) => field.key === `${scope}.it`)).toBe(true)
+    expect(first.process_configurations[0]).toMatchObject({source:'user_confirmed', source_segment_id:'remove_copper',confirmed_at:card.conditionReview.confirmed_at})
+    when.all[0].value = ['孔(通孔)']
+    const next = compile([card])
+    expect(next.fields.filter((field: any) => field.key.endsWith('.present')).map((field: any) => field.label)).toEqual(['孔(通孔)'])
+    expect(next.fields.some((field: any) => field.key.startsWith(`${featureInputScope('孔(盲孔)')}.`))).toBe(false)
+    expect(first.process_configurations[0].when).not.toEqual(next.process_configurations[0].when)
+  })
+  it.each([
+    { suffix: 'it', validation: { min: 1, max: 18 }, threshold: 7, asRule: false },
+    { suffix: 'it', validation: { min: -1, max: 18 }, threshold: 6, asRule: false },
+    { suffix: 'ra', validation: { min: 0 }, threshold: 0.8, asRule: false },
+    { suffix: 'it', validation: { min: 1, max: 18 }, threshold: 5.2, asRule: true },
+    { suffix: 'ra', validation: { min: 0 }, threshold: 0.8, asRule: true },
+  ])('builds legal actual $suffix inputs in shared-feature samples (rule=$asRule)', ({ suffix, validation, threshold, asRule }) => {
+    const scope = projectConditionScope('remove_copper')
+    const definitions = projectConditionFields('remove_copper', '钻孔').filter(field => ['features', 'direction', suffix].includes(field.key.split('.').pop()!))
+    definitions.find(field => field.key.endsWith(`.${suffix}`))!.validation = validation
+    const card = configured('conditional', { all: [
+      { field: `${scope}.features`, op: 'contains_any', value: ['孔(通孔)'] },
+      { field: `${scope}.direction`, op: 'eq', value: 'A侧' },
+      { field: `${scope}.${suffix}`, op: 'lte', value: threshold },
+    ] }, [], definitions)
+    if (asRule) {
+      const candidate = card.conditionReview!.confirmed!
+      candidate.kind = 'condition'
+      candidate.when = candidate.configuration!.when!
+      candidate.then = { include_process_ids: ['remove_copper'], exclude_process_ids: [] }
+      delete candidate.configuration
+    }
+    for (const test of compile([card]).test_cases) {
+      const actual = test.input.project_factor[featureInputScope('孔(通孔)').split('.')[1]!][suffix]
+      if (suffix === 'it') {
+        expect(Number.isInteger(actual)).toBe(true)
+        expect(actual).toBeGreaterThanOrEqual(5)
+        expect(actual).toBeLessThanOrEqual(10)
+      } else expect(actual).toBeGreaterThan(0)
+    }
+  })
   it('uses the saved configuration before coverage and prose heuristics', () => {
     const card = configured('conditional', { field: 'material.grade', op: 'eq', value: '4Cr14Ni14W2Mo' })
     expect(finalizeRuleMode(card)).toBe('conditional')
@@ -1456,6 +1648,35 @@ describe('atomic process configuration export', () => {
     expect(requiresManualRuleAttention(card)).toBe(false)
     expect(requiresServerRuleConditionRefresh(card)).toBe(false)
     expect(exportBlockingCards([card])).toEqual([])
+  })
+  it.each(['conditional', 'manual', 'always'])('keeps the answered %s configuration awaiting review after recognition reset', occurrence => {
+    const manual = buildManualBooleanRuleCandidate(finalizeItem({ id: 'remove_copper', normalized_step_name: '除铜' }), '是否需要除铜')
+    const when = occurrence === 'always' ? null : occurrence === 'manual'
+      ? manual.when : { field: 'material.grade', op: 'eq', value: '9Cr18' }
+    const card = configured(occurrence, when, [], occurrence === 'manual' ? manual.field_definitions : [])
+    card.edited = false
+    card.segment.rule_review = { analysis_draft: {
+      status: 'confirmed', condition_text: card.conditionText,
+      candidate: card.conditionReview.confirmed,
+    } }
+    card.conditionReview = {
+      source_text: card.conditionText, status: 'draft', candidate: null, confirmed: null,
+    }
+
+    expect(finalizeRuleMode(card)).toBe(occurrence === 'always' ? 'mainline' : 'conditional')
+    expect(hasCurrentConfirmedUserRule(card)).toBe(false)
+    expect(requiresServerRuleConditionRefresh(card)).toBe(true)
+    expect(exportBlockingCards([card])).toEqual([card])
+  })
+  it('does not restore the third-step configuration over a later changed source', () => {
+    const card = configured('conditional', { field: 'material.grade', op: 'eq', value: '9Cr18' })
+    card.segment.rule_review = { analysis_draft: {
+      status: 'confirmed', condition_text: card.conditionText,
+      candidate: card.conditionReview.confirmed,
+    } }
+    card.conditionText = '设置为主工序，始终纳入“除铜”工序'
+    card.conditionReview = { source_text: card.conditionText, status: 'draft', candidate: null, confirmed: null }
+    expect(finalizeRuleMode(card)).toBe('mainline')
   })
   it('exports condition and trigger rows atomically without a parallel include path', () => {
     const when = { all: [{ field: 'material.grade', op: 'eq', value: '4Cr14Ni14W2Mo' }, { not: { field: 'special.requirements', op: 'contains', value: '禁止除铜' } }] }

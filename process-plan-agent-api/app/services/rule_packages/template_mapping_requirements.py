@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from collections import Counter
 import unicodedata
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.product_profile import get_product_profile
 from app.models.models import DocumentOperationDetail
 from app.services.process_tree_builder import build_superset_process_tree
 from app.services.project_group_templates import get_project_group_template, serialize_project_group_template
+from app.services.template_mapping_exceptions import resolve_waived_group_paths
 from app.services.rule_packages.contracts import RulePackageV2
 
 
@@ -60,6 +63,8 @@ async def validate_rule_package_template_mapping(
     db: AsyncSession,
     package: RulePackageV2,
 ) -> list[TemplateMappingBlocker]:
+    if not get_product_profile().template_mapping_enabled:
+        return []
     template_row = await get_project_group_template(db, package.manifest.project_id)
     if template_row is None:
         return [TemplateMappingBlocker(
@@ -89,7 +94,11 @@ async def validate_rule_package_template_mapping(
             code="group_template_mapping_missing",
             message="分组模板中没有包含特征的叶子分组，无法建立工艺映射。",
         )]
-    covered_paths = set()
+    waivers = getattr(template, "waived_group_paths", [])
+    waiver_counts = Counter(path_key(path) for path in waivers
+                            if isinstance(path, list) and path and all(isinstance(part, str) for part in path))
+    covered_paths = {path_key(path) for path in resolve_waived_group_paths(
+        template.tree, waivers, strict=False) if waiver_counts[path_key(path)] == 1}
     processes = package.route_catalog.processes
     operation_ids = set().union(*(
         _source_operation_ids(process) | _alias_operation_ids(process.template_group_aliases)

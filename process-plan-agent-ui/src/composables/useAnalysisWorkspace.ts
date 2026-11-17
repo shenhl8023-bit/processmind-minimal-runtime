@@ -1,4 +1,4 @@
-import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, getCurrentScope, onActivated, onDeactivated, onMounted, onScopeDispose, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import type { FactorCandidate } from '@/components/analysis/types'
@@ -51,13 +51,36 @@ export function useAnalysisWorkspace() {
     supersetOperations,
     documents,
     detailRows,
+    analysisGuidance,
+    guidanceError,
+    guidanceErrorReason,
+    guidanceGenerating,
+    generationElapsedSeconds,
     loadSavedRoute,
     resolveProjectId,
   } = useAnalysisWorkspaceData({
     getRouteProjectId: () => route.query.project_id as string | undefined,
   })
   const ruleReviewNote = ref('')
+  const recommendationSummary = ref('')
+  const analysisReadOnly = computed(() => Boolean(savedRoute.value?.analysis_locked))
   const resettingWorkflow = ref(false)
+  let disposed = false
+  let adoptionContext = 0
+  // Transient feedback belongs to one operation in one route/workflow context.
+  // A context counter also catches a switch away and back before a save returns.
+  watch([
+    projectId, () => savedRoute.value?.route_id, () => savedRoute.value?.workflow_revision,
+    analysisReadOnly, loading, guidanceGenerating, resettingWorkflow,
+  ], () => {
+    adoptionContext++
+    recommendationSummary.value = ''
+  }, { flush: 'sync' })
+  watch(savedRoute, () => { recommendationSummary.value = '' }, { flush: 'sync' })
+  if (getCurrentScope()) onScopeDispose(() => {
+    disposed = true
+    adoptionContext++
+  })
   let locallyHandledResetAt = 0
   const sampleCompareExpanded = ref(false)
   const evidenceExcerptExpanded = ref(false)
@@ -276,8 +299,8 @@ export function useAnalysisWorkspace() {
     questionTreeIsRejudging,
     chooseQuestionTreeOption,
     chooseQuestionTreeOptions,
-    reanswerLastQuestionTree,
-    resetQuestionTree,
+    reanswerLastQuestionTree: reanswerLastTreeQuestion,
+    resetQuestionTree: resetSelectedQuestionTree,
     resetAllQuestionTrees,
     updateQuestionTreeNote,
     acceptAllRecommendedQuestionTree,
@@ -287,8 +310,16 @@ export function useAnalysisWorkspace() {
     getTrailForSegment,
     getResultSummaryForSegment,
     getNoteDraftForSegment,
+    getAnalysisDraftForSegment,
+    getMissingAnswerForSegment,
+    getGuidanceForSegment,
   } = useAnalysisQuestionTree({
+    guidance: computed(() => analysisGuidance.value),
+    segments: computed(() => savedRoute.value?.segments || []),
+    readOnly: analysisReadOnly,
     projectId: computed(() => projectId.value),
+    routeId: computed(() => savedRoute.value?.route_id ?? null),
+    workflowRevision: computed(() => savedRoute.value?.workflow_revision ?? null),
     selectedSegment,
     detailRows: computed(() => detailRows.value),
     selectedSegmentMatchedDocIds,
@@ -296,6 +327,20 @@ export function useAnalysisWorkspace() {
     getDocumentTextsForDocIds,
     documents: computed(() => documents.value),
   })
+  function clearAdoptionFeedbackForReanswer() {
+    adoptionContext++
+    recommendationSummary.value = ''
+  }
+  function reanswerLastQuestionTree() {
+    if (disposed || analysisReadOnly.value || !selectedSegment.value) return
+    clearAdoptionFeedbackForReanswer()
+    reanswerLastTreeQuestion()
+  }
+  function resetQuestionTree() {
+    if (disposed || analysisReadOnly.value || !selectedSegment.value) return
+    clearAdoptionFeedbackForReanswer()
+    resetSelectedQuestionTree()
+  }
   const questionTreeInProgress = computed(() =>
     questionTreeVisible.value && !!questionTreeCurrentQuestion.value,
   )
@@ -304,6 +349,7 @@ export function useAnalysisWorkspace() {
     const segment = selectedSegment.value
     if (!segment) return ''
     const trail = savedQuestionTrail(segment)
+    if (segment.rule_review?.analysis_draft?.status === 'confirmed') return segment.rule_review.analysis_draft.condition_text
     if (!trail.length) return ''
     return buildResultSummary(
       segment.normalized_step_name,
@@ -325,7 +371,7 @@ export function useAnalysisWorkspace() {
   const questionTreeSavedTrail = computed(() =>
     questionTreeIsRejudging.value || hideLegacySavedQuestionTreeReview.value
       ? []
-      : (currentRuleReview.value?.question_trail || []),
+      : savedQuestionTrail(selectedSegment.value),
   )
   const showQuestionTreePanel = computed(() => {
     if (questionTreeIsRejudging.value) return true
@@ -337,9 +383,9 @@ export function useAnalysisWorkspace() {
     )
   })
 
-  async function reloadSavedRouteWorkspace(forceRefresh = false) {
+  async function reloadSavedRouteWorkspace(forceRefresh = false, retryRecommendations = false) {
     clearDocumentPreviewTexts()
-    await loadSavedRoute(forceRefresh)
+    await loadSavedRoute(forceRefresh, retryRecommendations)
     loadedDataRevision = getWorkflowDataRevision()
   }
 
@@ -352,31 +398,46 @@ export function useAnalysisWorkspace() {
     resetAnalysisPanelState()
   }
 
-  async function resetAllAnalysisAnswers() {
-    if (resettingWorkflow.value || !projectId.value || !savedRoute.value) return false
+  async function resetAllAnalysisAnswers(onResetApplied?: () => void) {
+    if (disposed || resettingWorkflow.value || !projectId.value || !savedRoute.value) return false
     resettingWorkflow.value = true
     error.value = ''
+    const resetProjectId = projectId.value
+    const resetRoute = savedRoute.value
+    const resetRevision = resetRoute.workflow_revision
+    let resetInvalidated = false
+    const stopResetWatch = watch([projectId, savedRoute, () => savedRoute.value?.route_id,
+      () => savedRoute.value?.workflow_revision], () => {
+      resetInvalidated = true
+    }, { flush: 'sync' })
+    const isCurrentReset = () => !disposed && !resetInvalidated
     try {
       const result = await resetWorkflow({
-        project_id: projectId.value,
+        project_id: resetProjectId,
         from_step: 3,
-        expected_workflow_revision: savedRoute.value.workflow_revision,
+        expected_workflow_revision: resetRevision,
       })
+      if (!isCurrentReset() || result.project_id !== resetProjectId) return false
+      // Reloading after our own successful reset deliberately replaces the route.
+      stopResetWatch()
       publishWorkflowReset({
         projectId: result.project_id,
         fromStep: 3,
         workflowRevision: result.workflow_revision,
       })
       locallyHandledResetAt = workflowResetSignal.value?.emittedAt || 0
+      onResetApplied?.()
       await applyAnalysisWorkflowReset()
-      return true
+      return !disposed && projectId.value === resetProjectId
     } catch (e: any) {
+      if (!isCurrentReset()) return false
       console.error('重新回答全部失败', e)
       error.value = e?.response?.data?.detail?.message
         || e?.response?.data?.detail
         || '重新回答全部失败，请刷新页面后重试。'
       return false
     } finally {
+      stopResetWatch()
       resettingWorkflow.value = false
     }
   }
@@ -391,9 +452,9 @@ export function useAnalysisWorkspace() {
   }
 
   const {
-    savingRuleReview,
-    autoPersistingRuleSegmentId,
     persistRuleReview,
+    cancelPendingRuleReviews,
+    waitForPendingRuleReviews,
   } = useAnalysisReviewPersistence({
     projectId,
     savedRoute,
@@ -403,6 +464,9 @@ export function useAnalysisWorkspace() {
     error,
     ruleCandidateSummary,
     questionTreeTrail,
+    getAnalysisDraft: getAnalysisDraftForSegment,
+    getQuestionTrail: getTrailForSegment,
+    isSaveAllowed: () => !resettingWorkflow.value,
     clearQuestionTreeRejudging,
     goToNextPendingSegment,
     onWorkflowConflict: () => applyAnalysisWorkflowReset(),
@@ -478,25 +542,42 @@ export function useAnalysisWorkspace() {
   const batchAcceptProgress = ref('')
 
   async function handleAcceptAllRecommendedForAllSegments() {
+    if (disposed || analysisReadOnly.value || resettingWorkflow.value || guidanceGenerating.value || loading.value) return
     if (!savedRoute.value || !projectId.value || batchAcceptingAll.value) return
-    const segments = savedRoute.value.segments || []
-    if (!segments.length) return
-
-    const targets = segments.filter(s => !segmentHasRuleDecision(s) || isSegmentRejudging(s))
-    if (!targets.length) return
-
     batchAcceptingAll.value = true
-    batchAcceptProgress.value = '正在加载样本依据...'
+    recommendationSummary.value = ''
+    error.value = ''
+    batchAcceptProgress.value = '正在保存已完成的回答...'
     const batchProjectId = projectId.value
     let batchRouteSnapshot = savedRoute.value
     const batchRouteId = savedRoute.value.route_id
     const batchWorkflowRevision = savedRoute.value.workflow_revision
-    const isCurrentBatch = () => projectId.value === batchProjectId
+    const batchContext = adoptionContext
+    const isCurrentBatch = () => !disposed && adoptionContext === batchContext
+      && projectId.value === batchProjectId
+      && !analysisReadOnly.value
+      && !resettingWorkflow.value
+      && !guidanceGenerating.value
+      && !loading.value
       && savedRoute.value === batchRouteSnapshot
       && savedRoute.value?.route_id === batchRouteId
       && savedRoute.value?.workflow_revision === batchWorkflowRevision
 
+    let adopted = 0
     try {
+      // Stop new autosaves first, then let captured answers finish. Our own
+      // autosaves replace the route object, so take batch ownership afterward.
+      if (!await waitForPendingRuleReviews()) return
+      if (projectId.value !== batchProjectId || savedRoute.value?.route_id !== batchRouteId
+          || savedRoute.value?.workflow_revision !== batchWorkflowRevision) return
+      batchRouteSnapshot = savedRoute.value
+      if (!isCurrentBatch()) return
+      const segments = savedRoute.value.segments || []
+      const targets = segments.filter(s => !segmentHasRuleDecision(s) || isSegmentRejudging(s))
+      if (!targets.length) return
+      recommendationSummary.value = ''
+      const needsAnswer: string[] = []
+      batchAcceptProgress.value = '正在加载样本依据...'
       const allTargetDocIds = new Set<number>()
       targets.forEach((seg) => {
         ;(seg.matched_detail_rows || []).forEach((row: any) => {
@@ -538,37 +619,79 @@ export function useAnalysisWorkspace() {
         const trail = getTrailForSegment(seg)
         const note = getNoteDraftForSegment(seg)
         const conclusion = getResultSummaryForSegment(seg)
+        const analysisDraft = getAnalysisDraftForSegment(seg)
+        if (analysisDraft === null && !segmentCanDefaultComplete(seg)) {
+          needsAnswer.push(`${seg.normalized_step_name}（缺少${getMissingAnswerForSegment(seg)}）`)
+          continue
+        }
         const summaryLines = [
           ...(conclusion ? [conclusion] : []),
           ...baseSummaryLines,
         ]
 
-        const result = await saveSegmentRuleReview({
-          project_id: batchProjectId,
-          route_id: batchRouteId,
-          expected_workflow_revision: batchWorkflowRevision,
-          segment_id: seg.id,
-          decision: 'accepted',
-          note,
-          summary_lines: summaryLines,
-          question_trail: trail,
-        })
+        let result
+        try {
+          result = await saveSegmentRuleReview({
+            project_id: batchProjectId,
+            route_id: batchRouteId,
+            expected_workflow_revision: batchWorkflowRevision,
+            segment_id: seg.id,
+            decision: 'accepted',
+            note,
+            summary_lines: summaryLines,
+            question_trail: trail,
+            ...(analysisDraft ? { analysis_draft: analysisDraft } : {}),
+          })
+        } catch (err: any) {
+          if (!isCurrentBatch()) return
+          const detail = err?.response?.data?.detail
+          if (detail?.code !== 'stale_object_reuse') throw err
+          needsAnswer.push(`${seg.normalized_step_name}（${detail.message || '前序加工对象需重新确认'}）`)
+          continue
+        }
 
         if (!isCurrentBatch()) return
+        if (result?.project_id !== batchProjectId || result.route_id !== batchRouteId
+            || result.segment_id !== seg.id || result.rule_review?.decision !== 'accepted'
+            || !savedRoute.value.segments.some(segment => segment.id === seg.id)) {
+          throw new Error('采纳保存结果与当前工序不一致。')
+        }
         savedRoute.value = applyRuleReviewUpdateToRoute(savedRoute.value, result)
         batchRouteSnapshot = savedRoute.value!
+        for (const id of result.invalidated_segment_ids || []) {
+          const dependent = batchRouteSnapshot.segments.find(item => item.id === id)
+          if (dependent && !targets.some(item => item.id === id)) targets.push(dependent)
+        }
+        if (result.invalidated_segment_ids?.length) acceptAllRecommendedTreeAnswers(batchRouteSnapshot.segments)
         clearQuestionTreeRejudging(seg.id)
+        adopted += 1
+        batchAcceptProgress.value = `${adopted}/${targets.length}`
       }
 
       resetAnalysisPanelState()
+      const remaining = needsAnswer.length ? `${needsAnswer.length} 道还需手动回答或重试：${needsAnswer.join('、')}。` : ''
+      if (!adopted) {
+        error.value = `尚无完整推荐可采纳；${remaining}`
+        return
+      }
+      recommendationSummary.value = remaining
+        ? `已采纳 ${adopted} 道工序推荐；${remaining}`
+        : `已采纳 ${adopted} 道工序推荐。`
 
       Promise.resolve(triggerRulePreprocessing()).catch((err) => {
         console.warn('一键采纳后触发预处理失败', err)
       })
-    } catch (err) {
+    } catch (err: any) {
       if (!isCurrentBatch()) return
+      if (err?.response?.data?.detail?.code === 'analysis_locked') {
+        await applyAnalysisWorkflowReset()
+        return
+      }
       console.error('批量采纳推荐失败', err)
-      ElMessage.error('批量采纳部分工步时失败，已保留成功项，请重试。')
+      error.value = adopted
+        ? `批量采纳失败，已保存 ${adopted} 道工序推荐，其余尚未保存，请重试。`
+        : '批量采纳失败，未保存任何工序推荐，请重试。'
+      ElMessage.error(error.value)
     } finally {
       batchAcceptingAll.value = false
       batchAcceptProgress.value = ''
@@ -576,20 +699,17 @@ export function useAnalysisWorkspace() {
   }
 
   watch(
-    [selectedSegmentId, autoRuleDecision, currentRuleReview, questionTreeIsRejudging],
+    [selectedSegmentId, autoRuleDecision, currentRuleReview, questionTreeIsRejudging, questionTreeTrail],
     async ([segmentId, nextDecision, review]) => {
-      if (!segmentId || !nextDecision) return
-      if (savingRuleReview.value || batchAcceptingAll.value) return
-      if (review?.decision === nextDecision && !questionTreeIsRejudging.value) return
-      if (autoPersistingRuleSegmentId.value === segmentId) return
-      autoPersistingRuleSegmentId.value = segmentId
-      try {
-        await persistRuleReview(nextDecision, { autoAdvance: false })
-      } finally {
-        if (autoPersistingRuleSegmentId.value === segmentId) {
-          autoPersistingRuleSegmentId.value = ''
-        }
+      if (!segmentId) return
+      if (!nextDecision) {
+        cancelPendingRuleReviews(segmentId)
+        return
       }
+      if (analysisReadOnly.value || resettingWorkflow.value) return
+      if (batchAcceptingAll.value) return
+      if (review?.decision === nextDecision && !questionTreeIsRejudging.value) return
+      await persistRuleReview(nextDecision, { autoAdvance: false })
     },
     { flush: 'post' },
   )
@@ -614,7 +734,7 @@ export function useAnalysisWorkspace() {
     if (!projectChanged && loadedDataRevision === getWorkflowDataRevision()) return
 
     resolveProjectId()
-    void reloadSavedRouteWorkspace().then(resetAnalysisPanelState)
+    void reloadSavedRouteWorkspace(true).then(resetAnalysisPanelState)
   })
 
   onDeactivated(() => {
@@ -630,7 +750,16 @@ export function useAnalysisWorkspace() {
   })
 
   return {
+    analysisGuidance,
+    guidanceError,
+    guidanceErrorReason,
+    guidanceGenerating,
+    generationElapsedSeconds,
+    recommendationSummary,
+    getGuidanceForSegment,
+    getAnalysisDraftForSegment,
     loading,
+    analysisReadOnly,
     resettingWorkflow,
     error,
     projectId,

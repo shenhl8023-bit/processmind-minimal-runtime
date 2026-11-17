@@ -4,7 +4,9 @@ param(
   [Parameter(Mandatory = $true)]
   [string] $Wheelhouse,
   [string] $OutputDir = '',
-  [string] $PackageVersion = '1.0.0'
+  [string] $PackageVersion = '1.0.0',
+  [ValidateSet('full', 'basic-trial')]
+  [string] $Edition = 'full'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -27,18 +29,32 @@ if (-not (Test-Path -LiteralPath $prerequisitePayload -PathType Leaf) -or
   throw 'Missing Win7 prerequisite files. Expected prerequisites\install-kb2533623.bat and Windows6.1-KB2533623-x64.msu.'
 }
 
-$date = Get-Date -Format 'yyyyMMdd'
-$zipName = "processmind-win7-windows-$date.zip"
+$profilePath = Join-Path $Root 'product-profile.json'
+if ($Edition -eq 'basic-trial') {
+  $profilePath = Join-Path $Root 'profiles\basic-trial.json'
+}
+$profile = Get-Content -LiteralPath $profilePath -Raw | ConvertFrom-Json
+if ($profile.edition -ne $Edition) { throw 'Product profile does not match the requested edition.' }
+$buildId = Get-Date -Format 'yyyyMMdd-HHmmss'
+$suffix = ''
+if ($Edition -eq 'basic-trial') { $suffix = '-basic-trial' }
+$zipName = "processmind-win7-windows$suffix-$buildId.zip"
 $zipPath = Join-Path $OutputDir $zipName
-$stage = Join-Path $OutputDir ("stage-" + $date)
-$runtimeBuild = Join-Path $OutputDir ("runtime-" + $date)
+$artifactStem = [System.IO.Path]::GetFileNameWithoutExtension($zipPath)
+$manifestCopy = Join-Path $OutputDir ($artifactStem + '.manifest.json')
+$checksumCopy = Join-Path $OutputDir ($artifactStem + '.SHA256SUMS.txt')
+$stage = Join-Path $OutputDir ("stage" + $suffix + "-" + $buildId)
+$runtimeBuild = Join-Path $OutputDir ("runtime" + $suffix + "-" + $buildId)
 $runtimeDestination = Join-Path $runtimeBuild 'python'
 $buildRuntime = Join-Path $PSScriptRoot 'build-win7-runtime.ps1'
 $stagePackage = Join-Path $PSScriptRoot 'stage-win7-package.ps1'
 
-if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
-if (Test-Path -LiteralPath $runtimeBuild) { Remove-Item -LiteralPath $runtimeBuild -Recurse -Force }
-if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
+$existingArtifact = @($zipPath, $manifestCopy, $checksumCopy, $stage, $runtimeBuild) |
+  Where-Object { Test-Path -LiteralPath $_ } |
+  Select-Object -First 1
+if ($existingArtifact) {
+  throw "Refusing to overwrite an existing Win7 build artifact: $existingArtifact"
+}
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
 try {
@@ -51,17 +67,20 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Win7 runtime import verification failed.' }
 
   Write-Host 'Staging application and static frontend ...'
-  & $stagePackage -SourceRoot $Root -Destination $stage -PythonRuntime $runtimeDestination
+  & $stagePackage -SourceRoot $Root -Destination $stage -PythonRuntime $runtimeDestination -ProductProfile $profilePath
   if ($LASTEXITCODE -ne 0) { throw 'Win7 package staging failed.' }
 
   $manifest = [ordered]@{
     package = 'ProcessMind'
     package_version = $PackageVersion
+    edition = $profile.edition
+    trial_expires_at = $profile.expires_at
     target_os = 'Windows 7 SP1'
     architecture = 'x64'
     python = '3.8.10'
     frontend_target = 'chrome109'
     api = [ordered]@{ host = '127.0.0.1'; port = 8000 }
+    launcher_config = 'launcher-config.json'
     browser_baseline = @('Chrome 109', 'Edge 109')
     embedded_browser = $false
     node_runtime_included = $false
@@ -92,11 +111,6 @@ try {
   & $runtimePython -B $packageVerifier $stage
   if ($LASTEXITCODE -ne 0) { throw 'Win7 package verification failed; ZIP was not created.' }
 
-  $manifestCopy = Join-Path $OutputDir 'manifest.json'
-  $checksumCopy = Join-Path $OutputDir 'SHA256SUMS.txt'
-  Copy-Item -LiteralPath $manifestPath -Destination $manifestCopy -Force
-  Copy-Item -LiteralPath $checksumPath -Destination $checksumCopy -Force
-
   Write-Host "Compressing $zipPath ..."
   # Compress-Archive skips hidden files and directories on Windows. The
   # delivery package intentionally contains hidden paths such as .runtime,
@@ -109,6 +123,8 @@ try {
     $false
   )
   if (-not (Test-Path -LiteralPath $zipPath -PathType Leaf)) { throw 'ZIP output was not created.' }
+  Copy-Item -LiteralPath $manifestPath -Destination $manifestCopy
+  Copy-Item -LiteralPath $checksumPath -Destination $checksumCopy
 }
 finally {
   if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }

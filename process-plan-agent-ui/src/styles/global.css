@@ -1,0 +1,403 @@
+/* PM016 application foundation. Only named business/Element Plus classes are
+   adapted below; canvas, SVG, route nodes, tree indentation and drag handles
+   retain their own geometry, overflow, transforms and pointer handling. */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: var(--pm-font);
+  font-size: 13px;
+  line-height: 1.55;
+  background: var(--pm-canvas);
+  color: var(--pm-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+button, input, select, textarea { font-family: inherit; }
+#app { height: 100%; }
+.app-shell { display: flex; flex-direction: column; height: 100vh; min-height: 0; overflow: hidden; }
+
+/* Shell and navigation: preserve the main-area scroll owner and footer rail. */
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 52px;
+  padding: 0 var(--page-padding-x);
+  background: var(--pm-surface);
+  border-bottom: 1px solid var(--pm-border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  flex-shrink: 0;
+}
+.brand { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.brand-icon { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; background: var(--pm-primary); border-radius: 6px; color: #fff; font-size: 16px; }
+.brand-text { display: flex; align-items: baseline; gap: 8px; }
+.brand-name { font-size: 15px; font-weight: 600; color: var(--pm-text); letter-spacing: -.2px; }
+.brand-slogan { font-size: 12px; font-weight: 400; color: var(--pm-text-muted); }
+.top-bar-right, .user-area, .nav-links { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.asset-entry, .nav-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid var(--pm-border);
+  border-radius: var(--pm-radius-control);
+  background: var(--pm-surface);
+  color: var(--pm-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.asset-entry:hover, .nav-item:hover { border-color: var(--pm-primary-border); background: var(--pm-primary-soft); color: var(--pm-primary); }
+.asset-entry.active, .nav-item.active { border-color: var(--pm-primary); background: var(--pm-primary); color: #fff; }
+.nav-icon { font-size: 16px; }
+.user-name { padding: 4px 12px; border: 1px solid var(--pm-border); border-radius: 6px; font-size: 13px; color: var(--pm-text-secondary); }
+.step-indicator { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.step { display: flex; align-items: center; gap: 6px; flex-shrink: 0; min-height: 32px; padding: 3px 5px; border-radius: 6px; color: var(--pm-text-muted); font-size: 12px; cursor: default; user-select: none; transition: var(--transition); }
+.step.active { color: var(--pm-primary); background: var(--pm-primary-soft); font-weight: 600; }
+.step.completed { color: var(--pm-success); cursor: pointer; }
+.step.available { color: var(--pm-text-secondary); cursor: pointer; }
+.step.completed:hover, .step.available:hover { background: var(--pm-surface-subtle); }
+.step.available:hover { color: var(--pm-primary); }
+.step.locked { color: var(--pm-text-muted); }
+.step-dot { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--pm-border-strong); border-radius: 50%; background: var(--pm-surface); color: inherit; font-size: 12px; font-weight: 600; }
+.step.active .step-dot { border-color: var(--pm-primary); background: var(--pm-primary); color: #fff; }
+.step.completed .step-dot { border-color: var(--pm-success); background: var(--pm-success); color: #fff; }
+.step.locked .step-dot { border-style: dashed; background: var(--pm-surface-subtle); }
+.step-line { flex: 0 0 18px; height: 1px; background: var(--pm-border); }
+.step-line.completed { background: var(--pm-success-border); }
+.main-area { flex: 1; width: 100%; max-width: var(--page-max-width); min-width: 0; min-height: 0; margin: 0 auto; padding: 16px var(--page-padding-x) 32px; overflow-x: hidden; overflow-y: auto; }
+.knowledge-shell .main-area { display: flex; flex-direction: column; overflow: hidden; padding-top: 10px; padding-bottom: 10px; }
+.knowledge-shell .top-bar-right { flex-shrink: 0; }
+.knowledge-shell .asset-entry { white-space: nowrap; }
+.footer { flex-shrink: 0; padding: 6px; border-top: 1px solid var(--pm-border); background: var(--pm-surface); color: var(--pm-text-muted); text-align: center; font-size: 12px; line-height: 18px; }
+/* Every workflow uses the same viewport footer; keep content above its rail. */
+.workflow-shell .main-area { padding-top: 8px; padding-bottom: 57px; }
+.workflow-shell > .footer { display: none; }
+
+/* Existing shared classes; no elevated hover treatment on static content. */
+.card { min-width: 0; padding: 16px; border: 1px solid var(--pm-border); border-radius: var(--pm-radius-card); background: var(--pm-surface); box-shadow: var(--pm-shadow-card); }
+.card:hover { box-shadow: var(--pm-shadow-card); }
+.card-title { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--pm-text); font-size: 14px; font-weight: 600; line-height: 22px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: var(--pm-control-height); padding: 5px 12px; border: 1px solid transparent; border-radius: var(--pm-radius-control); font-size: 13px; font-weight: 500; line-height: 20px; text-decoration: none; cursor: pointer; transition: var(--transition); }
+.btn:disabled, .btn.disabled { opacity: .55; cursor: not-allowed; box-shadow: none; pointer-events: none; }
+.btn-primary { border-color: var(--pm-primary); background: var(--pm-primary); color: #fff; }
+.btn-primary:hover:not(:disabled) { border-color: var(--pm-primary-hover); background: var(--pm-primary-hover); }
+.btn-outline { border-color: var(--pm-border-strong); background: var(--pm-surface); color: var(--pm-text-secondary); }
+.btn-outline:hover:not(:disabled) { border-color: var(--pm-primary-border); background: var(--pm-primary-soft); color: var(--pm-primary); }
+.btn-success { border-color: var(--pm-success); background: var(--pm-success); color: #fff; }
+.btn-success:hover:not(:disabled) { background: #185b48; border-color: #185b48; }
+.btn-danger { border-color: var(--pm-danger); background: var(--pm-danger); color: #fff; }
+.btn-danger:hover:not(:disabled) { background: #922e33; border-color: #922e33; }
+.tag { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; line-height: 18px; }
+.tag-info { background: var(--pm-disabled-bg); color: var(--pm-text-secondary); }
+.tag-success { background: var(--pm-success-soft); color: var(--pm-success); }
+.tag-warning { background: var(--pm-warning-soft); color: var(--pm-warning); }
+.tag-danger { background: var(--pm-danger-soft); color: var(--pm-danger); }
+.tag-accent { background: var(--pm-primary-soft); color: var(--pm-primary); }
+
+/* Focus is never removed from actionable grey states, including cancel-waiver.
+   Do not style [aria-disabled], .is-waived or an entire grey parent as disabled. */
+.app-shell button:focus-visible,
+.app-shell [role='button']:focus-visible,
+.app-shell a:focus-visible,
+.app-shell summary:focus-visible,
+.el-dialog button:focus-visible,
+.el-message-box button:focus-visible,
+.product-access-card button:focus-visible {
+  outline: 2px solid var(--pm-primary);
+  outline-offset: 2px;
+}
+
+/* Element Plus uses its semantic tokens for status and focus. Avoid generic
+   input heights: select search inputs and numeric spinner internals differ. */
+.el-button { font-weight: 500; }
+.el-form-item__label { font-size: 13px; color: var(--pm-text-secondary); }
+.el-form-item__error { padding-top: 4px; font-size: 12px; line-height: 18px; }
+.el-input__wrapper.is-focus, .el-select__wrapper.is-focused { box-shadow: 0 0 0 1px var(--pm-primary) inset, var(--pm-focus-ring); }
+.el-textarea__inner:focus { box-shadow: 0 0 0 1px var(--pm-primary) inset, var(--pm-focus-ring); }
+.el-card { --el-card-border-radius: var(--pm-radius-card); --el-card-padding: 16px; --el-card-border-color: var(--pm-border); }
+.el-dialog { --el-dialog-border-radius: var(--pm-radius-dialog); --el-dialog-padding-primary: 20px; --el-dialog-box-shadow: var(--pm-shadow-popup); max-width: calc(100vw - 32px); border: 1px solid var(--pm-border); }
+.el-dialog__title, .el-message-box__title { font-size: 16px; font-weight: 600; line-height: 24px; color: var(--pm-text); }
+.el-dialog__body, .el-message-box__message { font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.el-message-box { --el-messagebox-border-radius: var(--pm-radius-dialog); max-width: calc(100vw - 32px); }
+.el-alert { --el-alert-padding: 8px 12px; --el-alert-border-radius-base: var(--pm-radius-control); border: 1px solid var(--pm-border); border-left-width: 3px; }
+.el-alert .el-alert__title { font-size: 13px; line-height: 20px; }
+.el-alert .el-alert__description { margin-top: 4px; font-size: 12px; line-height: 18px; }
+.el-alert.el-alert--info { border-color: var(--pm-primary-border); background: var(--pm-primary-soft); color: var(--pm-primary); }
+.el-alert.el-alert--warning { border-color: var(--pm-warning-border); }
+.el-alert.el-alert--success { border-color: var(--pm-success-border); }
+.el-alert.el-alert--error { border-color: var(--pm-danger-border); }
+.el-alert.is-light .el-alert__description { color: inherit; }
+.el-message { --el-message-padding: 10px 14px; --el-message-close-size: 14px; max-width: calc(100vw - 32px); border-radius: var(--pm-radius-control); box-shadow: 0 4px 16px rgba(35, 53, 74, .08); }
+.el-message .el-message__content { min-width: 0; font-size: 13px; line-height: 20px; overflow-wrap: anywhere; }
+.el-notification { --el-notification-padding: 14px 16px; --el-notification-radius: var(--pm-radius-card); max-width: calc(100vw - 32px); }
+.el-table { --el-table-header-bg-color: var(--pm-surface-subtle); --el-table-header-text-color: var(--pm-text-secondary); --el-table-text-color: var(--pm-text); --el-table-row-hover-bg-color: var(--pm-primary-soft); --el-table-current-row-bg-color: var(--pm-primary-soft); --el-table-border-color: var(--pm-border); font-size: 13px; }
+.el-table th.el-table__cell { font-weight: 600; }
+.el-table .el-table__cell { padding: 8px 0; }
+.el-empty { --el-empty-padding: 24px 0; --el-empty-description-margin-top: 12px; }
+.el-empty .el-empty__description p { color: var(--pm-text-muted); font-size: 13px; line-height: 20px; }
+.el-loading-mask { background-color: rgba(255, 255, 255, .9); }
+.el-loading-spinner .el-loading-text { color: var(--pm-text-secondary); font-size: 13px; }
+
+/* Cross-page surfaces and titles; local layout/geometry remains authoritative. */
+.app-shell :is(.detail-card, .input-panel, .output-panel, .result-panel, .route-pane) { border-color: var(--pm-border); border-radius: var(--pm-radius-card); background-color: var(--pm-surface); box-shadow: var(--pm-shadow-card); }
+.app-shell :is(.analysis-hero-title, .ash-page-title, .page-header h1) { color: var(--pm-text); font-size: 20px; font-weight: 600; line-height: 28px; }
+.app-shell :is(.card-title, .detail-card-title, .panel-title, .route-pane-title) { color: var(--pm-text); font-size: 14px; font-weight: 600; line-height: 22px; }
+.app-shell :is(.empty-title, .empty-panel h2, .knowledge-empty h2) { color: var(--pm-text); font-size: 16px; font-weight: 600; line-height: 24px; }
+.app-shell :is(.empty-text, .detail-empty, .panel-empty, .schema-empty, .empty-hint, .mapping-empty) { color: var(--pm-text-muted); font-size: 13px; line-height: 20px; }
+.app-shell :is(.configuration-error, .guidance-error, .p-error, .field-error) { color: var(--pm-danger); font-size: 12px; line-height: 18px; }
+
+/* Existing messages across ALL workflow stages and the knowledge workspace.
+   Keep each container's positioning, wrapping, actions and live-region logic. */
+.app-shell :is(.analysis-readonly-notice, .tree-readonly-notice, .analysis-guidance-notice, .route-shell-banner, .mapping-notice, .output-stale-banner, .knowledge-alert, .batch-confirmation-result, .preprocess-failure-panel) {
+  padding: 8px 12px;
+  border: 1px solid var(--pm-primary-border);
+  border-left-width: 3px;
+  border-radius: var(--pm-radius-control);
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary);
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.app-shell :is(.analysis-guidance-notice, .mapping-notice, .route-shell-banner-warning, .output-stale-banner, .knowledge-alert, .batch-confirmation-result) { border-color: var(--pm-warning-border); background: var(--pm-warning-soft); color: var(--pm-warning); }
+.app-shell :is(.analysis-inline-error, .preprocess-failure-panel, .knowledge-alert.error) { border-color: var(--pm-danger-border); background: var(--pm-danger-soft); color: var(--pm-danger); }
+.app-shell .analysis-inline-error { border-radius: var(--pm-radius-control); font-size: 13px; line-height: 20px; }
+.app-shell .status-msg.success { color: var(--pm-success); }
+.app-shell .status-msg.error { color: var(--pm-danger); }
+.app-shell .batch-toast { border: 1px solid var(--pm-primary-border); border-radius: var(--pm-radius-control); background: var(--pm-surface); color: var(--pm-text); box-shadow: var(--pm-shadow-popup); font-size: 13px; line-height: 20px; }
+
+/* Shared native workflow controls. Do not target all buttons or all inputs. */
+.app-shell :is(.workflow-nav-btn, .ash-btn-primary, .ash-btn-outline, .confirm-rule-btn, .cancel-rule-btn, .tree-action-btn-primary, .tree-action-btn-secondary) { min-height: var(--pm-control-height); border-radius: var(--pm-radius-control); font-size: 13px; line-height: 20px; transition: var(--transition); }
+.app-shell :is(.workflow-nav-btn-next, .ash-btn-primary, .confirm-rule-btn, .tree-action-btn-primary, .btn-accept-all-global, .generate-cta) { border-color: var(--pm-primary); background: var(--pm-primary); color: #fff; box-shadow: none; }
+.app-shell :is(.workflow-nav-btn-next, .ash-btn-primary, .confirm-rule-btn, .tree-action-btn-primary, .btn-accept-all-global, .generate-cta):hover:not(:disabled) { border-color: var(--pm-primary-hover); background: var(--pm-primary-hover); box-shadow: none; transform: none; }
+.app-shell :is(.workflow-nav-btn-prev, .ash-btn-outline, .cancel-rule-btn, .tree-action-btn-secondary) { border-color: var(--pm-border-strong); background: var(--pm-surface); color: var(--pm-text-secondary); }
+.app-shell :is(.workflow-nav-btn-prev, .ash-btn-outline, .cancel-rule-btn, .tree-action-btn-secondary):hover:not(:disabled) { border-color: var(--pm-primary-border); background: var(--pm-primary-soft); color: var(--pm-primary); transform: none; box-shadow: none; }
+.app-shell .btn-sm { min-height: var(--pm-control-height-small); padding: 3px 10px; font-size: 12px; line-height: 20px; }
+.app-shell .workflow-nav-footer { border-color: var(--pm-border); background: var(--pm-surface); backdrop-filter: none; -webkit-backdrop-filter: none; }
+
+/* PM-067: shared threshold surfaces; question controls use the compact metric,
+   while form values retain their row's size. Units never change the density. */
+.app-shell .tree-numeric-editor { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; padding: 4px 8px; border: 1px solid var(--pm-border); border-radius: var(--pm-radius-control); background: var(--pm-surface-subtle); }
+.app-shell .tree-numeric-field { min-width: 0; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; color: var(--pm-text-secondary); font-size: 12px; line-height: 18px; }
+.app-shell .tree-numeric-field > span { overflow-wrap: anywhere; }
+.app-shell .tree-numeric-presets { min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.app-shell .tree-numeric-editor input,
+.app-shell .tree-numeric-editor button,
+.guidance-editor input[type='number'],
+.app-shell .condition-node input[type='number'],
+.app-shell .input-panel input[type='number'] {
+  min-width: 0; height: var(--pm-control-height); padding: 5px 8px;
+  border: 1px solid var(--pm-border-strong); border-radius: var(--pm-radius-control);
+  background: var(--pm-surface); color: var(--pm-text); font-size: 13px; line-height: 20px;
+  font-variant-numeric: tabular-nums; box-sizing: border-box; transition: var(--transition);
+}
+.app-shell .tree-numeric-editor :is(input, button) { height: var(--pm-control-height-small); padding: 3px 8px; font-size: 12px; line-height: 18px; }
+.app-shell .tree-numeric-editor input { width: 88px; max-width: 100%; }
+.app-shell .tree-numeric-editor button { min-width: 38px; white-space: nowrap; cursor: pointer; }
+.app-shell .tree-numeric-editor button:hover:not(:disabled) { border-color: var(--pm-primary); color: var(--pm-primary); background: var(--pm-primary-soft); }
+.app-shell .tree-numeric-presets button[aria-pressed='true'] { border-color: var(--pm-primary); background: var(--pm-primary-soft); color: var(--pm-primary); font-weight: 600; }
+.app-shell .tree-numeric-editor .tree-numeric-confirm { border-color: var(--pm-primary); background: var(--pm-primary); color: #fff; }
+.app-shell .tree-numeric-editor .tree-numeric-confirm:hover:not(:disabled) { border-color: var(--pm-primary-hover); background: var(--pm-primary-hover); color: #fff; }
+.app-shell .tree-numeric-editor button:focus-visible { outline: 2px solid var(--pm-primary); outline-offset: 2px; }
+.app-shell .tree-numeric-editor button:disabled, .app-shell .tree-numeric-editor input:disabled { cursor: not-allowed; opacity: .55; }
+.app-shell .tree-numeric-editor input[aria-invalid='true'] { border-color: var(--pm-danger); }
+.app-shell .tree-numeric-editor > p[role='alert'] { flex-basis: 100%; color: var(--pm-danger); font-size: 12px; line-height: 18px; }
+.guidance-editor input[type='number'] { width: 100%; }
+.guidance-editor input[type='number']:focus,
+.app-shell .condition-node input[type='number']:focus,
+.app-shell .input-panel input[type='number']:focus { outline: none; border-color: var(--pm-primary); box-shadow: var(--pm-focus-ring); }
+.guidance-editor .guidance-columns { flex-wrap: wrap; }
+.guidance-editor .guidance-columns > label { flex: 1 1 160px; min-width: 0; }
+.guidance-editor :is(input, select, textarea) { max-width: 100%; min-width: 0; }
+.app-shell :is(.configuration-select, .relation-select, .manual-bool-input, .rule-control) { border-color: var(--pm-border-strong); border-radius: var(--pm-radius-control); color: var(--pm-text); background: var(--pm-surface); font-size: 13px; }
+.app-shell :is(.configuration-select, .relation-select, .manual-bool-input, .rule-control, .tree-numeric-editor input):focus { outline: none; border-color: var(--pm-primary); box-shadow: var(--pm-focus-ring); }
+.app-shell :is(.configuration-select, .relation-select, .manual-bool-input, .rule-control):disabled { color: var(--pm-disabled-text); background: var(--pm-disabled-bg); cursor: not-allowed; }
+/* Keep global defaults from enlarging controls inside compact local editors. */
+.app-shell .tree-panel-enhanced :is(.tree-action-btn-primary, .tree-action-btn-secondary),
+.app-shell .configuration-editor :is(.confirm-rule-btn, .cancel-rule-btn) { min-height: var(--pm-control-height-small); padding: 3px 8px; font-size: 12px; line-height: 18px; }
+.app-shell .configuration-condition-row .rule-control:not([multiple]) { height: 30px; padding: 4px 8px; font-size: 12px; line-height: 20px; }
+.app-shell .configuration-mode[aria-pressed='true'] { color: var(--pm-primary); border-color: var(--pm-primary-border); background: var(--pm-surface); }
+.app-shell :is(.evidence-table, .tree-table, .catalog-table) { color: var(--pm-text); font-size: 13px; }
+.app-shell :is(.evidence-table, .tree-table, .catalog-table) th { border-color: var(--pm-border); background: var(--pm-surface-subtle); color: var(--pm-text-secondary); font-weight: 600; }
+.app-shell :is(.evidence-table, .tree-table, .catalog-table) td { border-color: var(--pm-border); }
+
+/* The Generate view defines legacy local tokens. Keep this named adapter
+   explicit so output, header and optional settings use the same light palette. */
+.app-shell .generate-view {
+  --generate-ink: var(--pm-text);
+  --generate-muted: var(--pm-text-muted);
+  --generate-line: var(--pm-border);
+  --generate-surface: var(--pm-surface);
+  --generate-panel: var(--pm-surface-subtle);
+  --generate-accent: var(--pm-primary);
+  --generate-accent-soft: var(--pm-primary-soft);
+}
+.app-shell .generate-view .generate-grid { gap: 12px; }
+.app-shell .generate-view .ash-dark-chip { background: var(--pm-surface-subtle); border: 1px solid var(--pm-border); color: var(--pm-text-secondary); font-weight: 500; }
+.app-shell .generate-view .empty-action { background: var(--pm-primary); }
+.app-shell .generate-view .analysis-style-header { padding: 10px 12px; flex-wrap: wrap; gap: 8px 12px; border-color: var(--pm-border); border-radius: var(--pm-radius-card); }
+.app-shell .generate-view :is(.ash-left-content, .ash-meta-section, .ash-actions) { flex-wrap: wrap; min-width: 0; }
+.app-shell .generate-view .ash-btn-primary { min-height: 32px; border-color: var(--pm-primary); background: var(--pm-primary); color: #fff; border-radius: var(--pm-radius-control); box-shadow: none; }
+.app-shell .generate-view .ash-btn-primary:hover:not(:disabled) { background: var(--pm-primary-hover); border-color: var(--pm-primary-hover); box-shadow: none; transform: none; }
+
+/* Product-state screen remains functional for the explicit trial profile. */
+.product-access-screen { display: grid; place-items: center; min-height: 100vh; padding: 24px; background: var(--pm-canvas); color: var(--pm-text); }
+.product-access-card { width: min(100%, 460px); padding: 32px; border: 1px solid var(--pm-border); border-radius: var(--pm-radius-dialog); background: var(--pm-surface); box-shadow: var(--pm-shadow-card); }
+.product-access-brand { color: var(--pm-text-muted); font-size: 13px; }
+.product-access-card h1 { margin: 20px 0 12px; font-size: 20px; line-height: 28px; }
+.product-access-card p { color: var(--pm-text-secondary); line-height: 1.6; }
+.product-access-card button { margin-top: 24px; }
+
+@media (min-width: 901px) and (max-width: 1250px) {
+  .top-bar { padding-left: 20px; padding-right: 20px; gap: 12px; }
+  .brand-slogan { display: none; }
+  .step-indicator { gap: 4px; }
+  .step-line { flex-basis: 12px; }
+  .step { gap: 4px; padding-left: 3px; padding-right: 3px; }
+}
+@media (max-width: 900px) {
+  html:root { --page-padding-x: 16px; }
+  .top-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; height: auto; min-height: 48px; padding: 8px var(--page-padding-x) 0; gap: 8px; }
+  .brand { min-width: 0; }
+  .brand-slogan { display: none; }
+  .step-indicator { grid-column: 1 / -1; width: 100%; min-width: 0; overflow-x: auto; overflow-y: hidden; justify-content: flex-start; gap: 6px; padding: 2px 2px 9px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .step-indicator::-webkit-scrollbar { display: none; }
+  .step-line { flex-basis: 16px; }
+  .main-area { padding: 12px var(--page-padding-x) 88px; }
+}
+@media (max-width: 520px) {
+  html:root { --page-padding-x: 12px; }
+  .top-bar { padding-left: var(--page-padding-x); padding-right: var(--page-padding-x); }
+  .brand { gap: 6px; }
+  .brand-name { font-size: 13px; }
+  .top-bar-right { gap: 5px; }
+  .asset-entry { padding: 4px 8px; }
+  .step-indicator { margin-left: -2px; margin-right: -2px; padding-left: 2px; padding-right: 2px; }
+  .main-area { padding-left: var(--page-padding-x); padding-right: var(--page-padding-x); }
+  .footer { padding-left: var(--page-padding-x); padding-right: var(--page-padding-x); }
+  .app-shell .tree-numeric-editor > label { width: 100%; }
+}
+@media (max-width: 600px) {
+  .workflow-shell .main-area { padding-bottom: 83px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .step, .asset-entry, .nav-item, .btn, .app-shell .workflow-nav-btn { transition: none; }
+}
+
+/* PM016 remaining workspaces: named adapters only; do not match graph nodes,
+   route transforms, SVG primitives, tree indentation or drag interaction. */
+.app-shell .upload-view .project-card-title-row { flex-wrap: wrap; }
+.app-shell .upload-view :is(.project-card-desc, .project-hint, .project-meta, .project-mode-chip, .current-badge) { font-size: 12px; }
+.app-shell .upload-view :is(.project-tile, .empty-task-card) { border-color: var(--pm-border); background: var(--pm-surface); border-radius: var(--pm-radius-card); box-shadow: none; }
+.app-shell .upload-view .project-tile.active { border-color: var(--pm-primary); background: var(--pm-primary-soft); }
+.app-shell .upload-view :is(.project-tile:hover, .project-tile-new:hover) { transform: none; box-shadow: none; border-color: var(--pm-primary-border); }
+.app-shell .upload-view :is(.new-tile-icon, .project-tile-accent) { background: var(--pm-primary); box-shadow: none; }
+.app-shell .upload-view :is(.empty-task-icon-wrapper, .project-icon-badge, .current-badge) { background: var(--pm-primary-soft); color: var(--pm-primary); border-color: var(--pm-primary-border); }
+.app-shell .upload-view :is(.status-ready, .status-def) { color: var(--pm-primary); }
+.app-shell .upload-view .upload-area { background: var(--pm-surface-subtle); border-color: var(--pm-border-strong); border-radius: var(--pm-radius-card); }
+.app-shell .upload-view .upload-area:hover { border-color: var(--pm-primary); background: var(--pm-primary-soft); }
+/* Upload dialogs are teleported outside .app-shell. */
+.el-dialog.custom-create-dialog-v5 { border-radius: var(--pm-radius-dialog); border-color: var(--pm-border); box-shadow: var(--pm-shadow-popup); }
+.el-dialog.custom-create-dialog-v5 :is(.v5-title, .v5-label) { color: var(--pm-text); }
+.el-dialog.custom-create-dialog-v5 .v5-title { font-size: 16px; line-height: 24px; }
+.el-dialog.custom-create-dialog-v5 :is(.v5-subtitle, .v5-hint, .v5-req) { font-size: 12px; line-height: 18px; }
+.el-dialog.custom-create-dialog-v5 :is(.v5-input, .v5-btn-primary, .v5-btn-cancel) { min-height: 32px; border-radius: var(--pm-radius-control); font-size: 13px; }
+.el-dialog.custom-create-dialog-v5 .v5-input { border-color: var(--pm-border-strong); color: var(--pm-text); background: var(--pm-surface); }
+.el-dialog.custom-create-dialog-v5 .v5-input::placeholder { color: var(--pm-text-muted); }
+.el-dialog.custom-create-dialog-v5 .v5-input:focus { border-color: var(--pm-primary); box-shadow: var(--pm-focus-ring); }
+.el-dialog.custom-create-dialog-v5 .v5-header-icon { color: var(--pm-primary); background: var(--pm-primary-soft); }
+.el-dialog.custom-create-dialog-v5 .v5-btn-primary { background: var(--pm-primary); color: #fff; box-shadow: none; }
+.el-dialog.custom-create-dialog-v5 .v5-btn-primary:hover:not(:disabled) { background: var(--pm-primary-hover); }
+.el-dialog.custom-create-dialog-v5 .v5-btn-primary:disabled { background: var(--pm-disabled-bg); color: var(--pm-disabled-text); }
+.el-dialog.custom-delete-dialog .btn-danger-fill { background: var(--pm-danger); color: #fff; border-color: var(--pm-danger); }
+.el-dialog.custom-delete-dialog .delete-icon-wrapper { background: var(--pm-danger-soft); color: var(--pm-danger); }
+
+/* Extract headers/status and the three route panes keep their sizing/scroll. */
+.app-shell .extract-view :is(.route-shell-header, .action-card, .route-stage-switch-card) { padding: 12px 16px; background: var(--pm-surface); border-color: var(--pm-border); border-radius: var(--pm-radius-card); box-shadow: var(--pm-shadow-card); }
+.app-shell .extract-view :is(.route-shell-title, .action-content h3, .route-stage-switch-title) { color: var(--pm-text); font-size: 16px; font-weight: 600; line-height: 24px; }
+.app-shell .extract-view :is(.route-shell-desc, .route-stage-switch-desc, .action-content p) { font-size: 13px; color: var(--pm-text-secondary); line-height: 20px; }
+.app-shell .extract-view :is(.route-shell-stat, .route-stage-switch-kicker, .loading-progress-label) { font-size: 12px; }
+.app-shell .extract-view :is(.route-pane-left, .route-pane-center, .route-pane-right) { border-top-color: var(--pm-primary-border); box-shadow: var(--pm-shadow-card); }
+.app-shell .extract-view :is(.route-result-editor, .route-result-editor-ready) { background: var(--pm-surface-subtle); border-color: var(--pm-border); }
+.app-shell .extract-view .route-pane-right-manual .route-result-editor { background: var(--pm-surface); backdrop-filter: none; box-shadow: none; }
+.app-shell .extract-view .route-result-editor-input { min-height: 32px; border-color: var(--pm-primary); border-radius: var(--pm-radius-control); font-size: 13px; box-shadow: var(--pm-focus-ring); }
+.app-shell .extract-view .loading-progress-fill { background: var(--pm-primary); }
+.app-shell .extract-view .step-flow-item.is-active .step-flow-dot { background: var(--pm-primary); box-shadow: 0 0 0 3px rgba(36, 95, 168, .16); }
+.app-shell .extract-view .step-flow-item.is-done .step-flow-dot { background: var(--pm-success); box-shadow: 0 0 0 3px rgba(33, 113, 91, .12); }
+.app-shell .extract-view .step-flow-item.is-done .step-flow-label { color: var(--pm-success); }
+
+/* The original standalone Settings view and current model settings dialog. */
+.app-shell .settings-view .page-header { margin-bottom: 16px; }
+.app-shell .settings-view .settings-container { gap: 16px; }
+.app-shell .settings-view .form-item { margin-bottom: 14px; }
+.app-shell .settings-view .form-input { min-width: 0; min-height: 32px; padding: 5px 10px; font-size: 13px; border-color: var(--pm-border-strong); border-radius: var(--pm-radius-control); background: var(--pm-surface); color: var(--pm-text); }
+.app-shell .settings-view .form-input:focus { border-color: var(--pm-primary); box-shadow: var(--pm-focus-ring); }
+.el-dialog.premium-settings-dialog { border-radius: var(--pm-radius-dialog); border-color: var(--pm-border); box-shadow: var(--pm-shadow-popup); }
+.el-dialog.premium-settings-dialog :is(.p-dialog-header, .p-dialog-footer, .p-help-strip) { border-color: var(--pm-border); background: var(--pm-surface-subtle); }
+.el-dialog.premium-settings-dialog .p-header-icon-box { background: var(--pm-primary-soft); border-color: var(--pm-primary-border); color: var(--pm-primary); }
+.el-dialog.premium-settings-dialog .p-icon-gradient-svg { filter: none; }
+.el-dialog.premium-settings-dialog .p-dialog-title { font-size: 16px; color: var(--pm-text); line-height: 24px; }
+.el-dialog.premium-settings-dialog :is(.p-dialog-subtitle, .p-hint, .p-error, .p-status-text) { font-size: 12px; line-height: 18px; }
+.el-dialog.premium-settings-dialog :is(.p-preset-btn, .p-btn-outline, .p-btn-primary, .p-input-wrapper input) { min-height: 32px; font-size: 13px; border-radius: var(--pm-radius-control); }
+.el-dialog.premium-settings-dialog :is(.p-preset-btn, .p-btn-outline, .p-input-wrapper input) { border-color: var(--pm-border-strong); color: var(--pm-text-secondary); background: var(--pm-surface); }
+.el-dialog.premium-settings-dialog :is(.p-preset-btn:hover, .p-preset-btn.active, .p-settings-tabs button.active) { border-color: var(--pm-primary); color: var(--pm-primary); background: var(--pm-primary-soft); }
+.el-dialog.premium-settings-dialog .p-input-wrapper input:focus { border-color: var(--pm-primary); box-shadow: var(--pm-focus-ring); }
+.el-dialog.premium-settings-dialog .p-input-wrapper input.has-error { border-color: var(--pm-danger); background: var(--pm-danger-soft); }
+.el-dialog.premium-settings-dialog .p-btn-primary { background: var(--pm-primary); color: #fff; box-shadow: none; }
+.el-dialog.premium-settings-dialog .p-btn-primary:hover:not(:disabled) { background: var(--pm-primary-hover); transform: none; box-shadow: none; }
+.el-dialog.premium-settings-dialog :is(.p-btn-primary:disabled, .p-btn-outline:disabled) { background: var(--pm-disabled-bg); border-color: var(--pm-border); color: var(--pm-disabled-text); }
+.el-dialog.premium-settings-dialog .p-help-icon { color: var(--pm-primary); }
+.el-dialog.premium-settings-dialog :is(.p-error, .p-required, .p-status-indicator.error) { color: var(--pm-danger); }
+.el-dialog.premium-settings-dialog :is(.p-hint-success, .p-status-indicator.success) { color: var(--pm-success); }
+.el-dialog.premium-settings-dialog button:focus-visible { outline: 2px solid var(--pm-primary); outline-offset: 2px; }
+
+/* Knowledge uses existing local aliases, plus its named controls and results. */
+.app-shell .knowledge-view { --knowledge-border: var(--pm-border); --knowledge-control-height: 32px; --knowledge-control-radius: var(--pm-radius-control); --text-muted: var(--pm-text-muted); font-family: var(--pm-font); }
+.app-shell .knowledge-view .knowledge-hero h1 { font-size: 20px; line-height: 28px; font-weight: 600; }
+.app-shell .knowledge-view .knowledge-hero p { font-size: 13px; }
+.app-shell .knowledge-view .knowledge-sidebar button.active { border-color: var(--pm-primary-border); background: var(--pm-primary-soft); color: var(--pm-primary); }
+.app-shell .knowledge-view :is(.query-context, .answer-icon, .resource-summary-badge, .result-count, .history-route-count, .capability-intent) { color: var(--pm-primary); background: var(--pm-primary-soft); border-color: var(--pm-primary-border); }
+.app-shell .knowledge-view :is(.answer-heading, .query-field) { background: var(--pm-surface-subtle); }
+.app-shell .knowledge-view :is(.sample-questions button:hover:not(:disabled), .empty-suggestions button:hover:not(:disabled)) { border-color: var(--pm-primary-border); background: var(--pm-primary-soft); color: var(--pm-primary); }
+.app-shell .knowledge-view :is(.sample-toggle, .empty-suggestions button, .result-actions .btn) { min-height: 32px; }
+.app-shell .knowledge-view :is(.resource-summary-badge, .result-count, .result-rank, .record-level, .capability-intent) { font-size: 12px; }
+
+/* Legacy accent states: explicit classes, color/decoration changes only. */
+.app-shell .upload-view .project-tile.active .project-tile-accent { background: var(--pm-primary); }
+.app-shell .upload-view .pill-extracted { background: var(--pm-primary-soft); color: var(--pm-primary); }
+.app-shell .upload-view .pill-extracted .status-dot { background: var(--pm-primary); }
+.app-shell .extract-view :is(.card-title-icon, .route-stage-chip-seq, .merge-focus-seq, .route-progress-top) { background: var(--pm-primary-soft); color: var(--pm-primary); }
+.app-shell .extract-view :is(.route-stage-chip:hover, .merge-focus-card, .merge-suggestion-card, .route-progress-card) { border-color: var(--pm-primary-border); box-shadow: var(--pm-shadow-card); }
+.app-shell .extract-view .merge-suggestion-card { background: var(--pm-surface-subtle); }
+.app-shell .extract-view .route-stage-chip.active { border-color: var(--pm-primary); background: var(--pm-primary-soft); box-shadow: 0 0 0 1px var(--pm-primary); }
+.app-shell .extract-view :is(.merge-focus-kicker, .merge-neighbor-name, .srp-section-kicker) { color: var(--pm-primary); }
+.app-shell .extract-view :is(.merge-neighbor-btn-primary, .route-mobile-tabs button.active, .nrp-chip--attached) { color: var(--pm-primary); background: var(--pm-primary-soft); border-color: var(--pm-primary-border); }
+.app-shell .extract-view .merge-neighbor-btn:hover { border-color: var(--pm-primary); color: var(--pm-primary); }
+.app-shell .extract-view .srp-section-header { background: var(--pm-primary-soft); border-left-color: var(--pm-primary); }
+.app-shell .extract-view :is(.srp-dot--active, .nrp-dot--active) { background: var(--pm-primary); box-shadow: 0 0 0 1px var(--pm-primary), 0 0 0 3px rgba(36, 95, 168, .16); }
+.app-shell .extract-view .srp-op--active { background: var(--pm-primary-soft); border-color: var(--pm-primary-border); box-shadow: none; }
+.app-shell .extract-view :is(.srp-op--active::before, .srp-op--active .srp-op-seq, .nrp-card--active::before, .nrp-card--active .nrp-seq) { background: var(--pm-primary); }
+.app-shell .extract-view :is(.srp-steps-btn:hover, .nrp-steps-toggle:hover) { color: var(--pm-primary); }
+.app-shell .extract-view :is(.srp-steps-btn:hover .srp-steps-count, .nrp-steps-toggle:hover .nrp-steps-count) { background: var(--pm-primary-soft); color: var(--pm-primary); }
+.app-shell .extract-view :is(.nrp-text-btn--primary, .route-progress-fill) { background: var(--pm-primary); box-shadow: none; }
+.app-shell .extract-view .nrp-text-btn--primary:hover:not(:disabled) { background: var(--pm-primary-hover); box-shadow: none; }
+.app-shell .extract-view :is(.merge-name-input:focus, .nrp-rename-input, .nrp-rename-input:focus) { border-color: var(--pm-primary); box-shadow: var(--pm-focus-ring); }
+.app-shell .extract-view .route-progress-spinner { border-top-color: var(--pm-primary); }
+.app-shell .extract-view .route-progress-step.is-active .route-progress-dot { background: var(--pm-primary); box-shadow: 0 0 0 3px rgba(36, 95, 168, .16); }
+.app-shell .analysis-view .route-dot--active { background: var(--pm-primary); box-shadow: 0 0 0 1px var(--pm-primary), 0 0 0 3px rgba(36, 95, 168, .16); }
+.app-shell .analysis-view .route-item.active .route-seq { background: var(--pm-primary); border-color: var(--pm-primary); color: #fff; }
+.app-shell .analysis-view :is(.route-meta-coverage, .route-steps-btn:hover) { color: var(--pm-primary); }
+.app-shell .analysis-view :is(.route-state-badge.is-started, .route-steps-btn:hover .route-steps-count) { background: var(--pm-primary-soft); border-color: var(--pm-primary-border); color: var(--pm-primary); }
+.app-shell .knowledge-view :is(.empty-mark, .catalog-categories button.active) { background: var(--pm-primary-soft); color: var(--pm-primary); border-color: var(--pm-primary-border); }
+.app-shell .knowledge-view :is(.catalog-pagination button:hover:not(:disabled), .catalog-detail header button:hover, .result-actions .btn:hover) { border-color: var(--pm-primary-border); }
+.el-dialog.premium-settings-dialog .p-input-wrapper input { height: var(--pm-control-height); padding: 5px 10px; line-height: 20px; }

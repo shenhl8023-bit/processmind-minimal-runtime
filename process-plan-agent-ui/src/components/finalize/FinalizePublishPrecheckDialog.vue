@@ -29,7 +29,7 @@
                 </p>
                 <p>{{ blockerLabel(blocker) }}</p>
               </div>
-              <button class="precheck-repair-button" type="button" @click="openRepair(blocker)">
+              <button v-if="templateMappingVisible || !isTemplateMappingBlocker(blocker)" class="precheck-repair-button" type="button" @click="openRepair(blocker)">
                 {{ repairLabel(blocker) }}
               </button>
             </li>
@@ -77,6 +77,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { RulePackagePrecheckResult } from '@/api/extract'
+import { templateMappingVisible } from '@/composables/productStatus'
 
 const props = defineProps<{ result: RulePackagePrecheckResult }>()
 
@@ -126,7 +127,9 @@ function repairLabel(blocker: Record<string, any>) {
 }
 
 function openRepair(blocker: Record<string, any>) {
-  if (isTemplateMappingBlocker(blocker)) emit('open-template-mapping')
+  if (isTemplateMappingBlocker(blocker)) {
+    if (templateMappingVisible.value) emit('open-template-mapping')
+  }
   else emit('open-rule-review', blocker)
 }
 </script>

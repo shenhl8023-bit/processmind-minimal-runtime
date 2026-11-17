@@ -14,6 +14,12 @@
         </option>
       </select>
       <template v-if="!['exists', 'not_exists'].includes(leafOperator)">
+        <div v-if="selectedField?.options?.length && isListOperator" class="list-values">
+          <select class="rule-control rule-values" multiple aria-label="条件候选值，可多选" @change="changeListValues">
+            <option v-for="option in listOptions" :key="option.value" :value="option.value" :selected="Array.isArray(leafValue) && leafValue.includes(option.value)">{{ option.label }}</option>
+          </select>
+          <input v-if="selectedField.allow_custom" class="rule-control" type="text" placeholder="填写其它值，回车添加" @keydown.enter.prevent="addCustomListValue" />
+        </div>
         <div v-if="leafOperator === 'between'" class="between-values">
           <input class="rule-control rule-value" :type="isNumeric ? 'number' : 'text'" :value="betweenValues[0]" @input="changeBetween(0, $event)" />
           <span>至</span>
@@ -28,23 +34,27 @@
           <option value="true">是</option>
           <option value="false">否</option>
         </select>
+        <input v-else-if="selectedField?.allow_custom && selectedField.key === 'project_factor.material_grade' && !isListOperator" class="rule-control rule-value" :value="displayValue" :list="`condition-options-${leafField}`" type="text" placeholder="选择或填写其它牌号" @input="changeValue" />
         <select
           v-else-if="selectedField?.options?.length && !isListOperator"
           class="rule-control rule-value"
           :value="String(leafValue ?? '')"
           @change="changeScalarValue"
         >
+          <option disabled value="">请选择</option>
           <option v-if="hasUnlistedScalarValue" :value="String(leafValue)">{{ leafValue }}</option>
           <option v-for="option in selectedField.options" :key="option.value" :value="option.value">{{ option.label }}</option>
         </select>
         <input
-          v-else
+          v-else-if="!selectedField?.options?.length || !isListOperator"
           class="rule-control rule-value"
           :type="isNumeric ? 'number' : 'text'"
           :value="displayValue"
           :placeholder="isListOperator ? '多个值用逗号分隔' : '条件值'"
           @input="changeValue"
         />
+        <input v-if="selectedField?.allow_custom && selectedField.options?.length && selectedField.key !== 'project_factor.material_grade' && !isListOperator" class="rule-control custom-scalar-value" :value="displayValue" placeholder="填写其它值" @input="changeValue" />
+        <datalist v-if="selectedField?.allow_custom && !isListOperator" :id="`condition-options-${leafField}`"><option v-for="option in selectedField.options" :key="option.value" :value="option.value">{{ option.label }}</option></datalist>
       </template>
     </template>
 
@@ -107,6 +117,11 @@ const selectedField = computed(() => props.fields.find(field => field.key === le
 const hasUnlistedScalarValue = computed(() => leafValue.value !== null && leafValue.value !== undefined && !Array.isArray(leafValue.value) && !selectedField.value?.options?.some(option => option.value === String(leafValue.value)))
 const isNumeric = computed(() => selectedField.value?.type === 'number')
 const isListOperator = computed(() => ['in', 'contains_any', 'contains_all'].includes(leafOperator.value))
+const listOptions = computed(() => {
+  const options = [...(selectedField.value?.options || [])]
+  for (const value of Array.isArray(leafValue.value) ? leafValue.value : []) if (!options.some(option => option.value === value)) options.push({ value, label: value })
+  return options
+})
 const displayValue = computed(() => Array.isArray(leafValue.value) ? leafValue.value.join('，') : String(leafValue.value ?? ''))
 const betweenValues = computed(() => Array.isArray(leafValue.value) ? leafValue.value : ['', ''])
 const groupChildren = computed(() => {
@@ -132,7 +147,7 @@ function operatorLabel(operator: string) {
 function defaultValue(field: CanonicalConditionField, operator: string) {
   if (['exists', 'not_exists'].includes(operator)) return undefined
   if (operator === 'between') return field.type === 'number' ? [0, 1] : ['', '']
-  if (['in', 'contains_any', 'contains_all'].includes(operator)) return field.options?.[0]?.value ? [field.options[0].value] : []
+  if (['in', 'contains_any', 'contains_all'].includes(operator)) return []
   if (field.type === 'number') return field.validation?.min ?? 0
   if (field.type === 'boolean') return true
   return field.options?.[0]?.value || ''
@@ -172,7 +187,17 @@ function changeValue(event: Event) {
 }
 
 function changeScalarValue(event: Event) {
-  emitLeaf(leafField.value, leafOperator.value, (event.target as HTMLSelectElement).value)
+  emitLeaf(leafField.value, leafOperator.value, normalizeValue((event.target as HTMLSelectElement).value))
+}
+
+function changeListValues(event: Event) {
+  emitLeaf(leafField.value, leafOperator.value, Array.from((event.target as HTMLSelectElement).selectedOptions, option => option.value))
+}
+function addCustomListValue(event: Event) {
+  const input = event.target as HTMLInputElement
+  const value = input.value.trim()
+  if (value) emitLeaf(leafField.value, leafOperator.value, [...new Set([...(Array.isArray(leafValue.value) ? leafValue.value : []), value])])
+  input.value = ''
 }
 
 function changeBooleanValue(event: Event) {
@@ -204,12 +229,14 @@ function updateNotChild(value: RulePackageCondition) {
 </script>
 
 <style scoped>
-.condition-node { width: 100%; }
+.condition-node { width: 100%; min-width: 0; }
+.list-values { display: grid; gap: 5px; min-width: 0; }
+.list-values .rule-values { height: auto; min-height: 88px; padding: 5px; width: 100%; }
 
 /* ===== Leaf node (field / op / value row) ===== */
 .condition-node-leaf {
   display: grid;
-  grid-template-columns: minmax(180px, 1.45fr) minmax(112px, .7fr) minmax(140px, 1fr);
+  grid-template-columns: minmax(0, 1.3fr) minmax(100px, .7fr) minmax(0, 1fr);
   gap: 8px;
   align-items: center;
 }
@@ -217,22 +244,22 @@ function updateNotChild(value: RulePackageCondition) {
 /* ===== Shared control base ===== */
 .rule-control {
   min-width: 0;
-  height: 36px;
+  height: var(--pm-control-height);
   padding: 0 10px;
-  border: 1px solid #dce3ed;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #1e293b;
-  font-size: 12.5px;
+  border: 1px solid var(--pm-border);
+  border-radius: var(--pm-radius-control);
+  background: var(--pm-surface);
+  color: var(--pm-text);
+  font-size: 13px;
   outline: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .rule-control:focus {
-  border-color: #818cf8;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  border-color: var(--pm-primary-border);
+  box-shadow: var(--pm-focus-ring);
 }
 .rule-control:hover:not(:focus) {
-  border-color: #c7d2fe;
+  border-color: var(--pm-primary-border);
 }
 
 /* ===== Between range values ===== */
@@ -241,7 +268,7 @@ function updateNotChild(value: RulePackageCondition) {
   grid-template-columns: 1fr auto 1fr;
   gap: 6px;
   align-items: center;
-  color: #94a3b8;
+  color: var(--pm-text-muted);
   font-size: 12px;
 }
 
@@ -251,7 +278,7 @@ function updateNotChild(value: RulePackageCondition) {
 }
 .logic-select {
   font-weight: 600;
-  color: #334155;
+  color: var(--pm-text-secondary);
 }
 .logic-child-row {
   display: flex;
@@ -263,7 +290,7 @@ function updateNotChild(value: RulePackageCondition) {
 .condition-remove {
   border: 0;
   background: transparent;
-  color: #94a3b8;
+  color: var(--pm-text-muted);
   font-size: 12px;
   font-weight: 500;
   padding: 8px 4px;
@@ -272,7 +299,7 @@ function updateNotChild(value: RulePackageCondition) {
   transition: color 0.15s;
 }
 .condition-remove:hover {
-  color: #ef4444;
+  color: var(--pm-danger);
 }
 
 /* ===== Logic chip (NOT) ===== */
@@ -281,14 +308,14 @@ function updateNotChild(value: RulePackageCondition) {
   align-items: center;
   padding: 3px 10px;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.02em;
 }
 .logic-chip-not {
-  background: linear-gradient(135deg, #fff7ed, #fef3c7);
-  color: #b45309;
-  border: 1px solid #fde68a;
+  background: var(--pm-warning-soft);
+  color: var(--pm-warning);
+  border: 1px solid var(--pm-warning-border);
   margin-bottom: 8px;
 }
 
@@ -297,10 +324,21 @@ function updateNotChild(value: RulePackageCondition) {
   display: grid;
   gap: 8px;
   padding-left: 14px;
-  border-left: 2px solid #e0e7ff;
+  border-left: 2px solid var(--pm-primary-soft);
 }
 
 @media (max-width: 920px) {
   .condition-node-leaf { grid-template-columns: 1fr; }
 }
+.rule-control { width: 100%; font-size: 13px; }
+.rule-control[multiple] { line-height: 22px; }
+.rule-control option { padding: 3px 6px; }
+.custom-scalar-value { grid-column: 3; }
+.between-values { min-width: 0; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+.logic-child-row > .condition-node { flex: 1 1 auto; min-width: 0; }
+.condition-remove { min-height: 28px; padding: 4px 6px; border-radius: var(--pm-radius-control); color: var(--pm-danger); }
+.condition-remove:hover { color: var(--pm-danger); background: var(--pm-danger-soft); }
+.condition-remove:focus-visible { outline: 2px solid var(--pm-primary); outline-offset: 2px; }
+.rule-control:disabled { color: var(--pm-disabled-text); background: var(--pm-disabled-bg); }
+@media (max-width: 920px) { .custom-scalar-value { grid-column: 1; } }
 </style>

@@ -6,15 +6,20 @@ from __future__ import annotations
 
 import json
 import hashlib
+from dataclasses import asdict
 
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.product_profile import get_product_profile
 from app.models.models import FinalizedRulePackage, NormalizedRouteVersion, Project
 from app.schemas.schemas import FinalizedRulePackageOut
 from app.services.project_group_templates import get_project_group_template, serialize_project_group_template
 from app.services.rule_packages.contracts import RulePackageV2
 from app.services.rule_packages.hashing import rule_package_content_hash
+from app.services.rule_packages.native_publication import (
+    NativePublicationError, compile_native_snapshot, has_native_snapshot, validate_native_snapshot,
+)
 from app.services.rule_packages.publication_projection import (
     PROJECTED_COMPILER_VERSIONS,
     PUBLICATION_COMPILER_VERSION,
@@ -31,13 +36,23 @@ async def compile_publication_snapshot(
     package: RulePackageV2,
     project: Project,
     db: AsyncSession,
-) -> tuple[dict, dict]:
-    """Compile all exports from one transaction's mapped route, never a browser cache."""
+) -> tuple[dict | None, dict]:
+    """Compile transaction-owned native or mapped exports, never a browser cache."""
     from app.services.rule_packages.demo_tables import (
         DemoTableError,
         compile_demo_tables,
         validate_publication_input_constraints,
     )
+
+    if not get_product_profile().template_mapping_enabled:
+        route = await db.get(NormalizedRouteVersion, package.manifest.route_version_id)
+        if route is None or route.project_id != project.id:
+            raise NativePublicationError("原生规则包必须关联当前任务的标准化路线。")
+        try:
+            normalized_route = json.loads(route.route_json or "[]")
+        except (TypeError, ValueError) as exc:
+            raise NativePublicationError("标准化路线快照无效，请重新保存路线后发布。") from exc
+        return None, compile_native_snapshot(package, normalized_route, int(project.workflow_revision or 0))
 
     row = await get_project_group_template(db, project.id)
     if row is None:
@@ -70,12 +85,26 @@ async def compile_publication_snapshot(
             identity = (target.get("process_id"), target.get("step_id"))
             if identity in current_targets:
                 step_states[identity[1]] = "general"
-    compiled = compile_demo_tables(package, template.mapping_output, step_states=step_states)
+    mapping_projection = None
+    mother = None
+    canonical_route = template.mapping_output
+    if template.mapping_context:
+        from app.services.template_mapping_projection import MappingProjectionError, compile_mapping_demo_tables
+        from app.services.rule_packages.mother_route import load_mother_route
+        route = await db.get(NormalizedRouteVersion, package.manifest.route_version_id)
+        mother = await load_mother_route(db, project.id, json_loads_list(route.route_json))
+        mapping_projection = {key: value for key, value in asdict(template).items() if key not in {"created_at", "updated_at"}}
+        try:
+            compiled, canonical_route = compile_mapping_demo_tables(package, mapping_projection, mother, step_states=step_states)
+        except MappingProjectionError as exc:
+            raise DemoTableError([{"code": "invalid_mapping_projection", "path": "template_mapping", "message": str(exc)}]) from exc
+    else:
+        compiled = compile_demo_tables(package, template.mapping_output, step_states=step_states)
     tables, projection_report = project_publication_tables(compiled, package)
     validate_publication_input_constraints(package, tables)
     route = await db.get(NormalizedRouteVersion, package.manifest.route_version_id)
     sources = {
-        "compiler_version": PUBLICATION_COMPILER_VERSION,
+        "compiler_version": PUBLICATION_COMPILER_VERSION if mapping_projection else "demo-three-table/5",
         "project_id": project.id,
         "route_version_id": package.manifest.route_version_id,
         "rule_package_content_hash": rule_package_content_hash(package),
@@ -83,13 +112,16 @@ async def compile_publication_snapshot(
         "workflow_revision": int(project.workflow_revision or 0),
         "template_revision": template.template_revision,
         "template_content_hash": template.content_hash,
-        "mapping_output_hash": _snapshot_hash(template.mapping_output),
-        "source_full_route_table": template.mapping_output,
+        "mapping_output_hash": _snapshot_hash(canonical_route),
+        "source_full_route_table": canonical_route,
         "exported_route_hash": _snapshot_hash(tables["full_route_table"]),
         "projection_report": projection_report,
         "step_mapping_review_hash": _snapshot_hash(step_reviews),
         "demo_tables_hash": _snapshot_hash(tables),
     }
+    if mapping_projection is not None:
+        sources["mapping_projection"] = mapping_projection
+        sources["mother_route"] = mother
     return tables, sources
 
 
@@ -129,7 +161,12 @@ def serialize_finalized_rule_package(
     demo_tables = json_loads(getattr(row, "demo_tables_json", None)) or None
     export_sources = json_loads(getattr(row, "export_sources_json", None))
     export_error = None
-    if demo_tables is None:
+    if has_native_snapshot(export_sources):
+        if demo_tables is not None or not validate_native_snapshot(row, export_sources):
+            export_error = "此原生规则包快照与项目、路线或规则内容不一致，完整性校验未通过，请重新发布后下载。"
+            export_sources = {key: value for key, value in export_sources.items() if key != "native_snapshot"}
+        demo_tables = None
+    elif demo_tables is None:
         export_error = "此历史规则包没有三文件快照，请重新发布后下载；不会使用当前映射拼接旧版本。"
     else:
         try:
@@ -198,13 +235,18 @@ def serialize_finalized_rule_package(
                             source_route = export_sources.get("source_full_route_table")
                             sources_match = sources_match and isinstance(source_route, list)
                             if sources_match:
-                                compiled = compile_demo_tables(
-                                    package, source_route, _v3_snapshot=compiler_version == "demo-three-table/3",
-                                    _v4_snapshot=compiler_version == "demo-three-table/4",
-                                )
+                                if compiler_version == "demo-three-table/6":
+                                    from app.services.template_mapping_projection import compile_mapping_demo_tables
+                                    compiled, canonical = compile_mapping_demo_tables(package, export_sources["mapping_projection"], export_sources["mother_route"])
+                                    sources_match = sources_match and canonical == source_route
+                                else:
+                                    compiled = compile_demo_tables(
+                                        package, source_route, _v3_snapshot=compiler_version == "demo-three-table/3",
+                                        _v4_snapshot=compiler_version == "demo-three-table/4",
+                                    )
                                 rebuilt, report = project_publication_tables(compiled, package)
                                 sources_match = (
-                                    rebuilt == demo_tables
+                                    sources_match and rebuilt == demo_tables
                                     and report == export_sources.get("projection_report")
                                     and export_sources.get("mapping_output_hash") == _snapshot_hash(source_route)
                                     and export_sources.get("exported_route_hash") == _snapshot_hash(demo_tables["full_route_table"])
@@ -213,7 +255,7 @@ def serialize_finalized_rule_package(
                         # marker. Preserve them without accepting unknown versions.
                         elif compiler_version not in {None, "demo-three-table/1", "demo-three-table/2"}:
                             sources_match = False
-            except (ValidationError, DemoTableError):
+            except (ValidationError, ValueError, KeyError, TypeError, AttributeError):
                 sources_match = False
             if not sources_match:
                 demo_tables = None

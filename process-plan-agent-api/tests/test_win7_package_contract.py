@@ -98,6 +98,19 @@ def test_win7_packaging_scripts_have_static_frontend_and_offline_contract():
     assert "prerequisites" in stage_text
 
 
+def test_win7_packer_never_removes_or_replaces_an_existing_build():
+    packer = PROJECT_ROOT / "scripts" / "pack-win7-windows.ps1"
+    text = packer.read_text(encoding="utf-8")
+
+    assert "$buildId = Get-Date -Format 'yyyyMMdd-HHmmss'" in text
+    assert "$zipName = \"processmind-win7-windows$suffix-$buildId.zip\"" in text
+    assert "$stage = Join-Path $OutputDir (\"stage\" + $suffix + \"-\" + $buildId)" in text
+    assert "Remove-Item -LiteralPath $zipPath" not in text
+    assert "$artifactStem = [System.IO.Path]::GetFileNameWithoutExtension($zipPath)" in text
+    assert "$artifactStem + '.manifest.json'" in text
+    assert "$artifactStem + '.SHA256SUMS.txt'" in text
+
+
 def test_win7_entrypoints_are_present_and_do_not_require_node():
     assert not (PROJECT_ROOT / "start-win7.cmd").exists()
     for name in ("start-win7.bat", "stop-win7.cmd", "status-win7.cmd"):

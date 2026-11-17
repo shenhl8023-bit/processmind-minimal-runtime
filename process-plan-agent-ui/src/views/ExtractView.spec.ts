@@ -1,8 +1,13 @@
 import { parse } from '@vue/compiler-sfc'
 import { ref } from 'vue'
 import ts from 'typescript'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { api } from '@/api/client'
+import { listProjects as listCachedProjects } from '@/api/projects'
+import { clearAllWorkflowDataCache } from '@/composables/workflowDataCache'
 import source from './ExtractView.vue?raw'
+
+vi.mock('@/api/client', () => ({ api: { get: vi.fn() } }))
 
 const script = ts.createSourceFile('ExtractView.ts', parse(source).descriptor.scriptSetup!.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
 
@@ -11,10 +16,20 @@ function initializer(scope: Record<string, any>, name = 'initializeExtractView')
     ts.isFunctionDeclaration(node) && node.name?.text === name,
   )!
   const code = ts.transpile(declaration.getText(script) + '; return ' + name, { target: ts.ScriptTarget.ES2022 })
-  return new Function('scope', `with (scope) { ${code} }`)(scope) as () => Promise<void>
+  return new Function('scope', `with (scope) { ${code} }`)(scope) as (...args: any[]) => any
 }
 
 describe('entering analysis after route generation', () => {
+  it('never serializes old template aliases into a basic route save', () => {
+    const scope = { templateMappingEnabled: ref(false), templateGroupAliases: ref({ '1': { alias: '旧别名' } }), serializeAliasesForRouteSegment: () => [{ alias: '旧别名' }] }
+    expect(initializer(scope, 'templateGroupAliasesForItem')({ operationIds: [1] })).toEqual([])
+  })
+
+  it('clears loaded template aliases when basic route hydration is requested', () => {
+    const scope = { templateMappingEnabled: ref(false), projectId: ref(12), templateMappableOperations: ref([{ id: 1 }]), templateAliasesHydratedProjectId: ref(null), templateGroupAliases: ref({ '1': { alias: '旧别名' } }), projectGroupTemplate: { template: ref(null) } }
+    initializer(scope, 'hydrateTemplateGroupAliases')()
+    expect(scope.templateGroupAliases.value).toEqual({})
+  })
   function entryScope() {
     return {
       canEnterRouteFactorAnalysis: ref(true), projectId: ref<number | null>(6), workflowRevision: ref(3),
@@ -60,15 +75,15 @@ function deferred<T>() {
 }
 
 const projects = [
-  { id: 1, status: 'ROUTE_SET_READY', workflow_revision: 3 },
-  { id: 2, status: 'ROUTE_SET_READY', workflow_revision: 7 },
+  { id: 1, status: 'ROUTE_SET_READY', workflow_revision: 3, created_at: '2026-11-01T01:00:00.000000' },
+  { id: 2, status: 'ROUTE_SET_READY', workflow_revision: 7, created_at: '2026-11-02T02:00:00.000000' },
 ]
 
 function createScope() {
   const scope = {
     route: { path: '/extract', query: { project_id: '1', resume: '', from: '' } },
     router: { replace: vi.fn(async (..._args: any[]) => {}) }, extractInitializeRequestId: 0,
-    projectId: ref<number | null>(null), workflowRevision: ref(0), lastInitializedDataRevision: ref(-1),
+    projectId: ref<number | null>(null), projectCreatedAt: ref(''), workflowRevision: ref(0), lastInitializedDataRevision: ref(-1),
     status: ref('idle'), errorMsg: ref(''), routeMergePendingCount: ref(0),
     resolveCurrentProjectId: (id: string) => id || '1', getWorkflowDataRevision: () => 4,
     resolveAvailableProjectId: (id: string, items: typeof projects) => String(items.find(project => project.id === Number(id))?.id || items[0]?.id || ''),
@@ -80,7 +95,77 @@ function createScope() {
   return scope
 }
 
+describe('extraction view retry project cache', () => {
+  beforeEach(() => {
+    vi.mocked(api.get).mockReset()
+    clearAllWorkflowDataCache()
+  })
+  afterEach(() => clearAllWorkflowDataCache())
+
+  it('refreshes the cached project status on explicit retry and returns an invalidated route to idle', async () => {
+    vi.mocked(api.get)
+      .mockResolvedValueOnce({ data: projects })
+      .mockResolvedValueOnce({ data: projects.map(project => project.id === 1
+        ? { ...project, status: 'UPLOADED', workflow_revision: 4 }
+        : project) })
+    await listCachedProjects()
+    const scope = { ...createScope(), listProjects: listCachedProjects }
+    scope.loadRouteRulesResults.mockImplementation(async () => {
+      scope.status.value = 'error'
+      scope.errorMsg.value = '当前没有可用的工艺路线，请重新提取。'
+    })
+    const initializeExtractView = initializer(scope)
+    await initializeExtractView()
+    expect(scope.status.value).toBe('error')
+    expect(api.get).toHaveBeenCalledTimes(1)
+    Object.assign(scope, {
+      initializeExtractView,
+      resetRouteRulesError: () => { scope.status.value = 'idle'; scope.errorMsg.value = '' },
+    })
+
+    await initializer(scope, 'handleRetryExtract')()
+
+    expect(scope.status.value).toBe('idle')
+    expect(scope.errorMsg.value).toBe('')
+    expect(scope.workflowRevision.value).toBe(4)
+    expect(api.get).toHaveBeenCalledTimes(2)
+    expect(api.get).toHaveBeenLastCalledWith('/api/projects/')
+    expect(scope.loadRouteRulesResults).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('extraction view initialization request ownership', () => {
+  it('reloads the existing route after a failed load when the user retries', async () => {
+    const scope = createScope()
+    scope.loadRouteRulesResults.mockImplementationOnce(async () => { scope.status.value = 'error' })
+    const initializeExtractView = initializer(scope)
+    await initializeExtractView()
+    expect(scope.lastInitializedDataRevision.value).toBe(4)
+    expect(scope.status.value).toBe('error')
+    Object.assign(scope, {
+      initializeExtractView,
+      resetRouteRulesError: () => { scope.status.value = 'idle'; scope.errorMsg.value = '' },
+    })
+
+    await initializer(scope, 'handleRetryExtract')()
+
+    expect(scope.listProjects).toHaveBeenCalledTimes(2)
+    expect(scope.loadRouteRulesResults).toHaveBeenLastCalledWith(true)
+    expect(scope.status.value).toBe('done')
+  })
+
+  it('sets project identity before loading the route workspace', async () => {
+    const scope = createScope()
+    scope.loadRouteRulesResults.mockImplementation(async () => {
+      expect(scope.projectId.value).toBe(1)
+      expect(scope.projectCreatedAt.value).toBe(projects[0]!.created_at)
+    })
+
+    await initializer(scope)()
+    expect(scope.loadRouteRulesResults).toHaveBeenCalledTimes(1)
+    expect(scope.projectCreatedAt.value).toBe(projects[0]!.created_at)
+  })
+
   it('keeps task B when task A project lookup arrives after B initialization completes', async () => {
     const oldProjects = deferred<typeof projects>()
     const scope = createScope()

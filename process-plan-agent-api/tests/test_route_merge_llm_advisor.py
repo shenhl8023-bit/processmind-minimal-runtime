@@ -70,6 +70,21 @@ def test_invalid_or_unavailable_model_preserves_local_advice(monkeypatch, respon
     assert groups[0]['recommended_target_name'] == '车削'
 
 
+def test_overall_deadline_preserves_local_advice_on_python38(monkeypatch):
+    async def blocked_provider(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(llm_advisor, 'call_llm', blocked_provider)
+    monkeypatch.setattr(llm_advisor, 'ADVICE_TIMEOUT_SECONDS', 0.01)
+    original = candidates()
+    before = copy.deepcopy(original)
+    groups, status = asyncio.run(llm_advisor.advise_merge_groups(original))
+    assert status == 'fallback'
+    assert groups[0]['advice_source'] == 'local_rules'
+    assert groups[0]['recommendation_reason'] == '规则理由'
+    assert original == before
+
+
 def test_reviewed_and_manually_renamed_groups_are_never_sent(monkeypatch):
     async def unexpected(*args, **kwargs):
         pytest.fail('reviewed groups must not be sent')

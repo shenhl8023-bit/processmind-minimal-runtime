@@ -1,12 +1,12 @@
 <template>
   <div>
-    <div class="route-shell-header">
-      <div class="route-shell-info">
-        <div class="route-shell-title">{{ editUnlocked ? '结果路线微调' : '路线归并' }}</div>
+    <div class="route-shell-header workflow-page-header">
+      <div class="route-shell-info workflow-page-info">
+        <div class="route-shell-title workflow-page-title">{{ editUnlocked ? '结果路线微调' : '路线归并' }}</div>
         <span class="route-shell-sep">·</span>
-        <div class="route-shell-desc">{{ editUnlocked ? '可对右侧结果路线进行人工调整' : '按归并原则确认标准路线' }}</div>
+        <div class="route-shell-desc workflow-page-description">{{ editUnlocked ? '可对右侧结果路线进行人工调整' : '按归并原则确认标准路线' }}</div>
       </div>
-      <div class="route-shell-actions">
+      <div class="route-shell-actions workflow-page-actions">
         <div class="route-shell-stats">
           <span class="route-shell-stat">原始 <strong>{{ originalCount }}</strong></span>
           <span class="route-shell-stat">结果 <strong>{{ resultCount }}</strong></span>
@@ -24,16 +24,13 @@
       </div>
     </div>
 
-    <div v-if="notice && isWarningNotice" class="route-shell-banner route-shell-banner-warning">
-      {{ notice }}
-    </div>
+
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
 
-const props = defineProps<{
+defineProps<{
   editUnlocked: boolean
   originalCount: number
   resultCount: number
@@ -47,9 +44,6 @@ defineEmits<{
   rerun: []
 }>()
 
-const isWarningNotice = computed(() =>
-  Boolean(props.notice?.includes('已更新') || props.notice?.includes('重新提炼'))
-)
 </script>
 
 <style scoped>

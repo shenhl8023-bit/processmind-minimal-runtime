@@ -7,10 +7,10 @@ import json
 import logging
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import NormalizedRouteSegmentRuleReview, NormalizedRouteVersion
@@ -28,6 +28,7 @@ from app.services.rule_packages.condition_contracts import (
     SaveRuleConditionDraftRequest,
 )
 from app.services.rule_packages.contracts import ConditionNode, ProcessRelationV2, ProcessV2
+from app.services.rule_packages.authoring_validation import validate_authored_candidate
 from app.services.rule_packages.condition_parser import (
     CONDITION_PARSER_VERSION,
     parse_rule_condition,
@@ -35,6 +36,7 @@ from app.services.rule_packages.condition_parser import (
 )
 from app.services.rule_packages.condition_registry import FIELD_REGISTRY_VERSION, condition_preview
 from app.services.rule_packages.expression_engine import iter_condition_fields
+from app.services.rule_packages.project_conditions import normalize_project_authored_candidate
 from app.services.project_workflow_lifecycle import acquire_workflow_revision
 
 logger = logging.getLogger(__name__)
@@ -57,6 +59,68 @@ async def _active_condition_parser_context() -> tuple[str, dict[str, str]]:
 
 def condition_source_hash(source_text: str) -> str:
     return hashlib.sha256(str(source_text or "").strip().encode("utf-8")).hexdigest()
+
+
+def _condition_review_token(review: NormalizedRouteSegmentRuleReview | None) -> str:
+    """Identity of the saved review a queued job was allowed to parse."""
+    if review is None or review.id is None:
+        return ""
+    snapshot = [review.id, str(review.updated_at), review.condition_source_text,
+                review.condition_source_hash, review.condition_status,
+                review.condition_candidate_json, review.condition_confirmed_json]
+    return hashlib.sha256(json.dumps(snapshot, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _review_snapshot(review: NormalizedRouteSegmentRuleReview) -> dict:
+    return {column.key: getattr(review, column.key) for column in review.__table__.columns
+            if column.key.startswith("condition_") or column.key == "updated_at"}
+
+
+def _review_conflict() -> HTTPException:
+    return HTTPException(409, {"code": "condition_review_conflict",
+        "message": "此工序规则已被其他操作更新，当前修改未保存。请保留修改并刷新最新规则后重试。"})
+
+
+def _check_review_token(body, review: NormalizedRouteSegmentRuleReview) -> dict:
+    if body.expected_review_token is not None and body.expected_review_token != _condition_review_token(review):
+        raise _review_conflict()
+    return _review_snapshot(review)
+
+
+async def _commit_review(db: AsyncSession, review: NormalizedRouteSegmentRuleReview, snapshot: dict) -> datetime:
+    """Acquire a conditional row write before flushing ORM authoring changes.
+
+    API transactions already hold the project lock without bumping workflow
+    revision. The row predicate also protects service callers and parser writes
+    that release that lock while awaiting the model. No schema change is needed.
+    Return this write's assigned revision, even if refresh sees a later writer.
+    """
+    updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    previous_updated_at = snapshot["updated_at"]
+    if previous_updated_at is not None and updated_at <= previous_updated_at:
+        # A repeated/backward wall clock must never resurrect an old token or
+        # let two same-text parses share ownership of a row revision.
+        updated_at = previous_updated_at + timedelta(microseconds=1)
+    review.updated_at = updated_at
+    if review.id is None:
+        await db.commit()
+    else:
+        values = _review_snapshot(review)
+        review_id = review.id
+        model = NormalizedRouteSegmentRuleReview
+        predicates = [model.id == review_id] + [getattr(model, key) == value for key, value in snapshot.items()]
+        with db.no_autoflush:
+            result = await db.execute(update(model).where(*predicates).values(**values)
+                                      .execution_options(synchronize_session=False))
+        if result.rowcount != 1:
+            await db.rollback()
+            raise _review_conflict()
+        # The conditional write holds the row lock until commit. Only now may
+        # ORM flush run: its existing authoring listener invalidates validation,
+        # generation and published snapshots in this same transaction.
+        await db.commit()
+    await db.refresh(review)
+    return updated_at
 
 
 def _loads_candidate(raw: str | None) -> RuleConditionCandidate | None:
@@ -118,17 +182,14 @@ def _current_process_id_for_segment(
     segment_id: str,
     processes: list[RuleConditionProcessOption],
 ) -> str:
-    available_process_ids = {item.process_id for item in processes}
-    if segment_id in available_process_ids:
-        return segment_id
     for item in _route_items(route):
         if str(item.get("id") or "").strip() != segment_id:
             continue
         export_process_id = str(item.get("export_process_id") or "").strip()
-        if export_process_id in available_process_ids:
+        if export_process_id:
             return export_process_id
         route_process_id = str(item.get("id") or "").strip()
-        if route_process_id in available_process_ids:
+        if route_process_id:
             return route_process_id
         break
     return segment_id
@@ -290,6 +351,7 @@ async def migrate_legacy_quench_process_id_reviews(
 def serialize_condition_review(row: NormalizedRouteSegmentRuleReview) -> RuleConditionReview:
     confirmed_at = row.condition_confirmed_at
     return RuleConditionReview(
+        review_token=_condition_review_token(row),
         source_text=row.condition_source_text or "",
         source_hash=row.condition_source_hash or "",
         status=row.condition_status or "draft",
@@ -419,7 +481,7 @@ async def _load_route_and_review(
             select(NormalizedRouteSegmentRuleReview).where(
                 NormalizedRouteSegmentRuleReview.route_version_id == route_id,
                 NormalizedRouteSegmentRuleReview.segment_id == segment_id,
-            )
+            ).execution_options(populate_existing=True)
         )
     ).scalars().first()
     if not review:
@@ -474,6 +536,7 @@ async def save_condition_draft(
             source_text=body.source_text,
         )
     _, review = await _load_route_and_review(body.project_id, body.route_id, body.segment_id, db)
+    snapshot = _check_review_token(body, review)
     source_text = body.source_text.strip()
     source_changed = (review.condition_source_text or "").strip() != source_text
     source_hash = condition_source_hash(source_text)
@@ -497,16 +560,24 @@ async def save_condition_draft(
         review.condition_knowledge_suggestion_id = body.knowledge_suggestion_id
     elif source_changed:
         review.condition_knowledge_suggestion_id = None
-    await db.commit()
-    await db.refresh(review)
+    await _commit_review(db, review, snapshot)
     return _response(body, review)
 
 
 async def parse_condition_review(
     body: ParseRuleConditionRequest,
     db: AsyncSession,
+    *,
+    expected_review_token: str | None = None,
 ) -> RuleConditionReviewResponse:
+    if expected_review_token is not None:
+        # Serialize the check and the initial parsing write with manual saves.
+        # The existing parse revision guard protects the later model response.
+        await acquire_workflow_revision(db, body.project_id, body.expected_workflow_revision)
     route, review = await _load_route_and_review(body.project_id, body.route_id, body.segment_id, db)
+    if expected_review_token is not None and _condition_review_token(review) != expected_review_token:
+        return _response(body, review)
+    snapshot = _check_review_token(body, review)
     _validate_process_catalog(route, body.processes)
     if body.process_id not in {item.process_id for item in body.processes}:
         raise HTTPException(422, "当前工序不在可用标准工序列表中。")
@@ -523,8 +594,7 @@ async def parse_condition_review(
             review.condition_candidate_json = json.dumps(
                 confirmed.model_dump(mode="json", by_alias=True), ensure_ascii=False,
             )
-            await db.commit()
-            await db.refresh(review)
+            await _commit_review(db, review, snapshot)
         return _response(body, review)
     parser_version, llm_config = await _active_condition_parser_context()
 
@@ -544,6 +614,7 @@ async def parse_condition_review(
         ):
             candidate = RuleConditionCandidate.model_validate(draft.candidate.model_dump())
             issues = validate_candidate(candidate, body.processes, current_process_id=body.process_id)
+            issues.extend(validate_authored_candidate(candidate, body.process_id))
             if not issues:
                 if candidate.kind == "condition" and candidate.when is not None:
                     candidate.preview = condition_preview(candidate.when)
@@ -559,8 +630,7 @@ async def parse_condition_review(
                 review.condition_parse_duration_ms = 0
                 review.condition_confirmed_by = None
                 review.condition_confirmed_at = None
-                await db.commit()
-                await db.refresh(review)
+                await _commit_review(db, review, snapshot)
                 logger.info(
                     "rule_condition_parse analysis_draft_reuse=true project_id=%s route_id=%s segment_id=%s",
                     body.project_id,
@@ -572,6 +642,7 @@ async def parse_condition_review(
     # Reuse a candidate that was already produced for the same source text and
     # field registry. Page reloads and repeated export clicks must not invoke
     # the parser again when the review is still current.
+    cached_candidate = _loads_candidate(review.condition_candidate_json)
     if (
         review.condition_source_hash == source_hash
         and review.condition_source_text == source_text
@@ -579,6 +650,9 @@ async def parse_condition_review(
         and review.condition_parser_version == parser_version
         and review.condition_status in {"pending_confirmation", "confirmed"}
         and review.condition_candidate_json
+        and cached_candidate is not None
+        and not validate_authored_candidate(cached_candidate, body.process_id)
+        and not validate_candidate(cached_candidate, body.processes, current_process_id=body.process_id)
     ):
         logger.info(
             "rule_condition_parse cache_hit=true project_id=%s route_id=%s segment_id=%s",
@@ -600,13 +674,11 @@ async def parse_condition_review(
     review.condition_parse_duration_ms = None
     review.condition_confirmed_by = None
     review.condition_confirmed_at = None
-    # Reuse the existing row revision as an optimistic parse token. Two parses
-    # of the same text/version must not both write back after releasing the lock.
-    parse_revision = datetime.now(timezone.utc).replace(tzinfo=None)
-    review.updated_at = parse_revision
     if source_changed:
         review.condition_knowledge_suggestion_id = None
-    await db.commit()
+    # Capture the revision assigned to this CAS, not a post-commit refresh that
+    # may already observe a newer same-text parse after the lock was released.
+    parse_revision = await _commit_review(db, review, snapshot)
 
     started_at = time.perf_counter()
     candidate, confidence, issues = await parse_rule_condition(
@@ -616,6 +688,12 @@ async def parse_condition_review(
         body.processes,
         llm_config=llm_config,
     )
+    if candidate:
+        candidate_issues = [*validate_candidate(candidate, body.processes, current_process_id=body.process_id),
+                            *validate_authored_candidate(candidate, body.process_id)]
+        if candidate_issues:
+            issues = list(dict.fromkeys([*issues, *candidate_issues]))
+            candidate = None
     duration_ms = max(0, round((time.perf_counter() - started_at) * 1000))
     await acquire_workflow_revision(
         db,
@@ -631,6 +709,7 @@ async def parse_condition_review(
     ):
         # A newer draft or parse request superseded this request while the model ran.
         return _response(body, review)
+    snapshot = _review_snapshot(review)
     review.condition_confidence = confidence
     review.condition_parse_duration_ms = duration_ms
     review.condition_issues_json = json.dumps(issues, ensure_ascii=False)
@@ -642,8 +721,7 @@ async def parse_condition_review(
     else:
         review.condition_candidate_json = None
         review.condition_status = "invalid"
-    await db.commit()
-    await db.refresh(review)
+    await _commit_review(db, review, snapshot)
     logger.info(
         "rule_condition_parse cache_hit=false project_id=%s route_id=%s segment_id=%s status=%s duration_ms=%s",
         body.project_id,
@@ -655,11 +733,34 @@ async def parse_condition_review(
     return _response(body, review)
 
 
+def _prepare_authored_confirmation(
+    candidate: RuleConditionCandidate,
+    processes: list[RuleConditionProcessOption],
+    current_process_id: str,
+    error_message: str,
+) -> RuleConditionCandidate:
+    # Validate the original frozen domain and object scopes before removing a
+    # wildcard; normalization must not hide an otherwise invalid condition.
+    issues = validate_candidate(candidate, processes, current_process_id=current_process_id)
+    issues.extend(validate_authored_candidate(candidate, current_process_id))
+    if issues:
+        raise HTTPException(422, {"message": error_message, "issues": issues})
+    try:
+        prepared = normalize_project_authored_candidate(candidate)
+    except ValueError as exc:
+        raise HTTPException(422, {"message": error_message, "issues": [str(exc)]}) from exc
+    if prepared is not candidate:
+        when = prepared.configuration.when if prepared.configuration else prepared.when
+        prepared.preview = condition_preview(when, {field.key: field for field in prepared.field_definitions})
+    return prepared
+
+
 async def confirm_condition_review(
     body: ConfirmRuleConditionRequest,
     db: AsyncSession,
 ) -> RuleConditionReviewResponse:
     route, review = await _load_route_and_review(body.project_id, body.route_id, body.segment_id, db)
+    snapshot = _check_review_token(body, review)
     _validate_process_catalog(route, body.processes)
     current_process_id = _current_process_id_for_segment(route, body.segment_id, body.processes)
     source_text = body.source_text.strip()
@@ -671,13 +772,8 @@ async def confirm_condition_review(
     if current_process_id not in {item.process_id for item in body.processes}:
         raise HTTPException(422, "当前条件规则的目标工序不在可用标准工序列表中。")
     candidate = _migrate_legacy_boolean_candidate(body.candidate.model_copy(deep=True))
-    issues = validate_candidate(
-        candidate,
-        body.processes,
-        current_process_id=current_process_id,
-    )
-    if issues:
-        raise HTTPException(422, {"message": "候选规则校验未通过", "issues": issues})
+    candidate = _prepare_authored_confirmation(candidate, body.processes, current_process_id, "候选规则校验未通过")
+    await _validate_saved_dependencies(candidate, route, body, db)
 
     if candidate.kind == "condition" and candidate.when is not None:
         candidate.preview = condition_preview(candidate.when)
@@ -691,8 +787,7 @@ async def confirm_condition_review(
     review.condition_field_registry_version = FIELD_REGISTRY_VERSION
     review.condition_confirmed_by = body.confirmed_by.strip() or "默认用户"
     review.condition_confirmed_at = datetime.now(timezone.utc)
-    await db.commit()
-    await db.refresh(review)
+    await _commit_review(db, review, snapshot)
     return _response(body, review)
 
 
@@ -701,7 +796,10 @@ async def set_manual_condition_review(
     db: AsyncSession,
 ) -> RuleConditionReviewResponse:
     route, review = await _load_route_and_review(body.project_id, body.route_id, body.segment_id, db)
+    snapshot = _check_review_token(body, review)
     _validate_process_catalog(route, body.processes)
+    if body.process_id != _current_process_id_for_segment(route, body.segment_id, body.processes):
+        raise HTTPException(422, "人工 Bool 条件必须对应当前保存路线中的工序。")
     source_text = body.source_text.strip()
     if not source_text:
         raise HTTPException(422, "请说明此工序由用户如何控制。")
@@ -750,40 +848,34 @@ async def set_manual_condition_review(
     review.condition_confirmed_by = "用户直接设定"
     review.condition_confirmed_at = datetime.now(timezone.utc)
     review.condition_knowledge_suggestion_id = None
-    await db.commit()
-    await db.refresh(review)
+    await _commit_review(db, review, snapshot)
     return _response(body, review)
 
 
-async def set_process_configuration_review(
-    body: ManualRuleConditionRequest,
+async def _validate_saved_dependencies(
+    candidate: RuleConditionCandidate,
+    route: NormalizedRouteVersion,
+    body,
     db: AsyncSession,
-) -> RuleConditionReviewResponse:
-    """Confirm an atomic editor configuration without inference or schema loss."""
-    route, review = await _load_route_and_review(body.project_id, body.route_id, body.segment_id, db)
-    _validate_process_catalog(route, body.processes)
-    current_process_id = _current_process_id_for_segment(route, body.segment_id, body.processes)
-    candidate = body.candidate.model_copy(deep=True)
-    if (body.process_id != current_process_id or candidate.kind != "process_configuration"
-            or candidate.configuration is None or candidate.configuration.process_id != current_process_id):
-        raise HTTPException(422, "规则配置必须对应当前保存路线中的工序。")
-    source_text = body.source_text.strip()
-    if not source_text:
-        raise HTTPException(422, "请提供当前工序规则的摘要。")
-    issues = validate_candidate(candidate, body.processes, current_process_id=current_process_id)
-    if issues:
-        raise HTTPException(422, {"message": "工序规则配置校验未通过", "issues": issues})
+) -> None:
     # Validate the replacement against other confirmed rules before mutating
     # the stored confirmation; a locally valid edge can close a global cycle.
     from app.services.rule_packages.validator import _dependency_cycle
 
-    confirmed_rows = (await db.execute(select(NormalizedRouteSegmentRuleReview).where(
-        NormalizedRouteSegmentRuleReview.project_id == body.project_id,
-        NormalizedRouteSegmentRuleReview.route_version_id == body.route_id,
-        NormalizedRouteSegmentRuleReview.segment_id != body.segment_id,
-        NormalizedRouteSegmentRuleReview.condition_status == "confirmed",
-    ))).scalars().all()
-    relations = list(candidate.configuration.relations)
+    # Do not insert a newly created review before its atomic save. Otherwise
+    # defaults/timestamps assigned by autoflush invalidate our own snapshot.
+    with db.no_autoflush:
+        confirmed_rows = (await db.execute(select(NormalizedRouteSegmentRuleReview).where(
+            NormalizedRouteSegmentRuleReview.project_id == body.project_id,
+            NormalizedRouteSegmentRuleReview.route_version_id == body.route_id,
+            NormalizedRouteSegmentRuleReview.segment_id != body.segment_id,
+            NormalizedRouteSegmentRuleReview.condition_status == "confirmed",
+        ))).scalars().all()
+    relations = list(candidate.configuration.relations) if candidate.configuration else (
+        [candidate.relation] if candidate.relation else []
+    )
+    if not relations:
+        return
     for row in confirmed_rows:
         saved = _loads_candidate(row.condition_confirmed_json)
         if saved and saved.kind == "process_configuration" and saved.configuration:
@@ -796,6 +888,26 @@ async def set_process_configuration_review(
     )
     if cycle:
         raise HTTPException(422, f"工序关联存在循环依赖：{' -> '.join(cycle)}")
+
+
+async def set_process_configuration_review(
+    body: ManualRuleConditionRequest,
+    db: AsyncSession,
+) -> RuleConditionReviewResponse:
+    """Confirm an atomic editor configuration without inference or schema loss."""
+    route, review = await _load_route_and_review(body.project_id, body.route_id, body.segment_id, db)
+    snapshot = _check_review_token(body, review)
+    _validate_process_catalog(route, body.processes)
+    current_process_id = _current_process_id_for_segment(route, body.segment_id, body.processes)
+    candidate = body.candidate.model_copy(deep=True)
+    if (body.process_id != current_process_id or candidate.kind != "process_configuration"
+            or candidate.configuration is None or candidate.configuration.process_id != current_process_id):
+        raise HTTPException(422, "规则配置必须对应当前保存路线中的工序。")
+    source_text = body.source_text.strip()
+    if not source_text:
+        raise HTTPException(422, "请提供当前工序规则的摘要。")
+    candidate = _prepare_authored_confirmation(candidate, body.processes, current_process_id, "工序规则配置校验未通过")
+    await _validate_saved_dependencies(candidate, route, body, db)
     candidate_json = json.dumps(candidate.model_dump(mode="json", by_alias=True), ensure_ascii=False)
     review.condition_source_text = source_text
     review.condition_source_hash = condition_source_hash(source_text)
@@ -810,6 +922,5 @@ async def set_process_configuration_review(
     review.condition_confirmed_by = body.confirmed_by.strip() or "用户直接设定"
     review.condition_confirmed_at = datetime.now(timezone.utc)
     review.condition_knowledge_suggestion_id = None
-    await db.commit()
-    await db.refresh(review)
+    await _commit_review(db, review, snapshot)
     return _response(body, review)

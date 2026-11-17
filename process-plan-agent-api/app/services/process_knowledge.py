@@ -115,6 +115,21 @@ def clean_process_text(text: str) -> str:
     return re.sub(r"\s+", "", text or "").strip()
 
 
+def is_material_preparation_name(name: str) -> bool:
+    """Return whether a route label contains only blank-preparation names.
+
+    Parenthesized equipment or method notes belong to the label metadata and
+    must not turn a pure preparation step into a machining step. A real mixed
+    label such as ``下料/钻孔`` remains false after the note is removed.
+    """
+    cleaned = clean_process_text(str(name or ""))
+    cleaned = re.sub(r"#[0-9]+$", "", cleaned)
+    cleaned = re.sub(r"[（(][^（）()]*[）)]", "", cleaned)
+    cleaned = cleaned.replace("／", "/")
+    preparation_names = r"(?:下料|备料|毛坯准备|下料备料|下料准备|开料|切料)"
+    return bool(re.fullmatch(preparation_names + r"(?:[/、]" + preparation_names + r")*", cleaned))
+
+
 def normalize_process_name(name: str) -> str:
     cleaned = clean_process_text(name)
     cleaned = cleaned.strip("：:;；，,。./")
@@ -147,7 +162,7 @@ def infer_operation_family(name: str) -> str:
     normalized = normalize_process_name(name or "")
     if not normalized:
         return "generic"
-    if normalized in {"备料", "下料", "毛坯准备/下料"}:
+    if is_material_preparation_name(normalized):
         return "prep"
     if any(token in normalized for token in ("端面", "平端面")):
         return "end_face"

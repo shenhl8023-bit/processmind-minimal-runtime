@@ -54,6 +54,19 @@ def demo_selected(tables, inputs):
             selected.append(pid)
     return selected
 
+
+@pytest.mark.parametrize('choice', [None, False, True])
+def test_associated_mode_exports_single_source_chain(choice):
+    payload = package_payload()
+    payload['route_rules']['process_configurations'][2] = configuration('strip', 'associated', relations=[relation('copper')])
+    payload['route_rules']['process_configurations'].append(configuration('inspect', 'associated', relations=[relation('strip', 'inspect')]))
+    package = RulePackageV2.model_validate(payload)
+    tables = compile_demo_tables(package, route_for(package))
+    inputs = {} if choice is None else {COPPER: choice}
+    expected = ['base', 'copper', 'strip', 'inspect'] if choice else ['base']
+    assert plan_route(package, inputs).selected_process_ids == expected
+    assert demo_selected(tables, {COPPER: False, HEAT: False, **inputs}) == expected
+
 @pytest.mark.parametrize('copper,material,want', [
     (True, '9Cr18', ['base', 'copper', 'strip']),
     (False, '9Cr18', ['base']),

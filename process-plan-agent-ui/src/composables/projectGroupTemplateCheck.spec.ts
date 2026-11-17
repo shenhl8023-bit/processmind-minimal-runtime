@@ -95,3 +95,16 @@ describe('projectGroupTemplateCheck', () => {
     expect(result.ready).toBe(true)
   })
 })
+
+it('accepts a waiver for every required leaf without inventing valid mappings, but rejects a parent-only waiver', () => {
+  const template: any = {
+    mappings: [], step_mappings: [],
+    tree: [{ key: 'parent', path: ['A'], feature_selections: [], children: [
+      { key: 'hole', path: ['A', '孔'], children: [], feature_selections: ['孔'] },
+    ] }],
+    waived_group_paths: [['A', '孔']],
+  }
+  expect(isGroupTemplateReady(template)).toBe(true)
+  template.waived_group_paths = [['A']]
+  expect(isGroupTemplateReady(template)).toBe(false)
+})

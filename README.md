@@ -20,7 +20,7 @@
 ## 用户文档
 
 - [系统简介](docs/系统简介.md)：了解系统定位、六步工作流、主要产物和使用边界。
-- [用户使用说明](docs/用户使用说明.md)：按步骤完成启动、模型配置、资料上传、路线归并、规则审核、模板映射、规则包发布和路线生成，并查找常见问题。
+- [用户使用说明](docs/用户使用说明.md)：按步骤完成启动、模型配置、PDF 资料上传、路线归并、规则分析、规则定稿、工艺路线验证及可选模板映射，并查找常见问题。
 
 ## 目录说明
 
@@ -62,7 +62,7 @@ macOS 如果脚本经 Windows 压缩包传输后提示没有执行权限，请�
 chmod +x scripts/manage-macos.sh
 ```
 
-本地启动需要 Python 3.11+、Node.js 20+ 和 npm。
+本地启动需要 Python 3.11+、Node.js 20.19+ 或 22.12+，以及 npm 10+。
 
 脚本会检查 8000 和 5173 端口。端口被其他程序占用时会停止启动并显示占用进程，不会结束无关程序。
 
@@ -111,7 +111,7 @@ docker compose up -d --build
 本地开发建议：
 
 1. Python 3.11+
-2. Node.js 20+
+2. Node.js 20.19+ 或 22.12+
 3. npm 10+
 
 ## 数据说明
@@ -132,7 +132,7 @@ docker compose up -d --build
 3. 前端页面：`process-plan-agent-ui/src/views/`
 4. 前端组件：`process-plan-agent-ui/src/components/`
 5. 路由规则知识：`process-plan-agent-api/knowledge/`
-6. 提示词模板：`process-plan-agent-api/prompt_templates.md`
+6. 提示词模板：`process-plan-agent-api/prompt_templates.md`；项目问答补充指导由维护人员按 [项目指导维护说明](process-plan-agent-api/prompt_parts/projects/README.md)编辑文件，用户界面不提供提示词配置入口。
 
 ## 轴套类工艺知识库 Demo
 
@@ -142,9 +142,9 @@ docker compose up -d --build
 
 ## 规则包 V2 说明
 
-第 4 步「导出规则包」走 V2 主路径；导出后会成为第 5 步可用的当前规则包。第 5 步会优先使用已导出的 V2 规则包执行 `plan_route`；如果当前任务还没有规则包，则继续提示回到第 4 步导出。
+当前流程为“上传资料（仅 PDF）→ 路线归并 → 规则分析 → 规则定稿 → 工艺路线验证 → 模板映射（可选）”。第 4 步“保存并进入路线验证”保存当前可验证规则；第 5 步填写实际条件、生成并检查路线后，可以直接“导出规则包”，也可以继续第 6 步补充完整母路线的模板映射。第 4 步规则变化后，需使用当前规则重新生成验证结果，再导出。
 
-导出的 ZIP 包含 `factor_table.json`、`full_route_structure.json` 和 `rule_table.json` 三张表，分别对应因素、全集路线和规则。
+第 5 步“导出规则包”和第 6 步“保存并导出规则包 / 更新规则包”下载 ZIP，内含 `factor_table.json`、`full_route_table.json`、`rule_table.json`。第 6 步导出包含本次已保存的映射、工步删除及顺序投影，保留已验证的规则核心和完整母路线；具体操作见用户使用说明。
 
 ## 内网离线部署（Windows）
 
@@ -154,7 +154,7 @@ docker compose up -d --build
 2. 将 ZIP 拷到内网机并解压
 3. 进入解压后的目录，双击 `start-windows.cmd`
 
-包内已含便携 Python（后端依赖已装）与前端 `node_modules`。打包前执行 `scripts\prepare-offline-node.ps1` 可把便携 Node 一并放入 ZIP；若未包含，目标机必须预装 Node.js 20+。
+包内已含便携 Python（后端依赖已装）与前端 `node_modules`。打包前执行 `scripts\prepare-offline-node.ps1` 可把便携 Node 一并放入 ZIP；若未包含，目标机必须预装 Node.js 20.19+ 或 22.12+。
 
 在 Windows 开发机上也可重新打单文件完整包：
 
@@ -172,6 +172,8 @@ Win7 交付使用独立的 CPython 3.8.10 x64 运行时。开发和构建环境�
 
 目标机需要预装 Chrome 109 或 Edge 109，并允许启动包调用系统浏览器。包内不包含 CEF/Qt 或其他浏览器壳，IE11 不在支持范围内；Chrome 109 和 Edge 109 是验收基线。服务只监听 `127.0.0.1:8000`。
 
+启动器优先打开已安装的 Firefox（火狐），会查找 Program Files、Program Files (x86) 及当前用户的常用安装目录；找不到火狐时沿用 Chrome、Edge 和系统默认浏览器的选择方式。也可在启动前执行 <code>set "PROCESSMIND_BROWSER=D:\Mozilla Firefox\firefox.exe"</code> 指定实际浏览器路径，再运行 <code>start-win7.bat</code>。该显式配置优先于自动查找。Firefox 的 Win7 实机页面兼容性需在目标电脑上验证。
+
 Win7 SP1 还必须安装 `KB2533623`，或安装包含该修复的后续更新。交付包包含离线安装文件和脚本：请先以管理员身份运行 `prerequisites\install-kb2533623.bat`，安装完成后重启系统，再运行 `start-win7.bat`。这个更新不能通过复制包内 DLL 代替；缺少时 Python 可能在加载 `_socket.pyd` 时提示“DLL load failed ... 参数错误”。
 
 Win7 运行时锁定 `pydantic==2.10.6` 和 `pydantic-core==2.27.2`。较旧的 `pydantic-core==2.23.4` 会导入 Win7 不提供的 `ProcessPrng`，会在日志中出现 `_pydantic_core: DLL load failed`；构建脚本会在打包前拒绝这类 wheel。由于 Python 3.8 的 AnyIO 还需要 `exceptiongroup==1.2.2`，Pydantic 解析项目中的现代类型注解还需要 `eval-type-backport==0.2.2`，这两个条件依赖都已固定并随包提供。
@@ -186,7 +188,7 @@ powershell -File scripts\pack-win7-windows.ps1 -PythonRuntime C:\tools\cpython-3
 
 `-PythonRuntime` 可以指向包含 `python.exe` 的目录；若使用官方 CPython ZIP，需要先补齐 `MSVCP140.dll`、`VCRUNTIME140*.dll`、`ucrtbase.dll` 以及对应的 `api-ms-win-*` 兼容文件。`-Wheelhouse` 必须包含 `requirements-win7-py38.txt` 中每个依赖的 CPython 3.8 / Windows x64 wheel。
 
-脚本会检查 Python 版本、离线依赖、后端导入和 Python 3.8 源码兼容性，然后生成 `dist-win7\processmind-win7-windows-YYYYMMDD.zip`、`manifest.json` 和 `SHA256SUMS.txt`。压缩前只复制后端源码、知识/config 资源、前端 `dist`、Win7 启动器、前置更新文件和 `.runtime\python`，并拒绝 `node_modules`、`.runtime\node`、数据库、上传文件、日志、`.env` 和凭据。
+脚本会检查 Python 版本、离线依赖、后端导入和 Python 3.8 源码兼容性，然后生成带构建时间的 `dist-win7\processmind-win7-windows-YYYYMMDD-HHMMSS.zip`，以及与 ZIP 同名的 `.manifest.json` 和 `.SHA256SUMS.txt`。已有产物不会被覆盖；压缩前只复制后端源码、知识/config 资源、前端 `dist`、Win7 启动器、前置更新文件和 `.runtime\python`，并拒绝 `node_modules`、`.runtime\node`、数据库、上传文件、日志、`.env` 和凭据。
 
 压缩前必须通过 `scripts/verify-win7-package.py`：它直接核对官方 CPython 3.8.10 x64 核心文件哈希、实际安装依赖版本和必要兼容 DLL，并检查已知不兼容的原生依赖，不能只根据 manifest 判定运行时版本。开发用 `.runtime/python` 可能是 Python 3.13，不能直接复制进 Win7 包。换包请解压到新的空目录，避免覆盖解压残留其他版本文件；最终仍需在 Win7 SP1 x64 上验收。
 
@@ -205,6 +207,31 @@ powershell -File scripts\pack-win7-windows.ps1 -PythonRuntime C:\tools\cpython-3
 
 数据库、上传文件、日志、缓存和 PID 状态默认写入 `%LOCALAPPDATA%\ProcessMind`；可用同名环境变量 `PROCESSMIND_RUNTIME_DIR` 指向其他可写目录。关闭浏览器不会停止 API；再次双击 `start-win7.bat` 会复用健康的已有服务并重新打开浏览器。需要完全退出时请双击 `stop-win7.cmd`。端口被无关进程占用时启动器会失败并保留无关进程。
 
+
+## Win7 内网基础试用版（2026-12-30 到期）
+
+基础试用版使用五步流程：上传资料 → 路线归并 → 规则分析 → 规则定稿 → 验证生成。模板分组编排及其发布前置条件关闭，后续使用软件自身的路线和 V2 规则。无需机器码、激活码、授权导入或外网校验。
+
+第四步“保存并进入路线验证”后，在第五步输入实际参数并生成路线；检查无误后点击“导出规则包”，下载三表 ZIP：`factor_table.json`（因素及输入约束）、`full_route_table.json`（完整母路线工序工步）、`rule_table.json`（执行规则）。三份文件采用约定的精简数组格式；完整规则、来源证据及审核记录保留在软件内部。基础包根目录附 `使用说明.txt`，内容见 `docs/基础试用版-快速使用说明.md`。
+
+试用日期按北京时间计算：**2026 年 12 月 30 日全天可用，2026 年 12 月 31 日 00:00 起停止全部业务使用**。已打开的页面也会进入到期提示页；后台同时拒绝业务接口、历史查看和下载。服务健康检查保留，方便启动器正常显示到期页面。到期不会删除本地数据。固定日期属于普通试用限制，不抵御修改程序或系统时钟。
+
+默认源码配置 `product-profile.json` 保持完整版。基础试用配置位于 `profiles/basic-trial.json`；打包时只将选中的配置作为交付根目录的 `product-profile.json` 提供。
+
+在 Windows 构建机先完成前端构建，再使用现有 Win7 Python runtime 与 wheelhouse：
+
+```bat
+cd process-plan-agent-ui
+npm run build
+cd ..
+scripts\pack-win7-basic-trial.cmd -PythonRuntime C:\tools\cpython-3.8.10 -Wheelhouse C:\wheelhouse\processmind-py38
+```
+
+输出为 `dist-win7\processmind-win7-windows-basic-trial-YYYYMMDD-HHMMSS.zip`，以及同名的 `.manifest.json` 和 `.SHA256SUMS.txt`。已有产物不会被覆盖。目标 Win7 SP1 x64 电脑解压后仍双击 `start-win7.bat`，使用 Chrome 109 或 Edge 109；无需安装开发依赖。默认运行数据保存在 `%LOCALAPPDATA%\ProcessMindBasicTrial`，与完整版目录分开。若显式设置 `PROCESSMIND_RUNTIME_DIR`，以该目录为准。
+
+开发机预览基础版，可在启动后端前设置 `PROCESSMIND_PROFILE_PATH` 为 `profiles/basic-trial.json`（相对项目根目录解析）。前端自动从 `/api/product-status` 获取当前版本，无需分别构建两个前端。模型功能须配置客户内网可用的大模型接口；授权及到期校验不依赖网络。
+
+Windows 打包和 Win7 实机验收仍需在对应环境执行；开发机测试及源码兼容检查不能替代实机验证。
 
 ## 备注
 

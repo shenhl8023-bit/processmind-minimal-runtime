@@ -1,412 +1,234 @@
 <template>
   <div class="configuration-editor" :inert="disabled">
-    <div v-if="section !== 'relations'" class="configuration-topline">
+    <div class="configuration-topline">
+      <div class="configuration-label">
+        <span>出现方式</span>
+        <details class="configuration-help">
+          <summary aria-label="出现方式说明">?</summary>
+          <span>每道工序只选择一种出现方式，修改保存后生效。</span>
+        </details>
+      </div>
       <div class="configuration-modes" role="group" :aria-label="`${displayName}的出现方式`">
-        <button v-for="mode in modes" :key="mode.value" type="button" class="configuration-mode" :aria-pressed="configuration.occurrence === mode.value" :disabled="disabled" @click="changeMode(mode.value)">{{ mode.label }}</button>
-      </div>
-      <p v-if="configuration.occurrence === 'always'" class="configuration-note">每次生成路线都纳入{{ displayName }}。</p>
-    </div>
-    <label v-if="section !== 'relations' && configuration.occurrence === 'manual'" class="configuration-manual">
-      <span>生成时询问</span>
-      <input :id="`manual-bool-label-${item.segment.id}`" class="manual-bool-input" :value="manualLabel" maxlength="40" @input="changeManualLabel(($event.target as HTMLInputElement).value)" />
-      <span class="configuration-note">选择“是”生成，选择“否”不生成。</span>
-    </label>
-    <div v-if="section !== 'relations' && configuration.occurrence === 'conditional'" class="configuration-conditions">
-      <div class="configuration-heading">
-        <div class="configuration-heading-copy">
-          <span class="configuration-heading-title">出现条件</span>
-          <span class="configuration-heading-hint">{{ conditionMatchesAny ? '满足其一' : '全部满足' }}</span>
-        </div>
-        <button type="button" class="configuration-link" :disabled="!fields.length" @click="addCondition">＋ 添加条件</button>
-      </div>
-      <div v-if="configuration.when" class="configuration-condition-row">
-        <RuleConditionNodeEditor :model-value="configuration.when" :fields="fields" @update:model-value="updateWhen" />
-        <button type="button" class="configuration-link" aria-label="删除出现条件" @click="updateWhen(null)">删除</button>
+        <button v-for="mode in modes" :key="mode.value" type="button" class="configuration-mode" :aria-pressed="!needsReset && configuration.occurrence === mode.value" :disabled="disabled" @click="changeMode(mode.value)">{{ mode.label }}</button>
       </div>
     </div>
-    <div v-if="section !== 'appearance'" class="configuration-relations">
-      <div class="configuration-heading">
-        <div class="configuration-heading-copy">
-          <span class="configuration-heading-title">工序关联</span>
-          <span class="configuration-heading-hint">前序出现后可自动带出；仅调整顺序不会带出本工序。</span>
+    <p v-if="needsReset" class="configuration-error" role="alert">此规则包含当前出现模式不支持的内容，请选择一种出现模式重新设置。原规则在保存前保持不变。</p>
+    <template v-else>
+      <label v-if="configuration.occurrence === 'manual'" class="configuration-manual">
+        <span>验证时显示</span>
+        <input :id="`manual-bool-label-${item.segment.id}`" class="manual-bool-input" :value="manualLabel" maxlength="40" :disabled="disabled" @input="changeManualLabel(($event.target as HTMLInputElement).value)" />
+        <span class="configuration-note">默认不勾选，不选就是否；勾选后生成。</span>
+      </label>
+      <div v-if="configuration.occurrence === 'conditional'" class="configuration-conditions">
+        <div class="configuration-heading">
+          <div class="configuration-heading-copy">
+            <span class="configuration-heading-title">出现条件</span>
+            <span class="configuration-heading-hint">全部满足才安排 · 特征与方位对应同一加工对象</span>
+          </div>
+          <button type="button" class="configuration-link" :disabled="disabled || !fields.length" @click="addCondition">＋ 添加条件</button>
         </div>
-        <button type="button" class="configuration-link" :disabled="!otherProcesses.length" @click="addRelation">＋ 添加工序关联</button>
+        <div v-if="triples.length" class="configuration-column-labels" aria-hidden="true"><span>判断项目</span><span>关系</span><span>取值</span><span></span></div>
+        <div v-for="(condition, index) in triples" :key="index" class="configuration-condition-row">
+          <RuleConditionNodeEditor :model-value="condition" :fields="visibleFields" @update:model-value="updateCondition(index, $event)" />
+          <button type="button" class="configuration-link" :disabled="disabled" :aria-label="`删除第${index + 1}条条件`" @click="removeCondition(index)">删除条件</button>
+        </div>
       </div>
-      <div v-for="(relation, index) in configuration.relations" :key="index" class="configuration-relation-row">
-        <span class="configuration-current">{{ displayName }}</span>
-        <select class="relation-select" :aria-label="`第${index + 1}项关联关系`" :value="relation.relation_type" @change="updateRelation(index, { relation_type: ($event.target as HTMLSelectElement).value as ProcessRelationType })">
-          <option v-if="configuration.occurrence !== 'always'" value="trigger_after">前序出现后自动带出</option>
-          <option value="order_after">仅调整先后顺序</option>
-          <option value="requires">关联工序是前置要求</option>
-          <option value="conflicts">不能同时安排</option>
-        </select>
-        <select class="configuration-select" :aria-label="`第${index + 1}项关联工序`" :multiple="relation.source_process_ids.length > 1" :value="relation.source_process_ids.length > 1 ? relation.source_process_ids : relation.source_process_ids[0] || ''" @change="changeSource(index, $event)">
-          <option v-if="relation.source_process_ids.length < 2" disabled value="">选择关联工序</option>
+      <div v-if="configuration.occurrence === 'associated'" class="configuration-relations">
+        <label class="configuration-heading" :for="`associated-source-${item.segment.id}`">跟随工序</label>
+        <select :id="`associated-source-${item.segment.id}`" class="configuration-select" aria-label="跟随工序" :value="configuration.relations[0]?.source_process_ids[0] || ''" :disabled="disabled" @change="changeSource(($event.target as HTMLSelectElement).value)">
+          <option disabled value="">选择一个来源工序</option>
           <option v-for="process in otherProcesses" :key="process.process_id" :value="process.process_id">{{ process.display_name }}</option>
         </select>
-        <button type="button" class="configuration-link" :aria-label="`删除第${index + 1}项关联`" @click="removeRelation(index)">删除</button>
-        <label v-if="relation.relation_type === 'trigger_after' && relation.source_process_ids.length > 1" class="configuration-legacy-match">
-          历史关联组
-          <select class="configuration-select" :value="relation.source_match || 'any'" @change="updateRelation(index, { source_match: ($event.target as HTMLSelectElement).value as 'all' | 'any' })">
-            <option value="all">全部生成</option><option value="any">任一生成</option>
-          </select>
-        </label>
-        <p class="configuration-relation-help">{{ processRelationDescription(relation, displayName, processes) }}</p>
       </div>
+    </template>
+    <p v-if="error && !needsReset" class="configuration-error" :class="{ 'configuration-error-empty': configuration.occurrence === 'conditional' && !triples.length }" role="alert">{{ error }}</p>
+    <div v-if="!error && !staleSource" class="configuration-result">
+      <p>{{ configuration.occurrence === 'associated' ? `${associationSource}纳入路线时，自动生成${displayName}，并排在${associationSource}之后。` : summary }}</p>
+      <p v-if="configuration.occurrence === 'associated'" class="configuration-note">允许穿插其他工序，支持逐级带出。</p>
     </div>
-    <p v-if="error" class="configuration-error" role="alert">{{ error }}</p>
+    <p v-if="staleSource" class="configuration-error" role="alert">原文已更新，请先取消修改后核对最新规则。</p>
     <div class="candidate-footer">
-      <span class="editor-note">{{ staleSource ? '原文已更新，请先取消修改后核对最新规则。' : section === 'relations' ? relationSummary : summary }}</span>
-      <button type="button" class="confirm-rule-btn" :disabled="disabled || Boolean(error) || staleSource" @click="save">保存并确认</button>
+      <slot name="secondary-actions" />
+      <div class="configuration-primary-actions">
+        <button type="button" class="cancel-rule-btn" :disabled="disabled" @click="emit('cancel')">取消</button>
+        <button type="button" class="confirm-rule-btn" :disabled="disabled || Boolean(error) || staleSource" @click="save">保存并确认</button>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { CanonicalConditionField, ProcessConfiguration, ProcessRelationCandidate, ProcessRelationType, RuleConditionCandidate, RuleConditionProcessOption, RulePackageCondition } from '@/api/rulePackages'
+import type { CanonicalConditionField, ProcessConfiguration, RuleConditionCandidate, RuleConditionProcessOption, RulePackageCondition } from '@/api/rulePackages'
 import type { FinalizeCard } from '@/composables/finalizeViewHelpers'
 import { buildManualBooleanRuleCandidate, defaultManualBooleanLabel } from '@/utils/finalizeRulePackage'
-import { configurationError, configurationSummary, processRelationDescription } from '@/utils/processConfigurationEditor'
+import { configurationError, configurationSummary, configurationNeedsReset, conditionTriples, validateAuthoredCandidate } from '@/utils/processConfigurationEditor'
 import RuleConditionNodeEditor from '@/components/finalize/RuleConditionNodeEditor.vue'
-const props = defineProps<{ modelValue: RuleConditionCandidate; item: FinalizeCard; displayName: string; fields: CanonicalConditionField[]; processes: RuleConditionProcessOption[]; disabled?: boolean; staleSource?: boolean; section?: 'appearance' | 'relations' }>()
-const emit = defineEmits<{ 'update:modelValue': [value: RuleConditionCandidate]; save: [value: RuleConditionCandidate] }>()
+import { projectConditionDisplayLabel } from '@/utils/projectConditionFields'
+
+const props = defineProps<{ modelValue: RuleConditionCandidate; item: FinalizeCard; displayName: string; fields: CanonicalConditionField[]; processes: RuleConditionProcessOption[]; disabled?: boolean; staleSource?: boolean; requireModeSelection?: boolean; section?: 'appearance' | 'relations' }>()
+const emit = defineEmits<{ 'update:modelValue': [value: RuleConditionCandidate]; save: [value: RuleConditionCandidate]; cancel: [] }>()
 const configuration = computed(() => props.modelValue.configuration!)
-const section = computed(() => props.section || 'appearance')
-const conditionMatchesAny = computed(() => configuration.value.when && 'any' in configuration.value.when && Array.isArray(configuration.value.when.any))
-const modes: { value: ProcessConfiguration['occurrence']; label: string }[] = [{ value: 'always', label: '始终出现（主工序）' }, { value: 'manual', label: '人工选择' }, { value: 'conditional', label: '条件判断' }]
+const needsReset = computed(() => props.requireModeSelection || configurationNeedsReset(configuration.value) || Boolean(props.modelValue.when || props.modelValue.then || props.modelValue.relation))
+const triples = computed(() => conditionTriples(configuration.value.when) || [])
+// Presentation copies keep frozen definitions intact for validation and saving.
+const visibleFields = computed(() => props.fields.map(field => ({ ...field, label: projectConditionDisplayLabel(field, props.item.segment.normalized_step_name) })))
+const modeDrafts = new Map<ProcessConfiguration['occurrence'], RuleConditionCandidate>()
+const modes: { value: ProcessConfiguration['occurrence']; label: string }[] = [
+  { value: 'always', label: '主工序' }, { value: 'manual', label: 'Bool 工序' },
+  { value: 'conditional', label: '条件工序' }, { value: 'associated', label: '关联工序' },
+]
 const otherProcesses = computed(() => props.processes.filter(process => process.process_id !== configuration.value.process_id))
+const associationSource = computed(() => {
+  const sourceId = configuration.value.relations[0]?.source_process_ids[0]
+  return props.processes.find(process => process.process_id === sourceId)?.display_name || sourceId
+})
 const manualLabel = computed(() => { const when = configuration.value.when; return props.modelValue.field_definitions?.find(field => when && 'field' in when && field.key === when.field)?.label ?? defaultManualBooleanLabel(props.item) })
-const error = computed(() => configurationError(configuration.value, manualLabel.value))
-const summary = computed(() => configurationSummary(configuration.value, props.displayName, props.fields, props.processes))
-const relationSummary = computed(() => configuration.value.relations.length
-  ? configuration.value.relations.map(relation => processRelationDescription(relation, props.displayName, props.processes)).join(' ')
-  : '尚未设置工序关联。')
+const executionConfiguration = computed(() => {
+  if (configuration.value.occurrence !== 'conditional') return configuration.value
+  const rows = triples.value
+  const when = rows.length ? rows.length === 1 ? rows[0]! : { all: rows } : null
+  return { ...configuration.value, when }
+})
+const error = computed(() => needsReset.value ? '请选择一种出现模式重新设置。' : configurationError(executionConfiguration.value, manualLabel.value) || validateAuthoredCandidate({ ...props.modelValue, configuration: executionConfiguration.value }, configuration.value.process_id)[0] || '')
+const summary = computed(() => configurationSummary(executionConfiguration.value, props.displayName, visibleFields.value, props.processes))
+function clone<T>(value: T): T { return JSON.parse(JSON.stringify(value)) }
 function referencedFields(condition: RulePackageCondition | null): Set<string> {
   if (!condition) return new Set()
   if ('all' in condition && Array.isArray(condition.all)) return new Set(condition.all.flatMap(child => [...referencedFields(child)]))
-  if ('any' in condition && Array.isArray(condition.any)) return new Set(condition.any.flatMap(child => [...referencedFields(child)]))
-  if ('not' in condition && condition.not) return referencedFields(condition.not)
   return 'field' in condition && condition.field ? new Set([condition.field]) : new Set()
 }
 function update(patch: Partial<ProcessConfiguration>, fields = props.modelValue.field_definitions) {
+  if (props.disabled) return
   const next = { ...configuration.value, ...patch }
-  const used = referencedFields(next.when)
-  emit('update:modelValue', { ...props.modelValue, preview: '', field_definitions: fields?.filter(field => used.has(field.key)) || [], configuration: next })
+  const definitions = new Map([...props.fields, ...(props.modelValue.field_definitions || []), ...(fields || [])].map(field => [field.key, field]))
+  emit('update:modelValue', { kind: 'process_configuration', preview: '', field_definitions: [...definitions.values()], configuration: next })
 }
 function changeMode(occurrence: ProcessConfiguration['occurrence']) {
-  if (occurrence === configuration.value.occurrence) return
-  const relations = configuration.value.relations.map(relation => occurrence !== 'conditional' && relation.relation_type === 'trigger_after'
-    ? { ...relation, relation_type: 'order_after' as const }
-    : relation)
-  if (occurrence === 'manual') { const candidate = buildManualBooleanRuleCandidate(props.item, defaultManualBooleanLabel(props.item)); update({ occurrence, relations, when: candidate.when || null }, candidate.field_definitions) }
-  else update({ occurrence, relations, when: null })
+  if (props.disabled || (occurrence === configuration.value.occurrence && !needsReset.value)) return
+  if (!needsReset.value) modeDrafts.set(configuration.value.occurrence, clone(props.modelValue))
+  const restored = modeDrafts.get(occurrence)
+  if (restored) {
+    const definitions = new Map([...(props.modelValue.field_definitions || []), ...(restored.field_definitions || [])].map(field => [field.key, field]))
+    emit('update:modelValue', { ...clone(restored), field_definitions: [...definitions.values()] }); return
+  }
+  if (occurrence === 'manual') {
+    const candidate = buildManualBooleanRuleCandidate(props.item, defaultManualBooleanLabel(props.item))
+    update({ occurrence, relations: [], when: candidate.when || null }, candidate.field_definitions)
+  } else update({ occurrence, relations: [], when: null }, [])
 }
-function changeManualLabel(label: string) { const candidate = buildManualBooleanRuleCandidate(props.item, label); update({ when: candidate.when || null }, candidate.field_definitions?.map(field => ({ ...field, label }))) }
-function updateWhen(when: RulePackageCondition | null) { update({ when }) }
-function addCondition() { const field = props.fields[0]; if (!field) return; const leaf: RulePackageCondition = { field: field.key, op: field.operators[0] || 'eq', value: field.type === 'boolean' ? true : '' }; const when = configuration.value.when; updateWhen(!when ? leaf : 'all' in when && Array.isArray(when.all) ? { all: [...when.all, leaf] } : 'any' in when && Array.isArray(when.any) ? { any: [...when.any, leaf] } : { all: [when, leaf] }) }
-function addRelation() { update({ relations: [...configuration.value.relations, { relation_type: configuration.value.occurrence === 'always' ? 'order_after' : 'trigger_after', source_process_ids: [], target_process_ids: [configuration.value.process_id], source_match: 'all' }] }) }
-function updateRelation(index: number, patch: Partial<ProcessRelationCandidate>) { update({ relations: configuration.value.relations.map((relation, position) => position === index ? { ...relation, ...patch } : relation) }) }
-function changeSource(index: number, event: Event) { const select = event.target as HTMLSelectElement; updateRelation(index, { source_process_ids: select.multiple ? Array.from(select.selectedOptions).map(option => option.value) : [select.value] }) }
-function removeRelation(index: number) { update({ relations: configuration.value.relations.filter((_, position) => position !== index) }) }
-function save() { if (!error.value && !props.disabled && !props.staleSource) emit('save', { ...JSON.parse(JSON.stringify(props.modelValue)), preview: summary.value }) }
+function changeManualLabel(label: string) {
+  const candidate = buildManualBooleanRuleCandidate(props.item, label)
+  update({ when: candidate.when || null }, candidate.field_definitions?.map(field => ({ ...field, label })))
+}
+function setTriples(rows: RulePackageCondition[]) { update({ when: rows.length ? rows.length === 1 ? rows[0]! : { all: rows } : null }) }
+function addCondition() {
+  const field = visibleFields.value[0]
+  if (!field) return
+  const op = field.operators[0] || 'eq'
+  const leaf: RulePackageCondition = { field: field.key, op, ...(['exists', 'not_exists'].includes(op) ? {} : {value: field.type === 'boolean' ? true : ['in', 'contains_any', 'contains_all'].includes(op) ? [] : ''}) }
+  setTriples([...triples.value, leaf])
+}
+function updateCondition(index: number, condition: RulePackageCondition) { setTriples(triples.value.map((row, i) => i === index ? condition : row)) }
+function removeCondition(index: number) { setTriples(triples.value.filter((_, i) => i !== index)) }
+function changeSource(source: string) {
+  update({ relations: source ? [{ relation_type: 'trigger_after', source_process_ids: [source], target_process_ids: [configuration.value.process_id], source_match: 'all' }] : [] })
+}
+function save() {
+  if (error.value || props.disabled || props.staleSource) return
+  const when = executionConfiguration.value.when
+  const used = referencedFields(when)
+  const definitions = new Map(clone([...props.fields, ...(props.modelValue.field_definitions || [])]).map(field => [field.key, field]))
+  for (const row of conditionTriples(when) || []) {
+    if (!('field' in row) || row.field !== 'project_factor.material_grade') continue
+    const definition = definitions.get(row.field)
+    if (!definition?.allow_custom) continue
+    definition.options = definition.options || []
+    const values = Array.isArray(row.value) ? row.value : [row.value]
+    for (const value of values) if (typeof value === 'string' && value.trim() && !definition.options.some(option => option.value === value)) definition.options.push({ value, label: value })
+  }
+  emit('save', { ...clone(props.modelValue), configuration: clone(executionConfiguration.value), field_definitions: [...definitions.values()].filter(field => used.has(field.key) && field.key.startsWith('project_factor.')), preview: summary.value })
+}
 </script>
 
 <style scoped>
-.configuration-editor {
-  display: grid;
-  gap: 10px;
-  padding: 12px 0 8px;
-}
-
-.configuration-topline {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
-}
-
-.configuration-conditions,
-.configuration-relations {
-  min-width: 0;
-  padding-top: 10px;
-  border-top: 1px solid #e9eef3;
-}
-
-.configuration-modes {
-  display: inline-flex;
-  gap: 2px;
-  flex: 0 1 auto;
-  min-width: 0;
-  flex-wrap: wrap;
-  background: #f4f6f8;
-  border: 1px solid #e0e5eb;
-  border-radius: 5px;
-  padding: 3px;
-}
-.configuration-mode {
-  min-height: 29px;
-  border: 1px solid transparent;
-  border-radius: 3px;
-  background: transparent;
-  color: #5e6b7d;
-  padding: 4px 11px;
-  font-size: 12px;
-  font-weight: 500;
-  min-width: 0;
-  cursor: pointer;
-  transition: border-color 0.15s, color 0.15s, background-color 0.15s;
-}
-.configuration-mode:hover {
-  color: #344256;
-  background: rgba(255, 255, 255, 0.7);
-}
-.configuration-mode[aria-pressed=true] {
-  color: #4258b7;
-  background: #ffffff;
-  border-color: #cbd5f4;
-  font-weight: 600;
-}
-.configuration-mode:focus-visible,
-.configuration-link:focus-visible,
-.confirm-rule-btn:focus-visible {
-  outline: 2px solid #7185d8;
-  outline-offset: 2px;
-}
-
-.configuration-select,
-.relation-select,
-.manual-bool-input {
-  height: 32px;
-  border: 1px solid #d7dfe8;
-  border-radius: 4px;
-  background: #fff;
-  color: #273548;
-  padding: 4px 9px;
-  font-size: 12px;
-  min-width: 0;
-  outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.configuration-select:focus,
-.relation-select:focus,
-.manual-bool-input:focus {
-  border-color: #8798dd;
-  box-shadow: 0 0 0 2px rgba(82, 103, 201, 0.1);
-}
-
-.configuration-heading {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
-  margin-bottom: 6px;
-  color: #334155;
-  font-size: 12px;
-  font-weight: 600;
-}
-.configuration-heading-copy {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-}
-.configuration-heading-hint {
-  font-weight: 400;
-  color: #748195;
-  font-size: 11px;
-}
-
-.configuration-relation-row {
-  display: grid;
-  grid-template-columns: minmax(90px, .58fr) minmax(180px, 1.12fr) minmax(190px, 1.25fr) auto;
-  gap: 6px;
-  align-items: center;
-  margin-bottom: 6px;
-}
-.configuration-relation-row > .configuration-select[multiple] {
-  height: auto;
-  min-height: 56px;
-  padding: 4px 6px;
-}
-.configuration-condition-row {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-.configuration-condition-row > :first-child {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.configuration-condition-row > .configuration-link {
-  flex: 0 0 auto;
-}
-.configuration-condition-row :deep(.condition-node-leaf) {
-  grid-template-columns: minmax(150px, 1.1fr) minmax(110px, .72fr) minmax(150px, 1fr);
-  gap: 6px;
-}
-.configuration-condition-row :deep(.rule-control) {
-  height: 32px;
-  padding: 0 9px;
-  border-radius: 4px;
-  border-color: #d7dfe8;
-  color: #273548;
-  font-size: 12px;
-}
-.configuration-condition-row :deep(.rule-control:focus) {
-  border-color: #8798dd;
-  box-shadow: 0 0 0 2px rgba(82, 103, 201, 0.1);
-}
+.configuration-editor { container: process-configuration / inline-size; display: grid; gap: 12px; min-width: 0; margin-top: 8px; padding: 14px; border: 1px solid var(--pm-border); border-radius: var(--pm-radius-card); background: var(--pm-surface); }
+.configuration-topline { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.configuration-label { display: flex; align-items: center; gap: 4px; flex: 0 0 84px; font-size: 12px; font-weight: 600; color: var(--pm-text-secondary); white-space: nowrap; }
+.configuration-label > span, .configuration-help { flex-shrink: 0; }
+.configuration-help { position: relative; font-weight: 400; }
+.configuration-help summary { display: grid; place-items: center; width: 20px; height: 20px; border: 1px solid var(--pm-border); border-radius: 50%; color: var(--pm-text-muted); font-size: 11px; cursor: pointer; list-style: none; }
+.configuration-help summary::-webkit-details-marker { display: none; }
+.configuration-help > span { position: absolute; left: 0; top: 26px; z-index: 3; width: 220px; padding: 10px 12px; border: 1px solid var(--pm-border); border-radius: var(--pm-radius-control); background: var(--pm-surface); box-shadow: var(--pm-shadow-popup); line-height: 1.5; }
+.configuration-modes { display: inline-flex; flex-wrap: wrap; gap: 3px; min-width: 0; padding: 3px; border: 1px solid var(--pm-border); border-radius: var(--pm-radius-control); background: var(--pm-surface-subtle); }
+.configuration-mode { min-height: 28px; padding: 3px 14px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--pm-text-secondary); font-size: 12px; line-height: 20px; cursor: pointer; }
+.configuration-mode:hover { color: var(--pm-primary); background: var(--pm-surface); }
+.configuration-mode[aria-pressed=true] { border-color: var(--pm-primary-border); background: var(--pm-surface); color: var(--pm-primary); font-weight: 600; box-shadow: 0 1px 2px rgba(35, 53, 74, .06); }
+.configuration-conditions, .configuration-relations { min-width: 0; padding-top: 12px; border-top: 1px solid var(--pm-border); }
+.configuration-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; min-width: 0; margin-bottom: 8px; color: var(--pm-text-secondary); font-size: 12px; font-weight: 600; }
+.configuration-heading-copy { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; min-width: 0; }
+.configuration-heading-title { white-space: nowrap; color: var(--pm-text); }
+.configuration-heading-hint { color: var(--pm-text-muted); font-size: 12px; font-weight: 400; line-height: 18px; }
+.configuration-column-labels { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(100px, .72fr) minmax(0, 1fr) 54px; gap: 7px; padding: 0 9px 5px; color: var(--pm-text-muted); font-size: 11px; }
+.configuration-condition-row { display: flex; align-items: flex-start; gap: 7px; padding: 8px; border: 1px solid var(--pm-border); border-radius: var(--pm-radius-control); background: var(--pm-surface-subtle); }
+.configuration-condition-row + .configuration-condition-row { margin-top: 6px; }
+.configuration-condition-row > :first-child { flex: 1 1 auto; min-width: 0; }
+.configuration-condition-row > .configuration-link { flex: 0 0 54px; margin-top: 2px; color: var(--pm-text-muted); }
+.configuration-condition-row > .configuration-link:hover { color: var(--pm-danger); }
+.configuration-condition-row :deep(.condition-node-leaf) { grid-template-columns: minmax(0, 1.1fr) minmax(100px, .72fr) minmax(0, 1fr); gap: 7px; }
+.configuration-condition-row :deep(.rule-control) { height: 30px; min-width: 0; padding: 4px 8px; border-radius: var(--pm-radius-control); border-color: var(--pm-border-strong); background: var(--pm-surface); color: var(--pm-text); font-size: 12px; }
+.configuration-condition-row :deep(.rule-control[multiple]) { height: auto; min-height: 76px; padding: 4px; line-height: 22px; }
+.configuration-condition-row :deep(.custom-scalar-value) { grid-column: 3; }
+.configuration-condition-row :deep(.rule-control:focus) { border-color: var(--pm-primary); box-shadow: var(--pm-focus-ring); }
 .configuration-condition-row :deep(.logic-heading) { margin-bottom: 6px; }
-.configuration-condition-row :deep(.logic-children) {
-  gap: 6px;
-  padding-left: 10px;
-  border-color: #dfe5ef;
-}
+.configuration-condition-row :deep(.logic-children) { gap: 6px; padding-left: 10px; border-color: var(--pm-border); }
 .configuration-condition-row :deep(.logic-child-row) { align-items: center; gap: 5px; }
-.configuration-condition-row :deep(.condition-remove) { padding: 4px 2px; font-size: 11px; }
-.configuration-condition-row :deep(.logic-chip-not) { margin-bottom: 5px; }
-
-.configuration-current,
-.configuration-note,
-.editor-note {
-  font-size: 12px;
-  color: #69788b;
-  line-height: 1.45;
+.configuration-condition-row :deep(.condition-remove) { padding: 4px 2px; font-size: 12px; }
+.configuration-link { width: fit-content; min-height: 26px; padding: 3px; border: 0; background: transparent; color: var(--pm-primary); font-size: 12px; font-weight: 500; line-height: 20px; cursor: pointer; white-space: nowrap; }
+.configuration-link:hover { color: var(--pm-primary-hover); }
+.configuration-manual { display: grid; grid-template-columns: 84px minmax(180px, 1fr); align-items: center; gap: 6px 16px; color: var(--pm-text-secondary); font-size: 12px; }
+.configuration-manual .configuration-note { grid-column: 2; }
+.configuration-relations { display: grid; grid-template-columns: 84px minmax(0, 360px); align-items: center; gap: 16px; }
+.configuration-relations .configuration-heading { margin: 0; }
+.configuration-select, .manual-bool-input { width: 100%; min-width: 0; height: 30px; padding: 4px 8px; border: 1px solid var(--pm-border-strong); border-radius: var(--pm-radius-control); background: var(--pm-surface); color: var(--pm-text); font-size: 12px; outline: none; }
+.configuration-select:focus, .manual-bool-input:focus { border-color: var(--pm-primary); box-shadow: var(--pm-focus-ring); }
+.configuration-result { padding: 8px 10px; border-left: 2px solid var(--pm-primary-border); background: var(--pm-surface-subtle); color: var(--pm-text-secondary); font-size: 12px; line-height: 20px; }
+.configuration-result p { margin: 0; }
+.configuration-note { margin: 0; color: var(--pm-text-muted); font-size: 12px; line-height: 18px; }
+.configuration-error { margin: 0; padding: 7px 10px; border: 1px solid var(--pm-danger-border); border-radius: var(--pm-radius-control); background: var(--pm-danger-soft); color: var(--pm-danger); font-size: 12px; line-height: 20px; overflow-wrap: anywhere; }
+.configuration-error-empty { border-style: dashed; border-color: var(--pm-border-strong); background: var(--pm-surface-subtle); color: var(--pm-text-muted); }
+.candidate-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding-top: 10px; border-top: 1px solid var(--pm-border); }
+.configuration-primary-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.confirm-rule-btn, .cancel-rule-btn { min-height: 28px; padding: 3px 12px; border: 1px solid var(--pm-border-strong); border-radius: var(--pm-radius-control); background: var(--pm-surface); color: var(--pm-text-secondary); font-size: 12px; line-height: 20px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+.cancel-rule-btn:hover:not(:disabled) { background: var(--pm-surface-subtle); }
+.confirm-rule-btn { border-color: var(--pm-primary); background: var(--pm-primary); color: #fff; }
+.confirm-rule-btn:hover:not(:disabled) { border-color: var(--pm-primary-hover); background: var(--pm-primary-hover); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button:focus-visible, summary:focus-visible { outline: 2px solid var(--pm-primary); outline-offset: 2px; }
+@container process-configuration (max-width: 560px) {
+  .configuration-column-labels { display: none; }
+  .configuration-condition-row :deep(.condition-node-leaf) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .configuration-condition-row :deep(.condition-node-leaf > :first-child) { grid-column: 1 / -1; }
+  .configuration-condition-row :deep(.custom-scalar-value) { grid-column: 1 / -1; }
 }
-.configuration-note {
-  margin: 0;
-  text-align: right;
-}
-
-.configuration-link {
-  width: fit-content;
-  min-height: 28px;
-  padding: 4px 3px;
-  border: 0;
-  background: transparent;
-  color: #5267c9;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: color 0.15s, opacity 0.15s;
-}
-.configuration-link:hover {
-  color: #3549a3;
-}
-
-.configuration-manual {
-  display: grid;
-  grid-template-columns: 84px minmax(180px, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  color: #4f5e70;
-  font-size: 12px;
-}
-.configuration-manual .configuration-note {
-  text-align: left;
-}
-
-.configuration-legacy-match {
-  grid-column: 2 / 4;
-  color: #69788b;
-  font-size: 11px;
-}
-.configuration-legacy-match .configuration-select { margin-left: 5px; }
-.configuration-relation-help {
-  grid-column: 2 / 4;
-  margin: -2px 0 1px;
-  color: #748195;
-  font-size: 11px;
-  line-height: 1.4;
-}
-.configuration-relation-help::before {
-  content: '↳';
-  margin-right: 5px;
-  color: #9aa6b5;
-}
-.configuration-error {
-  color: #b33d3d;
-  font-size: 12px;
-  font-weight: 500;
-  margin: 0;
-  padding: 7px 9px;
-  background: #fff5f5;
-  border-radius: 4px;
-  border: 1px solid #f2c7c7;
-}
-
-.candidate-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  border-top: 1px solid #dce3eb;
-  padding-top: 10px;
-  margin-top: 1px;
-}
-.editor-note {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.confirm-rule-btn {
-  border: 0;
-  border-radius: 5px;
-  padding: 7px 15px;
-  background: #5267c9;
-  color: #fff;
-  white-space: nowrap;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  transition: background-color 0.15s, opacity 0.15s;
-}
-.confirm-rule-btn:hover:not(:disabled) {
-  background: #4458b8;
-}
-button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
 @media (max-width: 700px) {
-  .configuration-topline,
-  .configuration-manual,
-  .candidate-footer {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .configuration-modes {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    width: 100%;
-  }
-  .configuration-mode {
-    padding-right: 5px;
-    padding-left: 5px;
-    white-space: normal;
-  }
-  .configuration-note { text-align: left; }
-  .configuration-manual { grid-template-columns: minmax(0, 1fr); gap: 5px; }
-  .configuration-condition-row { align-items: stretch; flex-direction: column; }
-  .configuration-condition-row > .configuration-link { align-self: flex-start; }
+  .configuration-editor { padding: 10px; }
+}
+@container process-configuration (max-width: 400px) {
+  .configuration-topline { align-items: stretch; flex-direction: column; gap: 8px; }
+  .configuration-label { flex-basis: auto; }
+  .configuration-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .configuration-mode { padding-left: 5px; padding-right: 5px; }
+  .configuration-heading { align-items: flex-start; }
+  .configuration-heading-copy { flex-direction: column; }
+  .configuration-column-labels { display: none; }
+  .configuration-manual, .configuration-relations { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .configuration-manual .configuration-note { grid-column: 1; }
+  .configuration-condition-row { flex-direction: column; gap: 4px; }
+  .configuration-condition-row > :first-child { width: 100%; }
+  .configuration-condition-row > .configuration-link { flex-basis: auto; align-self: flex-end; }
   .configuration-condition-row :deep(.condition-node-leaf) { grid-template-columns: minmax(0, 1fr); }
+  .configuration-condition-row :deep(.custom-scalar-value) { grid-column: 1; }
   .configuration-condition-row :deep(.logic-child-row) { align-items: stretch; flex-direction: column; }
-  .configuration-condition-row :deep(.condition-remove) { align-self: flex-start; }
-  .configuration-relation-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 5px 7px;
-  }
-  .configuration-current { grid-column: 1 / -1; }
-  .configuration-relation-row > .relation-select,
-  .configuration-relation-row > .configuration-select { grid-column: 1; width: 100%; }
-  .configuration-relation-row > .configuration-link { grid-column: 2; grid-row: 2; }
-  .configuration-legacy-match,
-  .configuration-relation-help { grid-column: 1 / -1; }
-  .candidate-footer { gap: 8px; }
-  .confirm-rule-btn { align-self: flex-start; }
 }
 </style>

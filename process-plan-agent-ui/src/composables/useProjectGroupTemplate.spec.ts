@@ -642,3 +642,126 @@ describe('useProjectGroupTemplate', () => {
     }])
   })
 })
+
+describe('mapping exceptions and atomic persistence', () => {
+beforeEach(() => vi.resetAllMocks())
+
+it('hydrates old template records without exceptions and clears exceptions on same-path replacement', async () => {
+  getCurrentGroupTemplateMock.mockResolvedValue(template(1))
+  previewGroupTemplateMock.mockResolvedValue(preview())
+  commitGroupTemplateMock.mockResolvedValue({
+    ...template(2), hidden_step_keys: ['old.s1'], waived_group_paths: [['A侧', '孔']],
+    kept_source_operation_ids: [], invalidated: [],
+  })
+  const model = useProjectGroupTemplate(ref(28), ref({}), ref(12))
+  await model.load()
+  expect(model.template.value?.hidden_step_keys).toEqual([])
+  expect(model.template.value?.waived_group_paths).toEqual([])
+  model.beginReplacement()
+  await model.selectFile(xmlFile)
+  await model.confirmTemplate()
+  expect(model.template.value?.hidden_step_keys).toEqual([])
+  expect(model.template.value?.waived_group_paths).toEqual([])
+})
+
+it('lets an atomic save/export callback replace the standalone PUT and adopts only its committed snapshot', async () => {
+  getCurrentGroupTemplateMock.mockResolvedValue(template(5))
+  const model = useProjectGroupTemplate(ref(28), ref({}), ref(12))
+  await model.load()
+  const exceptions = { hidden_step_keys: ['turn.s1'], waived_group_paths: [['A侧', '孔']] }
+  let finish!: (value: any) => void
+  const beforeSave = vi.fn(() => new Promise<any>(resolve => { finish = resolve }))
+  const save = model.saveStepMappings as (...args: any[]) => Promise<boolean>
+  const pending = save([], exceptions, beforeSave)
+  expect(beforeSave).toHaveBeenCalledWith({
+    project_id: 28, expected_template_revision: 5, expected_workflow_revision: 12,
+    mappings: [], operations: [], replace_all: true, ...exceptions,
+  })
+  expect(model.saving.value).toBe(true)
+  expect(saveGroupTemplateStepMappingsMock).not.toHaveBeenCalled()
+  finish({ template_revision: 6, step_mappings: [], mapping_output: [], ...exceptions })
+  expect(await pending).toBe(true)
+  expect(model.saving.value).toBe(false)
+  expect(model.template.value?.project_id).toBe(28)
+  expect(model.template.value?.template_revision).toBe(6)
+  expect(model.template.value?.hidden_step_keys).toEqual(['turn.s1'])
+  expect(model.template.value?.waived_group_paths).toEqual([['A侧', '孔']])
+})
+
+it('shows missing-group blockers from a rejected atomic export and keeps the unmapped workspace unsaved', async () => {
+  getCurrentGroupTemplateMock.mockResolvedValue(template(5))
+  const model = useProjectGroupTemplate(ref(28), ref({}), ref(12))
+  await model.load()
+  const savedTemplate = model.template.value
+  const draftMappings = model.draftMappings.value
+  const draftSteps = model.draftStepMappings.value
+  let reject!: (reason: unknown) => void
+  const beforeSave = () => new Promise<never>((_resolve, fail) => { reject = fail })
+  const pending = model.saveStepMappings([], {
+    hidden_step_keys: ['turn.s1'], waived_group_paths: [['A侧', '孔']],
+  }, beforeSave)
+  expect(model.saving.value).toBe(true)
+
+  reject({ response: { status: 422, data: { detail: {
+    message: '模板映射未完成。',
+    blockers: [{
+      code: 'group_template_mapping_missing',
+      message: '以下模板分组尚未关联任何有效特征映射，请至少为每个有特征的分组关联一个特征：中间通孔、A侧 / 端面',
+      process_id: '', process_name: '',
+    }],
+  } } } })
+
+  expect(await pending).toBe(false)
+  expect(model.saving.value).toBe(false)
+  expect(model.state.value).toBe('workspace')
+  expect(model.template.value).toBe(savedTemplate)
+  expect(model.template.value).toEqual({ ...template(5), hidden_step_keys: [], waived_group_paths: [] })
+  expect(model.draftMappings.value).toBe(draftMappings)
+  expect(model.draftStepMappings.value).toBe(draftSteps)
+  expect(model.draftStepMappings.value).toEqual([])
+  expect(saveGroupTemplateStepMappingsMock).not.toHaveBeenCalled()
+  expect(saveGroupTemplateMappingsMock).not.toHaveBeenCalled()
+  expect(model.error.value).toBe('模板映射未完成。\n以下模板分组尚未关联任何有效特征映射，请至少为每个有特征的分组关联一个特征：中间通孔、A侧 / 端面')
+})
+
+it.each([
+  {
+    name: 'local beforeSave validation',
+    cause: new Error('请先使用当前规则重新生成路线。'),
+    message: '请先使用当前规则重新生成路线。',
+  },
+  {
+    name: 'structured blockers containing non-text entries',
+    cause: { response: { status: 422, data: { detail: {
+      message: '模板映射未完成。',
+      blockers: [null, { message: { path: ['中间通孔'] } }, { message: 42 }, { message: ' A侧 / 端面尚未关联。 ' }],
+    } } } },
+    message: '模板映射未完成。\nA侧 / 端面尚未关联。',
+  },
+  {
+    name: 'unrecognized non-text error detail',
+    cause: { response: { status: 422, data: { detail: { message: {}, blockers: [{ message: [] }] } } } },
+    message: '分组模板操作失败，请稍后重试。',
+  },
+])('retains edited drafts and the saved snapshot after $name rejects atomic export', async ({ cause, message }) => {
+  getCurrentGroupTemplateMock.mockResolvedValue({ ...template(5, [mapping()]), step_mappings: [stepMapping()] })
+  const model = useProjectGroupTemplate(ref(28), ref({}), ref(12))
+  await model.load()
+  const savedTemplate = model.template.value
+  model.draftMappings.value[0]!.alias = '未保存别名'
+  model.draftStepMappings.value[0]!.source_step_name = '未保存工步'
+  const draftSteps = model.draftStepMappings.value
+
+  expect(await model.saveStepMappings([], undefined, async () => { throw cause })).toBe(false)
+  expect(model.saving.value).toBe(false)
+  expect(model.state.value).toBe('workspace')
+  expect(model.template.value).toBe(savedTemplate)
+  expect(model.template.value).toEqual({ ...template(5, [mapping()]), step_mappings: [stepMapping()], hidden_step_keys: [], waived_group_paths: [] })
+  expect(model.draftMappings.value[0]?.alias).toBe('未保存别名')
+  expect(model.draftStepMappings.value).toBe(draftSteps)
+  expect(model.draftStepMappings.value[0]?.source_step_name).toBe('未保存工步')
+  expect(saveGroupTemplateStepMappingsMock).not.toHaveBeenCalled()
+  expect(saveGroupTemplateMappingsMock).not.toHaveBeenCalled()
+  expect(model.error.value).toBe(message)
+})
+})

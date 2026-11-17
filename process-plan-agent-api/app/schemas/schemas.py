@@ -55,28 +55,6 @@ class DocumentPreviewOut(BaseModel):
     preview_text: str = ""
 
 
-# ---------- 参考资料 ----------
-class ReferenceCreate(BaseModel):
-    title: str
-    content: Optional[str] = None
-    ref_type: str = "written"
-    document_id: Optional[int] = None
-    project_id: int
-
-
-class ReferenceOut(BaseModel):
-    id: int
-    project_id: Optional[int] = None
-    title: str
-    content: Optional[str] = None
-    ref_type: str
-    filename: Optional[str] = None
-    document_id: Optional[int] = None
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
 # ---------- 工序 & 影响因素 ----------
 class FactorOut(BaseModel):
     id: int
@@ -265,6 +243,11 @@ class ProjectGroupTemplateOut(BaseModel):
     mappings: List[GroupTemplateMappingOut] = Field(default_factory=list)
     step_mappings: List[GroupTemplateStepMappingOut] = Field(default_factory=list)
     mapping_output: List[GroupTemplateMappingOutputProcessOut] = Field(default_factory=list)
+    step_order_by_process: Dict[str, List[str]] = Field(default_factory=dict)
+    mapping_context: dict = Field(default_factory=dict)
+    mapping_operations: List[dict] = Field(default_factory=list)
+    hidden_step_keys: List[str] = Field(default_factory=list)
+    waived_group_paths: List[List[str]] = Field(default_factory=list)
     template_revision: int
     group_count: int = 0
     feature_selection_count: int = 0
@@ -323,6 +306,11 @@ class GroupTemplateStepMappingsUpdateRequest(BaseModel):
     operations: List[TemplateGroupMappingOperationIn] = Field(default_factory=list)
     # Keep incremental saves from discarding mappings saved by an earlier pass.
     replace_all: bool = False
+    # Omitted fields from older clients preserve saved exceptions; [] clears.
+    step_order_by_process: Optional[Dict[str, List[str]]] = None
+    expected_route_version_id: Optional[int] = None
+    hidden_step_keys: Optional[List[str]] = None
+    waived_group_paths: Optional[List[List[str]]] = None
 
 
 class TemplateGroupMappingCandidateIn(BaseModel):
@@ -560,12 +548,28 @@ class SavedNormalizedRouteVersionOut(BaseModel):
     project_id: int
     version: int
     workflow_revision: int = 0
+    analysis_locked: bool = False
+    analysis_locked_at: Optional[datetime] = None
     source_signature: str = ""
     saved_by: str = "默认用户"
     saved_at: datetime
     total_docs: int = 0
     segment_count: int = 0
     segments: List[SavedNormalizedRouteSegmentOut] = []
+
+
+class FinalizationEntryRequest(BaseModel):
+    project_id: int
+    route_id: int
+    expected_workflow_revision: int
+
+
+class AnalysisLockOut(BaseModel):
+    project_id: int
+    route_id: int
+    workflow_revision: int
+    analysis_locked: bool
+    analysis_locked_at: Optional[datetime] = None
 
 
 class NormalizedRouteSegmentSaveItem(BaseModel):
@@ -619,6 +623,7 @@ class SegmentRuleReviewSaveOut(BaseModel):
     analysis_status: str = "pending"
     normalized_step_name: Optional[str] = None
     rule_review: Optional[SegmentRuleReviewOut] = None
+    invalidated_segment_ids: List[str] = Field(default_factory=list)
 
 
 class FinalizedRulePackageSaveRequest(BaseModel):
@@ -781,6 +786,7 @@ class InputValueMetadata(BaseModel):
 
 class GenerateRequest(BaseModel):
     project_id: Optional[int] = None
+    executable_revision_id: Optional[int] = Field(default=None, ge=1)
     expected_workflow_revision: int = 0
     factor_values: dict[str, Any] = Field(default_factory=dict)
     input_metadata: Dict[str, InputValueMetadata] = Field(default_factory=dict)
@@ -814,6 +820,9 @@ class RouteStep(BaseModel):
 
 class GenerateResponse(BaseModel):
     id: Optional[int] = None
+    executable_revision_id: Optional[int] = None
+    executable_revision: Optional[int] = None
+    executable_content_hash: Optional[str] = None
     steps: List[RouteStep]
     summary: str
     output_json_text: Optional[str] = None
@@ -825,6 +834,7 @@ class GenerateResponse(BaseModel):
     schema_version: Optional[str] = None
     matched_rule_ids: List[str] = Field(default_factory=list)
     selected_process_ids: List[str] = Field(default_factory=list)
+    input_factors: Dict[str, Any] = Field(default_factory=dict)
     input_metadata: Dict[str, InputValueMetadata] = Field(default_factory=dict)
 
 
@@ -1012,9 +1022,16 @@ class LLMTestRequest(BaseModel):
     model: Optional[str] = None
 
 
+class LLMSettingsUpdate(BaseModel):
+    api_url: str
+    model: str
+    api_key: Optional[str] = None
+
+
 class LLMTestOut(BaseModel):
     success: bool
     message: str
+    code: Optional[str] = None
 
 
 class LLMModelOut(BaseModel):

@@ -119,6 +119,14 @@ it.each([
 it('leaves an unknown machining phase unresolved for explicit mapping confirmation', () => {
   expect(finalProcessMetadata({ step_family: '孔加工类', normalized_step_name: '精密内孔加工', phase: 'unclassified' }, []).precision).toBe('')
 })
+it.each(['下料', '备料', '下料（锯床）', '毛坯准备', '下料备料', '下料准备', '开料', '切料', '下料准备（锯床）', '开料/备料', '切料／下料', '下料备料#2', '下料#1', '备料#2', '下料/备料', '下料／备料'])('keeps %s outside machining precision even with a legacy turning family', normalized_step_name => {
+  expect(finalProcessMetadata({ normalized_step_name, step_family: '车削/成形类', phase: 'rough' }, [])).toEqual({
+    process_type: '辅助工序', precision: '辅助工序',
+  })
+})
+it.each(['车削下料', '下料/钻孔', '钻孔／备料#2', '下料加工'])('keeps actual or mixed machining %s outside preparation', normalized_step_name => {
+  expect(finalProcessMetadata({ normalized_step_name, step_family: '车削/成形类', phase: 'rough' }, []).process_type).toBe('加工工序')
+})
 it.each(['打孔', '割扁', '刻线'])('recognizes %s without a machining family', normalized_step_name => {
   expect(finalProcessMetadata({ normalized_step_name, phase: 'finish' }, []).process_type).toBe('加工工序')
 })

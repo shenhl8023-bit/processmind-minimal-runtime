@@ -1,0 +1,9 @@
+{
+  "opening_options": [
+    { "value": "mainline", "label": "设置为主工序，在路线中固定出现" },
+    { "value": "manual", "label": "由用户决定是否出现" },
+    { "value": "condition", "label": "根据条件设置" },
+    { "value": "relation", "label": "与其他工序关联" },
+    { "value": "custom", "label": "其他" }
+  ]
+}

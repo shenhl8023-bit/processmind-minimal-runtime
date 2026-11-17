@@ -17,6 +17,7 @@ import json
 import re
 from typing import Awaitable, Callable
 
+from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,7 +29,10 @@ from app.models.models import (
     Project,
     RouteMergeSnapshot,
 )
-from app.services.project_workflow_lifecycle import invalidate_project_workflow
+from app.services.project_workflow_lifecycle import (
+    acquire_workflow_revision,
+    invalidate_project_workflow,
+)
 from app.services.route_merge.config import (
     ROUTE_MERGE_ALGO_VERSION,
 )
@@ -106,6 +110,17 @@ def _document_source_digest(document_source_keys: list[str] | None = None) -> st
         separators=(",", ":"),
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+async def _current_workflow_revision(project_id: int, db: AsyncSession) -> int:
+    revision = (
+        await db.execute(
+            select(Project.workflow_revision).where(Project.id == project_id)
+        )
+    ).scalar_one_or_none()
+    if revision is None:
+        raise HTTPException(404, "任务不存在")
+    return int(revision or 0)
 
 
 async def invalidate_project_route_merge_cache(
@@ -428,6 +443,7 @@ def route_merge_source_signature(
     operations: list[dict],
     detail_rows: list[DocumentOperationDetail],
     document_source_keys: list[str] | None = None,
+    workflow_revision: int | None = None,
 ) -> str:
     op_keys = sorted(f"{item.get('id')}:{item.get('name')}:{item.get('sequence')}" for item in operations)
     detail_keys = sorted(
@@ -447,10 +463,13 @@ def route_merge_source_signature(
         separators=(",", ":"),
     )
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-    return (
+    signature = (
         f"{ROUTE_MERGE_ALGO_VERSION}|ops={len(op_keys)}|details={len(detail_keys)}|"
         f"docs={len(document_keys)}|docsha256={document_digest}|sha256={digest}|promptsha256={advice_prompt_digest()}"
     )
+    if workflow_revision is not None:
+        signature += f"|wr={int(workflow_revision)}"
+    return signature
 
 
 async def get_latest_route_merge_snapshot(project_id: int, db: AsyncSession) -> RouteMergeSnapshot | None:
@@ -490,6 +509,7 @@ def build_route_merge_snapshot_payload(
     raw_operations: list[dict],
     detail_rows: list[DocumentOperationDetail],
     document_source_keys: list[str] | None = None,
+    workflow_revision: int | None = None,
 ) -> dict[str, object]:
     groups = build_initial_merge_groups(raw_operations, detail_rows)
     suggestions = build_merge_suggestions_from_groups(groups)
@@ -504,6 +524,7 @@ def build_route_merge_snapshot_payload(
             raw_operations,
             detail_rows,
             document_source_keys,
+            workflow_revision=workflow_revision,
         ),
     }
 
@@ -533,6 +554,11 @@ async def ensure_route_merge_snapshot(
             }
             previous_payload = payload
             source_signature = str(payload["source_signature"])
+            # The recorded workflow revision guards an in-flight build, not
+            # the lifetime of a completed Step 2 snapshot. Saving a changed
+            # route or resetting Step 3/4 also bumps that revision without
+            # changing these sources. Real upstream changes delete the
+            # snapshot, and the document/prompt checks below cover upgrades.
             # Check document identity before algorithm identity: a simultaneous
             # document and algorithm change must invalidate source-derived data.
             document_digest_match = re.search(r"(?:^|\|)docsha256=([0-9a-f]{64})(?:\||$)", source_signature)
@@ -575,10 +601,17 @@ async def ensure_route_merge_snapshot(
             # Algorithm/prompt upgrades overwrite the snapshot in place and
             # retain parsed evidence plus legacy metadata.
 
+        workflow_revision = await _current_workflow_revision(project_id, db)
         raw_operations = await load_superset_route()
         detail_rows = await load_detail_rows()
         document_source_keys = await _project_document_source_keys(project_id, db)
-        payload = build_route_merge_snapshot_payload(project_id, raw_operations, detail_rows, document_source_keys)
+        payload = build_route_merge_snapshot_payload(
+            project_id,
+            raw_operations,
+            detail_rows,
+            document_source_keys,
+            workflow_revision=workflow_revision,
+        )
         review_state = {}
         if previous_payload and _same_superset_route_sources(previous_payload.get("superset_route"), raw_operations):
             review_state = copy.deepcopy(previous_payload.get("review_state") or {})
@@ -591,6 +624,10 @@ async def ensure_route_merge_snapshot(
         payload["normalized_superset_route"] = build_normalized_route_from_groups(groups)
         if review_state.get("_manual_normalized_route_saved"):
             payload["normalized_superset_route"] = copy.deepcopy(previous_payload["normalized_superset_route"])
+        # A re-extraction can change the workflow while the advisor is
+        # running. Claiming the same revision here makes the snapshot write
+        # conditional on the data that was actually loaded.
+        await acquire_workflow_revision(db, project_id, workflow_revision)
         await save_route_merge_snapshot(project_id, db, payload, review_state=review_state)
         await db.commit()
         return payload

@@ -196,13 +196,21 @@ class ProcessRelationSpec(StrictModel):
 
 class ProcessConfiguration(StrictModel):
     process_id: str = Field(min_length=1)
-    occurrence: Literal["always", "manual", "conditional"]
+    occurrence: Literal["always", "manual", "conditional", "associated"]
     when: ConditionNode | None = None
     relations: list[ProcessRelationSpec] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_occurrence(self):
         triggers = [r for r in self.relations if r.relation_type == "trigger_after"]
+        if self.occurrence == "associated":
+            if self.when is not None or len(self.relations) != 1 or len(triggers) != 1:
+                raise ValueError("associated occurrence requires one source trigger and no field conditions")
+            relation = triggers[0]
+            if (len(relation.source_process_ids) != 1
+                    or relation.target_process_ids != [self.process_id]
+                    or self.process_id in relation.source_process_ids):
+                raise ValueError("associated occurrence requires one distinct source and the current process as target")
         if self.occurrence == "always" and (self.when is not None or triggers):
             raise ValueError("always occurrence cannot contain conditions or triggers")
         if self.occurrence == "manual" and self.when is None:

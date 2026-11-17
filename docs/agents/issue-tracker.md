@@ -43,3 +43,7 @@ Used by `/wayfinder` if installed. The **map** is a file with one **child** file
 - Prefer feature slugs in English kebab-case, e.g. `rule-package-v2-stage3`, `dynamic-form-step5`.
 - Link related design docs in the spec body, e.g. `docs/规则包V2-通用化实施方案.md`, `docs/规则包V2-阶段3实施清单.md`.
 - Do not put secrets or `process_settings.json` contents into `.scratch/`.
+
+## 2026-11-05 实施授权更新
+
+用户已明确要求按五批完成全部十二项已确认需求并测试审查，替代早期“未获启动授权”记录。五批代码、联合验收及独立审查修复复核已完成，十二张工单已关闭；当前状态和证据以 `.scratch/system-improvements/map.md` 及 `docs/superpowers/reviews/2026-11-05-system-improvements-acceptance.md` 为准。历史讨论阶段的 deferred 不限制本轮明确授权。

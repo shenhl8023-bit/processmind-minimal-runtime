@@ -102,13 +102,40 @@ async def require_sources(package, session):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('mutation', ['valid', 'omitted', 'changed', 'disabled'])
+async def test_associated_configuration_publication_requires_exact_confirmation(tmp_path, rule_package_v2_payload, mutation):
+    from app.services.rule_packages.contracts import ProcessConfigurationV2
+    config = {
+        'process_id': 'process_quench', 'occurrence': 'associated', 'when': None,
+        'relations': [{'relation_type': 'trigger_after', 'source_process_ids': ['process_prepare'],
+                       'target_process_ids': ['process_quench'], 'source_match': 'all'}],
+    }
+    candidate = RuleConditionCandidate.model_validate({'kind': 'process_configuration', 'configuration': config})
+    package = RulePackageV2.model_validate(rule_package_v2_payload)
+    if mutation != 'omitted':
+        package.route_rules.process_configurations.append(ProcessConfigurationV2(
+            **config, source='user_confirmed', source_segment_id=SEGMENT_ID, source_text=SOURCE_TEXT,
+            confirmed_by='默认用户', confirmed_at=CONFIRMED_AT.isoformat(), enabled=mutation != 'disabled',
+        ))
+    if mutation == 'changed':
+        package.route_rules.process_configurations[-1].relations[0].source_process_ids = ['process_quench']
+    async with review_session(tmp_path, [review_row(candidate=candidate)]) as session:
+        if mutation == 'valid':
+            await require_sources(package, session)
+        else:
+            with pytest.raises(HTTPException) as error:
+                await require_sources(package, session)
+            assert error.value.status_code == 409
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('mutation', ['valid', 'omitted', 'changed', 'disabled', 'field_label'])
 async def test_unified_configuration_publication_matches_full_confirmation(tmp_path, rule_package_v2_payload, mutation):
     from app.services.rule_packages.contracts import ProcessConfigurationV2
     config = {
         'process_id': 'process_quench', 'occurrence': 'conditional',
         'when': {'field': 'project_factor.category', 'op': 'eq', 'value': 'A'},
-        'relations': [{'relation_type': 'trigger_after', 'source_process_ids': ['process_prepare'], 'target_process_ids': ['process_quench'], 'source_match': 'all'}],
+        'relations': [],
     }
     field = {'key': 'project_factor.category', 'label': '类型', 'category': '项目', 'type': 'single_select', 'operators': ['eq'], 'options': [{'value': 'A', 'label': 'A'}], 'allow_custom': False}
     candidate = RuleConditionCandidate.model_validate({'kind': 'process_configuration', 'configuration': config, 'field_definitions': [field]})
@@ -120,7 +147,7 @@ async def test_unified_configuration_publication_matches_full_confirmation(tmp_p
     if mutation != 'omitted':
         package.route_rules.process_configurations.append(ProcessConfigurationV2(**config, source='user_confirmed', source_segment_id=SEGMENT_ID, source_text=SOURCE_TEXT, confirmed_by='默认用户', confirmed_at=CONFIRMED_AT.isoformat(), enabled=mutation != 'disabled'))
     if mutation == 'changed':
-        package.route_rules.process_configurations[0].relations = []
+        package.route_rules.process_configurations[0].when.value = 'B'
     if mutation == 'field_label':
         package.input_schema.fields[-1].label = '伪造标签'
     async with review_session(tmp_path, [review_row(candidate=candidate)]) as session:
@@ -181,6 +208,19 @@ async def test_unconfirmed_persisted_condition_cannot_be_hidden_as_mainline(
 
 
 @pytest.mark.asyncio
+async def test_confirmed_conditional_rule_cannot_be_hidden_as_mainline(
+    tmp_path, rule_package_v2_payload,
+):
+    package = package_with_confirmation(rule_package_v2_payload, condition_candidate())
+    next(process for process in package.route_catalog.processes if process.process_id == "process_quench").main = True
+    async with review_session(tmp_path, [review_row()]) as session:
+        with pytest.raises(HTTPException) as error:
+            await require_sources(package, session)
+        assert error.value.status_code == 409
+        assert SEGMENT_ID in error.value.detail["segment_ids"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("kind", ["condition", "relation"])
 @pytest.mark.parametrize("export_mode", ["omitted", "system_static", "disabled"])
 async def test_confirmed_source_must_be_included_and_enabled(
@@ -203,6 +243,10 @@ async def test_confirmed_source_must_be_included_and_enabled(
 async def test_current_confirmed_source_can_be_published(tmp_path, rule_package_v2_payload, kind):
     candidate = condition_candidate() if kind == "condition" else relation_candidate()
     package = package_with_confirmation(rule_package_v2_payload, candidate)
+    if kind == "relation":
+        # The new association replaces the fixture's old static inclusion.
+        package.route_rules.rules = [rule for rule in package.route_rules.rules
+                                     if "process_quench" not in rule.then.include_process_ids]
     async with review_session(tmp_path, [review_row(candidate=candidate)]) as session:
         await require_sources(package, session)
 

@@ -1,7 +1,44 @@
 import { describe, expect, it } from 'vitest'
-import { conditionIsComplete, configurationError, configurationSummary, processRelationDescription } from './processConfigurationEditor'
+import { conditionIsComplete, conditionTriples, configurationError, configurationSummary, processRelationDescription, validateAuthoredCandidate } from './processConfigurationEditor'
 
 describe('process configuration editing', () => {
+  it('reopens the normalized A/B choice as a single direction without allowing arbitrary OR', () => {
+    const field = 'project_factor.operation_drill.direction'
+    const range = { any: ['A侧', 'B侧'].map(value => ({ field, op: 'eq', value })) }
+    const candidate: any = { kind: 'process_configuration', configuration: { process_id: 'drill', occurrence: 'conditional', relations: [], when: range } }
+    expect(conditionTriples(range)).toEqual([{ field, op: 'eq', value: '所有方位' }])
+    expect(validateAuthoredCandidate(candidate, 'drill')).toEqual([])
+    expect(conditionTriples({ any: [{ field, op: 'eq', value: 'A侧' }, { field, op: 'eq', value: '周边' }] })).toBeNull()
+    expect(conditionTriples({ any: [{ field, op: 'eq', value: 'A侧' }, { field: 'project_factor.operation_other.direction', op: 'eq', value: 'B侧' }] })).toBeNull()
+  })
+  it('validates the composite candidate serialized by project 1 without treating field:null as a leaf', () => {
+    const when: any = { all: [
+      { all: null, any: null, not: null, field: 'project_factor.operation_8d3b3d18.features', op: 'contains_any', value: ['孔(通孔)', '孔(盲孔)'] },
+      { all: null, any: null, not: null, field: 'project_factor.operation_8d3b3d18.direction', op: 'eq', value: '周边' },
+    ], any: null, not: null, field: null, op: null, value: null }
+    const candidate: any = { kind: 'process_configuration', preview: '', configuration: { process_id: 'drill', occurrence: 'conditional', relations: [], when } }
+    expect(validateAuthoredCandidate(candidate, 'drill')).toEqual([])
+    expect(conditionTriples(when)).toHaveLength(2)
+    expect(conditionIsComplete(when)).toBe(true)
+  })
+
+  it.each([
+    { all: [{ field: 'x', op: 'eq', value: 1 }], field: 'y', op: 'eq', value: 2 },
+    { all: 'broken', field: null, op: null },
+    { field: 12, op: 'eq', value: 1 },
+    { field: null, op: 'eq', value: 1 },
+  ])('rejects malformed or mixed leaf/composite structures explicitly: %j', when => {
+    const candidate: any = { kind: 'process_configuration', preview: '', configuration: { process_id: 'drill', occurrence: 'conditional', relations: [], when } }
+    expect(validateAuthoredCandidate(candidate, 'drill').length).toBeGreaterThan(0)
+    expect(conditionIsComplete(when as any)).toBe(false)
+  })
+  it('requires complete supported triples without describing fresh parser candidates as historical', () => {
+    const config: any = { process_id: 'strip', occurrence: 'conditional', when: { any: [{ field: 'material.grade', op: 'eq', value: '6061' }] }, relations: [] }
+    expect(configurationError(config)).toContain('请选择一种出现模式重新设置')
+    expect(configurationError(config)).not.toContain('旧版')
+    config.when = { all: [{ field: 'material.grade', op: 'eq', value: '6061' }, { all: [] }] }
+    expect(configurationError(config)).not.toBe('')
+  })
   it('summarizes a legacy trigger without source_match using the any-match default', () => {
     const text = configurationSummary({
       process_id: 'strip', occurrence: 'conditional', when: null,
@@ -29,10 +66,10 @@ describe('process configuration editing', () => {
   })
   it('requires a condition or real trigger and validates each linked process', () => {
     const config:any = {process_id:'strip', occurrence:'conditional', when:null, relations:[]}
-    expect(configurationError(config)).toContain('设置出现方式')
+    expect(configurationError(config)).toContain('请自行添加至少一条条件')
     config.relations = [{relation_type:'order_after',source_process_ids:['copper'],target_process_ids:['strip']}]
-    expect(configurationError(config)).toContain('设置出现方式')
-    expect(configurationError(config)).toContain('仅调整顺序不会带出本工序')
+    expect(configurationError(config)).toContain('请选择一种出现模式重新设置')
+    config.occurrence='associated'
     config.relations[0].relation_type='trigger_after'
     expect(configurationError(config)).toBe('')
     config.relations[0].source_process_ids=[]

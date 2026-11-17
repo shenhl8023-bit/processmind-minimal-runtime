@@ -1,5 +1,10 @@
 import { computed, ref, watch, type ComputedRef } from 'vue'
 import type { DocumentOperationDetailItem, SavedNormalizedRouteVersionResult } from '@/api'
+import type { AnalysisGuidanceConfiguration } from '@/api/analysisGuidance'
+import { applyGuidedAnswer, buildGuidedDraft, buildGuidedQuestion, recommendedGuidedOptions, resolveGuidanceOperation, guidedOperationKey, confirmedGuidedObject, resolveGuidedObject } from './analysisGuidanceFlow'
+import { OBJECT_REUSE_NODE, supplementFrozenObjectRecommendation, type ConfirmedMachiningObject } from './analysisGuidedObjects'
+import { mergeRootNode, type TreeNode } from './analysisQuestionTreeNodes'
+import { mergeCandidateNamesForSegment } from './analysisQuestionEvidence'
 import { type TreeOption } from '@/config/analysisQuestionProfiles'
 import {
   answersFromTrail,
@@ -7,6 +12,9 @@ import {
   loadPersistedTreeState as loadPersistedQuestionTreeState,
   persistTreeState as persistQuestionTreeState,
   savedQuestionTrail,
+  savedGuidanceSnapshot,
+  segmentGuidanceKey,
+  trailWithGuidanceSnapshot,
   type SegmentTreeState,
 } from '@/composables/analysisQuestionTreeState'
 import {
@@ -25,9 +33,15 @@ import {
   segmentNeedsMergeNameQuestion,
 } from '@/composables/analysisWorkspaceHelpers'
 type Segment = SavedNormalizedRouteVersionResult['segments'][number]
+const frozenIdentityMessage = '无法唯一恢复此工序原来的问答配置。原回答和已有草稿仍保留，暂不能重答或重新生成规则，请核对原工序配置。'
 
 export function useAnalysisQuestionTree(args: {
+  guidance?: ComputedRef<AnalysisGuidanceConfiguration | null>
+  segments?: ComputedRef<Segment[]>
+  readOnly?: ComputedRef<boolean>
   projectId?: ComputedRef<number | null>
+  routeId?: ComputedRef<number | null>
+  workflowRevision?: ComputedRef<number | null>
   selectedSegment: ComputedRef<Segment | null>
   detailRows: ComputedRef<DocumentOperationDetailItem[]>
   selectedSegmentMatchedDocIds: ComputedRef<Set<number>>
@@ -38,7 +52,12 @@ export function useAnalysisQuestionTree(args: {
   const treeStateMap = ref<Record<string, SegmentTreeState>>({})
   const hydratedSegmentIds = ref<Set<string>>(new Set())
   const rejudgingSegmentMap = ref<Record<string, boolean>>({})
-  const storageKey = computed(() => `processmind_analysis_question_tree_v10_${args.projectId?.value || 'unknown'}`)
+  const recommendationGapMap = ref<Record<string, string>>({})
+  // Segment IDs survive upstream route rebuilds. A project-only cache can
+  // otherwise replay answers frozen against another route/workflow version.
+  const storageKey = computed(() => args.routeId
+    ? `processmind_analysis_question_tree_v11_route_${args.routeId.value ?? 'pending'}_${args.workflowRevision?.value ?? 'unknown'}_${args.projectId?.value || 'unknown'}`
+    : `processmind_analysis_question_tree_v10_${args.projectId?.value || 'unknown'}`)
 
   function isSegmentRejudging(segment: Segment | null) {
     return !!(segment?.id && rejudgingSegmentMap.value[segment.id])
@@ -49,19 +68,115 @@ export function useAnalysisQuestionTree(args: {
   }
 
   function persistTreeState(value: Record<string, SegmentTreeState>) {
+    if (args.readOnly?.value) return
     persistQuestionTreeState(storageKey.value, value)
   }
 
   function ensureState(segmentId: string): SegmentTreeState {
     let state = treeStateMap.value[segmentId]
-    if (!state) {
-      state = createEmptySegmentTreeState()
+    const segment = args.segments?.value?.find(s => s.id === segmentId) || (args.selectedSegment.value?.id === segmentId ? args.selectedSegment.value : null)
+    const localEmpty = state && !Object.keys(state.answers).length && !state.note.trim()
+    const snapshot = !state?.rejudging && (!state?.guidanceSnapshot || localEmpty) ? savedGuidanceSnapshot(segment) : undefined
+    if (!state || snapshot) {
+      state = snapshot ? {
+        ...createEmptySegmentTreeState(), guidanceSnapshot: snapshot,
+        answers: answersFromTrail(savedQuestionTrail(segment)),
+        note: state?.note || segment?.rule_review?.note || '',
+      } : createEmptySegmentTreeState()
       treeStateMap.value = {
         ...treeStateMap.value,
         [segmentId]: state,
       }
     }
+    if (segment && state.guidanceSnapshot) freezeGuidance(state, segment)
     return state
+  }
+
+  function guidanceForState(state: SegmentTreeState) {
+    return state.guidanceSnapshot || args.guidance?.value
+  }
+  function operationForState(segment: Segment, state: SegmentTreeState, guidance: AnalysisGuidanceConfiguration) {
+    return resolveGuidanceOperation(segment, guidance, state.answers, args.segments?.value || [segment], !!state.guidanceSnapshot)
+  }
+  function freezeGuidance(state: SegmentTreeState, segment: Segment) {
+    if (!state.guidanceSnapshot && args.guidance?.value) state.guidanceSnapshot = JSON.parse(JSON.stringify(args.guidance.value))
+    const snapshot = state.guidanceSnapshot
+    if (!snapshot || snapshot.operation_guidance[segmentGuidanceKey(segment.id)]) return
+    const original = operationForState(segment, state, snapshot)
+    if (original !== null) snapshot.operation_guidance[segmentGuidanceKey(segment.id)] = JSON.parse(JSON.stringify(original || {}))
+  }
+  function hasUnresolvedFrozenIdentity(segment: Segment, state: SegmentTreeState) {
+    return !!state.guidanceSnapshot && operationForState(segment, state, state.guidanceSnapshot) === null
+  }
+  let checkingFrozenCompletion = false
+  function frozenObjectSupplement(segment: Segment, state: SegmentTreeState, guidance: AnalysisGuidanceConfiguration,
+    operation: AnalysisGuidanceConfiguration['operation_guidance'][string]) {
+    const source = args.guidance?.value
+    const recommendation = operation.recommendation
+    if (checkingFrozenCompletion || !state.guidanceSnapshot || !source || !Object.keys(state.answers).length ||
+        recommendation?.mode !== 'condition' || !['precision', 'roughness'].includes(recommendation.basis || '') ||
+        (recommendation.features?.length && recommendation.direction) ||
+        (segmentReviewLocked(segment) && !isSegmentRejudging(segment))) return operation
+    const segments = args.segments?.value || [segment]
+    const target = state.answers.merge_name_root?.label ? { ...segment, normalized_step_name: state.answers.merge_name_root.label } : segment
+    const frozenView = { ...guidance, operation_guidance: { ...guidance.operation_guidance,
+      [target.normalized_step_name]: operation, [guidedOperationKey(target, segments)]: operation } }
+    // Test completion using the existing frozen answers/reuse, without also
+    // adapting every earlier draft during this read (or recursively rechecking it).
+    checkingFrozenCompletion = true
+    try {
+      if (!buildGuidedQuestion(target, frozenView, state.answers, segments, objectsBefore(segment))) return operation
+    } finally { checkingFrozenCompletion = false }
+    const identity = segment.export_process_id || segment.id
+    const identities = guidance.generation_operation_ids
+    const keys = identities ? Object.keys(identities).filter(key => identities[key] === identity) : []
+    const indexed = guidedOperationKey(segment, segments)
+    const key = identities ? (keys.length === 1 ? keys[0] : undefined) : state.answers.merge_name_root ? undefined :
+      guidance.operation_guidance[indexed] ? indexed :
+        segments.filter(item => item.normalized_step_name === segment.normalized_step_name).length === 1 ? segment.normalized_step_name : undefined
+    return key ? supplementFrozenObjectRecommendation(guidance, source, key, identity, operation, state.answers) : operation
+  }
+  function applyRecommendedAnswer(segment: Segment, state: SegmentTreeState, answer: Parameters<typeof applyGuidedAnswer>[1]) {
+    const snapshot = state.guidanceSnapshot
+    const original = snapshot && operationForState(segment, state, snapshot)
+    // Adding a newly required object answer to a compatible old draft must not
+    // clear the user's already answered direction or IT/Ra from the old order.
+    if (original && !state.answers[answer.nodeId] && ['guided_features', 'guided_direction'].includes(answer.nodeId) &&
+        frozenObjectSupplement(segment, state, snapshot!, original) !== original) {
+      return { ...state.answers, [answer.nodeId]: answer }
+    }
+    return applyGuidedAnswer(state.answers, answer)
+  }
+  function namedGuidance(segment: Segment, state: SegmentTreeState) {
+    const guidance = guidanceForState(state)
+    const selectedName = state.answers.merge_name_root?.label
+    if (!guidance) return guidance
+    const original = operationForState(segment, state, guidance)
+    if (original === null) return null
+    if (!original) return guidance
+    const operation = frozenObjectSupplement(segment, state, guidance, original)
+    const target = selectedName ? { ...segment, normalized_step_name: selectedName } : segment
+    return { ...guidance, operation_guidance: { ...guidance.operation_guidance,
+      [target.normalized_step_name]: operation,
+      [guidedOperationKey(target, args.segments?.value || [segment])]: operation,
+    } }
+  }
+
+  function objectsBefore(segment: Segment) {
+    const segments = args.segments?.value || [segment]
+    const index = segments.findIndex(item => item.id === segment.id)
+    const prior = index >= 0 ? segments.slice(0, index) : segments.filter(item => item.sequence < segment.sequence)
+    const objects: ConfirmedMachiningObject[] = []
+    for (const source of prior) {
+      if (source.rule_review?.decision === 'rejected' && !isSegmentRejudging(source)) continue
+      const state = normalizeStateForSegment(source, ensureState(source.id))
+      const guidance = namedGuidance(source, state)
+      if (!guidance || hasUnresolvedFrozenIdentity(source, state)) continue
+      const name = state.answers.merge_name_root?.label
+      const object = confirmedGuidedObject(name ? { ...source, normalized_step_name: name } : source, guidance, state.answers, segments, objects)
+      if (object) objects.push(object)
+    }
+    return objects
   }
 
   function markSegmentDirty(segmentId: string) {
@@ -71,6 +186,7 @@ export function useAnalysisQuestionTree(args: {
   }
 
   function setSegmentState(segmentId: string, state: SegmentTreeState) {
+    delete recommendationGapMap.value[segmentId]
     treeStateMap.value = {
       ...treeStateMap.value,
       [segmentId]: { ...state, rejudging: !!rejudgingSegmentMap.value[segmentId] },
@@ -103,6 +219,7 @@ export function useAnalysisQuestionTree(args: {
   }
 
   function shouldDropHydratedState(segment: Segment | null, state: SegmentTreeState) {
+    if (state.guidanceSnapshot) return false
     if (!segment?.id) return false
     if (!hydratedSegmentIds.value.has(segment.id)) return false
     if (!segmentNeedsMergeNameQuestion(segment)) return false
@@ -115,20 +232,33 @@ export function useAnalysisQuestionTree(args: {
     return mode === 'merge_name'
   }
 
-  const currentQuestion = computed(() => buildCurrentQuestion({
-    segment: (() => {
+  function questionForSegment(segment: Segment | null, state: SegmentTreeState, isRejudging: boolean, matchedDocIds: Set<number>, matchedDocumentTexts: string[]): TreeNode | null {
+    const guidance = segment ? namedGuidance(segment, state) : guidanceForState(state)
+    if (segment && guidance === null && hasUnresolvedFrozenIdentity(segment, state)) {
+      return { id: 'guidance_identity_unresolved', title: '原问答配置待核对', prompt: frozenIdentityMessage, options: [] }
+    }
+    if (guidance === null || (args.guidance && !guidance)) return null
+    if (guidance && segment) {
+      if (segmentReviewLocked(segment) && !isRejudging) return null
+      if (segmentNeedsMergeNameQuestion(segment) && !state.answers.merge_name_root) return mergeRootNode(segment.normalized_step_name, () => mergeCandidateNamesForSegment(segment))
+      const selectedName = state.answers.merge_name_root?.label
+      if (selectedName && !isRejudging && segment.doc_coverage.total_docs > 0 && segment.doc_coverage.hit_docs >= segment.doc_coverage.total_docs) return null
+      return buildGuidedQuestion(selectedName ? { ...segment, normalized_step_name: selectedName } : segment, guidance, state.answers, args.segments?.value || [segment], objectsBefore(segment))
+    }
+    return buildCurrentQuestion({ segment, state, isRejudging, detailRows: args.detailRows.value, matchedDocIds, matchedDocumentTexts })
+  }
+
+  const currentQuestion = computed(() => questionForSegment(
+    (() => {
       const segment = args.selectedSegment.value
       if (segmentCanDefaultComplete(segment) && !isSegmentRejudging(segment) && !shouldBypassDefaultComplete(segment)) return null
       return segment
     })(),
-    isRejudging: isSegmentRejudging(args.selectedSegment.value),
-    detailRows: args.detailRows.value,
-    matchedDocIds: args.selectedSegmentMatchedDocIds.value,
-    matchedDocumentTexts: args.matchedDocumentTexts.value,
-    state: args.selectedSegment.value
+    args.selectedSegment.value
       ? normalizeStateForSegment(args.selectedSegment.value, ensureState(args.selectedSegment.value.id))
       : createEmptySegmentTreeState(),
-  }))
+    isSegmentRejudging(args.selectedSegment.value), args.selectedSegmentMatchedDocIds.value, args.matchedDocumentTexts.value,
+  ))
 
   const trail = computed(() => {
     const segment = args.selectedSegment.value
@@ -142,7 +272,7 @@ export function useAnalysisQuestionTree(args: {
     if (!segment || currentQuestion.value) return ''
     const state = normalizeStateForSegment(segment, ensureState(segment.id))
     if (!Object.keys(state.answers).length) return ''
-    return buildResultSummary(segment.normalized_step_name, state.answers, state.note)
+    return getAnalysisDraftForSegment(segment)?.condition_text || (args.guidance?.value ? '' : buildResultSummary(segment.normalized_step_name, state.answers, state.note))
   })
 
   const noteDraft = computed(() => {
@@ -159,7 +289,14 @@ export function useAnalysisQuestionTree(args: {
     return mode !== 'none'
   })
 
-  const emptyReason = computed(() => (args.selectedSegment.value ? buildQuestionTreeIdleReason() : ''))
+  const emptyReason = computed(() => {
+    const segment = args.selectedSegment.value
+    if (!segment) return ''
+    if (hasUnresolvedFrozenIdentity(segment, ensureState(segment.id))) {
+      return frozenIdentityMessage
+    }
+    return buildQuestionTreeIdleReason()
+  })
 
   const sourceHint = computed(() => {
     const question = currentQuestion.value
@@ -176,12 +313,15 @@ export function useAnalysisQuestionTree(args: {
   })
 
   function chooseOption(option: TreeOption) {
+    if (args.readOnly?.value) return
     const segment = args.selectedSegment.value
     const question = currentQuestion.value
     if (!segment || !question) return
     const state = ensureState(segment.id)
+    if (hasUnresolvedFrozenIdentity(segment, state)) return
+    freezeGuidance(state, segment)
     markSegmentDirty(segment.id)
-    const nextAnswers = { ...state.answers }
+    const nextAnswers = applyGuidedAnswer(state.answers, { nodeId: question.id, value: option.value, label: option.label })
     if (question.impliedRootValue && !nextAnswers.rule_reason_root) {
       nextAnswers.rule_reason_root = buildImpliedRootAnswer(question.impliedRootValue)
     }
@@ -195,21 +335,20 @@ export function useAnalysisQuestionTree(args: {
   }
 
   function chooseMultiOptions(options: TreeOption[]) {
+    if (args.readOnly?.value) return
     const segment = args.selectedSegment.value
     const question = currentQuestion.value
     if (!segment || !question || !question.multiple) return
     const state = ensureState(segment.id)
+    freezeGuidance(state, segment)
     markSegmentDirty(segment.id)
     const filtered = options.filter(option => option && option.value)
     if (!filtered.length) return
-    state.answers = {
-      ...state.answers,
-      [question.id]: {
+    state.answers = applyGuidedAnswer(state.answers, {
         nodeId: question.id,
         value: filtered.map(option => option.value).join('|'),
         label: filtered.map(option => option.label).join('、'),
-      },
-    }
+    })
     setSegmentState(segment.id, state)
   }
 
@@ -236,9 +375,11 @@ export function useAnalysisQuestionTree(args: {
   }
 
   function reanswerLastQuestion() {
+    if (args.readOnly?.value) return
     const segment = args.selectedSegment.value
     if (!segment) return
     const state = ensureState(segment.id)
+    if (hasUnresolvedFrozenIdentity(segment, state)) return
     markSegmentDirty(segment.id)
     if (segmentReviewLocked(segment) && !Object.keys(state.answers).length) {
       restartLockedSegmentRejudging(segment)
@@ -266,8 +407,10 @@ export function useAnalysisQuestionTree(args: {
   }
 
   function reset() {
+    if (args.readOnly?.value) return
     const segment = args.selectedSegment.value
     if (!segment) return
+    if (hasUnresolvedFrozenIdentity(segment, ensureState(segment.id))) return
     markSegmentDirty(segment.id)
     rejudgingSegmentMap.value = {
       ...rejudgingSegmentMap.value,
@@ -280,12 +423,14 @@ export function useAnalysisQuestionTree(args: {
     treeStateMap.value = {}
     hydratedSegmentIds.value = new Set()
     rejudgingSegmentMap.value = {}
+    recommendationGapMap.value = {}
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem(storageKey.value)
     }
   }
 
   function updateNote(value: string) {
+    if (args.readOnly?.value) return
     const segment = args.selectedSegment.value
     if (!segment) return
     const state = ensureState(segment.id)
@@ -312,6 +457,7 @@ export function useAnalysisQuestionTree(args: {
   }
 
   function pickRecommendedOptions(question: { id?: string; options: TreeOption[]; multiple?: boolean; minSelections?: number }) {
+    if (question.id?.startsWith('guided_')) return recommendedGuidedOptions(question as any)
     const preferred = question.options.filter(option => !isFallbackOption(option))
     const ordered = preferred.length ? preferred : question.options
     if (question.id?.includes('material_scope') && preferred.length > 0) {
@@ -322,8 +468,34 @@ export function useAnalysisQuestionTree(args: {
   }
 
   function acceptAllRecommendedForSegment(targetSegment: Segment) {
+    if (args.readOnly?.value) return
     const isRejudging = isSegmentRejudging(targetSegment)
     if (segmentReviewLocked(targetSegment) && !isRejudging) return
+    if (args.guidance) {
+      const original = ensureState(targetSegment.id)
+      if (!guidanceForState(original) || hasUnresolvedFrozenIdentity(targetSegment, original)) return
+      const trial: SegmentTreeState = JSON.parse(JSON.stringify(original))
+      freezeGuidance(trial, targetSegment)
+      for (let step = 0; step < 20; step++) {
+        if (segmentCanDefaultComplete(targetSegment) && !isRejudging && !shouldBypassDefaultComplete(targetSegment)) return
+        const q = questionForSegment(targetSegment, trial, isRejudging, new Set(), [])
+        if (!q) {
+          markSegmentDirty(targetSegment.id)
+          setSegmentState(targetSegment.id, trial)
+          return
+        }
+        const recommended = pickRecommendedOptions(q)
+        if (!recommended.length || ((q as any).recommendedValues?.length && recommended.length !== (q as any).recommendedValues.length)) {
+          recommendationGapMap.value[targetSegment.id] = q.id
+          return
+        }
+        trial.answers = applyRecommendedAnswer(targetSegment, trial, {
+          nodeId: q.id, value: q.multiple ? recommended.map(o => o.value).join('|') : recommended[0]!.value,
+          label: q.multiple ? recommended.map(o => o.label).join('、') : recommended[0]!.label,
+        })
+      }
+      return
+    }
     const mode = currentMode(targetSegment, isRejudging)
     if (mode === 'none' && !shouldBypassDefaultComplete(targetSegment)) {
       if (segmentCanDefaultComplete(targetSegment) && !isRejudging) return
@@ -365,17 +537,12 @@ export function useAnalysisQuestionTree(args: {
     while (iterations < maxIterations) {
       iterations++
       const state = normalizeStateForSegment(targetSegment, ensureState(targetSegment.id))
-      const question = buildCurrentQuestion({
-        segment: (() => {
+      const question = questionForSegment(
+        (() => {
           if (segmentCanDefaultComplete(targetSegment) && !isRejudging && !shouldBypassDefaultComplete(targetSegment)) return null
           return targetSegment
-        })(),
-        isRejudging,
-        detailRows: args.detailRows.value,
-        matchedDocIds,
-        matchedDocumentTexts,
-        state,
-      })
+        })(), state, isRejudging, matchedDocIds, matchedDocumentTexts,
+      )
       if (!question) break
       const recommended = pickRecommendedOptions(question)
       if (!recommended.length) break
@@ -415,6 +582,7 @@ export function useAnalysisQuestionTree(args: {
   }
 
   watch(storageKey, () => {
+    recommendationGapMap.value = {}
     const loaded = loadPersistedTreeState()
     treeStateMap.value = loaded
     hydratedSegmentIds.value = new Set(Object.keys(loaded))
@@ -443,13 +611,41 @@ export function useAnalysisQuestionTree(args: {
 
   function getTrailForSegment(segment: Segment) {
     const state = normalizeStateForSegment(segment, ensureState(segment.id))
-    return Object.values(state.answers)
+    const guidance = namedGuidance(segment, state)
+    const selectedName = state.answers.merge_name_root?.label
+    const reuse = guidance ? resolveGuidedObject(selectedName ? { ...segment, normalized_step_name: selectedName } : segment, guidance, state.answers, args.segments?.value || [segment], objectsBefore(segment)).reuse : undefined
+    const trail = Object.values(state.answers)
+    if (reuse) trail.push({ nodeId: OBJECT_REUSE_NODE, value: JSON.stringify(reuse), label: '沿用已确认加工对象' })
+    return trailWithGuidanceSnapshot(trail, state.guidanceSnapshot)
   }
 
   function getResultSummaryForSegment(segment: Segment) {
     const state = normalizeStateForSegment(segment, ensureState(segment.id))
     if (!Object.keys(state.answers).length) return ''
-    return buildResultSummary(segment.normalized_step_name, state.answers, state.note)
+    return getAnalysisDraftForSegment(segment)?.condition_text || (args.guidance?.value ? '' : buildResultSummary(segment.normalized_step_name, state.answers, state.note))
+  }
+
+  function getAnalysisDraftForSegment(segment: Segment) {
+    const state = normalizeStateForSegment(segment, ensureState(segment.id))
+    const guidance = namedGuidance(segment, state)
+    if (guidance === null) return null
+    if (!guidance) return args.guidance && !segmentCanDefaultComplete(segment) ? null : undefined
+    if (!Object.keys(state.answers).length && segmentCanDefaultComplete(segment) && !isSegmentRejudging(segment)) return undefined
+    const selectedName = state.answers.merge_name_root?.label
+    const fullMergedRoute = selectedName && !state.answers.guided_mode && !isSegmentRejudging(segment) && segment.doc_coverage.total_docs > 0 && segment.doc_coverage.hit_docs >= segment.doc_coverage.total_docs
+    const answers = fullMergedRoute ? { ...state.answers, guided_mode: { nodeId: 'guided_mode', value: 'mainline', label: '全覆盖主工序' } } : state.answers
+    return buildGuidedDraft(selectedName ? { ...segment, normalized_step_name: selectedName } : segment, guidance, answers, args.segments?.value || [segment], objectsBefore(segment))
+  }
+
+  function getMissingAnswerForSegment(segment: Segment) {
+    const state = normalizeStateForSegment(segment, ensureState(segment.id))
+    const guidance = namedGuidance(segment, state)
+    if (!guidance) return hasUnresolvedFrozenIdentity(segment, state) ? frozenIdentityMessage : '问答配置尚未就绪'
+    const selectedName = state.answers.merge_name_root?.label
+    const question = buildGuidedQuestion(selectedName ? { ...segment, normalized_step_name: selectedName } : segment, guidance, state.answers, args.segments?.value || [segment], objectsBefore(segment))
+    const labels: Record<string, string> = { guided_features: '加工特征', guided_direction: '加工方位', guided_basis: '判断依据', guided_it: 'IT阈值', guided_ra: 'Ra阈值', guided_mode: '安排方式' }
+    const gap = recommendationGapMap.value[segment.id]
+    return gap && labels[gap] ? labels[gap]! : question ? labels[question.id] || question.prompt : '规则草稿待核对'
   }
 
   function getNoteDraftForSegment(segment: Segment) {
@@ -478,5 +674,8 @@ export function useAnalysisQuestionTree(args: {
     getTrailForSegment,
     getResultSummaryForSegment,
     getNoteDraftForSegment,
+    getAnalysisDraftForSegment,
+    getMissingAnswerForSegment,
+    getGuidanceForSegment: (segment: Segment) => namedGuidance(segment, ensureState(segment.id)),
   }
 }

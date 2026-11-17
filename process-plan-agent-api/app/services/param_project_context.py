@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.compat import run_in_thread
-from app.models.models import Document, Project, Reference
+from app.models.models import Document, Project
 
 StageT = TypeVar("StageT")
 
@@ -20,7 +20,6 @@ _PARAM_JSON_STAGE_CACHE: dict[tuple[str, int, int], list[object]] = {}
 class ProjectResourceBundle:
     project: Project | None
     documents: list[Document]
-    references: list[Reference]
 
 
 @dataclass
@@ -49,15 +48,9 @@ async def load_project_resource_bundle(
         .where(Document.project_id == project_id)
         .order_by(Document.created_at.asc(), Document.id.asc())
     )
-    refs_result = await db.execute(
-        select(Reference)
-        .where(Reference.project_id == project_id)
-        .order_by(Reference.created_at.asc(), Reference.id.asc())
-    )
     return ProjectResourceBundle(
         project=project,
         documents=docs_result.scalars().all(),
-        references=refs_result.scalars().all(),
     )
 
 
@@ -138,7 +131,7 @@ def build_param_sample_pairs_from_context(
     parsed_json_documents: list[ParsedParamJsonDocument[StageT]],
     sample_key_for_document: Callable[[Document], str],
     extract_document_body: Callable[[Document], str],
-    parse_reference_attributes: Callable[[str], dict[str, str]],
+    parse_document_attributes: Callable[[str], dict[str, str]],
 ) -> list[dict[str, object]]:
     param_docs: dict[str, dict[str, str]] = {}
     json_docs = {
@@ -154,7 +147,7 @@ def build_param_sample_pairs_from_context(
         sample_key = sample_key_for_document(doc)
         if not sample_key:
             continue
-        attrs = parse_reference_attributes(extract_document_body(doc))
+        attrs = parse_document_attributes(extract_document_body(doc))
         if attrs:
             param_docs[sample_key] = attrs
 

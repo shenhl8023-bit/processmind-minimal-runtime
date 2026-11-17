@@ -60,7 +60,7 @@ export function buildRulePreprocessingPayload(args: StartRulePreprocessingForSav
     }))
     .filter(item => item.process_id && item.display_name)
   const items = cards
-    .filter(item => ['conditional', 'relation'].includes(finalizeRuleMode(item)))
+    .filter(item => ['conditional', 'relation'].includes(finalizeRuleMode(item)) || Boolean(item.segment.rule_review?.analysis_draft?.candidate))
     .map((item): RulePreprocessItem => ({
       segment_id: item.segment.id,
       process_id: exportProcessIdForItem(item),

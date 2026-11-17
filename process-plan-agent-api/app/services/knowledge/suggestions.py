@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import String, cast, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import (
@@ -240,12 +240,15 @@ async def update_suggestion(db: AsyncSession, suggestion_id: int, payload) -> Kn
                 status_code=409,
                 detail=f"规则建议不能从 {row.status} 变更为 {payload.status}",
             )
+    # Validate into a separate payload so awaited queries cannot autoflush
+    # edits before the concurrent review guard is checked.
+    changes = {}
     if "title" in fields:
-        row.title = _required_text(payload.title, "title")
+        changes["title"] = _required_text(payload.title, "title")
     if "suggestion_text" in fields:
-        row.suggestion_text = _required_text(payload.suggestion_text, "suggestion_text")
+        changes["suggestion_text"] = _required_text(payload.suggestion_text, "suggestion_text")
     if "candidate" in fields:
-        row.candidate_json = (
+        changes["candidate_json"] = (
             json.dumps(payload.candidate, ensure_ascii=False) if payload.candidate is not None else None
         )
     if "evidence_ids" in fields:
@@ -256,7 +259,7 @@ async def update_suggestion(db: AsyncSession, suggestion_id: int, payload) -> Kn
             route_version_id=row.route_version_id,
             segment_id=row.segment_id,
         )
-        row.evidence_ids_json = json.dumps(evidence_ids)
+        changes["evidence_ids_json"] = json.dumps(evidence_ids)
     if "status" in fields:
         if payload.status in {"pending_review", "confirmed"}:
             await _validate_context(
@@ -265,17 +268,36 @@ async def update_suggestion(db: AsyncSession, suggestion_id: int, payload) -> Kn
                 route_version_id=row.route_version_id,
                 segment_id=row.segment_id,
             )
-            _required_text(row.title, "title")
-            _required_text(row.suggestion_text, "suggestion_text")
+            _required_text(changes.get("title", row.title), "title")
+            _required_text(changes.get("suggestion_text", row.suggestion_text), "suggestion_text")
             await _validate_evidence_ids(
                 db,
-                evidence_ids=_json_loads_ids(row.evidence_ids_json),
+                evidence_ids=_json_loads_ids(changes.get("evidence_ids_json", row.evidence_ids_json)),
                 project_id=row.project_id,
                 route_version_id=row.route_version_id,
                 segment_id=row.segment_id,
             )
-        row.status = payload.status
-    row.updated_by = payload.updated_by.strip() or "默认用户"
+        changes["status"] = payload.status
+    changes["updated_by"] = payload.updated_by.strip() or "默认用户"
+    unchanged_timestamp = KnowledgeRuleSuggestion.updated_at == row.updated_at
+    if row.updated_at is not None and row.updated_at.microsecond == 0:
+        # Legacy SQLite CURRENT_TIMESTAMP stores seconds without ".000000".
+        # Accept that exact representation without rounding newer timestamps.
+        unchanged_timestamp = or_(
+            unchanged_timestamp,
+            cast(KnowledgeRuleSuggestion.updated_at, String)
+            == row.updated_at.isoformat(sep=" ", timespec="seconds"),
+        )
+    result = await db.execute(
+        update(KnowledgeRuleSuggestion).where(
+            KnowledgeRuleSuggestion.id == row.id,
+            KnowledgeRuleSuggestion.status == row.status,
+            unchanged_timestamp,
+        ).values(**changes).execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="规则建议已更改，请刷新后重试")
     await db.commit()
     await db.refresh(row)
     return row

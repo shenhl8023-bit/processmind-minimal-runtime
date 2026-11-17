@@ -67,6 +67,7 @@ export type RouteMergePreviewItem = {
 
 type UseRouteMergeResultWorkspaceOptions = {
   projectId: Ref<number | null>
+  projectCreatedAt: Ref<string>
   routeMergeNormalizedSegments: Ref<any[]>
   routeFullSetDisplayOrderedOperations: ComputedRef<OperationItem[]>
   routeFullSetOperations: ComputedRef<OperationItem[]>
@@ -79,7 +80,7 @@ type UseRouteMergeResultWorkspaceOptions = {
   formatSampleCoverage: (hit: number, total: number) => string
 }
 
-const ROUTE_RESULT_DRAFT_VERSION = 'v9'
+const ROUTE_RESULT_DRAFT_VERSION = 'v10'
 
 export function useRouteMergeResultWorkspace(options: UseRouteMergeResultWorkspaceOptions) {
   const routeMergePreviewDraftItems = ref<RouteMergePreviewItem[]>([])
@@ -288,8 +289,8 @@ export function useRouteMergeResultWorkspace(options: UseRouteMergeResultWorkspa
   )
 
   function routeResultDraftStorageKey() {
-    if (!options.projectId.value) return ''
-    return `processmind_route_result_draft_${ROUTE_RESULT_DRAFT_VERSION}_${options.projectId.value}`
+    if (!options.projectId.value || !options.projectCreatedAt.value) return ''
+    return `processmind_route_result_draft_${ROUTE_RESULT_DRAFT_VERSION}_${options.projectId.value}_${encodeURIComponent(options.projectCreatedAt.value)}`
   }
 
   function buildPreviewDraftFingerprint(items: RouteMergePreviewItem[]) {

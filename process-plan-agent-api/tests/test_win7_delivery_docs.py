@@ -56,6 +56,9 @@ def _make_package(root: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(relative.encode("utf-8"))
 
+    (root / "product-profile.json").write_text(json.dumps({"edition": "full", "template_mapping_enabled": True, "expires_at": None}), encoding="utf-8")
+    (root / "launcher-config.json").write_text('{"port":8000}', encoding="utf-8")
+
     runtime = root / ".runtime/python"
     for name in ("python.exe", "pythonw.exe", "python3.dll", "python38.dll", "python38.zip"):
         (runtime / name).write_bytes(b"test CPython 3.8.10 x64 core\n")
@@ -128,6 +131,28 @@ def test_readme_documents_win7_runtime_boundary():
 def test_verifier_accepts_valid_package(tmp_path: Path, verifier):
     _make_package(tmp_path)
     assert verifier.verify_package(tmp_path) == []
+
+
+def test_verifier_requires_user_port_config_even_when_checksum_list_omits_it(tmp_path, verifier):
+    _make_package(tmp_path)
+    (tmp_path / 'launcher-config.json').unlink()
+    _write_checksums(tmp_path)
+    assert any('launcher-config.json' in error for error in verifier.verify_package(tmp_path))
+
+
+def test_verifier_allows_valid_user_port_changes_without_rehashing_program_files(tmp_path, verifier):
+    _make_package(tmp_path)
+    (tmp_path / 'launcher-config.json').write_text('\ufeff{"port":8001}', encoding='utf-8')
+    assert verifier.verify_package(tmp_path) == []
+
+
+@pytest.mark.parametrize('payload', ['[]', '{}', '{"port":true}', '{"port":0}', '{"port":65536}',
+                                     '{"port":8001.5}', '{"port":8001,"host":"0.0.0.0"}'])
+def test_verifier_rejects_invalid_user_port_config_even_with_matching_checksums(tmp_path, verifier, payload):
+    _make_package(tmp_path)
+    (tmp_path / 'launcher-config.json').write_text(payload, encoding='utf-8')
+    _write_checksums(tmp_path)
+    assert any('launcher-config.json' in error for error in verifier.verify_package(tmp_path))
 
 
 def test_verifier_rejects_missing_required_file(tmp_path: Path, verifier):
@@ -231,3 +256,21 @@ def test_verifier_rejects_missing_runtime_compatibility_dll(tmp_path, verifier):
     errors = verifier.verify_package(tmp_path)
 
     assert any("ucrtbase.dll" in error for error in errors)
+
+
+def test_verifier_checks_trial_profile_against_manifest(tmp_path: Path, verifier):
+    _make_package(tmp_path)
+    profile = {'edition': 'basic-trial', 'template_mapping_enabled': False,
+               'expires_at': '2026-12-31T00:00:00+08:00'}
+    (tmp_path / 'product-profile.json').write_text(json.dumps(profile))
+    manifest_path = tmp_path / 'manifest.json'
+    manifest = json.loads(manifest_path.read_text())
+    manifest.update(edition='basic-trial', trial_expires_at=profile['expires_at'])
+    manifest_path.write_text(json.dumps(manifest))
+    _write_checksums(tmp_path)
+    assert verifier.verify_package(tmp_path) == []
+    profile['expires_at'] = None
+    (tmp_path / 'product-profile.json').write_text(json.dumps(profile))
+    _write_checksums(tmp_path)
+    errors = verifier.verify_package(tmp_path)
+    assert any('product profile' in item.lower() for item in errors)

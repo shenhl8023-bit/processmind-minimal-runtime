@@ -69,4 +69,18 @@ describe('route extraction task boundaries', () => {
     expect(flow.status.value).toBe('done')
     expect(flow.errorMsg.value).toBe('')
   })
+
+  it('reports an empty invalidated route as unavailable instead of completed', async () => {
+    const { flow, options } = createFlow()
+    options.loadRouteMergeWorkspaceFromBackend.mockImplementationOnce(async () => {
+      options.routes.value = []
+      return true
+    })
+
+    await flow.loadRouteRulesResults()
+
+    expect(flow.status.value).toBe('error')
+    expect(flow.errorMsg.value).toContain('重新提取')
+    expect(options.routeWorkspaceLoading.value).toBe(false)
+  })
 })

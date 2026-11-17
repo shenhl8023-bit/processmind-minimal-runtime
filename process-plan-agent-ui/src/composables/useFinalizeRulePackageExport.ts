@@ -18,8 +18,19 @@ import {
 import { isGroupTemplateReady } from '@/composables/projectGroupTemplateCheck'
 import { isWorkflowRevisionConflict } from '@/composables/workflowResetState'
 import type { FinalRouteStep } from '@/composables/finalRouteSteps'
+import { productAccess, templateMappingEnabled } from '@/composables/productStatus'
+import { nativeRulePackageFiles } from '@/utils/nativeRulePackageArchive'
+import { downloadValidatedRulePackage } from '@/utils/validatedRulePackageDownload'
+import { validateSampleRulePackageTables } from '@/utils/sampleRulePackageAdapter'
+import { hasPendingTemplateMappingEdits } from '@/composables/templateMappingEdits'
+import { isPublishedTemplateMappingCurrent } from '@/utils/finalizePublishedMapping'
 
 type Segment = SavedNormalizedRouteVersionResult['segments'][number]
+type PublishedDownload = {
+  savedPackage: Awaited<ReturnType<typeof saveFinalizedRulePackage>>
+  filename: string
+  mappingEnabled: boolean
+}
 
 type UseFinalizeRulePackageExportOptions = {
   projectId: Ref<number | null>
@@ -57,33 +68,101 @@ function formatValidationErrors(validation: {
 
 export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExportOptions) {
   const exportingRulePackage = ref(false)
+  const downloadRetryAvailable = ref(false)
+  let pendingDownload: PublishedDownload | null = null
+  let stateVersion = 0
+
+  function publicationState() {
+    return JSON.stringify([
+      options.projectId.value, options.savedRoute.value, options.projectName.value,
+      options.segmentCards.value, options.conditionFields.value,
+      options.unsavedCards?.value.length || 0, [...(options.savingRuleIds?.value || [])],
+      productAccess.value, templateMappingEnabled.value,
+    ])
+  }
+
+  // Invalidate even when navigation or edits change away and back between clicks.
+  watch(publicationState, () => {
+    stateVersion += 1
+    pendingDownload = null
+    downloadRetryAvailable.value = false
+  }, { flush: 'sync' })
 
   function reportExportIssue(title: string, summary: string, details = '') {
     options.onExportIssue?.({ title, summary, details })
   }
 
-  async function ensureTemplateMappingReady(projectId: number, requestIsCurrent: () => boolean) {
+  async function ensureTemplateMappingReady(projectId: number, routeVersionId: number | null, workflowRevision: number, requestIsCurrent: () => boolean) {
     try {
       const template = await getCurrentGroupTemplate(projectId)
-      if (!requestIsCurrent()) return false
-      if (!isGroupTemplateReady(template)) {
-        reportExportIssue('模板分组映射尚未完成', '请为右侧每个包含特征的分组，至少关联一个特征到左侧工步后再发布。无需映射组内全部特征或每个工步。')
-        return false
+      if (!requestIsCurrent()) return null
+      if (hasPendingTemplateMappingEdits(projectId, routeVersionId || 0, workflowRevision, template.template_revision)) {
+        pendingDownload = null
+        downloadRetryAvailable.value = false
+        reportExportIssue('模板映射尚未保存', '模板映射或精度有未保存修改，请返回模板页保存或放弃修改后再试。')
+        return null
       }
-      return true
+      if (!isGroupTemplateReady(template)) {
+        pendingDownload = null
+        downloadRetryAvailable.value = false
+        reportExportIssue('模板分组映射尚未完成', '请为右侧每个包含特征的分组，至少关联一个特征到左侧工步后再发布。无需映射组内全部特征或每个工步。')
+        return null
+      }
+      return template
     } catch (err: any) {
-      if (!requestIsCurrent()) return false
+      if (!requestIsCurrent()) return null
       if (err?.response?.status === 404) {
+        pendingDownload = null
+        downloadRetryAvailable.value = false
         reportExportIssue('尚未绑定分组模板', '请返回模板分组映射页上传模板，并为每个包含特征的分组至少关联一个特征。')
-        return false
+        return null
       }
       throw err
     }
   }
 
+  function templateSignature(template: Awaited<ReturnType<typeof getCurrentGroupTemplate>>) {
+    return JSON.stringify([
+      template.template_revision, template.content_hash, template.feature_dictionary_version,
+      template.tree, template.mappings, template.step_mappings, template.mapping_output,
+    ])
+  }
+
+  async function downloadSnapshot(snapshot: PublishedDownload, requestIsCurrent: () => boolean) {
+    const { savedPackage, mappingEnabled } = snapshot
+    if (!mappingEnabled || savedPackage.export_sources?.native_snapshot) {
+      if (!nativeRulePackageFiles(savedPackage)) {
+        reportExportIssue('原生快照不可下载', savedPackage.export_error || '已发布版本缺少完整的原生路线与规则快照，请刷新后检查交付快照。')
+        return
+      }
+      if (!await downloadValidatedRulePackage(savedPackage, options.projectName.value, {
+        filename: snapshot.filename, isCurrent: requestIsCurrent,
+      })) return
+    } else {
+      const tables = savedPackage.demo_tables
+      if (savedPackage.export_error || !tables
+        || !Array.isArray(tables.factor_table)
+        || !Array.isArray(tables.full_route_table) || !tables.full_route_table.length
+        || !Array.isArray(tables.rule_table)) {
+        reportExportIssue('三文件快照不可下载', savedPackage.export_error || '已发布版本缺少完整的三文件快照，请刷新后检查交付快照。')
+        return
+      }
+      validateSampleRulePackageTables(tables)
+      const files = [
+        { name: 'factor_table.json', content: textFile(tables.factor_table) },
+        { name: 'full_route_table.json', content: textFile(tables.full_route_table) },
+        { name: 'rule_table.json', content: textFile(tables.rule_table) },
+      ]
+      downloadBlob(createZipBlob(files), snapshot.filename)
+    }
+    pendingDownload = null
+    downloadRetryAvailable.value = false
+  }
+
   /** V2 主路径：后端 compile → 保存并发布 → 下载与库一致的快照 ZIP */
   async function downloadRuleDocument() {
-    if (!options.projectId.value || exportingRulePackage.value) return
+    if (!options.projectId.value || exportingRulePackage.value || productAccess.value !== 'ready') return
+    const mappingEnabled = templateMappingEnabled.value
 
     const unsavedCards = options.unsavedCards?.value || []
     if (unsavedCards.length) {
@@ -118,6 +197,7 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
       attachedSteps: options.attachedSteps,
       finalSteps: options.finalSteps,
       conditionFields: options.conditionFields.value,
+      includeTemplateMappings: mappingEnabled,
     })
 
     if (!compileRequest.processes.length) {
@@ -128,19 +208,15 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
     const requestRoute = options.savedRoute.value?.route_id || null
     const requestRevision = options.savedRoute.value?.workflow_revision || 0
     const requestProjectName = options.projectName.value
-    const requestContent = JSON.stringify([options.segmentCards.value, options.conditionFields.value])
-    let invalidated = false
-    const stopWatchingRequest = watch(
-      [options.projectId, () => options.savedRoute.value?.route_id, () => options.savedRoute.value?.workflow_revision],
-      () => { invalidated = true },
-      { flush: 'sync' },
-    )
+    const requestContent = publicationState()
+    const requestStateVersion = stateVersion
     function requestIsCurrent() {
-      const current = !invalidated && options.projectId.value === requestProject
+      if (productAccess.value !== 'ready') return false
+      const current = requestStateVersion === stateVersion && options.projectId.value === requestProject
         && (options.savedRoute.value?.route_id || null) === requestRoute
         && (options.savedRoute.value?.workflow_revision || 0) === requestRevision
         && !options.unsavedCards?.value.length && !options.savingRuleIds?.value.size
-        && JSON.stringify([options.segmentCards.value, options.conditionFields.value]) === requestContent
+        && publicationState() === requestContent
       if (!current && options.projectId.value === requestProject) {
         reportExportIssue('页面状态已变化', '发布期间任务、路线或规则有修改，请核对当前内容后重新发布。')
       }
@@ -149,7 +225,27 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
 
     exportingRulePackage.value = true
     let stage = '编译规则包'
+    let publishedForDownload = Boolean(pendingDownload)
     try {
+      const retry = pendingDownload
+      if (retry) {
+        let sameTemplate = true
+        if (mappingEnabled) {
+          stage = '读取模板映射'
+          const template = await ensureTemplateMappingReady(requestProject, requestRoute, requestRevision, requestIsCurrent)
+          if (!template || !requestIsCurrent()) return
+          sameTemplate = isPublishedTemplateMappingCurrent(retry.savedPackage, template)
+        }
+        if (sameTemplate) {
+          stage = mappingEnabled ? '下载三文件快照' : '下载原生快照'
+          await downloadSnapshot(retry, requestIsCurrent)
+          return
+        }
+        pendingDownload = null
+        downloadRetryAvailable.value = false
+        publishedForDownload = false
+      }
+      stage = '编译规则包'
       const compiled = await compileRulePackage(compileRequest)
       if (!requestIsCurrent()) return
       if (!compiled.validation?.valid) {
@@ -157,9 +253,12 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
         reportExportIssue('规则包还不能发布', '请先修正未通过校验的规则，再重新发布。', detail)
         return
       }
-      stage = '读取模板映射'
-      if (!await ensureTemplateMappingReady(requestProject, requestIsCurrent) || !requestIsCurrent()) {
-        return
+      let currentTemplateSignature: string | null = null
+      if (mappingEnabled) {
+        stage = '读取模板映射'
+        const template = await ensureTemplateMappingReady(requestProject, requestRoute, requestRevision, requestIsCurrent)
+        if (!template || !requestIsCurrent()) return
+        currentTemplateSignature = templateSignature(template)
       }
 
       const ruleReport = buildRuleReportFromV2Package({
@@ -208,6 +307,15 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
         )
         return
       }
+      if (mappingEnabled) {
+        stage = '读取模板映射'
+        const template = await ensureTemplateMappingReady(requestProject, requestRoute, requestRevision, requestIsCurrent)
+        if (!template || !requestIsCurrent()) return
+        if (templateSignature(template) !== currentTemplateSignature) {
+          reportExportIssue('模板映射已更新', '发布预检期间模板映射有变化，请核对最新映射后重新发布。')
+          return
+        }
+      }
       stage = '发布规则包'
       const savedPackage = await saveFinalizedRulePackage(packagePayload)
       if (!requestIsCurrent()) return
@@ -219,36 +327,25 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
         return
       }
 
-      const tables = savedPackage.demo_tables
-      if (savedPackage.export_error || !tables
-        || !Array.isArray(tables.factor_table)
-        || !Array.isArray(tables.full_route_table) || !tables.full_route_table.length
-        || !Array.isArray(tables.rule_table)) {
-        reportExportIssue(
-          '三文件快照不可下载',
-          savedPackage.export_error || '此版本缺少完整的三文件快照，请重新发布后下载。',
-        )
-        return
+      const snapshot: PublishedDownload = {
+        savedPackage: JSON.parse(JSON.stringify(savedPackage)),
+        filename: `${safeProjectName}_${mappingEnabled ? FINALIZE_EXPORT_COPY.documentNameSuffix : '原生三表'}_v${savedPackage.version}.zip`,
+        mappingEnabled,
       }
-
-      stage = '下载三文件快照'
-      const files = [
-        { name: 'factor_table.json', content: textFile(tables.factor_table) },
-        { name: 'full_route_table.json', content: textFile(tables.full_route_table) },
-        { name: 'rule_table.json', content: textFile(tables.rule_table) },
-      ]
-      downloadBlob(
-        createZipBlob(files),
-        `${safeProjectName}_${FINALIZE_EXPORT_COPY.documentNameSuffix}_v${savedPackage.version}.zip`,
-      )
+      pendingDownload = snapshot
+      publishedForDownload = true
       options.onExportedVersion?.(savedPackage.version, {
         schemaVersion: savedPackage.schema_version,
         status: savedPackage.status,
       })
+      if (!requestIsCurrent()) return
+      stage = mappingEnabled ? '下载三文件快照' : '下载原生快照'
+      await downloadSnapshot(snapshot, requestIsCurrent)
     } catch (err: any) {
       if (!requestIsCurrent()) return
-      if (stage === '下载三文件快照') {
-        reportExportIssue('规则包下载失败', '规则包已发布，但浏览器未能下载三文件快照，请重试下载。', err?.message || '未知下载错误')
+      if (publishedForDownload) {
+        downloadRetryAvailable.value = true
+        reportExportIssue('规则包下载失败', '规则包已发布，下载未完成。点击“重试下载”下载同一版本。', err?.message || '未知下载错误')
         return
       }
       console.error('保存规则包失败', err)
@@ -287,13 +384,13 @@ export function useFinalizeRulePackageExport(options: UseFinalizeRulePackageExpo
         [`失败步骤：${stage}${status ? `（HTTP ${status}）` : ''}`, message, blockerText, ...issues].filter(Boolean).join('\n'),
       )
     } finally {
-      stopWatchingRequest()
       exportingRulePackage.value = false
     }
   }
 
   return {
     exportingRulePackage,
+    downloadRetryAvailable,
     downloadRuleDocument,
   }
 }

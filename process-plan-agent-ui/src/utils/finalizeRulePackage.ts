@@ -3,6 +3,9 @@ import { finalProcessMetadata, type FinalRouteStep } from '@/composables/finalRo
 import { formatRouteDisplayName } from '@/composables/routeNameDisplay'
 import { FINALIZE_EXPORT_COPY } from '@/config/finalizeRulePresentation'
 import { referencedRequirementOptions } from '@/utils/requirementOptionUsage'
+import { validateAuthoredCandidate } from '@/utils/processConfigurationEditor'
+import { lowerFeatureInputs } from '@/utils/featureInputProjection'
+import { actualProjectItGrades, isActualProjectItField } from '@/utils/projectConditionFields'
 import type {
   CanonicalConditionField,
   CompileRulePackageRequest,
@@ -78,6 +81,14 @@ export function isActionableConditionText(value: string) {
 
 function currentStructuredCandidate(item: any): RuleConditionCandidate | null {
   const review = item.conditionReview
+  const draft = item.segment?.rule_review?.analysis_draft
+  // Re-recognition clears machine candidates but keeps the answered source.
+  // Keep its authoring mode until a new candidate arrives; it still requires
+  // a server-side confirmation before export.
+  const awaitingRecognition = review?.status === 'draft' && !review.candidate && !review.confirmed
+    && String(review.source_text || '').trim() === String(item.conditionText || '').trim()
+  if ((!review?.source_text || awaitingRecognition) && draft?.status === 'confirmed'
+    && String(draft.condition_text || '').trim() === String(item.conditionText || '').trim()) return draft.candidate || null
   if (!['confirmed', 'pending_confirmation'].includes(review?.status)
     || String(review.source_text || '').trim() !== String(item.conditionText || '').trim()) return null
   return (review.status === 'confirmed' ? review.confirmed : review.candidate) || null
@@ -146,6 +157,7 @@ export function isSafeForBatchRuleConfirmation(item: any) {
   return Boolean(
     review?.status === 'pending_confirmation'
     && review?.candidate
+    && validateAuthoredCandidate(review.candidate, exportProcessIdForItem(item)).length === 0
     && String(review.source_text || '').trim() === String(item.conditionText || '').trim()
     && (review.candidate.kind || 'condition') === expectedKind
     && (
@@ -187,6 +199,8 @@ export function requiresManualRuleAttention(item: any) {
 export type ExportBlockedReason = 'pending_candidate' | 'missing_condition' | 'rebuild_required'
 
 export function exportBlockedReason(item: any): ExportBlockedReason {
+  const current = currentStructuredCandidate(item)
+  if (item.conditionReview?.status === 'confirmed' && current && validateAuthoredCandidate(current, exportProcessIdForItem(item)).length) return 'missing_condition'
   const mode = finalizeRuleMode(item)
   if (mode === 'unresolved') return 'missing_condition'
   const review = item.conditionReview
@@ -202,7 +216,11 @@ export function exportBlockedReason(item: any): ExportBlockedReason {
 }
 
 export function exportBlockingCards(cards: any[]) {
-  return cards.filter(item => requiresConfirmedUserRule(item) && !hasCurrentConfirmedUserRule(item))
+  return cards.filter(item => {
+    const current = currentStructuredCandidate(item)
+    return Boolean(current && validateAuthoredCandidate(current, exportProcessIdForItem(item)).length)
+      || (requiresConfirmedUserRule(item) && !hasCurrentConfirmedUserRule(item))
+  })
 }
 
 export function exportBlockedReasonLabel(item: any) {
@@ -549,6 +567,13 @@ function defaultInputValueForField(field: CompileRulePackageRequest['fields'][nu
   if (field.type === 'number') {
     const min = field.validation?.min
     const max = field.validation?.max
+    if (isActualProjectItField(field)) {
+      const grades = actualProjectItGrades.filter(grade => grade >= (min ?? -Infinity) && grade <= (max ?? Infinity))
+      return grades[Math.floor((grades.length - 1) / 2)] ?? actualProjectItGrades[0]
+    }
+    if (/^project_factor\.(?:operation_|feature_)[^.]+\.ra$/.test(field.key) && (min == null || min <= 0)) {
+      return typeof max === 'number' ? max / 2 : 1
+    }
     if (typeof min === 'number' && typeof max === 'number') return (min + max) / 2
     if (typeof min === 'number') return min
     if (typeof max === 'number') return max
@@ -896,6 +921,8 @@ function satisfyNumericConditions(
   grouped.forEach((leaves, key) => {
     const field = fieldsByKey.get(key)!
     const matches = (value: number) => Number.isFinite(value)
+      && (!isActualProjectItField(field) || actualProjectItGrades.includes(value))
+      && (!/^project_factor\.(?:operation_|feature_)[^.]+\.ra$/.test(key) || value > 0)
       && (field.validation?.min == null || value >= field.validation.min)
       && (field.validation?.max == null || value <= field.validation.max)
       && leaves.every(({ node, positive }) => {
@@ -914,7 +941,7 @@ function satisfyNumericConditions(
     const points = Array.from(new Set([field.validation?.min, field.validation?.max, 0,
       ...leaves.flatMap(({ node }) => Array.isArray(node.value) ? node.value : [node.value]),
     ].filter((value): value is number => typeof value === 'number' && Number.isFinite(value)))).sort((a, b) => a - b)
-    const candidates = [...points, ...points.slice(1).map((value, index) => points[index]! / 2 + value / 2),
+    const candidates = [...points, ...(isActualProjectItField(field) ? actualProjectItGrades : []), ...points.slice(1).map((value, index) => points[index]! / 2 + value / 2),
       ...points.flatMap(value => [value - 1, value + 1]),
     ]
     const selected = candidates.find(matches)
@@ -1169,6 +1196,7 @@ export function buildCompileRequestFromCards(args: {
   attachedSteps: (segment: any) => string[]
   conditionFields?: CanonicalConditionField[]
   finalSteps?: (segment: any) => FinalRouteStep[]
+  includeTemplateMappings?: boolean
 }): CompileRulePackageRequest {
   const processMap = new Map<string, any>()
   const processDisplayName = (segment: any) => args.finalSteps
@@ -1177,7 +1205,8 @@ export function buildCompileRequestFromCards(args: {
   args.cards.forEach((item) => {
     const displayName = processDisplayName(item.segment)
     const processId = stableProcessId(exportProcessIdForItem(item), displayName)
-    const templateGroupAliases = normalizeTemplateGroupAliases(item.segment?.template_group_aliases)
+    const templateGroupAliases = args.includeTemplateMappings === false ? []
+      : normalizeTemplateGroupAliases(item.segment?.template_group_aliases)
     const sourceOperationIds = Array.from(new Set(
       (Array.isArray(item.segment?.source_operation_ids) ? item.segment.source_operation_ids : [])
         .map((value: unknown) => Number(value || 0))
@@ -1336,6 +1365,7 @@ export function buildCompileRequestFromCards(args: {
     })
   const protectedProcessIds = new Set<string>([
     ...processConfigurations.map(configuration => configuration.process_id),
+    ...processRelations.filter(relation => relation.relation_type === 'trigger_after').flatMap(relation => relation.target_process_ids),
     ...processes.filter(item => item.main).map(item => item.process_id),
     ...userRules.flatMap(rule => [
       ...(rule.then.include_process_ids || []),
@@ -1403,7 +1433,9 @@ export function buildCompileRequestFromCards(args: {
     preserveOptionFieldKeys: configurationFieldKeys,
     authoritativeFieldKeys,
   })
-  const fields = compacted.fields
+  const sharedInputs = lowerFeatureInputs({ fields: compacted.fields, rules: finalRules, processConfigurations })
+  const fields = sharedInputs.fields
+  const sharedDictionary = new Map([...factorDictionary.fields, ...fields].map(field => [field.key, field]))
 
   return {
     project_id: args.projectId,
@@ -1415,14 +1447,14 @@ export function buildCompileRequestFromCards(args: {
     },
     factor_dictionary: {
       schema_version: '2.0',
-      fields: factorDictionary.fields,
+      fields: [...sharedDictionary.values()],
     },
     fields,
     processes,
-    rules: finalRules,
+    rules: sharedInputs.rules,
     process_relations: processRelations,
-    ...(processConfigurations.length ? { process_configurations: processConfigurations } : {}),
-    test_cases: buildDefaultV2TestCases(fields, processes, finalRules),
+    ...(processConfigurations.length ? { process_configurations: sharedInputs.processConfigurations } : {}),
+    test_cases: buildDefaultV2TestCases(fields, processes, sharedInputs.rules),
   }
 }
 

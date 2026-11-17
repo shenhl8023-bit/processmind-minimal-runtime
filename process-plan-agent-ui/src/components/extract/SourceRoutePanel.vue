@@ -50,55 +50,53 @@
               :data-merge-group-id="operationToGroupId(resolveSourceOperationId(operation)) || ''"
               @click="$emit('select-operation', resolveSourceOperationId(operation))"
             >
-              <!-- 第一行：序号 + 名称 + 覆盖率 -->
+              <!-- 摘要：序号 + 名称及工步入口 + 右对齐覆盖率 -->
               <div class="srp-op-row1">
                 <span class="srp-op-seq">{{ operation.sequence }}</span>
                 <div class="srp-op-names">
                   <span class="srp-op-name">{{ operationDisplayName(operation) }}</span>
+                  <button
+                    v-if="hasSteps(operation)"
+                    class="srp-steps-btn"
+                    type="button"
+                    :aria-expanded="expandedIds.has(operationDisplayKey(operation))"
+                    @click.stop="toggleSteps(operation)"
+                  >
+                    <svg
+                      class="srp-steps-chevron"
+                      :class="{ 'srp-steps-chevron--open': expandedIds.has(operationDisplayKey(operation)) }"
+                      viewBox="0 0 16 16"
+                      width="9"
+                      height="9"
+                      fill="none"
+                    >
+                      <path
+                        d="M6 4l4 4-4 4"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                    <span>工步</span>
+                    <span class="srp-steps-count">{{ stepCount(operation) }}</span>
+                  </button>
                 </div>
                 <span class="srp-op-cov">
                   {{ formatCoverage(operation.coverage_count, operation.sample_count) }}
                 </span>
               </div>
 
-              <!-- 第二行：重复标签 -->
+              <!-- 重复与来源标签 -->
               <div v-if="operationDuplicateLabel(operation) || sourceOperationLabel(operation)" class="srp-op-tags">
-                <span class="srp-tag-warn">{{ operationDuplicateLabel(operation) }}</span>
+                <span v-if="operationDuplicateLabel(operation)" class="srp-tag-warn">{{ operationDuplicateLabel(operation) }}</span>
                 <span v-if="sourceOperationLabel(operation)" class="srp-tag-neutral">{{ sourceOperationLabel(operation) }}</span>
               </div>
 
-              <!-- 第三行：工步折叠区 -->
-              <div
-                v-if="hasSteps(operation)"
-                class="srp-op-steps"
-                @click.stop
-              >
-                <button
-                  class="srp-steps-btn"
-                  @click="toggleSteps(operation)"
-                >
-                  <svg
-                    class="srp-steps-chevron"
-                    :class="{ 'srp-steps-chevron--open': expandedIds.has(operationDisplayKey(operation)) }"
-                    viewBox="0 0 16 16"
-                    width="9"
-                    height="9"
-                    fill="none"
-                  >
-                    <path
-                      d="M6 4l4 4-4 4"
-                      stroke="currentColor"
-                      stroke-width="1.8"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    />
-                  </svg>
-                  <span>工步</span>
-                  <span class="srp-steps-count">{{ stepCount(operation) }}</span>
-                </button>
-
+              <!-- 只在展开后占用详情行 -->
+              <div v-if="hasSteps(operation)" @click.stop>
                 <Transition name="srp-expand">
-                  <div v-if="expandedIds.has(operationDisplayKey(operation))" class="srp-chips">
+                  <div v-if="expandedIds.has(operationDisplayKey(operation))" class="srp-op-steps srp-chips">
                     <span
                       v-for="step in getSteps(operation)"
                       :key="step"
@@ -226,6 +224,7 @@ function stepCount(operation: Record<string, any>): number {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -237,7 +236,7 @@ function stepCount(operation: Record<string, any>): number {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 18px 20px 14px;
+  padding: 6px 12px;
   border-bottom: 1px solid #f1f5f9;
   background: linear-gradient(135deg, #fafbff 0%, #f8fafc 100%);
   flex-shrink: 0;
@@ -246,23 +245,25 @@ function stepCount(operation: Record<string, any>): number {
 .srp-head-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  min-width: 0;
 }
 
 .srp-head-title {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 700;
   color: #0f172a;
   letter-spacing: -0.015em;
-  line-height: 1.2;
+  line-height: 20px;
 }
 
 .srp-head-sub {
-  font-size: 13px;
+  font-size: 12px;
   color: #94a3b8;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   font-weight: 500;
-  line-height: 1.2;
+  line-height: 20px;
 }
 
 /* ══════════════════════════════════════
@@ -270,11 +271,12 @@ function stepCount(operation: Record<string, any>): number {
 ══════════════════════════════════════ */
 .srp-scroll {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 14px 14px 24px;
+  padding: 8px 12px 12px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 12px;
 }
 
 /* ══════════════════════════════════════
@@ -284,6 +286,7 @@ function stepCount(operation: Record<string, any>): number {
   display: flex;
   flex-direction: column;
   gap: 0;
+  flex-shrink: 0;
 }
 
 .srp-section-header {
@@ -291,7 +294,7 @@ function stepCount(operation: Record<string, any>): number {
   align-items: center;
   justify-content: space-between;
   padding: 5px 8px 5px 10px;
-  margin-bottom: 10px;
+  margin-bottom: 4px;
   background: linear-gradient(90deg, rgba(99, 102, 241, 0.07) 0%, transparent 100%);
   border-left: 3px solid #6366f1;
   border-radius: 0 6px 6px 0;
@@ -301,6 +304,8 @@ function stepCount(operation: Record<string, any>): number {
   display: flex;
   align-items: baseline;
   gap: 6px;
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
 }
 
 .srp-section-kicker {
@@ -339,7 +344,7 @@ function stepCount(operation: Record<string, any>): number {
   align-items: center;
   flex-shrink: 0;
   width: 14px;
-  padding-top: 12px;
+  padding-top: 14px;
 }
 
 .srp-dot {
@@ -376,8 +381,8 @@ function stepCount(operation: Record<string, any>): number {
   text-align: left;
   border: 1px solid transparent;
   border-radius: 8px;
-  padding: 8px 10px;
-  margin-bottom: 4px;
+  padding: 5px 10px;
+  margin-bottom: 2px;
   background: #ffffff;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
@@ -406,11 +411,13 @@ function stepCount(operation: Record<string, any>): number {
   border-radius: 0 2px 2px 0;
 }
 
-/* 第一行：序号 + 名称 + 覆盖率 */
+/* 摘要同行；窄宽度与长名称允许自然增高 */
 .srp-op-row1 {
-  display: flex;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 7px;
+  gap: 2px 6px;
+  min-height: 24px;
 }
 
 .srp-op-seq {
@@ -435,25 +442,28 @@ function stepCount(operation: Record<string, any>): number {
 }
 
 .srp-op-names {
-  flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 6px;
 }
 
 .srp-op-name {
+  min-width: 0;
+  max-width: 100%;
   font-size: 13px;
   font-weight: 600;
   color: #1e293b;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
   line-height: 1.4;
 }
 
 .srp-op-cov {
-  flex-shrink: 0;
+  min-width: 54px;
+  box-sizing: border-box;
+  text-align: center;
+  justify-self: end;
   font-size: 11px;
   font-weight: 600;
   color: #d97706;
@@ -465,14 +475,15 @@ function stepCount(operation: Record<string, any>): number {
 
 /* 第二行：重复标签 */
 .srp-op-tags {
-  margin-top: 5px;
+  margin-top: 2px;
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 2px;
+  overflow-wrap: anywhere;
 }
 
 .srp-tag-warn {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   color: #c2410c;
   background: rgba(234, 88, 12, 0.09);
@@ -481,7 +492,7 @@ function stepCount(operation: Record<string, any>): number {
 }
 
 .srp-tag-neutral {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   color: #475569;
   background: #f1f5f9;
@@ -493,8 +504,8 @@ function stepCount(operation: Record<string, any>): number {
    工步折叠区
 ══════════════════════════════════════ */
 .srp-op-steps {
-  margin-top: 6px;
-  padding-top: 6px;
+  margin-top: 4px;
+  padding-top: 4px;
   border-top: 1px dashed #e2e8f0;
 }
 
@@ -502,6 +513,10 @@ function stepCount(operation: Record<string, any>): number {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
+  min-width: 24px;
+  min-height: 24px;
+  white-space: nowrap;
   font-size: 11px;
   font-weight: 600;
   color: #64748b;
@@ -543,14 +558,15 @@ function stepCount(operation: Record<string, any>): number {
 
 /* 工步 chip 列表 */
 .srp-chips {
-  margin-top: 7px;
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 2px;
 }
 
 .srp-chip {
   display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   font-size: 11px;
   color: #475569;
   background: #f1f5f9;

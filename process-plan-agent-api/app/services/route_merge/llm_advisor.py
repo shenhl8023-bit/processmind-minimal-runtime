@@ -130,6 +130,6 @@ async def advise_merge_groups(groups: list[dict[str, object]]) -> tuple[list[dic
 
     try:
         await asyncio.wait_for(enrich(), timeout=ADVICE_TIMEOUT_SECONDS)
-    except TimeoutError:
+    except asyncio.TimeoutError:
         all_model = False
     return result, 'model' if all_model else 'fallback'

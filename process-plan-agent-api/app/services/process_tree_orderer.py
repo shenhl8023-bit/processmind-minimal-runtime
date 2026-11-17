@@ -11,6 +11,9 @@ from app.services.process_tree_ordering import place_additional_process_nodes, r
 
 logger = logging.getLogger(__name__)
 ORDER_TIMEOUT_SECONDS = 25
+# Reasoning providers share this output allowance with their internal reasoning.
+# The 20-document route exhausted 4096 tokens before emitting any ordered IDs.
+ORDER_MAX_OUTPUT_TOKENS = 16384
 
 SYSTEM_PROMPT = """你是机械加工工艺路线排序器。根据样本文档中真实出现的工序先后，为给定候选节点排序。
 只能重排候选节点，不能增删、合并、拆分或改名。重复名称可能代表不同阶段，必须按节点 ID 区分。
@@ -102,6 +105,7 @@ async def order_process_tree(
             call_llm(
                 SYSTEM_PROMPT, prompt, temperature=0.0,
                 timeout_seconds=ORDER_TIMEOUT_SECONDS, max_retries=0,
+                max_tokens=ORDER_MAX_OUTPUT_TOKENS,
             ),
             timeout=ORDER_TIMEOUT_SECONDS,
         )

@@ -46,7 +46,6 @@
         :pending-count="routeMergePendingCount"
         :can-enter="canEnterRouteFactorAnalysis"
         :status-label="routeMergeStatusLabel"
-        :notice="visibleRouteMergeNotice"
         @rerun="resetDialogVisible = true"
       />
 
@@ -169,6 +168,7 @@
       </div>
 
       <ExtractRouteActionFooter
+        :notices="visibleRouteMergeNotice ? [{ id: 'merge', level: 'warning', summary: '路线归并提示', detail: visibleRouteMergeNotice }] : []"
         :pending-count="routeMergePendingCount"
         :can-enter="canEnterRouteFactorAnalysis"
         :entering="routeFactorAnalysisEntering"
@@ -177,6 +177,15 @@
       />
       </template>
     </div>
+
+    <WorkflowNavFooter
+      v-if="status !== 'done' || routeWorkspaceDisplayState === 'loading'"
+      :summary="status === 'loading' || routeWorkspaceDisplayState === 'loading' ? '正在整理工艺路线，请稍候…' : status === 'error' ? '路线处理失败，请重试' : '请先提取工艺路线'"
+      previous-label="← 返回上传资料"
+      next-label="进入规则分析"
+      :next-disabled="true"
+      @previous="goBackToUpload"
+    />
 
     <WorkflowResetDialog
       v-model="resetDialogVisible"
@@ -197,6 +206,7 @@ import { ref, computed, onMounted, onBeforeUnmount, onActivated, onDeactivated, 
 import { useRoute, useRouter } from 'vue-router'
 import ExtractPageHeader from '@/components/extract/ExtractPageHeader.vue'
 import ExtractRouteActionFooter from '@/components/extract/ExtractRouteActionFooter.vue'
+import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
 import ExtractRouteShellHeader from '@/components/extract/ExtractRouteShellHeader.vue'
 import ExtractStatusCard from '@/components/extract/ExtractStatusCard.vue'
 import RouteProgressCard from '@/components/extract/RouteProgressCard.vue'
@@ -208,6 +218,7 @@ import {
 import { useRouteMergeWorkspace } from '@/composables/useRouteMergeWorkspace'
 import { useRouteRulesFlow } from '@/composables/useRouteRulesFlow'
 import { useProjectGroupTemplate } from '@/composables/useProjectGroupTemplate'
+import { templateMappingEnabled, templateMappingVisible } from '@/composables/productStatus'
 import { useRouteMergeInteractionActions } from '@/composables/useRouteMergeInteractionActions'
 import { useRouteMergeDisplayHelpers } from '@/composables/useRouteMergeDisplayHelpers'
 import {
@@ -221,7 +232,9 @@ import {
   type TemplateOperation,
 } from '@/composables/templateGroupMapping'
 import { clearTemplateStepMappingDraft } from '@/composables/templateStepMapping'
-import { secondStepResetCopy } from '@/composables/workflowResetCopy'
+import { resetCopyForEdition } from '@/composables/workflowResetCopy'
+
+const secondStepResetCopy = computed(() => resetCopyForEdition('route', templateMappingVisible.value))
 import {
   buildRouteFullSetSectionsFromTree,
   buildRouteOperationNameCounts,
@@ -271,6 +284,7 @@ const route = useRoute()
 const router = useRouter()
 const routes = ref<OperationItem[]>([])
 const projectId = ref<number | null>(null)
+const projectCreatedAt = ref('')
 const workflowRevision = ref(0)
 const routeMergeGroups = ref<RouteMergeGroup[]>([])
 const routeMergeSuggestions = ref<MergeSuggestion[]>([])
@@ -463,6 +477,10 @@ function projectFormalTemplateAliases() {
 }
 
 function hydrateTemplateGroupAliases() {
+  if (!templateMappingEnabled.value) {
+    templateGroupAliases.value = {}
+    return
+  }
   const currentProjectId = Number(projectId.value || 0)
   if (!currentProjectId || !templateMappableOperations.value.length) return
   if (templateAliasesHydratedProjectId.value === currentProjectId) return
@@ -483,6 +501,7 @@ function hydrateTemplateGroupAliases() {
 }
 
 function templateGroupAliasesForItem(item: { operationIds: number[] }) {
+  if (!templateMappingEnabled.value) return []
   return serializeAliasesForRouteSegment({ source_operation_ids: item.operationIds }, templateGroupAliases.value)
 }
 
@@ -490,7 +509,7 @@ watch(projectId, async (nextProjectId, previousProjectId) => {
   if (nextProjectId === previousProjectId) return
   templateAliasesHydratedProjectId.value = null
   templateGroupAliases.value = {}
-  if (!nextProjectId) return
+  if (!nextProjectId || !templateMappingEnabled.value) return
   await projectGroupTemplate.load()
   hydrateTemplateGroupAliases()
 })
@@ -538,6 +557,7 @@ const {
   submitPreviewRename: submitPreviewRenameBase,
 } = useRouteMergeResultWorkspace({
   projectId,
+  projectCreatedAt,
   routeMergeNormalizedSegments,
   routeFullSetDisplayOrderedOperations,
   routeFullSetOperations,
@@ -562,6 +582,7 @@ const {
   saveRouteMergeWorkspace: saveRouteMergeWorkspaceBase,
 } = useRouteMergeWorkspace({
   projectId,
+  projectCreatedAt,
   workflowRevision,
   routes,
   routeMergeGroups,
@@ -781,8 +802,8 @@ function routeResultMatchesBackendWorkspace() {
   if (!routeMergeNormalizedSegments.value.length) return false
   return JSON.stringify(routeResultLayoutSnapshot(routeMergeResultItems.value))
     === JSON.stringify(routeResultLayoutSnapshot(routeMergePreviewItems.value))
-    && templateAliasFingerprint(templateGroupAliases.value)
-      === templateAliasFingerprint(aliasesFromRouteSegments(routeMergeNormalizedSegments.value))
+    && (!templateMappingEnabled.value || templateAliasFingerprint(templateGroupAliases.value)
+      === templateAliasFingerprint(aliasesFromRouteSegments(routeMergeNormalizedSegments.value)))
 }
 
 function hasInMemoryRouteMergeWorkspace(projectIdToCheck?: number | string | null) {
@@ -913,7 +934,7 @@ async function openRouteFactorAnalysis() {
 
 async function handleRetryExtract() {
   resetRouteRulesError()
-  await initializeExtractView()
+  await initializeExtractView(true)
 }
 
 function goBackToUpload() {
@@ -977,7 +998,7 @@ function handleMergeKeydown(e: KeyboardEvent) {
 
 let extractInitializeRequestId = 0
 
-async function initializeExtractView() {
+async function initializeExtractView(forceRefresh = false) {
   const requestId = ++extractInitializeRequestId
   const routePath = route.path
   const routeQuery = { ...route.query }
@@ -996,16 +1017,16 @@ async function initializeExtractView() {
     && (status.value === 'idle' || status.value === 'loading' || status.value === 'done')
   )
 
-  if (!resumeRouteMerge && alreadyInitialized) {
+  if (!forceRefresh && !resumeRouteMerge && alreadyInitialized) {
     return
   }
-  if (resumeRouteMerge && hasInMemoryRouteMergeWorkspace(preferredProjectId)) {
+  if (!forceRefresh && resumeRouteMerge && hasInMemoryRouteMergeWorkspace(preferredProjectId)) {
     restoreRouteMergeWorkspaceFromMemory()
     return
   }
 
   try {
-    const projects = await listProjects()
+    const projects = await listProjects(forceRefresh)
     if (!isCurrent()) return
     const savedId = resolveAvailableProjectId(routeProjectId, projects)
     if (!savedId) {
@@ -1026,14 +1047,16 @@ async function initializeExtractView() {
     const current = projects.find((item) => item.id === projectId.value)
     if (!current) {
       projectId.value = null
+      projectCreatedAt.value = ''
       workflowRevision.value = 0
       errorMsg.value = '当前任务已不存在，请重新创建任务。'
       status.value = 'error'
       return
     }
+    projectCreatedAt.value = current.created_at || ''
     workflowRevision.value = Number(current.workflow_revision || 0)
     if (resumeRouteMerge) {
-      await loadRouteRulesResults()
+      await loadRouteRulesResults(forceRefresh)
       if (!isCurrent()) return
       lastInitializedDataRevision.value = getWorkflowDataRevision()
       if (routeMergePendingCount.value === 0) {
@@ -1054,7 +1077,7 @@ async function initializeExtractView() {
         restoreRouteMergeWorkspaceFromMemory()
         return
       }
-      await loadRouteRulesResults()
+      await loadRouteRulesResults(forceRefresh)
       if (!isCurrent()) return
       lastInitializedDataRevision.value = getWorkflowDataRevision()
       return
@@ -1117,7 +1140,7 @@ onBeforeUnmount(() => {
 .page-header-divider { display: none; }
 .card-desc { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; }
 .card-title { display: flex; align-items: center; gap: 8px; }
-.card-title-icon { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 8px; background: #eef2ff; color: var(--accent, #6366f1); flex-shrink: 0; }
+.card-title-icon { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 8px; background: var(--pm-primary-soft); color: var(--accent, var(--pm-primary)); flex-shrink: 0; }
 
 .module-grid { display: flex; flex-direction: column; gap: 24px; }
 .module-dual { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr); gap: 24px; }
@@ -1188,7 +1211,7 @@ onBeforeUnmount(() => {
 :deep(.route-pane ::-webkit-scrollbar-thumb) { background: #e2e8f0; border-radius: 6px; }
 :deep(.route-pane ::-webkit-scrollbar-thumb:hover) { background: #94a3b8; }
 .route-pane-left { border-top: 2px solid #0f766e; }
-.route-pane-center { border-top: 2px solid #4f46e5; }
+.route-pane-center { border-top: 2px solid var(--pm-primary); }
 .route-pane-right { border-top: 2px solid #ea580c; }
 .route-pane-right-manual {
   min-height: 0;
@@ -1250,7 +1273,7 @@ onBeforeUnmount(() => {
 .route-result-editor-actions .btn:hover:not(:disabled) { background: #f1f5f9; color: #0f172a; }
 .route-result-editor-actions .btn:disabled { opacity: 0.35; cursor: not-allowed; }
 .route-result-editor-rename { display: flex; gap: 8px; align-items: center; }
-.route-result-editor-input { flex: 1; min-width: 0; border: 1px solid #818cf8; border-radius: 8px; padding: 6px 10px; font-size: 14px; font-weight: 600; color: #0f172a; background: #fff; outline: none; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12); }
+.route-result-editor-input { flex: 1; min-width: 0; border: 1px solid var(--pm-primary-border); border-radius: 8px; padding: 6px 10px; font-size: 14px; font-weight: 600; color: #0f172a; background: #fff; outline: none; box-shadow: 0 0 0 3px rgba(36, 95, 168, 0.12); }
 
 .route-stage-board {
   display: flex;
@@ -1289,16 +1312,16 @@ onBeforeUnmount(() => {
 .loading-progress-wrap { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 .loading-progress-wrap-horizontal { margin-top: 0; flex: 1; min-width: 120px; }
 .loading-progress-track { flex: 1; height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden; max-width: 280px; }
-.loading-progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent, #6366f1), #818cf8); border-radius: 3px; transition: width 0.4s ease; }
-.loading-progress-label { font-size: 12px; font-weight: 700; color: var(--accent, #6366f1); min-width: 32px; }
+.loading-progress-fill { height: 100%; background: var(--pm-primary); border-radius: 3px; transition: width 0.4s ease; }
+.loading-progress-label { font-size: 12px; font-weight: 700; color: var(--accent, var(--pm-primary)); min-width: 32px; }
 .step-flow-inline { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .step-flow-inline-horizontal { margin-top: 0; }
 .step-flow-item { display: flex; align-items: center; gap: 6px; }
 .step-flow-dot { width: 8px; height: 8px; border-radius: 50%; background: #cbd5e1; flex-shrink: 0; transition: background 0.2s ease, box-shadow 0.2s ease; }
 .step-flow-label { font-size: 13px; font-weight: 600; color: #94a3b8; transition: color 0.2s ease; }
 .step-flow-arrow { color: #e2e8f0; flex-shrink: 0; }
-.step-flow-item.is-active .step-flow-dot { background: var(--accent, #6366f1); box-shadow: 0 0 0 3px rgba(99,102,241,0.15); }
-.step-flow-item.is-active .step-flow-label { color: var(--accent, #6366f1); font-weight: 700; }
+.step-flow-item.is-active .step-flow-dot { background: var(--accent, var(--pm-primary)); box-shadow: 0 0 0 3px rgba(36, 95, 168,0.15); }
+.step-flow-item.is-active .step-flow-label { color: var(--accent, var(--pm-primary)); font-weight: 700; }
 .step-flow-item.is-done .step-flow-dot { background: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,0.12); }
 .step-flow-item.is-done .step-flow-label { color: #059669; }
 .loading-progress-track-indeterminate { max-width: 340px; position: relative; overflow: hidden; }
@@ -1325,7 +1348,7 @@ onBeforeUnmount(() => {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--accent, #6366f1);
+  color: var(--accent, var(--pm-primary));
   margin-bottom: 2px;
 }
 .route-stage-title {
@@ -1362,14 +1385,14 @@ onBeforeUnmount(() => {
   transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 .route-stage-chip:hover {
-  border-color: #c7d2fe;
-  background: #fafbff;
+  border-color: var(--pm-primary-border);
+  background: var(--pm-surface-subtle);
   box-shadow: 0 2px 8px rgba(79, 70, 229, 0.06);
 }
 .route-stage-chip.active {
-  border-color: #818cf8;
-  background: #eef2ff;
-  box-shadow: 0 0 0 1px #818cf8;
+  border-color: var(--pm-primary-border);
+  background: var(--pm-primary-soft);
+  box-shadow: 0 0 0 1px var(--pm-primary-border);
 }
 .route-stage-chip-top {
   display: flex;
@@ -1387,8 +1410,8 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   font-size: 11px;
   font-weight: 700;
-  color: #4f46e5;
-  background: #eef2ff;
+  color: var(--pm-primary);
+  background: var(--pm-primary-soft);
   border: none;
   border-radius: 4px;
   padding: 2px 7px;
@@ -1403,7 +1426,7 @@ onBeforeUnmount(() => {
 .merge-focus-card {
   padding: 16px;
   border-radius: 10px;
-  border: 1px solid #e0e7ff;
+  border: 1px solid var(--pm-primary-border);
   background: #f8faff;
   box-shadow: none;
   margin-top: 12px;
@@ -1417,7 +1440,7 @@ onBeforeUnmount(() => {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #6366f1;
+  color: var(--pm-primary);
   margin-bottom: 4px;
 }
 .merge-focus-name {
@@ -1441,8 +1464,8 @@ onBeforeUnmount(() => {
   height: 28px;
   padding: 0 10px;
   border-radius: 999px;
-  background: #eef2ff;
-  color: #4f46e5;
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1476,8 +1499,8 @@ onBeforeUnmount(() => {
   gap: 6px;
 }
 .merge-suggestion-card {
-  border-color: #e0e7ff;
-  background: #fafaff;
+  border-color: var(--pm-primary-border);
+  background: var(--pm-surface-subtle);
 }
 .merge-suggestion-text {
   font-size: 14px;
@@ -1552,21 +1575,21 @@ onBeforeUnmount(() => {
   transition: all 0.15s ease;
 }
 .merge-neighbor-btn-primary {
-  border-color: #c7d2fe;
-  background: #eef2ff;
-  color: #3730a3;
+  border-color: var(--pm-primary-border);
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary);
 }
 .merge-neighbor-name {
   display: block;
   margin-top: 2px;
   font-size: 12px;
   font-weight: 600;
-  color: #6366f1;
+  color: var(--pm-primary);
 }
 .merge-neighbor-btn:hover {
-  border-color: #818cf8;
+  border-color: var(--pm-primary-border);
   background: #f5f3ff;
-  color: #4338ca;
+  color: var(--pm-primary-hover);
 }
 .merge-name-input {
   width: 100%;
@@ -1582,8 +1605,8 @@ onBeforeUnmount(() => {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .merge-name-input:focus {
-  border-color: #818cf8;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  border-color: var(--pm-primary-border);
+  box-shadow: 0 0 0 3px rgba(36, 95, 168, 0.1);
 }
 .merge-action-row {
   display: flex;
@@ -1645,8 +1668,8 @@ onBeforeUnmount(() => {
   }
 
   .route-mobile-tabs button.active {
-    background: #eef2ff;
-    color: #4338ca;
+    background: var(--pm-primary-soft);
+    color: var(--pm-primary-hover);
   }
 
   .route-mobile-tab-count {
@@ -1690,4 +1713,61 @@ onBeforeUnmount(() => {
   .merge-edit-head { flex-direction: column; align-items: stretch; }
   .merge-action-row .btn { width: 100%; }
 }
+
+/* PM016: inherit one accent across original, merge queue and result panels.
+   Exact component classes; only palette/decoration changes, no graph geometry. */
+.extract-view :deep(.srp-head) { background: var(--pm-primary-soft); }
+.extract-view :deep(.srp-section-header) { background: var(--pm-primary-soft); border-left: 3px solid var(--pm-primary); }
+.extract-view :deep(.srp-section-kicker) { color: var(--pm-primary); }
+.extract-view :deep(.srp-dot--active) { background: var(--pm-primary); box-shadow: 0 0 0 1px var(--pm-primary), 0 0 0 3px rgba(36, 95, 168, 0.2); }
+.extract-view :deep(.srp-op--active) { background: var(--pm-primary-soft); border-color: var(--pm-primary-border); box-shadow: 0 2px 8px rgba(36, 95, 168, 0.1); }
+.extract-view :deep(.srp-op--active::before) { background: var(--pm-primary); }
+.extract-view :deep(.srp-op--active .srp-op-seq) { background: var(--pm-primary); }
+.extract-view :deep(.srp-steps-btn:hover) { color: var(--pm-primary); }
+.extract-view :deep(.srp-steps-btn:hover .srp-steps-count) { background: rgba(36, 95, 168, 0.12); color: var(--pm-primary); }
+.extract-view :deep(.route-pane-head) { background: var(--pm-primary-soft); }
+.extract-view :deep(.nrp-dot--active) { background: var(--pm-primary); box-shadow: 0 0 0 1px var(--pm-primary), 0 0 0 3px rgba(36, 95, 168, 0.2); }
+.extract-view :deep(.nrp-card--active::before) { background: var(--pm-primary); }
+.extract-view :deep(.nrp-card--active .nrp-seq) { background: var(--pm-primary); }
+.extract-view :deep(.nrp-steps-toggle:hover) { color: var(--pm-primary); }
+.extract-view :deep(.nrp-steps-toggle:hover .nrp-steps-count) { background: rgba(36, 95, 168, 0.12); color: var(--pm-primary); }
+.extract-view :deep(.nrp-chip--attached) { border-color: var(--pm-primary-border); background: var(--pm-primary-soft); color: var(--pm-primary); }
+.extract-view :deep(.nrp-text-btn--primary) { background: var(--pm-primary); }
+.extract-view :deep(.nrp-text-btn--primary:hover:not(:disabled)) { background: var(--pm-primary-hover); }
+.extract-view :deep(.nrp-rename-input) { border: 1.5px solid var(--pm-primary-border); background: var(--pm-surface-subtle); box-shadow: 0 0 0 3px rgba(36, 95, 168, 0.08); }
+.extract-view :deep(.nrp-rename-input:focus) { border-color: var(--pm-primary); box-shadow: 0 0 0 3px rgba(36, 95, 168, 0.15); }
+.extract-view :deep(.route-pane-head) { background: var(--pm-primary-soft); }
+.extract-view :deep(.merge-batch-actions .btn) { border: 1px solid var(--pm-primary-border); color: var(--pm-primary); }
+.extract-view :deep(.merge-batch-actions .btn:hover:not(:disabled)) { color: var(--pm-primary-hover); background: var(--pm-primary-soft); border-color: var(--pm-primary-border); }
+.extract-view :deep(.merge-queue-guide) { color: var(--pm-primary); background: var(--pm-primary-soft); border: 1px solid var(--pm-primary-border); border-left: 3px solid var(--pm-primary); }
+.extract-view :deep(.merge-queue-card:hover::before) { background: var(--pm-primary-border); }
+.extract-view :deep(.merge-queue-card.active) { border-color: var(--pm-primary-border); background: var(--pm-primary-soft); box-shadow: 0 0 0 1px var(--pm-primary-border), 0 4px 16px rgba(36, 95, 168, 0.08); }
+.extract-view :deep(.merge-queue-card.active::before) { background: var(--pm-primary); }
+.extract-view :deep(.merge-queue-card.active .merge-queue-name) { color: var(--pm-primary); }
+.extract-view :deep(.merge-queue-card.active .merge-queue-hint) { color: var(--pm-primary); }
+.extract-view :deep(.merge-queue-actions-inline > .btn.btn-primary) { background: var(--pm-primary); box-shadow: 0 2px 6px rgba(36, 95, 168, 0.3); }
+.extract-view :deep(.merge-queue-actions-inline > .btn.btn-primary:hover:not(:disabled)) { background: var(--pm-primary); box-shadow: 0 3px 10px rgba(36, 95, 168, 0.4); }
+.extract-view :deep(.merge-queue-rename-input) { border: 1.5px solid var(--pm-primary-border); background: var(--pm-surface-subtle); box-shadow: 0 0 0 3px rgba(36, 95, 168, 0.08); }
+.extract-view :deep(.merge-queue-rename-input:focus) { border-color: var(--pm-primary); box-shadow: 0 0 0 3px rgba(36, 95, 168, 0.15); }
+.extract-view :deep(.tag-warning) { background: var(--pm-warning-soft); color: var(--pm-warning); }
+.extract-view :deep(.route-shell-revert) { color: var(--pm-primary); border: 1px solid var(--pm-primary-border); }
+.extract-view :deep(.route-shell-revert:hover) { color: var(--pm-primary-hover); background: var(--pm-primary-soft); border-color: var(--pm-primary-border); }
+.extract-view :deep(.footer-status-pill-info) { background: var(--pm-primary-soft); color: var(--pm-primary-hover); border: 1px solid var(--pm-primary-border); }
+.extract-view :deep(.footer-status-pill-spinner) { border-top-color: var(--pm-primary); }
+.extract-view :deep(.route-progress-card) { border: 1px solid var(--pm-primary-border); }
+.extract-view :deep(.route-progress-spinner) { border-top-color: var(--pm-primary); }
+.extract-view :deep(.route-progress-step.is-active .route-progress-dot) { background: var(--accent, var(--pm-primary)); box-shadow: 0 0 0 3px rgba(36, 95, 168, 0.15); }
+.extract-view :deep(.route-progress-step.is-active .route-progress-label) { color: var(--accent, var(--pm-primary)); }
+.extract-view :deep(.route-progress-top) { background: var(--pm-primary-soft); }
+.extract-view :deep(.route-progress-fill) { background: var(--pm-primary); box-shadow: 0 0 8px rgba(36, 95, 168, 0.6); }
+.extract-view :deep(.action-icon) { background: var(--pm-primary-soft); color: var(--pm-primary); box-shadow: inset 0 0 0 1px rgba(36, 95, 168, 0.15); }
+.extract-view :deep(.nrp-card--active) { background: var(--pm-primary-soft); border-color: var(--pm-primary-border); box-shadow: none; }
+.extract-view :deep(.srp-line), .extract-view :deep(.nrp-line) { background: var(--pm-border); }
+.extract-view :deep(.route-shell-revert), .extract-view :deep(.merge-batch-actions .btn) { min-height: 28px; font-size: 12px; border-radius: var(--pm-radius-control); }
+.extract-view :deep(.merge-queue-card.active) { box-shadow: 0 0 0 1px var(--pm-primary-border); }
+.extract-view :deep(.route-pane-head), .extract-view :deep(.srp-head) { background: var(--pm-surface-subtle); }
+.extract-view :deep(.srp-op-seq), .extract-view :deep(.nrp-seq), .extract-view :deep(.srp-steps-count), .extract-view :deep(.nrp-steps-count) { font-size: 12px; }
+.extract-view :deep(.tag-warning), .extract-view :deep(.footer-status-pill-warning) { color: var(--pm-warning); border-color: var(--pm-warning-border); background: var(--pm-warning-soft); }
+.extract-view :deep(.footer-status-pill-success) { color: var(--pm-success); border-color: var(--pm-success-border); background: var(--pm-success-soft); }
+.extract-view :deep(button:focus-visible), .extract-view :deep(input:focus-visible) { outline: 2px solid var(--pm-primary); outline-offset: 2px; }
 </style>

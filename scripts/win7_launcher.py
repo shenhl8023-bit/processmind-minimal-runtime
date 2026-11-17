@@ -19,6 +19,7 @@ from typing import Callable, Dict, Mapping, Optional, Sequence
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
+LAUNCHER_CONFIG_NAME = "launcher-config.json"
 STATE_FILE_NAME = "processmind-win7.json"
 
 
@@ -56,19 +57,32 @@ def package_root_from_file() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def resolve_runtime_dir(env: Optional[Mapping[str, str]] = None) -> Path:
+def resolve_runtime_dir(env: Optional[Mapping[str, str]] = None, package_root: Optional[Path] = None) -> Path:
     values = os.environ if env is None else env
     configured = (values.get("PROCESSMIND_RUNTIME_DIR") or "").strip()
     if configured:
         return Path(os.path.expandvars(os.path.expanduser(configured))).resolve()
 
+    profile_path = (Path(package_root) if package_root is not None else package_root_from_file()) / "product-profile.json"
+    namespace = "ProcessMind"
+    if profile_path.is_file():
+        try:
+            profile = json.loads(profile_path.read_text(encoding="utf-8-sig"))
+            edition = profile["edition"]
+            if edition not in ("full", "basic-trial"):
+                raise ValueError("unknown edition")
+            if edition == "basic-trial":
+                namespace = "ProcessMindBasicTrial"
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            raise LauncherError("无法读取交付包的产品配置：%s" % exc)
+
     local_app_data = (values.get("LOCALAPPDATA") or "").strip()
     if local_app_data:
-        return (Path(os.path.expandvars(os.path.expanduser(local_app_data))) / "ProcessMind").resolve()
+        return (Path(os.path.expandvars(os.path.expanduser(local_app_data))) / namespace).resolve()
 
     temporary = (values.get("TEMP") or values.get("TMP") or "").strip()
     if temporary:
-        return (Path(os.path.expandvars(os.path.expanduser(temporary))) / "ProcessMind").resolve()
+        return (Path(os.path.expandvars(os.path.expanduser(temporary))) / namespace).resolve()
 
     user_profile = (values.get("USERPROFILE") or "").strip()
     if user_profile:
@@ -76,7 +90,7 @@ def resolve_runtime_dir(env: Optional[Mapping[str, str]] = None) -> Path:
             Path(os.path.expandvars(os.path.expanduser(user_profile)))
             / "AppData"
             / "Local"
-            / "ProcessMind"
+            / namespace
         ).resolve()
 
     raise LauncherError(
@@ -165,6 +179,24 @@ def validate_port(port: object) -> int:
     return value
 
 
+def resolve_start_port(package_root: Path, explicit_port: object = None) -> int:
+    """Read the user-editable port; explicit CLI arguments take precedence."""
+    if explicit_port is not None:
+        return validate_port(explicit_port)
+    path = Path(package_root).resolve() / LAUNCHER_CONFIG_NAME
+    if not path.exists():
+        return DEFAULT_PORT
+    try:
+        config = json.loads(path.read_text(encoding="utf-8-sig"))
+        if not isinstance(config, dict) or set(config) != {"port"}:
+            raise ValueError('只支持配置 {"port": 8000}')
+        if type(config["port"]) is not int or not 1 <= config["port"] <= 65535:
+            raise ValueError("port 必须是 1 到 65535 之间的整数")
+        return config["port"]
+    except (OSError, ValueError, TypeError) as exc:
+        raise LauncherError("启动端口配置无效：%s；%s" % (path, exc))
+
+
 def check_port(host: str, port: object, timeout: float = 0.4) -> int:
     """Return 0 when free, 1 when listening, and 2 for an invalid port."""
 
@@ -215,6 +247,11 @@ def _browser_candidate_paths(env: Mapping[str, str]) -> Sequence[Path]:
         value = (env.get(key) or "").strip()
         if value:
             roots.append(Path(os.path.expandvars(os.path.expanduser(value))))
+
+    # Check Firefox in every installation root before falling back to Chromium.
+    for root in roots:
+        candidates.append(root / "Mozilla Firefox" / "firefox.exe")
+        candidates.append(root / "Programs" / "Mozilla Firefox" / "firefox.exe")
 
     relative_paths = (
         Path("Google") / "Chrome" / "Application" / "chrome.exe",
@@ -284,11 +321,15 @@ def build_environment(package_root: Path, state_dir: Path, env: Optional[Mapping
     package_root = Path(package_root).resolve()
     state_dir = ensure_runtime_dir(state_dir)
     values = dict(os.environ if env is None else env)
+    settings_path = package_root / "model-settings.json"
+    if not (values.get("PROCESSMIND_SETTINGS_PATH") or "").strip() and settings_path.is_file():
+        values["PROCESSMIND_SETTINGS_PATH"] = str(settings_path)
     values.update(
         {
             "PROCESSMIND_RUNTIME_DIR": str(state_dir),
             "PROCESSMIND_DATA_DIR": str(state_dir / "data"),
             "PROCESSMIND_FRONTEND_DIR": str(frontend_directory(package_root)),
+            "PROCESSMIND_PROFILE_PATH": str(package_root / "product-profile.json"),
             "PYTHONDONTWRITEBYTECODE": "1",
         }
     )
@@ -510,12 +551,12 @@ def _wait_for_health(port: int, process: subprocess.Popen, timeout_seconds: floa
 
 def start_application(
     package_root: Path,
-    port: object = DEFAULT_PORT,
+    port: object = None,
     state_dir: Optional[Path] = None,
     should_open_browser: bool = True,
     env: Optional[Mapping[str, str]] = None,
 ) -> int:
-    runtime_dir = ensure_runtime_dir(state_dir or resolve_runtime_dir(env))
+    runtime_dir = ensure_runtime_dir(state_dir or resolve_runtime_dir(env, package_root))
     with lifecycle_lock(runtime_dir):
         return _start_application(package_root, port, runtime_dir, should_open_browser, env)
 
@@ -528,8 +569,9 @@ def _start_application(
     env: Optional[Mapping[str, str]],
 ) -> int:
     package_root = Path(package_root).resolve()
-    port = validate_port(port)
-    runtime_dir = ensure_runtime_dir(state_dir or resolve_runtime_dir(env))
+    explicit_port = port is not None
+    port = resolve_start_port(package_root, port)
+    runtime_dir = ensure_runtime_dir(state_dir or resolve_runtime_dir(env, package_root))
     python = python_executable(package_root)
     api_root = api_directory(package_root)
     frontend_root = frontend_directory(package_root)
@@ -541,7 +583,6 @@ def _start_application(
         raise LauncherError("缺少前端构建产物: %s" % frontend_root)
 
     existing = read_state(runtime_dir)
-    endpoint = "http://%s:%d/api/startup-ping" % (HOST, port)
     if existing:
         try:
             old_pid = int(existing.get("pid", 0))
@@ -551,10 +592,19 @@ def _start_application(
         old_root = Path(str(existing.get("package_root", ""))).resolve()
         old_command = query_process_commandline(old_pid) if old_pid > 0 else ""
         old_live = managed_command_matches(old_command, old_root) or process_exists(old_pid) is not False
+        if (old_live and old_root == package_root and old_port != port and not explicit_port
+                and managed_command_matches(old_command, package_root)):
+            print("配置端口已改为 %d，当前仍使用运行中的端口 %d；请先运行 stop-win7.cmd，再重新启动以应用配置。"
+                  % (port, old_port))
+            port = old_port
         if old_live and (old_root != package_root or old_port != port):
-            raise LauncherError("已有运行状态：目录 %s，端口 %d；请先用原目录关闭，不能覆盖状态" % (old_root, old_port))
+            raise LauncherError(
+                '已有运行状态：目录 %s，端口 %d；请先用原目录关闭：双击 "%s"，再启动当前版本；不能覆盖状态。'
+                % (old_root, old_port, old_root / "stop-win7.cmd")
+            )
         if old_live and not old_command:
             raise LauncherError("无法确认已有进程状态，不能覆盖状态文件；请先执行 stop-win7.cmd")
+    endpoint = "http://%s:%d/api/startup-ping" % (HOST, port)
     if existing and _state_belongs_to_package(existing, package_root, port) and health(endpoint):
         if should_open_browser and not open_browser("http://%s:%d/" % (HOST, port), env):
             print("浏览器未找到，请手动打开 http://%s:%d/" % (HOST, port))
@@ -573,7 +623,8 @@ def _start_application(
         return int(recovered["pid"])
 
     if check_port(HOST, port) == 1:
-        raise LauncherError("端口 %d 已被其他程序占用" % port)
+        raise LauncherError('端口 %d 已被其他程序占用；请修改 "%s" 中的 port 后重新启动。'
+                            % (port, package_root / LAUNCHER_CONFIG_NAME))
 
     logs = runtime_dir / "logs"
     logs.mkdir(parents=True, exist_ok=True)
@@ -622,17 +673,17 @@ def _start_application(
 
 
 def stop_application(package_root: Path, state_dir: Optional[Path] = None, port: Optional[int] = None) -> bool:
-    runtime_dir = ensure_runtime_dir(state_dir or resolve_runtime_dir())
+    runtime_dir = ensure_runtime_dir(state_dir or resolve_runtime_dir(package_root=package_root))
     with lifecycle_lock(runtime_dir):
         return _stop_application(package_root, runtime_dir, port)
 
 
 def _stop_application(package_root: Path, state_dir: Path, port: Optional[int]) -> bool:
     package_root = Path(package_root).resolve()
-    runtime_dir = ensure_runtime_dir(state_dir or resolve_runtime_dir())
+    runtime_dir = ensure_runtime_dir(state_dir or resolve_runtime_dir(package_root=package_root))
     state = read_state(runtime_dir)
     if not state or not state.get("pid"):
-        target_port = validate_port(port if port is not None else DEFAULT_PORT)
+        target_port = resolve_start_port(package_root, port)
         state = recover_state(package_root, runtime_dir, target_port)
         if not state:
             listener = query_listener_pid(target_port)
@@ -671,17 +722,17 @@ def _stop_application(package_root: Path, state_dir: Path, port: Optional[int]) 
 
 
 def status_application(package_root: Path, state_dir: Optional[Path] = None, port: Optional[int] = None) -> bool:
-    runtime_dir = ensure_runtime_dir(state_dir or resolve_runtime_dir())
+    runtime_dir = ensure_runtime_dir(state_dir or resolve_runtime_dir(package_root=package_root))
     with lifecycle_lock(runtime_dir):
         return _status_application(package_root, runtime_dir, port)
 
 
 def _status_application(package_root: Path, state_dir: Path, port: Optional[int]) -> bool:
     package_root = Path(package_root).resolve()
-    runtime_dir = ensure_runtime_dir(state_dir or resolve_runtime_dir())
+    runtime_dir = ensure_runtime_dir(state_dir or resolve_runtime_dir(package_root=package_root))
     state = read_state(runtime_dir)
     if not state:
-        state = recover_state(package_root, runtime_dir, validate_port(port if port is not None else DEFAULT_PORT))
+        state = recover_state(package_root, runtime_dir, resolve_start_port(package_root, port))
     if not state:
         print("ProcessMind 未运行")
         return False
@@ -721,7 +772,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "start":
-            start_application(args.package_root, args.port if args.port is not None else DEFAULT_PORT, args.state_dir, not args.no_browser)
+            start_application(args.package_root, args.port, args.state_dir, not args.no_browser)
             return 0
         if args.command == "stop":
             stop_application(args.package_root, args.state_dir, args.port)

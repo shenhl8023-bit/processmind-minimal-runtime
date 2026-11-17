@@ -1,0 +1,435 @@
+{
+  "schema_version": "1.0",
+  "revision": 0,
+  "feature_mappings": {
+    "外圆": [
+      "外圆柱面"
+    ],
+    "端面": [
+      "轴端面"
+    ],
+    "孔/内孔": [
+      "孔",
+      "孔(盲孔)",
+      "孔(通孔)",
+      "内圆柱面"
+    ],
+    "车槽": [
+      "U形外环槽",
+      "U形内环槽",
+      "外环槽",
+      "内环槽"
+    ],
+    "铣槽": [
+      "V形环槽",
+      "通槽",
+      "T形截面通槽",
+      "沟槽",
+      "L形端面环槽",
+      "U形直槽"
+    ],
+    "磨槽": [
+      "U形外环槽",
+      "U形内环槽",
+      "外环槽",
+      "内环槽"
+    ],
+    "扁位": [
+      "平面"
+    ],
+    "型孔": [
+      "型孔"
+    ],
+    "螺纹": [
+      "内螺纹",
+      "外螺纹"
+    ],
+    "螺纹底孔": [
+      "螺纹底孔"
+    ],
+    "顶尖孔": [
+      "顶尖孔"
+    ],
+    "锥面": [
+      "锥面"
+    ],
+    "球面": [
+      "球面"
+    ],
+    "倒角/孔口倒角": [
+      "倒角",
+      "内倒角",
+      "外倒角",
+      "边倒角"
+    ],
+    "倒圆/边缘圆角": [
+      "边倒圆",
+      "倒圆",
+      "回转面倒圆"
+    ]
+  },
+  "directions": [
+    "A侧",
+    "B侧",
+    "中间",
+    "周边",
+    "所有方位"
+  ],
+  "materials": [
+    "9Cr18",
+    "4Cr14Ni14W2Mo"
+  ],
+  "operation_guidance": {
+    "铣扁": {
+      "feature_group": "扁位",
+      "recommendation": {
+        "mode": "condition",
+        "basis": "feature",
+        "features": [
+          "平面"
+        ],
+        "direction": "周边"
+      }
+    },
+    "钻孔": {
+      "feature_group": "孔/内孔",
+      "recommendation": {
+        "mode": "condition",
+        "basis": "feature",
+        "features": [
+          "孔(盲孔)",
+          "孔(通孔)"
+        ],
+        "direction": "周边"
+      }
+    },
+    "钻铰孔": {
+      "feature_group": "孔/内孔",
+      "recommendation": {
+        "mode": "condition",
+        "basis": "feature",
+        "features": [
+          "孔(通孔)",
+          "内圆柱面"
+        ],
+        "direction": "周边"
+      }
+    },
+    "铣槽": {
+      "feature_group": "铣槽",
+      "recommendation": {
+        "mode": "condition",
+        "basis": "feature",
+        "features": [
+          "通槽",
+          "沟槽",
+          "U形直槽"
+        ],
+        "direction": "周边"
+      }
+    },
+    "打孔": {
+      "feature_group": "孔/内孔",
+      "recommendation": {
+        "mode": "condition",
+        "basis": "feature",
+        "features": [
+          "孔(盲孔)",
+          "孔(通孔)"
+        ],
+        "direction": "周边"
+      }
+    },
+    "割型孔": {
+      "feature_group": "型孔",
+      "recommendation": {
+        "mode": "condition",
+        "basis": "feature",
+        "features": [
+          "型孔"
+        ],
+        "direction": "周边"
+      }
+    },
+    "割扁": {
+      "feature_group": "扁位",
+      "recommendation": {
+        "mode": "condition",
+        "basis": "feature",
+        "features": [
+          "平面"
+        ],
+        "direction": "周边"
+      }
+    },
+    "打型孔": {
+      "feature_group": "型孔",
+      "recommendation": {
+        "mode": "condition",
+        "basis": "feature",
+        "features": [
+          "型孔"
+        ],
+        "direction": "周边"
+      }
+    },
+    "磨外圆": {
+      "feature_group": "外圆",
+      "recommendation": {
+        "mode": "condition",
+        "basis": "precision",
+        "features": [
+          "外圆柱面"
+        ],
+        "direction": "所有方位",
+        "it_threshold": 7,
+        "ra_threshold": 0.8
+      },
+      "instruction": "先确认加工特征和方位；A/B范围仅作可修改推荐。主推荐为IT7及更高精度；仅改选粗糙度分支时使用可编辑的Ra备用阈值。"
+    },
+    "磨端面": {
+      "feature_group": "端面",
+      "recommendation": {
+        "mode": "condition",
+        "basis": "precision",
+        "features": [
+          "轴端面"
+        ],
+        "direction": "所有方位",
+        "it_threshold": 7,
+        "ra_threshold": 0.8
+      },
+      "instruction": "先确认加工特征和方位；A/B范围仅作可修改推荐。主推荐为IT7及更高精度；仅改选粗糙度分支时使用可编辑的Ra备用阈值。"
+    },
+    "磨槽": {
+      "feature_group": "磨槽",
+      "recommendation": {
+        "mode": "condition",
+        "basis": "precision",
+        "features": [
+          "U形外环槽",
+          "U形内环槽",
+          "外环槽",
+          "内环槽"
+        ],
+        "direction": "所有方位",
+        "it_threshold": 7,
+        "ra_threshold": 0.8
+      },
+      "instruction": "先确认加工特征和方位；A/B范围仅作可修改推荐。主推荐为IT7及更高精度；仅改选粗糙度分支时使用可编辑的Ra备用阈值。"
+    },
+    "磨孔": {
+      "feature_group": "孔/内孔",
+      "recommendation": {
+        "mode": "condition",
+        "basis": "precision",
+        "features": [
+          "内圆柱面"
+        ],
+        "direction": "所有方位",
+        "it_threshold": 7,
+        "ra_threshold": 0.8
+      },
+      "instruction": "先确认加工特征和方位；A/B范围仅作可修改推荐。主推荐为IT7及更高精度；仅改选粗糙度分支时使用可编辑的Ra备用阈值。"
+    },
+    "珩孔": {
+      "feature_group": "孔/内孔",
+      "recommendation": {
+        "mode": "condition",
+        "basis": "precision",
+        "features": [
+          "内圆柱面"
+        ],
+        "direction": "所有方位",
+        "it_threshold": 6
+      },
+      "instruction": "暂定IT6及更高精度；改选粗糙度时需另填阈值。"
+    },
+    "研孔": {
+      "feature_group": "孔/内孔",
+      "recommendation": {
+        "mode": "condition",
+        "basis": "precision",
+        "features": [
+          "内圆柱面"
+        ],
+        "direction": "所有方位",
+        "it_threshold": 6
+      },
+      "instruction": "暂定IT6及更高精度；改选粗糙度时需另填阈值。"
+    },
+    "研外圆": {
+      "feature_group": "外圆",
+      "recommendation": {
+        "mode": "condition",
+        "basis": "precision",
+        "features": [
+          "外圆柱面"
+        ],
+        "direction": "所有方位",
+        "it_threshold": 6
+      },
+      "instruction": "暂定IT6及更高精度；改选粗糙度时需另填阈值。"
+    },
+    "去应力": {
+      "recommendation": {
+        "mode": "condition",
+        "basis": "material",
+        "materials": [
+          "9Cr18"
+        ]
+      },
+      "instruction": "材料推荐只引用当前项目已配置候选；其它分支由工艺师选择。"
+    },
+    "调质": {
+      "recommendation": {
+        "mode": "condition",
+        "basis": "material",
+        "materials": [
+          "9Cr18"
+        ]
+      },
+      "instruction": "材料推荐只引用当前项目已配置候选；其它分支由工艺师选择。"
+    },
+    "淬火": {
+      "recommendation": {
+        "mode": "condition",
+        "basis": "material",
+        "materials": [
+          "9Cr18"
+        ]
+      },
+      "instruction": "材料推荐只引用当前项目已配置候选；其它分支由工艺师选择。"
+    },
+    "正常化": {
+      "recommendation": {
+        "mode": "condition",
+        "basis": "material",
+        "materials": [
+          "4Cr14Ni14W2Mo"
+        ]
+      },
+      "instruction": "材料推荐只引用当前项目已配置候选；其它分支由工艺师选择。"
+    },
+    "渗氮": {
+      "recommendation": {
+        "mode": "condition",
+        "basis": "material",
+        "materials": [
+          "4Cr14Ni14W2Mo"
+        ]
+      },
+      "instruction": "材料推荐只引用当前项目已配置候选；其它分支由工艺师选择。"
+    },
+    "镀铜": {
+      "recommendation": {
+        "mode": "manual"
+      }
+    },
+    "硬质阳极化": {
+      "recommendation": {
+        "mode": "manual"
+      }
+    },
+    "标记": {
+      "recommendation": {
+        "mode": "manual"
+      }
+    },
+    "铬酸阳极化": {
+      "recommendation": {
+        "mode": "manual"
+      }
+    },
+    "研顶尖孔": {
+      "feature_group": "顶尖孔",
+      "recommendation": {
+        "mode": "manual"
+      },
+      "instruction": "定位辅助类，暂按用户倾向推荐人工Bool。"
+    },
+    "除铜": {
+      "recommendation": {
+        "mode": "relation",
+        "source_operation_name": "镀铜"
+      },
+      "instruction": "选择当前路线中明确的镀铜来源节点，保留原路线位置，不要求相邻。"
+    },
+    "下料备料": {
+      "recommendation": {
+        "mode": "mainline"
+      }
+    },
+    "车削加工（A侧）": {
+      "recommendation": {
+        "mode": "mainline"
+      }
+    },
+    "车削加工（B侧）": {
+      "recommendation": {
+        "mode": "mainline"
+      }
+    },
+    "包装": {
+      "recommendation": {
+        "mode": "mainline"
+      }
+    },
+    "无损检查": {
+      "recommendation": {
+        "mode": "mainline"
+      }
+    },
+    "烧伤检查": {
+      "recommendation": {
+        "mode": "mainline"
+      }
+    },
+    "去毛刺#1": {
+      "recommendation": {
+        "mode": "mainline"
+      }
+    },
+    "去毛刺#2": {
+      "recommendation": {
+        "mode": "mainline"
+      }
+    },
+    "去毛刺#3": {
+      "recommendation": {
+        "mode": "mainline"
+      }
+    },
+    "清洗#1": {
+      "recommendation": {
+        "mode": "mainline"
+      }
+    },
+    "清洗#2": {
+      "recommendation": {
+        "mode": "mainline"
+      }
+    },
+    "清洗#3": {
+      "recommendation": {
+        "mode": "mainline"
+      }
+    },
+    "检验#1": {
+      "recommendation": {
+        "mode": "mainline"
+      }
+    },
+    "检验#2": {
+      "recommendation": {
+        "mode": "mainline"
+      }
+    },
+    "检验#3": {
+      "recommendation": {
+        "mode": "mainline"
+      }
+    }
+  },
+  "guidance": "以下为可编辑的项目推荐，不是PDF事实；仅经用户采用后形成后续回答及规则。"
+}

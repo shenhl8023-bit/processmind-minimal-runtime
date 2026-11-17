@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import appSource from './App.vue?raw'
+import mainSource from './main.ts?raw'
+import globalStyles from './styles/global.css?raw'
 import analysisSource from './views/AnalysisView.vue?raw'
 import extractSource from './views/ExtractView.vue?raw'
 import finalizeSource from './views/FinalizeView.vue?raw'
@@ -9,10 +11,12 @@ import uploadSource from './views/UploadView.vue?raw'
 
 describe('workflow viewport layout', () => {
   it('keeps the application inside the viewport and lets main content own page scrolling', () => {
-    expect(appSource).toMatch(/html, body\s*\{[^}]*overflow:\s*hidden;/s)
-    expect(appSource).toMatch(/\.app-shell\s*\{[^}]*height:\s*100vh;[^}]*overflow:\s*hidden;/s)
-    expect(appSource).toMatch(/\.main-area\s*\{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/s)
+    expect(mainSource).toMatch(/import\s+['"]\.\/styles\/global\.css['"]/)
+    expect(globalStyles).toMatch(/html, body\s*\{[^}]*overflow:\s*hidden;/s)
+    expect(globalStyles).toMatch(/\.app-shell\s*\{[^}]*height:\s*100vh;[^}]*overflow:\s*hidden;/s)
+    expect(globalStyles).toMatch(/\.main-area\s*\{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/s)
     expect(appSource).not.toContain('scrollbar-gutter: stable')
+    expect(globalStyles).not.toContain('scrollbar-gutter: stable')
   })
 
   it('sizes the analysis workspace from its parent instead of recalculating the viewport', () => {

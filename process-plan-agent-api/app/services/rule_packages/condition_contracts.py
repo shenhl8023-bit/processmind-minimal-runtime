@@ -76,6 +76,9 @@ class RuleConditionSourceRequest(StrictModel):
     expected_workflow_revision: int = Field(default=0, ge=0)
     segment_id: str = Field(min_length=1)
     source_text: str = ""
+    # None preserves legacy callers. Current clients send the review token,
+    # including an empty token when no saved review exists yet.
+    expected_review_token: str | None = Field(default=None, max_length=64)
 
 
 class SaveRuleConditionDraftRequest(RuleConditionSourceRequest):
@@ -103,6 +106,7 @@ class ManualRuleConditionRequest(RuleConditionSourceRequest):
 
 
 class RuleConditionReview(StrictModel):
+    review_token: str = ""
     source_text: str = ""
     source_hash: str = ""
     status: Literal["draft", "parsing", "pending_confirmation", "confirmed", "invalid"] = "draft"

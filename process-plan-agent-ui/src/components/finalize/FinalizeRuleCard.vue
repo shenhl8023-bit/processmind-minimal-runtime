@@ -9,60 +9,54 @@
         <div class="preview-card-name-stack">
           <h2>
             <span>{{ displayName }}</span>
-            <span class="card-mode-badge" :class="`card-mode-${cardRuleMode}`">{{ modeLabel }}</span>
+            <span v-if="!configurationEditing" class="card-mode-badge" :class="`card-mode-${cardRuleMode}`">{{ modeLabel }}</span>
+            <button
+              v-if="cardRuleMode === 'mainline' && !configurationEditing"
+              class="collapse-toggle-btn"
+              type="button"
+              :aria-expanded="mainlineExpanded"
+              :aria-label="`${mainlineExpanded ? '折叠' : '展开'}${displayName}详情`"
+              :title="mainlineExpanded ? '折叠' : '展开详情'"
+              @click="mainlineExpanded = !mainlineExpanded"
+            >
+              <svg class="collapse-chevron" :class="{ 'collapse-chevron--open': mainlineExpanded }" width="13" height="13" viewBox="0 0 16 16" fill="none">
+                <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
           </h2>
           <div v-if="metaLabel" class="preview-card-meta">{{ metaLabel }}</div>
         </div>
       </div>
       <div class="preview-card-actions">
+        <div class="card-selection-slot">
         <label v-if="selectable && !inlineEditing && !ruleEditorExpanded && !manualBooleanEditing && !configurationEditing" class="rule-selection">
           <input type="checkbox" :checked="selected" :disabled="controlsDisabled" :aria-label="`选择${displayName}规则`" @change="$emit('toggle-selected', item)" />
           <span>选择</span>
         </label>
+        </div>
+        <div class="card-confirm-slot">
         <span v-if="conditionBusy" class="edited-badge" role="status">处理中…</span>
-        <span v-if="hasUnsavedChanges" class="edited-badge" role="status">未保存</span>
+        <span v-else-if="hasUnsavedChanges && !configurationEditing" class="edited-badge" role="status">未保存</span>
         <button
-          v-if="!hasUnsavedChanges && !configurationEditing && !inlineEditing && !manualBooleanEditing && editableCandidate && candidateMatchesCardMode && ['conditional','relation'].includes(cardRuleMode) && effectiveStatus !== 'confirmed'"
+          v-if="!hasUnsavedChanges && !configurationEditing && !inlineEditing && !manualBooleanEditing && editableCandidate && candidateMatchesCardMode && (candidateKind === 'process_configuration' || ['conditional','relation'].includes(cardRuleMode)) && effectiveStatus !== 'confirmed'"
           type="button" class="confirm-rule-primary-btn"
-          :disabled="controlsDisabled || !hasRuleAction" @click="confirmCandidate"
+          :disabled="controlsDisabled || !hasRuleAction || Boolean(authoringError)" @click="confirmCandidate"
         >确认规则</button>
-        <span v-else-if="!hasUnsavedChanges && !inlineEditing && effectiveStatus === 'confirmed' && cardRuleMode !== 'mainline'" class="confirmed-status-pill">✓ 已确认</span>
+        </div>
+        <div class="card-edit-slot">
         <template v-if="!inlineEditing">
           <button
+            v-if="!configurationEditing && !ruleEditorExpanded && !manualBooleanEditing"
             type="button"
             class="preview-edit-btn"
-            :class="{ 'preview-edit-btn-active': configurationEditing && configurationEditorSection === 'appearance' }"
+            :class="{ 'preview-edit-btn-active': configurationEditing }"
             :disabled="controlsDisabled"
-            :aria-expanded="configurationEditing && configurationEditorSection === 'appearance'"
+            :aria-expanded="configurationEditing"
             @click="openConfigurationEditor('appearance')"
-          >{{ configurationEditing && configurationEditorSection === 'appearance' ? '取消' : '设置出现方式' }}</button>
-          <button
-            type="button"
-            class="preview-edit-btn preview-edit-btn-relation"
-            :class="{ 'preview-edit-btn-active': configurationEditing && configurationEditorSection === 'relations' }"
-            :disabled="controlsDisabled || !processOptions.some(process => process.process_id !== exportProcessIdForItem(item))"
-            :aria-expanded="configurationEditing && configurationEditorSection === 'relations'"
-            @click="openConfigurationEditor('relations')"
-          >{{ configurationEditing && configurationEditorSection === 'relations' ? '取消' : '设置工序关联' }}</button>
+          >规则修改</button>
           <button v-if="ruleEditorExpanded || manualBooleanEditing" type="button" class="preview-edit-btn" :disabled="controlsDisabled" @click="beginEdit">取消修改</button>
         </template>
-        <!-- Mainline collapse toggle -->
-        <button
-          v-if="cardRuleMode === 'mainline'"
-          class="collapse-toggle-btn"
-          @click="mainlineExpanded = !mainlineExpanded"
-          :title="mainlineExpanded ? '折叠' : '展开详情'"
-        >
-          <svg
-            class="collapse-chevron"
-            :class="{ 'collapse-chevron--open': mainlineExpanded }"
-            width="13" height="13"
-            viewBox="0 0 16 16"
-            fill="none"
-          >
-            <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
+        </div>
       </div>
     </div>
 
@@ -82,23 +76,25 @@
           :model-value="configurationDraft" :item="item" :display-name="displayName"
           :fields="configurationFields" :processes="processOptions" :disabled="controlsDisabled"
           :stale-source="configurationSourceChanged"
+          :require-mode-selection="configurationRequiresModeSelection"
           :section="configurationEditorSection"
-          @update:model-value="configurationDraft = $event" @save="saveConfiguration"
-        />
-        <div class="configuration-secondary-actions">
-          <button type="button" class="ghost-btn ghost-btn-icon" :disabled="controlsDisabled || hasUnsavedChanges" @click="$emit('start-edit', item)">
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            修改原始描述
-          </button>
-          <button v-if="item.edited" type="button" class="ghost-btn ghost-btn-icon" :disabled="controlsDisabled || hasUnsavedChanges" @click="resetRule">
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 8a6 6 0 0 1 10.2-4.2M14 2v4h-4M14 8a6 6 0 0 1-10.2 4.2M2 14v-4h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            恢复默认
-          </button>
-          <button type="button" class="ghost-btn ghost-btn-icon" :disabled="controlsDisabled || hasUnsavedChanges" @click="reparseRule">
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 2v4l3-2M8 2a6 6 0 1 0 5.3 3.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            重新识别
-          </button>
-        </div>
+          @update:model-value="configurationDraft = $event; configurationRequiresModeSelection = false" @save="saveConfiguration" @cancel="openConfigurationEditor('appearance')"
+        >
+          <template #secondary-actions>
+            <div class="configuration-secondary-tools">
+            <details v-if="item.edited" class="configuration-more">
+              <summary>更多操作</summary>
+              <div class="configuration-more-menu">
+                <button v-if="item.edited" type="button" class="ghost-btn ghost-btn-icon" :disabled="controlsDisabled || hasUnsavedChanges" @click="resetRule">
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 8a6 6 0 0 1 10.2-4.2M14 2v4h-4M14 8a6 6 0 0 1-10.2 4.2M2 14v-4h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  恢复默认
+                </button>
+              </div>
+            </details>
+            <span v-if="hasUnsavedConfiguration" class="configuration-save-state" role="status">未保存</span>
+            </div>
+          </template>
+        </ProcessConfigurationEditor>
       </template>
       <div v-if="inlineEditing" class="inline-edit-box">
         <textarea :value="inlineEditingText" class="inline-edit-textarea" :disabled="controlsDisabled" rows="3" :ref="handleTextareaRef"
@@ -148,6 +144,7 @@
         <div v-if="!editableCandidate || !candidateMatchesCardMode" class="card-inline-strip card-strip-pending">
           <span class="strip-label" :class="{ 'strip-label-attention': sourceTextChanged }">{{ pendingStatusLabel }}</span>
           <span class="strip-desc">{{ pendingStatusDetail }}</span>
+          <button v-if="effectiveStatus === 'invalid'" type="button" class="strip-action" :disabled="controlsDisabled" @click="openConfigurationEditor('appearance', true)">设置出现规则</button>
           <button class="strip-action" :disabled="controlsDisabled" @click="$emit('parse-condition', item)">{{ pendingActionLabel }}</button>
         </div>
 
@@ -167,11 +164,12 @@
 
           <!-- Expanded rule editor -->
           <div v-if="ruleEditorExpanded" class="candidate-editor" :inert="controlsDisabled">
+            <button v-if="authoringError" type="button" class="ghost-btn" :disabled="controlsDisabled" @click="openConfigurationEditor('appearance', true)">选择出现模式重新设置</button>
             <button type="button" class="ghost-btn" :disabled="controlsDisabled || hasUnsavedChanges" @click="$emit('start-edit', item)">修改原始描述</button>
             <RuleConditionNodeEditor
               v-if="candidateKind === 'condition' && editableCandidate.when"
               :model-value="editableCandidate.when"
-              :fields="editorFields"
+              :fields="summaryFields"
               @update:model-value="updateWhen"
             />
 
@@ -308,7 +306,7 @@
 
             <div class="candidate-footer">
               <span class="editor-note">{{ editedSourceChanged ? '原文已更新，请先取消修改后核对最新规则。' : '核对后保存，即确认该规则。' }}</span>
-              <button class="confirm-rule-btn" :disabled="controlsDisabled || !hasRuleAction || editedSourceChanged" @click="confirmCandidate">
+              <button class="confirm-rule-btn" :disabled="controlsDisabled || !hasRuleAction || editedSourceChanged || Boolean(authoringError)" @click="confirmCandidate">
                 保存并确认
               </button>
             </div>
@@ -321,6 +319,7 @@
       </template>
 
       <div v-if="ruleEditorExpanded" class="configuration-secondary-actions">
+        <button v-if="!authoringError" type="button" class="ghost-btn" :disabled="controlsDisabled" @click="openConfigurationEditor('appearance')">调整出现方式</button>
         <button v-if="item.edited" type="button" class="ghost-btn ghost-btn-icon" :disabled="controlsDisabled || hasUnsavedChanges" @click="resetRule">
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 8a6 6 0 0 1 10.2-4.2M14 2v4h-4M14 8a6 6 0 0 1-10.2 4.2M2 14v-4h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
           恢复默认
@@ -330,27 +329,6 @@
           重新识别
         </button>
       </div>
-      <details v-if="!inlineEditing" class="rule-evidence">
-        <summary>
-          <svg class="evidence-icon" width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 10.5v-4m0-2.5h.01" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          查看判定依据
-        </summary>
-        <div class="evidence-content">
-          <div class="evidence-item" v-if="item.analysisDraftContext">
-            <div class="evidence-item-label">第三步依据</div>
-            <div class="evidence-item-value">{{ item.analysisDraftContext }}</div>
-          </div>
-          <div class="evidence-item">
-            <div class="evidence-item-label">原始描述</div>
-            <div class="evidence-item-value">{{ item.conditionText }}</div>
-          </div>
-          <div v-if="editableCandidate" class="candidate-recognition">
-            <span class="candidate-type-chip" :class="`candidate-type-${candidateRecognition.kind}`">{{ candidateRecognition.label }}</span>
-            <span class="candidate-recognition-reason">{{ editableCandidate.evidence || candidateRecognition.reason }}</span>
-          </div>
-        </div>
-      </details>
-
     </div>
   </article>
 </template>
@@ -366,7 +344,10 @@ import type {
 } from '@/api/rulePackages'
 import RuleConditionNodeEditor from '@/components/finalize/RuleConditionNodeEditor.vue'
 import ProcessConfigurationEditor from '@/components/finalize/ProcessConfigurationEditor.vue'
-import { configurationSummary } from '@/utils/processConfigurationEditor'
+import { configurationSummary, validateAuthoredCandidate } from '@/utils/processConfigurationEditor'
+import { mergeProjectConditionFields, projectConditionDisplayLabel } from '@/utils/projectConditionFields'
+import { resolveGuidanceOperation } from '@/composables/analysisGuidanceFlow'
+import { answersFromTrail, savedGuidanceSnapshot, savedQuestionTrail } from '@/composables/analysisQuestionTreeState'
 import {
   defaultManualBooleanLabel,
   finalizeRuleMode,
@@ -389,6 +370,7 @@ const props = defineProps<{
   editLabel: string
   conditionLabel: string
   conditionFields: CanonicalConditionField[]
+  routeSegments?: FinalizeCard['segment'][]
   processOptions: RuleConditionProcessOption[]
   selectable?: boolean
   selected?: boolean
@@ -426,14 +408,25 @@ const editorSourceText = ref('')
 const submittedCandidate = ref('')
 const submittedManualLabel = ref<string | null>(null)
 const configurationEditing = ref(false)
+const configurationRequiresModeSelection = ref(false)
 const configurationEditorSection = ref<'appearance' | 'relations'>('appearance')
 const configurationDraft = ref<RuleConditionCandidate | null>(null)
 const savedConfigurationSignature = ref('')
 const submittedConfiguration = ref('')
 const configurationSource = ref('')
-const configurationFields = computed(() => Array.from(new Map([
-  ...props.conditionFields, ...(configurationDraft.value?.field_definitions || []),
-].map(field => [field.key, field])).values()))
+const nodeGuidance = computed(() => {
+  const segment = props.item.segment
+  const snapshot = savedGuidanceSnapshot(segment)
+  if (!snapshot) return undefined
+  const operation = resolveGuidanceOperation(segment, snapshot, answersFromTrail(savedQuestionTrail(segment)), props.routeSegments || [segment], true)
+  if (!operation) return null
+  return { ...snapshot, operation_guidance: { ...snapshot.operation_guidance, [segment.normalized_step_name]: operation } }
+})
+const configurationFields = computed(() => mergeProjectConditionFields(
+  currentProcessId.value, props.item.segment.normalized_step_name, props.conditionFields,
+  [savedCandidate.value, editableCandidate.value, configurationDraft.value],
+  nodeGuidance.value,
+))
 const hasUnsavedConfiguration = computed(() => configurationEditing.value && candidateSignature(configurationDraft.value) !== savedConfigurationSignature.value)
 const configurationSourceChanged = computed(() => configurationEditing.value && configurationSource.value !== props.item.conditionText.trim())
 
@@ -441,9 +434,19 @@ const configurationSourceChanged = computed(() => configurationEditing.value && 
 // object-key ordering may change without changing the rule being saved.
 function candidateSignature(candidate: RuleConditionCandidate | null | undefined): string {
   if (!candidate) return ''
+  const referenced = new Set<string>()
+  function collect(condition: RulePackageCondition | null | undefined) {
+    if (!condition) return
+    if ('field' in condition) referenced.add(condition.field)
+    if ('all' in condition && Array.isArray(condition.all)) condition.all.forEach(collect)
+    if ('any' in condition && Array.isArray(condition.any)) condition.any.forEach(collect)
+    if ('not' in condition) collect(condition.not)
+  }
+  collect(candidate.configuration?.when || candidate.when)
+  const definitions = (candidate.field_definitions || []).filter(field => referenced.has(field.key))
   const kind = candidate.kind || 'condition'
   const content = kind === 'process_configuration'
-    ? { kind, configuration: candidate.configuration, field_definitions: candidate.field_definitions || [] }
+    ? { kind, configuration: candidate.configuration, field_definitions: definitions }
     : kind === 'process_relation'
     ? {
         kind,
@@ -463,7 +466,7 @@ function candidateSignature(candidate: RuleConditionCandidate | null | undefined
           include_process_ids: [...(candidate.then?.include_process_ids || [])].sort(),
           exclude_process_ids: [...(candidate.then?.exclude_process_ids || [])].sort(),
         },
-        field_definitions: candidate.field_definitions || [],
+        field_definitions: definitions,
       }
   return JSON.stringify(content, (_key, value) => (
     value && typeof value === 'object' && !Array.isArray(value)
@@ -533,16 +536,22 @@ const sourceTextChanged = computed(() => {
 const cardRuleMode = computed(() => hasUnsavedCandidate.value && editableCandidate.value
   ? (editableCandidate.value.kind === 'process_relation' ? 'relation' : 'conditional')
   : finalizeRuleMode(props.item))
-const modeLabel = computed(() => isManualBooleanFinalizeCard(props.item) ? '人工选择' : ({
-  mainline: '始终保留',
-  conditional: '条件判断',
-  relation: '工序关联',
-  unresolved: '条件待补充',
-})[cardRuleMode.value])
+const modeLabel = computed(() => {
+  const candidate = hasUnsavedCandidate.value ? editableCandidate.value : savedCandidate.value
+  if (candidate?.kind === 'process_configuration' && candidate.configuration) {
+    return { always: '主工序', manual: 'Bool 工序', conditional: '条件工序', associated: '关联工序' }[candidate.configuration.occurrence]
+  }
+  return isManualBooleanFinalizeCard(props.item) ? 'Bool 工序' : ({
+    mainline: '主工序',
+    conditional: '条件工序',
+    relation: '关联工序',
+    unresolved: '条件待补充',
+  })[cardRuleMode.value]
+})
 const candidateKind = computed(() => editableCandidate.value?.kind || 'condition')
-const editorFields = computed(() => Array.from(new Map([
-  ...props.conditionFields, ...(editableCandidate.value?.field_definitions || []),
-].map(field => [field.key, field])).values()))
+const authoringError = computed(() => validateAuthoredCandidate(editableCandidate.value, currentProcessId.value)[0] || '')
+const editorFields = computed(() => mergeProjectConditionFields(currentProcessId.value, props.item.segment.normalized_step_name, props.conditionFields, [editableCandidate.value], nodeGuidance.value))
+const summaryFields = computed(() => editorFields.value.map(field => ({ ...field, label: projectConditionDisplayLabel(field, props.item.segment.normalized_step_name) })))
 const candidateMatchesCardMode = computed(() => {
   if (!editableCandidate.value) return false
   if (candidateKind.value === 'process_configuration') return true
@@ -560,13 +569,14 @@ const hasCrossProcessConditionTarget = computed(() => {
   return targets.size !== 1 || !targets.has(currentProcessId.value)
 })
 const requiresManualReview = computed(() => (
-  hasCrossProcessConditionTarget.value
+  Boolean(authoringError.value) || hasCrossProcessConditionTarget.value
   || (
     effectiveStatus.value === 'pending_confirmation'
     && !isSafeForBatchRuleConfirmation(props.item)
   )
 ))
 const manualReviewReason = computed(() => {
+  if (authoringError.value) return authoringError.value
   if (hasCrossProcessConditionTarget.value) {
     return '此条件规则曾指向其他工序。请在“修改”中将动作保存为当前工序，跨工序关系请单独配置。'
   }
@@ -599,6 +609,9 @@ const pendingActionLabel = computed(() => {
 const hasRuleAction = computed(() => {
   const candidate = editableCandidate.value
   if (!candidate) return false
+  if (candidateKind.value === 'process_configuration') {
+    return candidate.configuration?.process_id === currentProcessId.value
+  }
   if (candidateKind.value === 'process_relation') {
     return Boolean(candidate.relation?.source_process_ids?.length && candidate.relation?.target_process_ids?.length)
   }
@@ -610,7 +623,7 @@ const candidateSummary = computed(() => {
   }
   const candidate = editableCandidate.value
   if (!candidate) return ''
-  if (candidate.kind === 'process_configuration' && candidate.configuration) return configurationSummary(candidate.configuration, props.displayName, editorFields.value, props.processOptions)
+  if (candidate.kind === 'process_configuration' && candidate.configuration) return configurationSummary(candidate.configuration, props.displayName, summaryFields.value, props.processOptions)
   if ((candidate.kind || 'condition') === 'process_relation' && candidate.relation) {
     const pm = new Map(props.processOptions.map(p => [p.process_id, p.display_name]))
     const sources = Array.from(new Set(candidate.relation.source_process_ids.map(id => pm.get(id) || id)))
@@ -631,40 +644,7 @@ const candidateSummary = computed(() => {
     includes.length ? `纳入 ${includes.join('、')}` : '',
     excludes.length ? `排除 ${excludes.join('、')}` : '',
   ].filter(Boolean).join('；')
-  return `${formatRuleCondition(candidate.when, editorFields.value)} → ${actions}`
-})
-const candidateRecognition = computed(() => {
-  const candidate = editableCandidate.value
-  const text = props.item.conditionText
-  if ((candidate?.kind || 'condition') === 'process_relation') {
-    const type = candidate?.relation?.relation_type || 'trigger_after'
-    const label = ({
-      trigger_after: '工序关系 · 触发并排序',
-      order_after: '工序关系 · 先后约束',
-      requires: '工序关系 · 前置依赖',
-      conflicts: '工序关系 · 互斥',
-    } as const)[type]
-    const reason = /互斥|不得同时|不能同时/.test(text)
-      ? '原文包含互斥表达。'
-      : /前置|依赖|必须.*完成/.test(text)
-        ? '原文包含前置或依赖表达。'
-        : /之后|完成后|前面|此前|之前|后/.test(text)
-          ? '原文包含工序先后表达。'
-          : '原文表达了工序之间的关联。'
-    return { kind: 'relation', label, reason }
-  }
-
-  const field = firstConditionField(candidate?.when || null)
-  const reason = field === 'special.requirements'
-    ? '原文包含需求或特殊要求表达。'
-    : field?.startsWith('material.')
-      ? '原文包含材料牌号条件。'
-      : field?.startsWith('precision.') || field?.startsWith('tolerance.') || field?.startsWith('surface.')
-        ? '原文包含精度、公差或表面要求。'
-        : field?.startsWith('cad.')
-          ? '原文包含结构特征条件。'
-          : '原文包含可执行的参数条件。'
-  return { kind: 'condition', label: '条件规则', reason }
+  return `${formatRuleCondition(candidate.when, summaryFields.value)} → ${actions}`
 })
 const filteredPickerOptions = computed(() => {
   const search = processPickerSearch.value.trim().toLowerCase()
@@ -674,15 +654,6 @@ const filteredPickerOptions = computed(() => {
 })
 
 // ---- Helpers ----
-function firstConditionField(condition: RulePackageCondition | null | undefined): string | null {
-  if (!condition) return null
-  if ('field' in condition && condition.field) return condition.field
-  if (Array.isArray((condition as any)?.all) && (condition as any).all.length > 0) return firstConditionField((condition as any).all[0])
-  if (Array.isArray((condition as any)?.any) && (condition as any).any.length > 0) return firstConditionField((condition as any).any[0])
-  if ((condition as any)?.not) return firstConditionField((condition as any).not)
-  return null
-}
-
 function processDisplayName(processId: string) {
   return props.processOptions.find(p => p.process_id === processId)?.display_name || processId
 }
@@ -808,12 +779,12 @@ function removeRelationProcess(kind: 'source' | 'target', processId: string) {
 }
 
 function confirmCandidate() {
-  if (!editableCandidate.value || !hasRuleAction.value || editedSourceChanged.value || controlsDisabled.value) return
+  if (!editableCandidate.value || !hasRuleAction.value || authoringError.value || editedSourceChanged.value || controlsDisabled.value) return
   submittedCandidate.value = candidateSignature(editableCandidate.value)
   emit('confirm-condition', props.item, JSON.parse(JSON.stringify(editableCandidate.value)))
 }
 
-function openConfigurationEditor(section: 'appearance' | 'relations') {
+function openConfigurationEditor(section: 'appearance' | 'relations', chooseMode = false) {
   if (controlsDisabled.value) return
   if (configurationEditing.value) {
     if (configurationEditorSection.value === section) {
@@ -834,40 +805,25 @@ function openConfigurationEditor(section: 'appearance' | 'relations') {
     Boolean(candidate.then?.exclude_process_ids?.length)
     || candidate.then?.include_process_ids?.some(id => id !== currentProcessId.value)
   )
-  const legacyRelation = candidate?.kind === 'process_relation' && candidate.relation && (
-    candidate.relation.relation_type !== 'trigger_after'
-    || candidate.relation.target_process_ids.length !== 1
-    || candidate.relation.target_process_ids[0] !== currentProcessId.value
-  )
   const crossProcessRelation = candidate?.kind === 'process_relation' && candidate.relation && (
     candidate.relation.target_process_ids.length !== 1
     || candidate.relation.target_process_ids[0] !== currentProcessId.value
   )
-  if (legacyActions || crossProcessRelation) {
+  if (!chooseMode && (legacyActions || crossProcessRelation)) {
     if (!ruleEditorExpanded.value) beginEdit()
     return
   }
-  if (!legacyActions && !legacyRelation && !ruleEditorExpanded.value && !manualBooleanEditing.value) {
-    if (props.selected) emit('toggle-selected', props.item)
-    mainlineExpanded.value = true
-    const draft = makeConfigurationDraft()
-    configurationDraft.value = draft
-    savedConfigurationSignature.value = candidateSignature(draft)
-    configurationSource.value = props.item.conditionText.trim()
-    configurationEditing.value = true
-    return
-  }
-  if (section === 'relations') {
-    if (props.selected) emit('toggle-selected', props.item)
-    mainlineExpanded.value = true
-    const draft = makeConfigurationDraft()
-    configurationDraft.value = draft
-    savedConfigurationSignature.value = candidateSignature(draft)
-    configurationSource.value = props.item.conditionText.trim()
-    configurationEditing.value = true
-    return
-  }
-  beginEdit()
+  if (props.selected) emit('toggle-selected', props.item)
+  mainlineExpanded.value = true
+  const transferringUnsavedEdit = hasUnsavedCandidate.value
+  configurationRequiresModeSelection.value = chooseMode
+  ruleEditorExpanded.value = false
+  manualBooleanEditing.value = false
+  const draft = makeConfigurationDraft()
+  configurationDraft.value = draft
+  savedConfigurationSignature.value = candidateSignature(transferringUnsavedEdit ? savedCandidate.value : draft)
+  configurationSource.value = props.item.conditionText.trim()
+  configurationEditing.value = true
 }
 
 function beginEdit() {
@@ -891,7 +847,13 @@ function beginEdit() {
 
 function makeConfigurationDraft(): RuleConditionCandidate {
   const candidate = editableCandidate.value
-  if (candidate?.kind === 'process_configuration' && candidate.configuration) return JSON.parse(JSON.stringify(candidate))
+  if (candidate?.kind === 'process_configuration' && candidate.configuration) {
+    const draft: RuleConditionCandidate = JSON.parse(JSON.stringify(candidate))
+    const config = draft.configuration!
+    if (config.occurrence === 'conditional' && !config.when && config.relations.length === 1
+      && config.relations[0]?.relation_type === 'trigger_after' && config.relations[0].source_process_ids.length === 1) config.occurrence = 'associated'
+    return draft
+  }
   const manual = isManualBooleanFinalizeCard(props.item)
   const manualCandidate = manual ? buildManualBooleanRuleCandidate(props.item, defaultManualBooleanLabel(props.item)) : null
   const relation = candidate?.kind === 'process_relation' ? candidate.relation : null
@@ -899,14 +861,14 @@ function makeConfigurationDraft(): RuleConditionCandidate {
     kind: 'process_configuration', preview: '',
     field_definitions: manualCandidate?.field_definitions || candidate?.field_definitions || [],
     configuration: {
-      process_id: currentProcessId.value, occurrence: manual ? 'manual' : cardRuleMode.value === 'mainline' ? 'always' : 'conditional',
+      process_id: currentProcessId.value, occurrence: manual ? 'manual' : relation?.relation_type === 'trigger_after' && relation.source_process_ids.length === 1 ? 'associated' : cardRuleMode.value === 'mainline' ? 'always' : 'conditional',
       when: manualCandidate?.when || candidate?.when || null,
       relations: relation ? [JSON.parse(JSON.stringify(relation))] : [],
     },
   }
 }
 function saveConfiguration(candidate: RuleConditionCandidate) {
-  if (controlsDisabled.value || configurationSourceChanged.value) return
+  if (controlsDisabled.value || configurationSourceChanged.value || validateAuthoredCandidate(candidate, currentProcessId.value).length) return
   submittedConfiguration.value = candidateSignature(candidate)
   emit('save-configuration', props.item, candidate)
 }
@@ -945,6 +907,15 @@ function formatConfirmedAt(value: string) {
 </script>
 
 <style scoped>
+.configuration-secondary-tools { display: flex; align-items: center; gap: 10px; }
+.configuration-save-state { color: var(--pm-warning); font-size: 12px; }
+.configuration-more { position: relative; flex: 0 0 auto; }
+.configuration-more summary { cursor: pointer; list-style: none; padding: 7px 3px; color: var(--pm-text-muted); font-size: 12px; }
+.configuration-more summary::after { content: '⌄'; margin-left: 6px; }
+.configuration-more summary::-webkit-details-marker { display: none; }
+.configuration-more summary:focus-visible { outline: 2px solid var(--pm-primary); outline-offset: 2px; }
+.configuration-more-menu { position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 4; display: grid; min-width: 156px; padding: 5px; border: 1px solid var(--pm-border); border-radius: 6px; background: var(--pm-surface); box-shadow: 0 4px 16px #0f172a14; }
+.configuration-more-menu .ghost-btn { justify-content: flex-start; white-space: nowrap; }
 /* ===== Secondary actions row ===== */
 .configuration-secondary-actions {
   display: flex;
@@ -952,7 +923,7 @@ function formatConfirmedAt(value: string) {
   flex-wrap: wrap;
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid #f1f5f9;
+  border-top: 1px solid var(--pm-surface-subtle);
 }
 
 /* ===== Rule selection checkbox ===== */
@@ -960,99 +931,18 @@ function formatConfirmedAt(value: string) {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: #64748b;
+  color: var(--pm-text-muted);
   font-size: 12px;
   cursor: pointer;
   transition: color 0.15s;
 }
 .rule-selection:hover {
-  color: #475569;
+  color: var(--pm-text-secondary);
 }
 .rule-selection input {
-  accent-color: #6366f1;
+  accent-color: var(--pm-primary);
   width: 14px;
   height: 14px;
-}
-
-/* ===== Evidence / details section ===== */
-.rule-evidence {
-  order: 2;
-  margin-top: 12px;
-  color: #64748b;
-  font-size: 12.5px;
-  border: 1px solid #e8ecf2;
-  border-radius: 10px;
-  background: #fafbfd;
-  overflow: hidden;
-}
-.rule-evidence > summary {
-  cursor: pointer;
-  padding: 10px 14px;
-  font-weight: 500;
-  color: #64748b;
-  transition: all 0.15s;
-  user-select: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12.5px;
-  list-style: none;
-}
-.rule-evidence > summary::-webkit-details-marker {
-  display: none;
-}
-.rule-evidence > summary::after {
-  content: '';
-  display: inline-block;
-  width: 0;
-  height: 0;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-top: 5px solid currentColor;
-  margin-left: auto;
-  opacity: 0.5;
-  transition: transform 0.2s ease;
-}
-.rule-evidence[open] > summary::after {
-  transform: rotate(180deg);
-}
-.rule-evidence > summary:hover {
-  color: #334155;
-  background: rgba(0, 0, 0, 0.01);
-}
-.evidence-icon {
-  flex-shrink: 0;
-  opacity: 0.6;
-}
-.rule-evidence[open] > summary {
-  border-bottom: 1px solid #f1f5f9;
-}
-.evidence-content {
-  padding: 10px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.evidence-item {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  line-height: 1.55;
-}
-.evidence-item-label {
-  flex-shrink: 0;
-  color: #94a3b8;
-  font-size: 11.5px;
-  font-weight: 600;
-  min-width: 60px;
-  padding-top: 1px;
-  letter-spacing: 0.02em;
-}
-.evidence-item-value {
-  flex: 1;
-  color: #334155;
-  font-size: 12.5px;
-  word-break: break-all;
 }
 
 /* ===== Mainline collapse toggle ===== */
@@ -1062,18 +952,18 @@ function formatConfirmedAt(value: string) {
   justify-content: center;
   width: 26px;
   height: 26px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--pm-border);
   border-radius: 6px;
-  background: #f8fafc;
-  color: #94a3b8;
+  background: var(--pm-surface-subtle);
+  color: var(--pm-text-muted);
   cursor: pointer;
   transition: all 0.18s ease;
   flex-shrink: 0;
 }
 .collapse-toggle-btn:hover {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
-  color: #64748b;
+  background: var(--pm-surface-subtle);
+  border-color: var(--pm-border-strong);
+  color: var(--pm-text-muted);
 }
 .collapse-chevron {
   transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
@@ -1089,8 +979,8 @@ function formatConfirmedAt(value: string) {
   align-items: center;
 }
 .mainline-hint-text {
-  font-size: 12.5px;
-  color: #94a3b8;
+  font-size: 13px;
+  color: var(--pm-text-muted);
   font-style: italic;
   white-space: nowrap;
   overflow: hidden;
@@ -1110,23 +1000,23 @@ function formatConfirmedAt(value: string) {
   width: 100%;
   min-height: 88px;
   padding: 12px 14px;
-  border: 1px solid #dce3ed;
-  border-radius: 10px;
+  border: 1px solid var(--pm-border);
+  border-radius: var(--pm-radius-card);
   font-size: 13px;
   line-height: 1.65;
-  color: #1e293b;
+  color: var(--pm-text);
   resize: vertical;
   outline: none;
-  background: #ffffff;
+  background: var(--pm-surface);
   box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .inline-edit-textarea:focus {
-  border-color: #818cf8;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.08);
+  border-color: var(--pm-primary-border);
+  box-shadow: var(--pm-focus-ring);
 }
 .inline-edit-textarea::placeholder {
-  color: #cbd5e1;
+  color: var(--pm-border-strong);
 }
 .inline-edit-actions {
   display: flex;
@@ -1134,34 +1024,34 @@ function formatConfirmedAt(value: string) {
   gap: 8px;
 }
 .inline-btn {
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  border: 1px solid var(--pm-border);
+  border-radius: var(--pm-radius-control);
   padding: 6px 16px;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.18s ease;
   letter-spacing: 0.01em;
 }
 .inline-btn-cancel {
-  background: #ffffff;
-  color: #64748b;
+  background: var(--pm-surface);
+  color: var(--pm-text-muted);
 }
 .inline-btn-cancel:hover {
-  background: #f8fafc;
-  color: #334155;
-  border-color: #cbd5e1;
+  background: var(--pm-surface-subtle);
+  color: var(--pm-text-secondary);
+  border-color: var(--pm-border-strong);
 }
 .inline-btn-save {
-  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+  background: var(--pm-primary);
   border-color: transparent;
-  color: #ffffff;
-  box-shadow: 0 1px 3px rgba(79, 70, 229, 0.2);
+  color: var(--pm-surface);
+  box-shadow: 0 1px 3px rgba(36, 95, 168, 0.2);
 }
 .inline-btn-save:hover:not(:disabled) {
-  background: linear-gradient(135deg, #4338ca 0%, #4f46e5 100%);
-  box-shadow: 0 2px 6px rgba(79, 70, 229, 0.3);
-  transform: translateY(-0.5px);
+  background: var(--pm-primary);
+  box-shadow: 0 2px 6px rgba(36, 95, 168, 0.3);
+  transform: none;
 }
 .inline-btn-save:disabled {
   opacity: 0.45;
@@ -1169,11 +1059,11 @@ function formatConfirmedAt(value: string) {
 
 /* ===== Card base ===== */
 .preview-card {
-  padding: 14px 16px;
-  border-radius: 10px;
-  background: #ffffff;
-  border: 1px solid #e8ecf2;
-  margin-bottom: 8px;
+  padding: 10px 12px;
+  border-radius: var(--pm-radius-card);
+  background: var(--pm-surface);
+  border: 1px solid var(--pm-border);
+  margin-bottom: 6px;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .preview-card:last-child {
@@ -1181,9 +1071,9 @@ function formatConfirmedAt(value: string) {
 }
 .preview-card-active {
   position: relative;
-  border-color: #c7d2fe;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.02), #fafbff);
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.06);
+  border-color: var(--pm-primary-border);
+  background: var(--pm-primary-soft);
+  box-shadow: 0 2px 8px rgba(36, 95, 168, 0.06);
 }
 .preview-card-active::before {
   content: '';
@@ -1192,7 +1082,7 @@ function formatConfirmedAt(value: string) {
   top: 8px;
   bottom: 8px;
   width: 3px;
-  background: linear-gradient(180deg, #6366f1, #818cf8);
+  background: var(--pm-primary);
   border-radius: 0 3px 3px 0;
 }
 
@@ -1201,7 +1091,7 @@ function formatConfirmedAt(value: string) {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   gap: 12px;
 }
 .preview-card-title-group {
@@ -1220,9 +1110,9 @@ function formatConfirmedAt(value: string) {
 }
 .preview-card h2 {
   margin: 0;
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--pm-text);
   letter-spacing: -0.015em;
   display: flex;
   align-items: center;
@@ -1239,47 +1129,47 @@ function formatConfirmedAt(value: string) {
   display: inline-block;
   width: 3px;
   height: 14px;
-  background: linear-gradient(180deg, #6366f1, #818cf8);
+  background: var(--pm-primary);
   border-radius: 2px;
   flex-shrink: 0;
 }
 
 /* ===== Mode badge ===== */
 .card-mode-badge {
-  padding: 2px 8px;
+  padding: 1px 6px;
   border-radius: 6px;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
   flex-shrink: 0;
   letter-spacing: 0.02em;
 }
 .card-mode-mainline {
-  background: #f1f5f9;
-  color: #475569;
-  border: 1px solid #e2e8f0;
+  background: var(--pm-surface-subtle);
+  color: var(--pm-text-secondary);
+  border: 1px solid var(--pm-border);
 }
 .card-mode-conditional {
-  background: #eef2ff;
-  color: #4338ca;
-  border: 1px solid #c7d2fe;
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary-hover);
+  border: 1px solid var(--pm-primary-border);
 }
 .card-mode-relation {
-  background: #ecfdf5;
-  color: #047857;
-  border: 1px solid #a7f3d0;
+  background: var(--pm-success-soft);
+  color: var(--pm-success);
+  border: 1px solid var(--pm-success-border);
 }
 .card-mode-unresolved {
-  background: #fff7ed;
-  color: #c2410c;
-  border: 1px solid #fdba74;
+  background: var(--pm-warning-soft);
+  color: var(--pm-warning);
+  border: 1px solid var(--pm-warning-border);
 }
 
 /* ===== Card meta ===== */
 .preview-card-meta {
   font-size: 12px;
   line-height: 1.45;
-  color: #94a3b8;
+  color: var(--pm-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1295,11 +1185,11 @@ function formatConfirmedAt(value: string) {
 
 /* ===== Edited / unsaved badge ===== */
 .edited-badge {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  color: #b45309;
-  background: linear-gradient(135deg, #fffbeb, #fef3c7);
-  border: 1px solid #fde68a;
+  color: var(--pm-warning);
+  background: var(--pm-warning-soft);
+  border: 1px solid var(--pm-warning-border);
   border-radius: 6px;
   padding: 2px 8px;
   letter-spacing: 0.02em;
@@ -1309,8 +1199,8 @@ function formatConfirmedAt(value: string) {
 .ghost-btn {
   border: none;
   background: transparent;
-  color: #6366f1;
-  font-size: 12.5px;
+  color: var(--pm-primary);
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   padding: 2px 6px;
@@ -1318,11 +1208,11 @@ function formatConfirmedAt(value: string) {
   transition: all 0.15s;
 }
 .ghost-btn:hover:not(:disabled) {
-  background: #eef2ff;
-  color: #4338ca;
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary-hover);
 }
 .ghost-btn:disabled {
-  color: #cbd5e1;
+  color: var(--pm-border-strong);
   cursor: not-allowed;
 }
 
@@ -1332,12 +1222,12 @@ function formatConfirmedAt(value: string) {
   align-items: center;
   gap: 4px;
   padding: 4px 14px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
-  color: #ffffff;
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: var(--pm-surface);
+  background: var(--pm-primary);
   border: none;
-  border-radius: 8px;
+  border-radius: var(--pm-radius-control);
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 1px 3px rgba(16, 185, 129, 0.25);
@@ -1345,9 +1235,9 @@ function formatConfirmedAt(value: string) {
   letter-spacing: 0.02em;
 }
 .confirm-rule-primary-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #34d399 0%, #059669 100%);
+  background: var(--pm-primary);
   box-shadow: 0 3px 8px rgba(16, 185, 129, 0.35);
-  transform: translateY(-0.5px);
+  transform: none;
 }
 .confirm-rule-primary-btn:disabled {
   opacity: 0.45;
@@ -1355,25 +1245,10 @@ function formatConfirmedAt(value: string) {
   transform: none;
 }
 
-/* ===== Confirmed status pill ===== */
-.confirmed-status-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #15803d;
-  background: linear-gradient(135deg, #f0fdf4, #dcfce7);
-  border: 1px solid #bbf7d0;
-  border-radius: 6px;
-  line-height: 1.2;
-  letter-spacing: 0.02em;
-}
-
 /* ===== Ghost button subtle variant ===== */
 .ghost-btn-subtle {
   opacity: 0.72;
-  font-size: 11.5px;
+  font-size: 12px;
 }
 .ghost-btn-subtle:hover {
   opacity: 1;
@@ -1384,11 +1259,11 @@ function formatConfirmedAt(value: string) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #ffffff;
-  border: 1px solid #c7d2fe;
-  color: #4f46e5;
+  background: var(--pm-surface);
+  border: 1px solid var(--pm-primary-border);
+  color: var(--pm-primary);
   padding: 3px 12px;
-  border-radius: 8px;
+  border-radius: var(--pm-radius-control);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -1398,33 +1273,33 @@ function formatConfirmedAt(value: string) {
   letter-spacing: 0.01em;
 }
 .preview-edit-btn:hover {
-  background: #eef2ff;
-  border-color: #a5b4fc;
-  box-shadow: 0 1px 3px rgba(99, 102, 241, 0.1);
+  background: var(--pm-primary-soft);
+  border-color: var(--pm-primary-border);
+  box-shadow: 0 1px 3px rgba(36, 95, 168, 0.1);
 }
 .preview-edit-btn-active {
-  border-color: #98a9e8;
-  background: #f4f6ff;
+  border-color: var(--pm-primary-border);
+  background: var(--pm-primary-soft);
   color: #3349a5;
 }
 .preview-edit-btn-relation {
-  border-color: #b7ded2;
-  color: #176a55;
+  border-color: var(--pm-success-border);
+  color: var(--pm-success);
 }
 .preview-edit-btn-relation:hover {
-  border-color: #8fcab8;
-  background: #f0faf6;
-  color: #145943;
+  border-color: var(--pm-success-border);
+  background: var(--pm-success-soft);
+  color: var(--pm-success);
 }
 .preview-edit-btn:active {
-  transform: scale(0.97);
+  transform: none;
 }
 
 /* ===== Card body ===== */
 .preview-card-body {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 .preview-row {
   display: flex;
@@ -1438,24 +1313,24 @@ function formatConfirmedAt(value: string) {
   align-items: center;
   line-height: normal;
   padding-top: 2px;
-  color: #64748b;
+  color: var(--pm-text-muted);
   font-size: 12px;
   font-weight: 500;
 }
 .preview-row-value {
-  color: #334155;
-  font-size: 12.5px;
+  color: var(--pm-text-secondary);
+  font-size: 13px;
   line-height: 1.55;
 }
 .condition-badge-label {
-  background: #f1f5f9;
-  color: #475569;
+  background: var(--pm-surface-subtle);
+  color: var(--pm-text-secondary);
   border-radius: 5px;
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--pm-border);
 }
 .preview-row-content {
   flex: 1;
@@ -1465,7 +1340,7 @@ function formatConfirmedAt(value: string) {
   margin: 0;
   font-size: 13px;
   line-height: 1.6;
-  color: #334155;
+  color: var(--pm-text-secondary);
   font-weight: 400;
 }
 
@@ -1475,53 +1350,53 @@ function formatConfirmedAt(value: string) {
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: var(--pm-radius-control);
   font-size: 12px;
   line-height: 1.5;
 }
 .card-strip-warn {
-  background: linear-gradient(135deg, #fffbeb, #fff7ed);
-  border: 1px solid #fde68a;
+  background: var(--pm-warning-soft);
+  border: 1px solid var(--pm-warning-border);
 }
 .card-strip-pending {
-  background: linear-gradient(135deg, #f8fafc, #f1f5f9);
-  border: 1px solid #e2e8f0;
+  background: var(--pm-surface-subtle);
+  border: 1px solid var(--pm-border);
 }
 .strip-label {
   font-weight: 600;
-  color: #475569;
+  color: var(--pm-text-secondary);
   flex-shrink: 0;
   white-space: nowrap;
-  font-size: 11.5px;
+  font-size: 12px;
 }
 .strip-label-attention {
-  color: #b45309;
+  color: var(--pm-warning);
 }
 .card-strip-warn .strip-label {
-  color: #c2410c;
+  color: var(--pm-warning);
 }
 .strip-desc {
   flex: 1;
   min-width: 0;
-  color: #64748b;
+  color: var(--pm-text-muted);
   overflow-wrap: anywhere;
   line-height: 1.55;
 }
 .strip-action {
   flex-shrink: 0;
-  border: 1px solid #c7d2fe;
+  border: 1px solid var(--pm-primary-border);
   border-radius: 6px;
-  background: #fff;
-  color: #4f46e5;
+  background: var(--pm-surface);
+  color: var(--pm-primary);
   padding: 4px 10px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
 }
 .strip-action:hover:not(:disabled) {
-  background: #eef2ff;
-  border-color: #a5b4fc;
+  background: var(--pm-primary-soft);
+  border-color: var(--pm-primary-border);
 }
 .strip-action:disabled {
   cursor: not-allowed;
@@ -1533,25 +1408,25 @@ function formatConfirmedAt(value: string) {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.5;
 }
 .compact-status {
   flex-shrink: 0;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 700;
-  color: #64748b;
+  color: var(--pm-text-muted);
   letter-spacing: 0.03em;
   text-transform: none;
 }
 .compact-confirmed {
-  color: #15803d;
+  color: var(--pm-success);
 }
 .compact-summary {
   flex: 1;
   min-width: 0;
-  color: #334155;
-  font-weight: 550;
+  color: var(--pm-text-secondary);
+  font-weight: 500;
   overflow-wrap: anywhere;
   line-height: 1.6;
 }
@@ -1567,80 +1442,51 @@ function formatConfirmedAt(value: string) {
 .confirm-rule-btn {
   flex-shrink: 0;
   border: 0;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
-  color: #fff;
+  border-radius: var(--pm-radius-control);
+  background: var(--pm-primary);
+  color: var(--pm-surface);
   padding: 7px 16px;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   letter-spacing: 0.02em;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 1px 3px rgba(79, 70, 229, 0.25);
+  box-shadow: 0 1px 3px rgba(36, 95, 168, 0.25);
 }
 .confirm-rule-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #4338ca 0%, #4f46e5 100%);
-  box-shadow: 0 3px 8px rgba(79, 70, 229, 0.35);
-  transform: translateY(-0.5px);
+  background: var(--pm-primary);
+  box-shadow: 0 3px 8px rgba(36, 95, 168, 0.35);
+  transform: none;
 }
 .confirm-rule-btn:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }
-.candidate-recognition {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
-  color: #64748b;
-  font-size: 11px;
-  line-height: 1.5;
-  padding: 0 12px;
-}
-.candidate-type-chip {
-  display: inline-flex;
-  align-items: center;
-  min-height: 20px;
-  padding: 1px 8px;
-  border: 1px solid #c7d2fe;
-  border-radius: 5px;
-  background: #eef2ff;
-  color: #4338ca;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-.candidate-type-relation {
-  border-color: #a7f3d0;
-  background: #ecfdf5;
-  color: #047857;
-}
 .manual-review-note {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  margin-top: 8px;
-  border-left: 3px solid #f59e0b;
-  padding: 8px 10px;
-  background: linear-gradient(135deg, #fffbeb, #fef3c7);
-  color: #92400e;
-  font-size: 11.5px;
+  gap: 6px;
+  margin-top: 0;
+  border-left: 3px solid var(--pm-warning);
+  padding: 4px 8px;
+  background: var(--pm-warning-soft);
+  color: var(--pm-warning);
+  font-size: 12px;
   line-height: 1.5;
   border-radius: 0 6px 6px 0;
 }
 .manual-review-note strong {
   flex-shrink: 0;
-  color: #b45309;
-  font-size: 11.5px;
+  color: var(--pm-warning);
+  font-size: 12px;
 }
 
 /* ===== Ghost button variant for Bool ===== */
 .ghost-btn-bool {
-  color: #4f46e5;
+  color: var(--pm-primary);
 }
 .ghost-btn-bool:hover {
-  color: #4338ca;
+  color: var(--pm-primary-hover);
 }
 
 /* ===== Boolean editor (inline in card body) ===== */
@@ -1649,14 +1495,14 @@ function formatConfirmedAt(value: string) {
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
-  border-radius: 10px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  border-radius: var(--pm-radius-card);
+  background: var(--pm-surface-subtle);
+  border: 1px solid var(--pm-border);
   margin-top: 6px;
 }
 .manual-bool-tag {
-  color: #334155;
-  font-size: 12.5px;
+  color: var(--pm-text-secondary);
+  font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
   flex-shrink: 0;
@@ -1665,18 +1511,18 @@ function formatConfirmedAt(value: string) {
   flex: 1;
   min-width: 140px;
   height: 32px;
-  border: 1px solid #dce3ed;
-  border-radius: 8px;
+  border: 1px solid var(--pm-border);
+  border-radius: var(--pm-radius-control);
   padding: 0 12px;
-  color: #1e293b;
-  font-size: 12.5px;
-  background: #ffffff;
+  color: var(--pm-text);
+  font-size: 13px;
+  background: var(--pm-surface);
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .manual-bool-input:focus {
-  border-color: #818cf8;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.08);
+  border-color: var(--pm-primary-border);
+  box-shadow: var(--pm-focus-ring);
 }
 .manual-bool-actions {
   display: flex;
@@ -1687,8 +1533,8 @@ function formatConfirmedAt(value: string) {
 .manual-bool-btn {
   height: 32px;
   padding: 0 14px;
-  border-radius: 8px;
-  font-size: 12.5px;
+  border-radius: var(--pm-radius-control);
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.18s ease;
@@ -1698,25 +1544,25 @@ function formatConfirmedAt(value: string) {
   letter-spacing: 0.01em;
 }
 .manual-bool-btn-cancel {
-  background: #ffffff;
-  border: 1px solid #dce3ed;
-  color: #64748b;
+  background: var(--pm-surface);
+  border: 1px solid var(--pm-border);
+  color: var(--pm-text-muted);
 }
 .manual-bool-btn-cancel:hover {
-  background: #f1f5f9;
-  color: #334155;
-  border-color: #cbd5e1;
+  background: var(--pm-surface-subtle);
+  color: var(--pm-text-secondary);
+  border-color: var(--pm-border-strong);
 }
 .manual-bool-btn-save {
-  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+  background: var(--pm-primary);
   border: 1px solid transparent;
-  color: #ffffff;
-  box-shadow: 0 1px 3px rgba(79, 70, 229, 0.2);
+  color: var(--pm-surface);
+  box-shadow: 0 1px 3px rgba(36, 95, 168, 0.2);
 }
 .manual-bool-btn-save:hover:not(:disabled) {
-  background: linear-gradient(135deg, #4338ca 0%, #4f46e5 100%);
-  box-shadow: 0 2px 6px rgba(79, 70, 229, 0.3);
-  transform: translateY(-0.5px);
+  background: var(--pm-primary);
+  box-shadow: 0 2px 6px rgba(36, 95, 168, 0.3);
+  transform: none;
 }
 .manual-bool-btn-save:disabled {
   opacity: 0.45;
@@ -1729,20 +1575,20 @@ function formatConfirmedAt(value: string) {
   gap: 12px;
   margin-top: 14px;
   padding-top: 14px;
-  border-top: 1px solid #f1f5f9;
+  border-top: 1px solid var(--pm-surface-subtle);
 }
 .candidate-footer {
   margin-top: 6px;
 }
 .editor-note {
-  color: #94a3b8;
-  font-size: 11.5px;
+  color: var(--pm-text-muted);
+  font-size: 12px;
   line-height: 1.45;
 }
 .confirmation-audit {
   margin-top: 8px;
-  color: #6b7d6f;
-  font-size: 10.5px;
+  color: var(--pm-success);
+  font-size: 12px;
   text-align: right;
   font-style: italic;
 }
@@ -1759,31 +1605,31 @@ function formatConfirmedAt(value: string) {
   flex-direction: column;
   gap: 8px;
   padding: 10px 12px;
-  border: 1px solid #e8ecf2;
-  border-radius: 10px;
-  background: #fafbfd;
+  border: 1px solid var(--pm-border);
+  border-radius: var(--pm-radius-card);
+  background: var(--pm-surface-subtle);
   transition: border-color 0.15s;
 }
 .action-tag-column:hover {
-  border-color: #dce3ed;
+  border-color: var(--pm-border);
 }
 .action-title {
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: none;
 }
 .action-title-include {
-  color: #059669;
+  color: var(--pm-success);
 }
 .action-title-exclude {
-  color: #dc2626;
+  color: var(--pm-danger);
 }
 .relation-source-title {
-  color: #3b82f6;
+  color: var(--pm-primary);
 }
 .relation-target-title {
-  color: #7c3aed;
+  color: var(--pm-primary);
 }
 
 /* ===== Tag list ===== */
@@ -1800,30 +1646,30 @@ function formatConfirmedAt(value: string) {
   gap: 4px;
   padding: 4px 10px 4px 12px;
   border-radius: 7px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1;
   letter-spacing: 0.01em;
 }
 .process-tag-include {
-  background: #ecfdf5;
-  color: #047857;
-  border: 1px solid #a7f3d0;
+  background: var(--pm-success-soft);
+  color: var(--pm-success);
+  border: 1px solid var(--pm-success-border);
 }
 .process-tag-exclude {
-  background: #fef2f2;
-  color: #b91c1c;
-  border: 1px solid #fecaca;
+  background: var(--pm-danger-soft);
+  color: var(--pm-danger);
+  border: 1px solid var(--pm-danger-border);
 }
 .process-tag-source {
-  background: #eff6ff;
-  color: #1d4ed8;
-  border: 1px solid #bfdbfe;
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary);
+  border: 1px solid var(--pm-primary-border);
 }
 .process-tag-target {
-  background: #f5f3ff;
-  color: #6d28d9;
-  border: 1px solid #ddd6fe;
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary);
+  border: 1px solid var(--pm-primary-border);
 }
 
 /* ===== Tag remove button ===== */
@@ -1850,25 +1696,25 @@ function formatConfirmedAt(value: string) {
   align-items: center;
   gap: 4px;
   padding: 4px 10px;
-  border: 1.5px dashed #cbd5e1;
+  border: 1.5px dashed var(--pm-border-strong);
   border-radius: 7px;
   background: transparent;
-  color: #64748b;
-  font-size: 11.5px;
+  color: var(--pm-text-muted);
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.18s ease;
 }
 .tag-add-btn:hover {
-  border-color: #6366f1;
-  color: #6366f1;
-  background: #eef2ff;
+  border-color: var(--pm-primary);
+  color: var(--pm-primary);
+  background: var(--pm-primary-soft);
 }
 .tag-add-btn-active {
   border-style: solid;
-  border-color: #4f46e5;
-  color: #4338ca;
-  background: #eef2ff;
+  border-color: var(--pm-primary);
+  color: var(--pm-primary-hover);
+  background: var(--pm-primary-soft);
 }
 
 /* ===== Process picker dropdown ===== */
@@ -1878,8 +1724,8 @@ function formatConfirmedAt(value: string) {
   left: 0;
   z-index: 100;
   width: max(220px, 100%);
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--pm-surface);
+  border: 1px solid var(--pm-border);
   border-radius: 12px;
   box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12), 0 4px 12px rgba(15, 23, 42, 0.06);
   overflow: hidden;
@@ -1888,15 +1734,15 @@ function formatConfirmedAt(value: string) {
   width: 100%;
   padding: 10px 14px;
   border: none;
-  border-bottom: 1px solid #f1f5f9;
-  font-size: 12.5px;
-  color: #1e293b;
+  border-bottom: 1px solid var(--pm-surface-subtle);
+  font-size: 13px;
+  color: var(--pm-text);
   outline: none;
-  background: #f8fafc;
+  background: var(--pm-surface-subtle);
   font-family: inherit;
 }
 .picker-search::placeholder {
-  color: #94a3b8;
+  color: var(--pm-text-muted);
 }
 .picker-options {
   max-height: 180px;
@@ -1910,33 +1756,33 @@ function formatConfirmedAt(value: string) {
   width: 100%;
   padding: 8px 12px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--pm-radius-control);
   background: transparent;
-  color: #334155;
-  font-size: 12.5px;
+  color: var(--pm-text-secondary);
+  font-size: 13px;
   text-align: left;
   cursor: pointer;
   transition: background 0.12s ease;
 }
 .picker-option:hover {
-  background: #f8fafc;
+  background: var(--pm-surface-subtle);
 }
 .picker-option-selected {
-  background: #eef2ff;
-  color: #3730a3;
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary);
   font-weight: 600;
 }
 .picker-option-selected:hover {
-  background: #e0e7ff;
+  background: var(--pm-primary-soft);
 }
 .picker-check {
-  color: #4f46e5;
+  color: var(--pm-primary);
   flex-shrink: 0;
 }
 .picker-empty {
   padding: 12px 14px;
-  color: #94a3b8;
-  font-size: 12.5px;
+  color: var(--pm-text-muted);
+  font-size: 13px;
   text-align: center;
 }
 
@@ -1965,35 +1811,62 @@ function formatConfirmedAt(value: string) {
   display: flex;
   align-items: center;
   gap: 12px;
-  font-size: 12.5px;
-  color: #475569;
+  font-size: 13px;
+  color: var(--pm-text-secondary);
 }
 .relation-select {
   flex: 1;
   min-width: 0;
   height: 36px;
   padding: 0 10px;
-  border: 1px solid #dce3ed;
-  border-radius: 8px;
-  background: #fff;
-  color: #1e293b;
-  font-size: 12.5px;
+  border: 1px solid var(--pm-border);
+  border-radius: var(--pm-radius-control);
+  background: var(--pm-surface);
+  color: var(--pm-text);
+  font-size: 13px;
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .relation-select:focus {
-  border-color: #818cf8;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.08);
+  border-color: var(--pm-primary-border);
+  box-shadow: var(--pm-focus-ring);
 }
 
 /* ===== Responsive ===== */
+.preview-card { border-radius: var(--pm-radius-card); box-shadow: var(--pm-shadow-card); }
+.preview-card-active { background: var(--pm-primary-soft); border-color: var(--pm-primary-border); box-shadow: var(--pm-shadow-card); }
+.preview-card-active::before, .preview-card h2::before { background: var(--pm-primary); }
+.preview-card-header { flex-wrap: wrap; gap: 8px 12px; }
+.preview-card h2 { font-size: 13px; font-weight: 600; line-height: 20px; flex-wrap: wrap; }
+.preview-card h2 > span:first-child { white-space: normal; overflow-wrap: anywhere; }
+.preview-card-actions { display: grid; grid-template-columns: 54px 76px 76px; gap: 6px; align-items: center; }
+.card-selection-slot, .card-confirm-slot, .card-edit-slot { display: flex; align-items: center; justify-content: flex-end; min-width: 0; }
+.card-confirm-slot { flex-wrap: wrap; gap: 4px; }
+.card-confirm-slot .confirm-rule-primary-btn, .card-edit-slot .preview-edit-btn { width: 100%; white-space: nowrap; }
+.preview-card h2 .collapse-toggle-btn { flex: 0 0 28px; width: 28px; height: 28px; border-radius: var(--pm-radius-control); }
+.preview-card-active .configuration-editor { background: var(--pm-surface); }
+.card-mode-badge, .edited-badge { border-radius: 4px; font-size: 12px; font-weight: 500; line-height: 16px; }
+.mainline-hint-text { white-space: normal; font-style: normal; }
+.inline-btn, .preview-edit-btn, .confirm-rule-primary-btn, .confirm-rule-btn, .manual-bool-btn { min-height: var(--pm-control-height-small); height: auto; padding: 3px 8px; border-radius: var(--pm-radius-control); font-size: 12px; line-height: 20px; font-weight: 500; box-shadow: none; }
+.confirm-rule-primary-btn, .confirm-rule-btn, .inline-btn-save, .manual-bool-btn-save { background: var(--pm-primary); border-color: var(--pm-primary); color: #fff; }
+.confirm-rule-primary-btn:hover:not(:disabled), .confirm-rule-btn:hover:not(:disabled), .inline-btn-save:hover:not(:disabled), .manual-bool-btn-save:hover:not(:disabled) { background: var(--pm-primary-hover); box-shadow: none; transform: none; }
+.preview-edit-btn:hover { box-shadow: none; }
+.preview-card button:focus-visible, .preview-card summary:focus-visible, .preview-card input[type=checkbox]:focus-visible { outline: 2px solid var(--pm-primary); outline-offset: 2px; }
+.card-inline-strip, .manual-review-note { flex-wrap: wrap; border-radius: var(--pm-radius-control); }
+.strip-desc { flex-basis: 180px; }
+.candidate-footer, .manual-boolean-editor, .manual-bool-actions { flex-wrap: wrap; }
+.candidate-footer { border-top: 1px solid var(--pm-border); padding-top: 10px; }
+.inline-edit-textarea:focus, .manual-bool-input:focus, .relation-select:focus { border-color: var(--pm-primary); box-shadow: var(--pm-focus-ring); }
+.relation-select { height: var(--pm-control-height); border-radius: var(--pm-radius-control); font-size: 13px; }
+.configuration-more-menu { border-color: var(--pm-border); box-shadow: var(--pm-shadow-popup); }
+
 @media (max-width: 1080px) {
   .preview-card-actions {
     justify-content: flex-start;
-    margin-top: 12px;
+    margin-top: 0;
   }
   .preview-condition {
-    font-size: 16px;
+    font-size: 13px;
   }
   .action-editor-tag {
     grid-template-columns: 1fr;
@@ -2003,5 +1876,10 @@ function formatConfirmedAt(value: string) {
     align-items: flex-start;
     flex-direction: column;
   }
+}
+@media (max-width: 600px) {
+  .preview-card-header { align-items: stretch; }
+  .preview-card-title-group { flex-basis: 100%; }
+  .preview-card-actions { margin-left: auto; }
 }
 </style>

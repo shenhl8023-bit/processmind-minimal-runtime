@@ -56,6 +56,7 @@ def test_test_connection_maps_transient_provider_error(monkeypatch):
     assert result.status_code == 200
     assert result.json() == {
         "success": False,
+        "code": "llm_service_unavailable",
         "message": "模型服务暂时不可用，请稍后重试。",
     }
 

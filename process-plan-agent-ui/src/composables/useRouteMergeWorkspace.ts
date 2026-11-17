@@ -20,6 +20,7 @@ import { refreshWorkflowNavigation } from '@/composables/workflowNavigation'
 
 type UseRouteMergeWorkspaceOptions = {
   projectId: Ref<number | null>
+  projectCreatedAt: Ref<string>
   workflowRevision: Ref<number>
   routes: Ref<OperationItem[]>
   routeMergeGroups: Ref<RouteMergeGroup[]>
@@ -70,20 +71,22 @@ type RouteMergeWorkspaceSnapshot = {
   }
 }
 
-function routeMergeWorkspaceCacheKey(projectId: number | string) {
-  return `workflow:route-merge:v1:${projectId}`
+function routeMergeWorkspaceCacheKey(projectId: number | string, projectCreatedAt: string) {
+  if (!projectCreatedAt) return ''
+  return `workflow:route-merge:v2:${encodeURIComponent(projectCreatedAt)}:${projectId}`
 }
 
 export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
   const routeMergeNotice = ref('')
   const routeWorkspaceLoading = ref(false)
   const routeMergeBatchSubmitting = ref(false)
-  const ROUTE_MERGE_SNAPSHOT_META_VERSION = 'v1'
+  const ROUTE_MERGE_SNAPSHOT_META_VERSION = 'v2'
   let workspaceRequestId = 0
   let projectEpoch = 0
-  watch(options.projectId, () => {
+  watch([options.projectId, options.projectCreatedAt], () => {
     projectEpoch += 1
     workspaceRequestId += 1
+    routeMergeNotice.value = ''
   }, { flush: 'sync' })
 
   function captureWorkspaceContext() {
@@ -99,8 +102,10 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
   }
 
   function routeMergeSnapshotMetaStorageKey() {
-    if (!options.projectId.value) return ''
-    return `processmind_route_merge_snapshot_meta_${ROUTE_MERGE_SNAPSHOT_META_VERSION}_${options.projectId.value}`
+    if (!options.projectId.value || !options.projectCreatedAt.value) return ''
+    // Numeric ids can be reused by a fresh package database. Legacy records
+    // cannot establish which project they belonged to, so do not reuse them.
+    return `processmind_route_merge_snapshot_meta_${ROUTE_MERGE_SNAPSHOT_META_VERSION}_${options.projectId.value}_${encodeURIComponent(options.projectCreatedAt.value)}`
   }
 
   function readRouteMergeSnapshotMeta() {
@@ -135,10 +140,10 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
     const currentAlgo = String(currentMeta.algo_version || '')
     const previousSignature = String(previousMeta.source_signature || '')
     const currentSignature = String(currentMeta.source_signature || '')
-    if (previousAlgo && currentAlgo && previousAlgo !== currentAlgo) {
-      return `第二步规则已从 ${previousAlgo} 更新为 ${currentAlgo}，当前结果已按新规则重建，请复核并按需重新提炼。`
-    }
-    if (previousSignature && currentSignature && previousSignature !== currentSignature) {
+    if (
+      (previousAlgo && currentAlgo && previousAlgo !== currentAlgo)
+      || (previousSignature && currentSignature && previousSignature !== currentSignature)
+    ) {
       return '当前项目的第二步归并结果已更新，请复核并按需重新提炼。'
     }
     return ''
@@ -228,13 +233,13 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
     const projectId = options.projectId.value
     const context = captureWorkspaceContext()
     const requestId = ++workspaceRequestId
-    const cacheKey = routeMergeWorkspaceCacheKey(projectId)
+    const cacheKey = routeMergeWorkspaceCacheKey(projectId, options.projectCreatedAt.value)
     const requestRevision = getWorkflowDataRevision()
     const isCurrent = () => context.isCurrent()
       && requestId === workspaceRequestId
       && requestRevision === getWorkflowDataRevision()
     try {
-      const cachedSnapshot = forceRefresh
+      const cachedSnapshot = forceRefresh || !cacheKey
         ? null
         : getWorkflowDataCache<RouteMergeWorkspaceSnapshot>(cacheKey)
       if (cachedSnapshot) {
@@ -243,7 +248,7 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
 
       const snapshot = await fetchRouteMergeWorkspace(projectId, forceRefresh)
       if (!isCurrent()) return false
-      setWorkflowDataCache(cacheKey, snapshot, requestRevision)
+      if (cacheKey) setWorkflowDataCache(cacheKey, snapshot, requestRevision)
       return await applyRouteMergeWorkspaceSnapshot(snapshot, syncPreviewDraft, isCurrent)
     } catch (error) {
       console.error('加载后端路线归并工作台失败', error)
@@ -323,7 +328,9 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
   }
 
   async function confirmAllMergeGroups(setError: (message: string) => void) {
-    if (routeMergeBatchSubmitting.value || !options.routeMergeActionableGroupsSorted.value.length) return
+    if (routeWorkspaceLoading.value || routeMergeBatchSubmitting.value || !options.routeMergeActionableGroupsSorted.value.length) return
+    // Candidate ids can survive a rerun; keep this batch bound to its original workflow.
+    const context = captureWorkspaceContext()
     routeMergeBatchSubmitting.value = true
     options.cancelRouteMergeRename()
     options.cancelPreviewRename()
@@ -331,13 +338,19 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
       const pendingIds = options.routeMergeActionableGroupsSorted.value.map(group => group.id)
       let allSucceeded = true
       for (const groupId of pendingIds) {
+        if (!context.isCurrent() || routeWorkspaceLoading.value) {
+          allSucceeded = false
+          break
+        }
         const ok = await applyMergeSuggestionAction(groupId, 'accept', setError)
         if (!ok) {
           allSucceeded = false
           break
         }
       }
-      if (allSucceeded) routeMergeNotice.value = '已确认全部候选归并组。'
+      if (allSucceeded && context.isCurrent() && !routeWorkspaceLoading.value) {
+        routeMergeNotice.value = '已确认全部候选归并组。'
+      }
     } finally {
       routeMergeBatchSubmitting.value = false
     }
@@ -426,7 +439,8 @@ export function useRouteMergeWorkspace(options: UseRouteMergeWorkspaceOptions) {
     const suggestion = options.selectedMergeSuggestionItem.value
     if (options.projectId.value && current && suggestion?.suggestion_id) {
       try {
-        clearWorkflowDataCache(routeMergeWorkspaceCacheKey(options.projectId.value))
+        const cacheKey = routeMergeWorkspaceCacheKey(options.projectId.value, options.projectCreatedAt.value)
+        if (cacheKey) clearWorkflowDataCache(cacheKey)
         await reviewMergeSuggestion({
           project_id: options.projectId.value,
           expected_workflow_revision: options.workflowRevision.value,

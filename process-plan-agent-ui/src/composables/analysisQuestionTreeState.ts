@@ -1,4 +1,5 @@
 import type { SavedNormalizedRouteVersionResult } from '@/api'
+import type { AnalysisGuidanceConfiguration } from '@/api/analysisGuidance'
 
 type Segment = SavedNormalizedRouteVersionResult['segments'][number]
 
@@ -12,6 +13,22 @@ export interface SegmentTreeState {
   answers: Record<string, TreeAnswer>
   note: string
   rejudging?: boolean
+  guidanceSnapshot?: AnalysisGuidanceConfiguration
+}
+
+export const GUIDANCE_SNAPSHOT_NODE = '__guidance_snapshot'
+export const segmentGuidanceKey = (segmentId: string) => `__segment__:${segmentId}`
+export function savedGuidanceSnapshot(segment: Segment | null): AnalysisGuidanceConfiguration | undefined {
+  const raw = segment?.rule_review?.question_trail?.find(item => item.nodeId === GUIDANCE_SNAPSHOT_NODE)?.value
+  if (!raw) return undefined
+  try { return normalizeGuidanceSnapshot(JSON.parse(raw)) } catch { return undefined }
+}
+function normalizeGuidanceSnapshot(raw: any): AnalysisGuidanceConfiguration | undefined {
+  if (raw?.schema_version !== '1.0' || !raw.operation_guidance || !raw.feature_mappings || !Array.isArray(raw.directions) || !Array.isArray(raw.materials)) return undefined
+  return raw as AnalysisGuidanceConfiguration
+}
+export function trailWithGuidanceSnapshot(answers: TreeAnswer[], snapshot?: AnalysisGuidanceConfiguration): TreeAnswer[] {
+  return snapshot ? [...answers, { nodeId: GUIDANCE_SNAPSHOT_NODE, value: JSON.stringify(snapshot), label: '本次回答使用的问答版本' }] : answers
 }
 
 const LEGACY_NODE_ID_MAP: Record<string, string> = {
@@ -67,6 +84,7 @@ export function savedQuestionTrail(segment: Segment | null): TreeAnswer[] {
   const trail = segment?.rule_review?.question_trail
   if (!Array.isArray(trail)) return []
   return trail
+    .filter(item => item.nodeId !== GUIDANCE_SNAPSHOT_NODE && item.nodeId !== '__object_reuse')
     .map(item => normalizeTreeAnswer(item))
     .filter((item): item is TreeAnswer => !!item)
 }
@@ -90,6 +108,7 @@ export function loadPersistedTreeState(storageKey: string) {
         answers: normalizeAnswersRecord(state?.answers),
         note: String(state?.note || ''),
         rejudging: state?.rejudging === true,
+        guidanceSnapshot: normalizeGuidanceSnapshot(state?.guidanceSnapshot),
       }
       return acc
     }, {})

@@ -1,5 +1,6 @@
 import builtins
 import importlib.util
+import json
 from pathlib import Path
 import socket
 import sys
@@ -65,6 +66,51 @@ def test_find_browser_prefers_an_installed_chrome_candidate(tmp_path: Path):
     assert launcher.find_browser(env) == chrome
 
 
+@pytest.mark.parametrize("root_key,relative", [
+    ("PROGRAMFILES", "Mozilla Firefox/firefox.exe"),
+    ("PROGRAMFILES(X86)", "Mozilla Firefox/firefox.exe"),
+    ("LOCALAPPDATA", "Mozilla Firefox/firefox.exe"),
+    ("LOCALAPPDATA", "Programs/Mozilla Firefox/firefox.exe"),
+])
+def test_open_browser_prefers_firefox_over_other_installed_browsers(
+    tmp_path: Path, monkeypatch, root_key, relative,
+):
+    launcher = _load_launcher()
+    env = {
+        "PROGRAMFILES(X86)": str(tmp_path / "Program Files (x86)"),
+        "PROGRAMFILES": str(tmp_path / "Program Files"),
+        "LOCALAPPDATA": str(tmp_path / "Local"),
+    }
+    for other in ("Google/Chrome/Application/chrome.exe", "Microsoft/Edge/Application/msedge.exe"):
+        path = Path(env["PROGRAMFILES(X86)"]) / other
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fake")
+    firefox = Path(env[root_key]) / relative
+    firefox.parent.mkdir(parents=True, exist_ok=True)
+    firefox.write_bytes(b"fake")
+    opened = []
+    monkeypatch.setattr(launcher.subprocess, "Popen", lambda command, **kwargs: opened.append(command))
+
+    assert launcher.open_browser("http://127.0.0.1:8000/", env) is True
+
+    assert opened == [[str(firefox.resolve()), "http://127.0.0.1:8000/"]]
+
+
+def test_find_browser_keeps_explicit_choice_before_firefox(tmp_path: Path):
+    launcher = _load_launcher()
+    firefox = tmp_path / "Program Files" / "Mozilla Firefox" / "firefox.exe"
+    firefox.parent.mkdir(parents=True)
+    firefox.write_bytes(b"fake")
+    custom = tmp_path / "Custom Browser" / "browser.exe"
+    custom.parent.mkdir()
+    custom.write_bytes(b"fake")
+
+    assert launcher.find_browser({
+        "PROGRAMFILES": str(tmp_path / "Program Files"),
+        "PROCESSMIND_BROWSER": str(custom),
+    }) == custom
+
+
 def test_stop_process_refuses_an_unrelated_command_line(tmp_path: Path):
     launcher = _load_launcher()
     terminated = []
@@ -104,6 +150,47 @@ def test_build_start_command_has_one_port_argument(tmp_path: Path):
 
     assert command.count("--port") == 1
     assert command[-1] == "8000"
+
+
+@pytest.mark.parametrize("configured", [None, "", "   "])
+def test_build_environment_selects_packaged_model_settings_without_explicit_path(tmp_path: Path, configured):
+    launcher = _load_launcher()
+    package_root = tmp_path / "ProcessMind"
+    package_root.mkdir()
+    settings_path = package_root / "model-settings.json"
+    settings_path.write_text("[]", encoding="utf-8")
+    env = {} if configured is None else {"PROCESSMIND_SETTINGS_PATH": configured}
+    original_env = dict(env)
+
+    child = launcher.build_environment(package_root, tmp_path / "state", env)
+
+    assert child["PROCESSMIND_SETTINGS_PATH"] == str(settings_path)
+    assert env == original_env
+
+
+def test_build_environment_keeps_runtime_data_default_without_packaged_model_settings(tmp_path: Path):
+    launcher = _load_launcher()
+
+    child = launcher.build_environment(tmp_path / "ProcessMind", tmp_path / "state", {})
+
+    assert "PROCESSMIND_SETTINGS_PATH" not in child
+    assert child["PROCESSMIND_DATA_DIR"] == str((tmp_path / "state" / "data").resolve())
+
+
+@pytest.mark.parametrize("packaged", [False, True])
+def test_build_environment_preserves_explicit_model_settings_path(tmp_path: Path, packaged):
+    launcher = _load_launcher()
+    package_root = tmp_path / "ProcessMind"
+    package_root.mkdir()
+    if packaged:
+        (package_root / "model-settings.json").write_text("[]", encoding="utf-8")
+    explicit_path = str(tmp_path / "custom" / "settings.json")
+
+    child = launcher.build_environment(
+        package_root, tmp_path / "state", {"PROCESSMIND_SETTINGS_PATH": explicit_path}
+    )
+
+    assert child["PROCESSMIND_SETTINGS_PATH"] == explicit_path
 
 
 def test_status_preserves_malformed_port_state_for_owned_live_process(tmp_path: Path, capsys, monkeypatch):
@@ -574,3 +661,169 @@ def test_all_lifecycle_commands_share_a_crash_released_process_lock(tmp_path):
         process.terminate()
         process.wait(timeout=5)
     assert launcher.status_application(root, runtime, 18087) is False
+
+
+def test_basic_trial_uses_an_independent_runtime_and_pins_delivered_profile(tmp_path: Path):
+    import json
+    launcher = _load_launcher()
+    package = tmp_path / 'trial-package'
+    package.mkdir()
+    profile = package / 'product-profile.json'
+    profile.write_text(json.dumps({'edition': 'basic-trial', 'template_mapping_enabled': False,
+                                   'expires_at': '2026-12-31T00:00:00+08:00'}))
+    env = {'LOCALAPPDATA': str(tmp_path / 'local'), 'PROCESSMIND_PROFILE_PATH': 'other-profile.json'}
+    assert launcher.resolve_runtime_dir(env, package) == (tmp_path / 'local' / 'ProcessMindBasicTrial').resolve()
+    child = launcher.build_environment(package, tmp_path / 'state', env)
+    assert child['PROCESSMIND_PROFILE_PATH'] == str(profile.resolve())
+    assert child['PROCESSMIND_DATA_DIR'] == str((tmp_path / 'state' / 'data').resolve())
+
+
+def _observe_start(launcher, monkeypatch):
+    commands, browsers = [], []
+    class Child:
+        pid = 4321
+        def poll(self):
+            return None
+    def spawn(command, **kwargs):
+        commands.append(command)
+        return Child()
+    monkeypatch.setattr(launcher.subprocess, 'Popen', spawn)
+    monkeypatch.setattr(launcher, 'health', lambda *a, **kw: False)
+    monkeypatch.setattr(launcher, 'check_port', lambda *a, **kw: 0)
+    monkeypatch.setattr(launcher, '_wait_for_health', lambda *a, **kw: True)
+    monkeypatch.setattr(launcher, 'open_browser', lambda url, env=None: browsers.append(url) or True)
+    return commands, browsers
+
+
+@pytest.mark.parametrize('payload,explicit,expected', [
+    (None, None, 8000),
+    ('{"port":8001}', None, 8001),
+    ('\ufeff{"port":18087}', None, 18087),
+    ('{"port":8001}', 18088, 18088),
+    ('broken config', 18088, 18088),
+])
+def test_start_port_configuration_reaches_process_browser_and_state(tmp_path, monkeypatch, payload, explicit, expected):
+    launcher = _load_launcher()
+    root = _package(tmp_path)
+    if payload is not None:
+        (root / 'launcher-config.json').write_text(payload, encoding='utf-8')
+    runtime = tmp_path / 'runtime'
+    commands, browsers = _observe_start(launcher, monkeypatch)
+    args = ['start', '--package-root', str(root), '--state-dir', str(runtime)]
+    if explicit is not None:
+        args += ['--port', str(explicit)]
+    assert launcher.main(args) == 0
+    assert commands[0][-2:] == ['--port', str(expected)]
+    assert browsers == ['http://127.0.0.1:%d/' % expected]
+    assert launcher.read_state(runtime)['port'] == expected
+
+
+@pytest.mark.parametrize('payload', [
+    '{', '[]', '{}', '{"pot":8001}', '{"port":null}', '{"port":true}',
+    '{"port":"8001"}', '{"port":8001.5}', '{"port":0}', '{"port":-1}',
+    '{"port":65536}', '{"port":8001,"host":"0.0.0.0"}',
+])
+def test_invalid_port_config_explains_file_and_never_starts(tmp_path, monkeypatch, capsys, payload):
+    launcher = _load_launcher()
+    root = _package(tmp_path)
+    config = root / 'launcher-config.json'
+    config.write_text(payload, encoding='utf-8')
+    runtime = tmp_path / 'runtime'
+    commands, browsers = _observe_start(launcher, monkeypatch)
+    assert launcher.main(['start', '--package-root', str(root), '--state-dir', str(runtime)]) == 1
+    assert str(config) in capsys.readouterr().err
+    assert commands == [] and browsers == []
+    assert launcher.read_state(runtime) is None
+
+
+@pytest.mark.parametrize('payload', ['{"port":8001}', 'broken config'])
+def test_status_and_stop_use_recorded_port_even_after_config_changes(tmp_path, monkeypatch, payload):
+    launcher = _load_launcher()
+    root = _package(tmp_path)
+    (root / 'launcher-config.json').write_text(payload, encoding='utf-8')
+    runtime = tmp_path / 'runtime'
+    launcher.write_state(runtime, {'pid': 4321, 'port': 8000, 'package_root': str(root)})
+    monkeypatch.setattr(launcher, 'query_process_commandline', lambda pid: _command(launcher, root))
+    monkeypatch.setattr(launcher, 'process_exists', lambda pid: True)
+    urls, terminated = [], []
+    def health(url, **kwargs):
+        urls.append(url)
+        return url == 'http://127.0.0.1:8000/api/startup-ping'
+    monkeypatch.setattr(launcher, 'health', health)
+    monkeypatch.setattr(launcher, 'terminate_process', lambda pid: terminated.append(pid) or True)
+    assert launcher.status_application(root, runtime) is True
+    assert urls == ['http://127.0.0.1:8000/api/startup-ping']
+    assert launcher.stop_application(root, runtime) is True
+    assert terminated == [4321]
+    assert launcher.read_state(runtime) is None
+
+
+@pytest.mark.parametrize('action', ['status', 'stop'])
+def test_missing_state_recovers_on_configured_port(tmp_path, monkeypatch, action):
+    launcher = _load_launcher()
+    root = _package(tmp_path)
+    (root / 'launcher-config.json').write_text('{"port":8001}', encoding='utf-8')
+    runtime = tmp_path / 'runtime'
+    monkeypatch.setattr(launcher, 'query_listener_pid', lambda port: 4321 if port == 8001 else 0)
+    monkeypatch.setattr(launcher, 'query_process_commandline', lambda pid: _command(launcher, root).replace('--port 8000', '--port 8001'))
+    monkeypatch.setattr(launcher, 'process_exists', lambda pid: True)
+    monkeypatch.setattr(launcher, 'health', lambda url, **kw: ':8001/' in url)
+    terminated = []
+    monkeypatch.setattr(launcher, 'terminate_process', lambda pid: terminated.append(pid) or True)
+    assert launcher.main([action, '--package-root', str(root), '--state-dir', str(runtime)]) == 0
+    if action == 'status':
+        assert launcher.read_state(runtime)['port'] == 8001
+    else:
+        assert terminated == [4321]
+        assert launcher.read_state(runtime) is None
+
+
+def test_config_change_reuses_running_instance_until_it_is_stopped(tmp_path, monkeypatch, capsys):
+    launcher = _load_launcher()
+    root = _package(tmp_path)
+    (root / 'launcher-config.json').write_text('{"port":8001}', encoding='utf-8')
+    runtime = tmp_path / 'runtime'
+    launcher.write_state(runtime, {'pid': 4321, 'port': 8000, 'package_root': str(root)})
+    monkeypatch.setattr(launcher, 'query_process_commandline', lambda pid: _command(launcher, root))
+    monkeypatch.setattr(launcher, 'process_exists', lambda pid: True)
+    monkeypatch.setattr(launcher, 'health', lambda url, **kw: ':8000/' in url)
+    monkeypatch.setattr(launcher.subprocess, 'Popen', lambda *a, **kw: pytest.fail('second instance'))
+    urls = []
+    monkeypatch.setattr(launcher, 'open_browser', lambda url, env=None: urls.append(url) or True)
+    assert launcher.start_application(root, state_dir=runtime) == 4321
+    assert urls == ['http://127.0.0.1:8000/']
+    assert launcher.read_state(runtime)['port'] == 8000
+    output = capsys.readouterr().out
+    assert '8001' in output and '重新启动' in output
+
+
+def test_custom_port_cannot_bypass_live_old_directory_state(tmp_path, monkeypatch, capsys):
+    launcher = _load_launcher()
+    root = _package(tmp_path)
+    old = tmp_path / '旧版目录'
+    (root / 'launcher-config.json').write_text('{"port":8001}', encoding='utf-8')
+    runtime = tmp_path / 'runtime'
+    state = {'pid': 4321, 'port': 8000, 'package_root': str(old)}
+    launcher.write_state(runtime, state)
+    monkeypatch.setattr(launcher, 'query_process_commandline', lambda pid: _command(launcher, old))
+    monkeypatch.setattr(launcher, 'process_exists', lambda pid: True)
+    monkeypatch.setattr(launcher.subprocess, 'Popen', lambda *a, **kw: pytest.fail('parallel upgrade'))
+    assert launcher.main(['start', '--package-root', str(root), '--state-dir', str(runtime)]) == 1
+    assert str(old / 'stop-win7.cmd') in capsys.readouterr().err
+    assert launcher.read_state(runtime) == state
+
+
+def test_occupied_configured_port_reports_the_configuration_to_edit(tmp_path, monkeypatch, capsys):
+    launcher = _load_launcher()
+    root = _package(tmp_path)
+    config = root / 'launcher-config.json'
+    config.write_text('{"port":8001}', encoding='utf-8')
+    runtime = tmp_path / 'runtime'
+    monkeypatch.setattr(launcher, 'health', lambda *a, **kw: False)
+    checked = []
+    monkeypatch.setattr(launcher, 'check_port', lambda host, port: checked.append(port) or 1)
+    monkeypatch.setattr(launcher.subprocess, 'Popen', lambda *a, **kw: pytest.fail('occupied port'))
+    assert launcher.main(['start', '--package-root', str(root), '--state-dir', str(runtime)]) == 1
+    assert checked == [8001]
+    error = capsys.readouterr().err
+    assert str(config) in error and '8001' in error

@@ -1,8 +1,10 @@
 import asyncio
+from contextlib import asynccontextmanager
 import json
 import os
 from io import BytesIO
 
+import fitz
 import pytest
 from fastapi import HTTPException, UploadFile
 from sqlalchemy import select
@@ -73,6 +75,15 @@ def _detail(project_id: int, document_id: int, operation_name: str) -> DocumentO
         page_no=1,
         normalized_name=operation_name,
     )
+
+
+def _readable_pdf_bytes(text_value: str = "Process: turning") -> bytes:
+    document = fitz.open()
+    page = document.new_page()
+    page.insert_text((30, 40), text_value)
+    payload = document.tobytes()
+    document.close()
+    return payload
 
 
 def _rule_package(
@@ -217,7 +228,7 @@ def test_document_upload_invalidates_only_the_target_project(route_merge_db, tmp
             ])
             await db.commit()
 
-            pdf_content = b"%PDF-1.4\nnew document content\n%%EOF\n"
+            pdf_content = _readable_pdf_bytes("Process: new document")
             uploaded = await documents_router.upload_documents(
                 files=[UploadFile(filename="new.pdf", file=BytesIO(pdf_content))],
                 project_id=1,
@@ -240,7 +251,7 @@ def test_document_upload_invalidates_only_the_target_project(route_merge_db, tmp
             project_two_details = (
                 await db.execute(select(DocumentOperationDetail).where(DocumentOperationDetail.project_id == 2))
             ).scalars().all()
-            assert project_one_details == []
+            assert [(row.document_id, row.operation_name) for row in project_one_details] == [(11, "项目一旧工序")]
             assert [row.operation_name for row in project_two_details] == ["项目二工序"]
             assert await load_published_rule_package(1, db) is None
             assert (await load_published_rule_package(2, db)).id == other_project_package.id
@@ -262,7 +273,7 @@ def test_document_upload_invalidates_only_the_target_project(route_merge_db, tmp
                     db=db,
                 )
             assert exc_info.value.status_code == 409
-            assert "尚未导出有效规则包" in str(exc_info.value.detail)
+            assert "可执行规则版本" in str(exc_info.value.detail)
 
     asyncio.run(run())
 
@@ -299,7 +310,7 @@ def test_document_delete_invalidates_project_cache_without_touching_other_projec
             ])
             await db.commit()
 
-            assert await documents_router.delete_document(11, db=db) == {"ok": True}
+            assert await documents_router.delete_document(11, db=db, project_id=1, expected_filename="delete-me.pdf") == {"ok": True}
             assert not (upload_dir / "delete-me.pdf").exists()
             remaining_document_ids = (
                 await db.execute(
@@ -313,9 +324,10 @@ def test_document_delete_invalidates_project_cache_without_touching_other_projec
             assert len((
                 await db.execute(select(RouteMergeSnapshot).where(RouteMergeSnapshot.project_id == 2))
             ).scalars().all()) == 1
-            assert (
+            retained_details = (
                 await db.execute(select(DocumentOperationDetail).where(DocumentOperationDetail.project_id == 1))
-            ).scalars().all() == []
+            ).scalars().all()
+            assert [(row.document_id, row.operation_name) for row in retained_details] == [(12, "项目一保留文档工序")]
             project_two_details = (
                 await db.execute(select(DocumentOperationDetail).where(DocumentOperationDetail.project_id == 2))
             ).scalars().all()
@@ -428,6 +440,218 @@ def test_changed_document_file_version_forces_detail_and_snapshot_rebuild(
             assert len(snapshots) == 1
             assert await load_published_rule_package(1, db) is None
             assert (await db.get(FinalizedRulePackage, published_package_id)).status == "superseded"
+
+    asyncio.run(run())
+
+
+def test_stale_merge_build_cannot_save_after_workflow_revision_changes(route_merge_db, monkeypatch):
+    session_factory = route_merge_db
+
+    async def run():
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def pause_advisor(groups):
+            started.set()
+            await release.wait()
+            return groups, {"status": "fixture"}
+
+        monkeypatch.setattr(route_merge_workspace, "advise_merge_groups", pause_advisor)
+
+        async with session_factory() as db:
+            db.add(Project(id=1, name="并发重提炼项目", workflow_revision=0))
+            await db.commit()
+
+        async def old_operations():
+            return [{"id": 11, "name": "旧工序", "sequence": 10}]
+
+        async def no_details():
+            return []
+
+        async def build_old_snapshot():
+            async with session_factory() as db:
+                return await ensure_route_merge_snapshot(1, db, old_operations, no_details)
+
+        pending = asyncio.create_task(build_old_snapshot())
+        try:
+            await asyncio.wait_for(started.wait(), timeout=2)
+
+            async with session_factory() as db:
+                project = await db.get(Project, 1)
+                project.workflow_revision = 1
+                await db.commit()
+
+            release.set()
+            with pytest.raises(HTTPException) as error:
+                await pending
+            assert error.value.status_code == 409
+
+            async with session_factory() as db:
+                assert await route_merge_workspace.get_latest_route_merge_snapshot(1, db) is None
+                assert (await db.get(Project, 1)).workflow_revision == 1
+        finally:
+            release.set()
+            if not pending.done():
+                await pending
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("from_step", [3, 4])
+def test_downstream_reset_reuses_reviewed_merge_snapshot(route_merge_db, monkeypatch, from_step):
+    from app.services.project_workflow_lifecycle import invalidate_project_workflow
+    from app.services.route_merge import llm_advisor
+    from app.services.route_merge.review import apply_merge_suggestion_review
+
+    async def no_model(*args, **kwargs):
+        return ""
+
+    monkeypatch.setattr(llm_advisor, "call_llm", no_model)
+
+    async def run():
+        async with route_merge_db() as db:
+            project = Project(id=1, name="重置下游保留人工归并", workflow_revision=0)
+            db.add(project)
+            await db.commit()
+            ops = [{"id": 1, "name": "下料", "sequence": 10}, {"id": 2, "name": "备料", "sequence": 20}]
+
+            async def operations():
+                return ops
+
+            async def details():
+                return []
+
+            snapshot = await ensure_route_merge_snapshot(1, db, operations, details)
+            suggestion = next(item for item in snapshot["merge_suggestions"] if len(item["source_operation_ids"]) > 1)
+            apply_merge_suggestion_review(snapshot, suggestion["suggestion_id"], "accept", "", {op["id"]: op for op in ops}, [])
+            await route_merge_workspace.save_route_merge_snapshot(1, db, snapshot)
+            await db.commit()
+            reviewed_route = json.loads(json.dumps(snapshot["normalized_superset_route"]))
+            assert len(reviewed_route) == 1
+            await invalidate_project_workflow(db, project, from_step=from_step, expected_workflow_revision=0)
+            await db.commit()
+
+        async with route_merge_db() as db:
+            async def unexpected_rebuild():
+                raise AssertionError("Resetting Step 3/4 must not rerun Step 2 models")
+
+            refreshed = await ensure_route_merge_snapshot(1, db, unexpected_rebuild, unexpected_rebuild)
+            assert refreshed["normalized_superset_route"] == reviewed_route
+            assert refreshed["review_state"] == snapshot["review_state"]
+            assert (await db.get(Project, 1)).workflow_revision == 1
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("reset_rules,expected_revision", [(False, 1), (True, 2)])
+def test_refresh_after_saving_changed_route_keeps_version_and_rule_answers(
+    route_merge_db, monkeypatch, reset_rules, expected_revision,
+):
+    from app.routers import extract as extract_router
+    from app.schemas.schemas import SaveNormalizedSupersetRouteRequest
+    from app.services.route_merge import llm_advisor
+
+    async def no_model(*args, **kwargs):
+        return ""
+
+    monkeypatch.setattr(llm_advisor, "call_llm", no_model)
+    route_loads = []
+
+    async def operations(*args, **kwargs):
+        route_loads.append(True)
+        return [{"id": 1, "name": "下料", "sequence": 10}]
+
+    async def details(*args, **kwargs):
+        return []
+
+    monkeypatch.setattr(extract_router, "_list_superset_route_tree", operations)
+    monkeypatch.setattr(extract_router, "_ensure_document_operation_details", details)
+
+    async def run():
+        async with route_merge_db() as db:
+            db.add(Project(id=1, name="保存后刷新", workflow_revision=0))
+            await db.commit()
+            original = await extract_router.get_saved_normalized_route(1, db)
+            edited = original.segments[0].model_dump()
+            edited["normalized_step_name"] = "下料准备"
+            await extract_router.save_normalized_superset_route(
+                SaveNormalizedSupersetRouteRequest(
+                    project_id=1, expected_workflow_revision=0,
+                    normalized_superset_route=[edited],
+                ), db,
+            )
+            current = (await db.execute(select(NormalizedRouteVersion).order_by(NormalizedRouteVersion.version.desc()))).scalars().first()
+            route_id, version = current.id, current.version
+            assert version == 2
+            db.add(NormalizedRouteSegmentRuleReview(
+                project_id=1, route_version_id=route_id, segment_id=edited["id"],
+                decision="accepted", note="用户已回答的准备工序", summary_json='["固定安排"]',
+            ))
+            await db.commit()
+            if reset_rules:
+                await extract_router.reset_project_workflow(
+                    extract_router.WorkflowResetRequest(
+                        project_id=1, from_step=4, expected_workflow_revision=1,
+                    ), db,
+                )
+
+        for _ in range(2):
+            async with route_merge_db() as db:
+                response = await extract_router.get_saved_normalized_route(1, db)
+                assert response.route_id == route_id
+                assert response.version == version
+                assert response.workflow_revision == expected_revision
+                assert response.segments[0].normalized_step_name == "下料准备"
+                assert response.segments[0].rule_review.note == "用户已回答的准备工序"
+                assert len((await db.execute(select(NormalizedRouteVersion))).scalars().all()) == 2
+        assert len(route_loads) == 1
+
+    asyncio.run(run())
+
+
+def test_upload_waits_for_merge_lock_before_writing_database(route_merge_db, tmp_path, monkeypatch):
+    session_factory = route_merge_db
+    upload_dir = tmp_path / "uploads-lock-order"
+    upload_dir.mkdir()
+    monkeypatch.setattr(documents_router, "UPLOAD_DIR", upload_dir)
+    monkeypatch.setattr(route_merge_workspace, "UPLOAD_DIR", upload_dir)
+    monkeypatch.setattr(documents_router, "start_document_detail_cache_prewarm", lambda _project_id: True)
+    original_lock_factory = documents_router.get_route_merge_project_lock
+
+    async def run():
+        reached_lock = asyncio.Event()
+        observed_document_write_before_lock = False
+
+        async with session_factory() as db:
+            db.add(Project(id=1, name="上传锁顺序项目"))
+            await db.commit()
+
+            @asynccontextmanager
+            async def observed_lock(project_id):
+                nonlocal observed_document_write_before_lock
+                observed_document_write_before_lock = any(
+                    isinstance(instance, Document) and int(instance.project_id or 0) == project_id
+                    for instance in db.identity_map.values()
+                )
+                reached_lock.set()
+                async with original_lock_factory(project_id):
+                    yield
+
+            monkeypatch.setattr(documents_router, "get_route_merge_project_lock", observed_lock)
+            project_lock = original_lock_factory(1)
+            await project_lock.acquire()
+            upload_task = asyncio.create_task(documents_router.upload_documents(
+                files=[UploadFile(filename="locked.pdf", file=BytesIO(_readable_pdf_bytes()))],
+                project_id=1,
+                db=db,
+            ))
+            try:
+                await asyncio.wait_for(reached_lock.wait(), timeout=2)
+            finally:
+                project_lock.release()
+            uploaded = await upload_task
+            assert len(uploaded) == 1
+            assert observed_document_write_before_lock is False
 
     asyncio.run(run())
 

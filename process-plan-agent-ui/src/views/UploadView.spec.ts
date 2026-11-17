@@ -3,13 +3,13 @@ import { compileScript, parse } from '@vue/compiler-sfc'
 import { transformSync } from 'esbuild'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import source from './UploadView.vue?raw'
+import uploadCardSource from '@/components/upload/UploadMainFileCard.vue?raw'
 import * as currentProject from '@/composables/useCurrentProject'
 import * as helpers from '@/utils/uploadViewHelpers'
 
 const api = {
-  listProjects: vi.fn(), listDocuments: vi.fn(), listReferences: vi.fn(),
-  uploadDocuments: vi.fn(), uploadReferences: vi.fn(), createReference: vi.fn(),
-  deleteDocument: vi.fn(), deleteReference: vi.fn(), createProject: vi.fn(), deleteProject: vi.fn(),
+  listProjects: vi.fn(), listDocuments: vi.fn(), uploadDocuments: vi.fn(),
+  deleteDocument: vi.fn(), createProject: vi.fn(), deleteProject: vi.fn(),
 }
 const clearProjectQuestionTreeStorage = vi.fn()
 const refreshWorkflowNavigation = vi.fn()
@@ -49,10 +49,41 @@ beforeEach(() => {
   vi.stubGlobal('alert', vi.fn())
   api.listProjects.mockResolvedValue([{ id: 1, name: '任务A' }, { id: 2, name: '任务B' }])
   api.listDocuments.mockResolvedValue([])
-  api.listReferences.mockResolvedValue([])
 })
 
 describe('upload task isolation', () => {
+  it('loads project documents without requesting auxiliary reference data', async () => {
+    api.listDocuments.mockResolvedValue([{ id: 11, original_name: 'route.pdf' }])
+    const model = mount()
+    model.selectedProjectId.value = '1'
+    await model.loadData(true)
+    expect(api.listDocuments).toHaveBeenCalledWith(1, true)
+    expect(model.mainFiles.value).toEqual([{ id: 11, original_name: 'route.pdf' }])
+  })
+
+  it('limits the primary file picker to PDF', () => {
+    expect(uploadCardSource).toContain('accept=".pdf"')
+    expect(uploadCardSource).not.toMatch(/accept="[^"]*(docx|xlsx|json)/)
+  })
+
+  it('rejects dragged non-PDF files before sending the upload request', async () => {
+    const model = mount()
+    model.selectedProjectId.value = '1'
+    await model.doUpload([{ name: 'route.docx' } as File])
+    expect(api.uploadDocuments).not.toHaveBeenCalled()
+    expect(model.uploadNotices.value[0]?.detail).toBeTruthy()
+    expect(alert).not.toHaveBeenCalled()
+  })
+
+  it('deletes only the exact file identity shown in the selected project', async () => {
+    const model = mount()
+    model.selectedProjectId.value = '1'
+    model.mainFiles.value = [{ id: 11, filename: 'stable-token.json', project_id: 1 }]
+    api.deleteDocument.mockResolvedValue({ ok: true })
+    await model.removeDoc(11)
+    expect(api.deleteDocument).toHaveBeenCalledWith(11, { project_id: 1, filename: 'stable-token.json' })
+  })
+
   it('loads saved task documents when initialization adds the canonical task query', async () => {
     currentProject.setStoredCurrentProjectId(1)
     api.listDocuments.mockResolvedValue([{ id: 11, filename: 'A.json' }])
@@ -71,6 +102,7 @@ describe('upload task isolation', () => {
     await model.doUpload([])
     expect(refreshWorkflowNavigation).toHaveBeenCalledWith(1)
     refreshWorkflowNavigation.mockClear()
+    model.mainFiles.value = [{ id: 11, filename: 'uploaded.json' }]
     await model.removeDoc(11)
     expect(refreshWorkflowNavigation).toHaveBeenCalledWith(1)
   })
@@ -156,9 +188,11 @@ describe('upload task isolation', () => {
     api.deleteDocument.mockRejectedValue(new Error('offline'))
     const model = mount()
     model.selectedProjectId.value = '1'
+    model.mainFiles.value = [{ id: 11, filename: 'uploaded.json' }]
     await expect(model.removeDoc(11)).resolves.toBeUndefined()
     expect(clearProjectQuestionTreeStorage).not.toHaveBeenCalled()
-    expect(alert).toHaveBeenCalled()
+    expect(model.uploadNotices.value[0]?.detail).toBeTruthy()
+    expect(alert).not.toHaveBeenCalled()
   })
 
   it('keeps task B files when task A upload finishes after switching', async () => {
@@ -191,7 +225,38 @@ describe('upload task isolation', () => {
     model.selectedProjectId.value = '1'
     await model.doUpload([])
     expect(clearProjectQuestionTreeStorage).not.toHaveBeenCalled()
-    expect(alert).toHaveBeenCalled()
+    expect(model.uploadNotices.value[0]?.detail).toBeTruthy()
+    expect(alert).not.toHaveBeenCalled()
+  })
+
+  it('keeps the selected task when an earlier create request completes', async () => {
+    const created = deferred<any>()
+    api.createProject.mockReturnValue(created.promise)
+    const model = mount()
+    model.newProjectName.value = '新任务'
+    const creating = model.executeCreateProject()
+    await model.selectProject(2)
+    api.listProjects.mockResolvedValue([{ id: 1 }, { id: 2 }, { id: 3, name: '新任务' }])
+    created.resolve({ id: 3, name: '新任务' })
+    await creating
+    expect(model.selectedProjectId.value).toBe('2')
+    expect(currentProject.getStoredCurrentProjectId()).toBe('2')
+    expect(model.projects.value.some((project: any) => project.id === 3)).toBe(true)
+  })
+
+  it('does not report a successful task deletion as failed when refreshing the list fails', async () => {
+    api.deleteProject.mockResolvedValue({ ok: true })
+    api.listProjects.mockRejectedValue(new Error('offline after delete'))
+    const model = mount()
+    model.projects.value = [{ id: 1 }, { id: 2 }]
+    model.selectedProjectId.value = '1'
+    model.mainFiles.value = [{ id: 11, filename: 'A.json' }]
+    model.projectToDelete.value = { id: 1 }
+    await model.executeDeleteProject()
+    expect(model.mainFiles.value).toEqual([])
+    expect(model.projectToDelete.value).toBe(null)
+    expect(model.selectedProjectId.value).toBe('')
+    expect(vi.mocked(alert).mock.calls.flat().join(' ')).not.toContain('删除任务失败')
   })
 
   it('preserves question drafts when task deletion fails', async () => {

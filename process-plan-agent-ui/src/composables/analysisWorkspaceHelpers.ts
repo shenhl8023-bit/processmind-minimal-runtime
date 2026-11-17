@@ -228,7 +228,14 @@ export function applyRuleReviewUpdateToRoute(
             normalized_step_name: result.normalized_step_name || segment.normalized_step_name,
             rule_review: result.rule_review || null,
           }
-        : segment
+        : result.invalidated_segment_ids?.includes(segment.id)
+          ? { ...segment, analysis_status: 'pending', rule_review: segment.rule_review ? {
+              ...segment.rule_review, decision: 'pending' as const, condition_review: null,
+              analysis_draft: segment.rule_review.analysis_draft ? { ...segment.rule_review.analysis_draft,
+                status: 'incomplete' as const, missing: ['前序加工对象已变化，请重新采纳推荐或确认当前对象。'],
+              } : null,
+            } : null }
+          : segment
     )),
   }
 }

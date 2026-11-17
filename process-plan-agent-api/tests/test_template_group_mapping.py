@@ -1,5 +1,6 @@
 import json
 
+import httpx
 import pytest
 import pytest_asyncio
 from fastapi import HTTPException
@@ -16,6 +17,49 @@ from app.services import template_group_mapping
 from app.services.db_schema_maintenance import ensure_project_schema
 from app.services.group_template_xml import parse_group_template_xml
 from app.services.project_group_templates import commit_project_group_template
+
+
+def test_mapping_warning_tolerates_unread_streaming_error_response():
+    request = httpx.Request('POST', 'https://example.test/v1/responses')
+    response = httpx.Response(503, request=request, stream=httpx.ByteStream(b'private-error-body'))
+    error = httpx.HTTPStatusError('private-key', request=request, response=response)
+    warning = template_group_mapping._llm_failure_warning(error)
+    assert 'HTTP 503' in warning
+    assert 'private' not in warning
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('scope', ['group', 'step'])
+async def test_model_channel_unavailable_explains_configuration_without_exposing_response(mapping_store, monkeypatch, scope):
+    sessions, _ = mapping_store
+
+    async def unavailable(*args, **kwargs):
+        request = httpx.Request('POST', 'https://example.test/v1/chat/completions')
+        response = httpx.Response(503, request=request, json={'error': {
+            'code': 'model_not_found',
+            'type': 'new_api_error',
+            'message': 'No available channel for model private-model key=private-key',
+        }})
+        raise httpx.HTTPStatusError('private-key', request=request, response=response)
+
+    monkeypatch.setattr(template_group_mapping, 'call_llm', unavailable)
+    async with sessions() as db:
+        if scope == 'group':
+            result = await template_group_mapping.resolve_template_group_mappings(db, _request(step_items=['钻孔']))
+        else:
+            result = await template_group_mapping.resolve_template_step_mappings(db, TemplateStepMappingSuggestRequest(
+                project_id=7, expected_template_revision=1,
+                operations=[TemplateGroupMappingOperationIn(operation_id=360, operation_name='加工', step_items=['钻孔'])],
+            ))
+    warning = ''.join(result.warnings)
+    assert '当前模型没有可用通道' in warning
+    assert '模型名称' in warning
+    assert 'HTTP 503' in warning
+    assert 'private-key' not in warning
+    assert 'private-model' not in warning
+    assert result.model_used is False
+    assert result.suggestions
+    assert all((item.candidate_group_ids if scope == 'group' else item.candidates) for item in result.suggestions)
 
 
 @pytest.mark.asyncio

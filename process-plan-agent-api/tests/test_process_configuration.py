@@ -62,6 +62,58 @@ def test_trigger_alone_can_include_a_process_without_a_field_condition():
     assert plan_route(package, {'copper': False, 'material': {'grade': '9Cr18'}, 'precision': 7}).selected_process_ids == ['prepare']
 
 
+@pytest.mark.parametrize('choice,expected', [
+    (None, ['prepare']), (False, ['prepare']),
+    (True, ['prepare', 'copper', 'middle', 'strip', 'inspect']),
+])
+def test_four_modes_single_source_chain_and_default_false(choice, expected):
+    from app.services.rule_packages.condition_reviews import _manual_process_field_key
+    payload = package_payload()
+    key = _manual_process_field_key('copper')
+    payload['input_schema']['fields'][0].update(key=key, source='用户直接设定')
+    for process in payload['route_catalog']['processes']:
+        process['default_sequence'] *= 10
+    payload['route_catalog']['processes'].append({
+        'process_id': 'middle', 'display_name': '中间处理', 'default_sequence': 25,
+    })
+    payload['route_rules']['process_configurations'] = [
+        configuration('copper', 'manual', {'field': key, 'op': 'eq', 'value': True}),
+        configuration('middle', 'associated', relations=[relation('copper', 'middle')]),
+        configuration('strip', 'associated', relations=[relation()]),
+        configuration('inspect', 'associated', relations=[relation('strip', 'inspect')]),
+    ]
+    inputs = {} if choice is None else {key: choice}
+    package = RulePackageV2.model_validate(payload)
+    assert validate_rule_package(package).valid
+    assert plan_route(package, inputs).selected_process_ids == expected
+
+
+@pytest.mark.parametrize('patch', [
+    {'when': {'field': 'copper', 'op': 'eq', 'value': True}},
+    {'relations': []},
+    {'relations': [relation(), relation('prepare')]},
+    {'relations': [relation(kind='order_after')]},
+    {'relations': [{**relation(), 'source_process_ids': ['copper', 'prepare']}]},
+    {'relations': [relation('strip')]},
+    {'relations': [relation('copper', 'inspect')]},
+])
+def test_associated_mode_rejects_mixed_conditions_and_invalid_sources(patch):
+    config = configuration(occurrence='associated', relations=[relation()])
+    config.update(patch)
+    with pytest.raises(ValidationError):
+        RuleConditionCandidate.model_validate({'kind': 'process_configuration', 'configuration': config})
+
+
+def test_associated_mode_rejects_unknown_source():
+    payload = package_payload()
+    payload['route_rules']['process_configurations'] = [
+        configuration(occurrence='associated', relations=[relation('missing_process')]),
+    ]
+    report = validate_rule_package(RulePackageV2.model_validate(payload))
+    assert not report.valid
+    assert 'unknown_relation_process' in {issue.code for issue in report.errors}
+
+
 @pytest.mark.parametrize('copper,inspect_main,expected', [
     (True, False, ['prepare', 'copper']),
     (False, True, ['prepare', 'inspect']),
@@ -164,7 +216,8 @@ def test_validator_executes_test_cases_with_the_same_canonical_inputs_as_simulat
 
 
 @pytest.mark.asyncio
-async def test_configuration_save_reload_and_reject_wrong_segment(tmp_path):
+@pytest.mark.parametrize('occurrence', ['conditional', 'associated'])
+async def test_configuration_save_reload_and_reject_wrong_segment(tmp_path, occurrence):
     from fastapi import HTTPException
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -178,10 +231,11 @@ async def test_configuration_save_reload_and_reject_wrong_segment(tmp_path):
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    candidate = {'kind': 'process_configuration', 'configuration': configuration(when={'any': [
+    when = {'all': [
         {'field': 'material.grade', 'op': 'eq', 'value': '9Cr18'},
-        {'field': 'material.grade', 'op': 'eq', 'value': 'other'},
-    ]}, relations=[relation()])}
+        {'field': 'mechanical.hardness_hrc', 'op': 'gte', 'value': 58},
+    ]} if occurrence == 'conditional' else None
+    candidate = {'kind': 'process_configuration', 'configuration': configuration(occurrence=occurrence, when=when, relations=[relation()] if occurrence == 'associated' else [])}
     try:
         async with factory() as session:
             session.add(NormalizedRouteVersion(id=1, project_id=7, version=1, route_json='[{"id":"segment-strip","export_process_id":"strip"},{"id":"copper"}]'))
@@ -190,8 +244,13 @@ async def test_configuration_save_reload_and_reject_wrong_segment(tmp_path):
             response = await condition_reviews.set_process_configuration_review(body, session)
             assert response.review.status == 'confirmed'
             assert response.review.parser_version == 'configuration'
-            assert response.review.confirmed.configuration.relations[0].source_process_ids == ['copper']
-            assert len(response.review.confirmed.configuration.when.any_conditions) == 2
+            assert response.review.confirmed.configuration.occurrence == occurrence
+            if occurrence == 'conditional':
+                assert len(response.review.confirmed.configuration.when.all_conditions) == 2
+                assert response.review.confirmed.configuration.relations == []
+            else:
+                assert response.review.confirmed.configuration.when is None
+                assert response.review.confirmed.configuration.relations[0].source_process_ids == ['copper']
         async with factory() as session:
             row = (await session.execute(select(NormalizedRouteSegmentRuleReview))).scalar_one()
             assert condition_reviews.serialize_condition_review(row).confirmed == response.review.confirmed
@@ -261,7 +320,8 @@ def test_always_and_trigger_only_configuration_needs_no_artificial_inputs():
     assert plan_route(RulePackageV2.model_validate(payload), {}).selected_process_ids == ['prepare', 'copper', 'strip']
 
 
-def test_configuration_endpoint_saves_and_checks_workflow_revision(tmp_path):
+@pytest.mark.parametrize('occurrence', ['conditional', 'associated'])
+def test_configuration_endpoint_saves_and_checks_workflow_revision(tmp_path, occurrence):
     import asyncio
     from fastapi.testclient import TestClient
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -290,14 +350,20 @@ def test_configuration_endpoint_saves_and_checks_workflow_revision(tmp_path):
     body = {
         'project_id': 7, 'route_id': 1, 'expected_workflow_revision': 2,
         'segment_id': 'strip', 'process_id': 'strip', 'source_text': '镀铜后安排除铜',
-        'candidate': {'kind': 'process_configuration', 'configuration': configuration(relations=[relation()])},
+        'candidate': {'kind': 'process_configuration', 'configuration': configuration(occurrence=occurrence,
+            when={'field': 'material.grade', 'op': 'eq', 'value': '9Cr18'} if occurrence == 'conditional' else None,
+            relations=[relation()] if occurrence == 'associated' else [])},
         'processes': [{'process_id': p, 'display_name': p} for p in ('strip', 'copper')],
     }
     try:
         client = TestClient(app)
         response = client.post('/api/extract/finalized-rule-packages/rule-conditions/configuration', json=body)
         assert response.status_code == 200
-        assert response.json()['review']['confirmed']['configuration']['relations'][0]['source_process_ids'] == ['copper']
+        assert response.json()['review']['confirmed']['configuration']['occurrence'] == occurrence
+        if occurrence == 'associated':
+            assert response.json()['review']['confirmed']['configuration']['relations'][0]['source_process_ids'] == ['copper']
+        else:
+            assert response.json()['review']['confirmed']['configuration']['relations'] == []
         body['expected_workflow_revision'] = 1
         assert client.post('/api/extract/finalized-rule-packages/rule-conditions/configuration', json=body).status_code == 409
     finally:
@@ -309,8 +375,10 @@ def test_configuration_endpoint_saves_and_checks_workflow_revision(tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('relation_type', ['trigger_after', 'order_after', 'requires'])
-async def test_configuration_save_rejects_cross_process_cycles_without_losing_saved_rule(tmp_path, relation_type):
+@pytest.mark.parametrize('relation_type,linked_occurrence', [
+    ('trigger_after', 'associated'),
+])
+async def test_configuration_save_rejects_cross_process_cycles_without_losing_saved_rule(tmp_path, relation_type, linked_occurrence):
     from fastapi import HTTPException
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -330,7 +398,7 @@ async def test_configuration_save_rejects_cross_process_cycles_without_losing_sa
             processes = [{'process_id': pid, 'display_name': pid} for pid in ('surface_a', 'surface_b')]
             def request(pid, links):
                 return ManualRuleConditionRequest(project_id=7, route_id=1, segment_id=pid, process_id=pid, source_text='通用工序顺序',
-                    processes=processes, candidate={'kind': 'process_configuration', 'configuration': configuration(pid, 'conditional' if relation_type == 'trigger_after' and links else 'always', relations=links)})
+                    processes=processes, candidate={'kind': 'process_configuration', 'configuration': configuration(pid, linked_occurrence if links else 'always', relations=links)})
             saved_b = await set_process_configuration_review(request('surface_b', []), session)
             await set_process_configuration_review(request('surface_a', [relation('surface_b', 'surface_a', relation_type)]), session)
             with pytest.raises(HTTPException) as caught:

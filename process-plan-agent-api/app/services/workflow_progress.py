@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Set, Tuple
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.product_profile import get_product_profile
 from app.models.models import (
     Document,
     FinalizedRulePackage,
@@ -278,30 +279,16 @@ async def get_workflow_progress(db: AsyncSession, project_id: int) -> Optional[D
         completed_steps = 2
         if await _analysis_is_complete(db, route, segments):
             completed_steps = 3
-            template = (
-                await db.execute(
-                    select(ProjectGroupTemplate).where(ProjectGroupTemplate.project_id == project_id)
-                )
-            ).scalar_one_or_none()
-            if template is not None and await _template_mappings_are_complete(db, template, segments):
+            from app.services.rule_packages.executable_revisions import current_revision, has_generation
+            executable = await current_revision(db, project_id, required=False)
+            if executable:
                 completed_steps = 4
-                published_package = (
-                    await db.execute(
-                        select(FinalizedRulePackage.id)
-                        .where(
-                            FinalizedRulePackage.project_id == project_id,
-                            FinalizedRulePackage.route_version_id == route.id,
-                            FinalizedRulePackage.status == "published",
-                        )
-                        .limit(1)
-                    )
-                ).scalar_one_or_none()
-                if published_package is not None:
+                if await has_generation(db, executable):
                     completed_steps = 5
 
     return {
         "project_id": project_id,
         "completed_steps": completed_steps,
-        "max_available_step": min(6, completed_steps + 1),
+        "max_available_step": min(6 if get_product_profile().template_mapping_enabled else 5, completed_steps + 1),
         "workflow_revision": int(project.workflow_revision or 0),
     }

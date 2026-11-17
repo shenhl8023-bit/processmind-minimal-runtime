@@ -1,3 +1,5 @@
+"""Historical archive compatibility and the legacy pure compiler; current API flow is covered by test_executable_revisions."""
+
 import asyncio
 import importlib.util
 import io
@@ -14,7 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.database import Base, get_db
 from app.main import app
-from app.models.models import FinalizedRulePackage, NormalizedRouteVersion, Project
+from executable_support import legacy_archive_fixture, seed_fixed_validation, generate_current
+from app.models.models import FinalizedRulePackage, NormalizedRouteVersion, Operation, Project
 from app.models.models import ProjectGroupTemplate, DocumentOperationDetail
 from app.services.db_schema_maintenance import ensure_project_schema
 from app.services.rule_packages.lifecycle import publish_rule_package
@@ -54,7 +57,9 @@ def lifecycle_client(tmp_path, rule_package_v2_payload):
                 id=31,
                 project_id=12,
                 version=1,
-                route_json="[]",
+                route_json=json.dumps([{
+                    "id": "fixture.prepare", "normalized_step_name": "准备",
+                    "doc_coverage": {"hit_docs": 1, "total_docs": 1}}]),
             ))
             session.add(ProjectGroupTemplate(
                 project_id=12,
@@ -121,6 +126,7 @@ def lifecycle_client(tmp_path, rule_package_v2_payload):
                 group_count=5,
                 feature_selection_count=0,
             ))
+            await seed_fixed_validation(session, await session.get(Project, 12))
             await session.commit()
 
     asyncio.run(setup())
@@ -163,6 +169,56 @@ def _v2_save_payload(package):
         "test_cases": package["test_cases"],
         "rule_report_md": "# V2 规则包测试报告",
     }
+
+
+def _prepare_current_mapping_route(client, payload, operations):
+    """Freeze this case's mother route, then save and generate its real core.
+
+    Historical compiler cases can use arbitrary archived catalogs. Cases that
+    edit mappings through today's API must instead have the matching current
+    mother route and a successful generation, not the unrelated prepare seed.
+    Explicit step snapshots model the supported saved/legacy route format.
+    """
+    async def freeze_route():
+        async with client.lifecycle_session_factory() as db:
+            previous = (await db.execute(select(NormalizedRouteVersion).where(
+                NormalizedRouteVersion.project_id == 12).order_by(
+                NormalizedRouteVersion.version.desc()))).scalars().first()
+            route = NormalizedRouteVersion(project_id=12, version=previous.version + 1,
+                route_json=json.dumps([{
+                    "id": operation["process_id"],
+                    "normalized_step_name": operation["operation_name"],
+                    "source_operation_ids": operation["source_operation_ids"],
+                    "step_item_details": [{"id": step["step_id"], "text": step["step_name"],
+                                           "kind": step.get("kind", "primary")}
+                                          for step in operation["steps"]],
+                    "doc_coverage": {"hit_docs": 1, "total_docs": 1},
+                } for operation in operations], ensure_ascii=False))
+            db.add(route)
+            await db.flush()
+            await db.commit()
+            return route.id
+
+    payload["route_version_id"] = asyncio.run(freeze_route())
+    payload["manifest"] = deepcopy(payload["manifest"])
+    payload["manifest"]["route_version_id"] = payload["route_version_id"]
+    by_id = {operation["process_id"]: operation for operation in operations}
+    for process in payload["route_catalog"]["processes"]:
+        process["source_operation_ids"] = by_id[process["process_id"]]["source_operation_ids"]
+        process["template_group_aliases"] = []
+    latest = client.get("/api/extract/executable-rule-revisions/latest", params={"project_id": 12})
+    assert latest.status_code == 200, latest.text
+    saved = client.post("/api/extract/executable-rule-revisions", json={
+        **payload, "expected_executable_revision": latest.json()["revision"],
+    })
+    assert saved.status_code == 200, saved.text
+    generated = client.post("/api/generate/", json={
+        "project_id": 12, "executable_revision_id": saved.json()["id"],
+        "factor_values": {"material.grade": "9Cr18", "cad.features": ["槽类特征"], "target_hardness_hrc": 58},
+        "input_metadata": {field["key"]: {"origin": "manual"} for field in payload["input_schema"]["fields"]},
+    })
+    assert generated.status_code == 200, generated.text
+    return saved.json()
 
 
 def _v1_save_payload():
@@ -210,8 +266,7 @@ def _append_unknown_feature_rule(package, source_value="\u5b54\u7c7b\u7ed3\u6784
 
 
 def test_v2_save_publishes_and_rejects_retired_schema(lifecycle_client, rule_package_v2_payload):
-    saved_v2 = lifecycle_client.post(
-        "/api/extract/finalized-rule-packages",
+    saved_v2 = legacy_archive_fixture(lifecycle_client,
         json=_v2_save_payload(rule_package_v2_payload),
     )
     assert saved_v2.status_code == 200, saved_v2.text
@@ -227,7 +282,7 @@ def test_v2_save_publishes_and_rejects_retired_schema(lifecycle_client, rule_pac
     assert latest_v2.status_code == 200
     assert latest_v2.json()["id"] == v2["id"]
 
-    saved_v1 = lifecycle_client.post("/api/extract/finalized-rule-packages", json=_v1_save_payload())
+    saved_v1 = legacy_archive_fixture(lifecycle_client, json=_v1_save_payload())
     assert saved_v1.status_code == 422
 
     versions = lifecycle_client.get(
@@ -261,7 +316,7 @@ def test_v2_save_round_trips_full_factor_dictionary(lifecycle_client, rule_packa
         ],
     }
 
-    saved = lifecycle_client.post("/api/extract/finalized-rule-packages", json=payload)
+    saved = legacy_archive_fixture(lifecycle_client, json=payload)
 
     assert saved.status_code == 200
     saved_dictionary = saved.json()["factor_dictionary"]
@@ -313,8 +368,7 @@ def test_retired_rule_package_is_not_exposed_as_an_executable_package(lifecycle_
 
 def test_invalid_v2_cannot_be_saved(lifecycle_client, rule_package_v2_payload):
     rule_package_v2_payload["route_rules"]["rules"][0]["then"]["include_process_ids"] = ["missing_process"]
-    saved = lifecycle_client.post(
-        "/api/extract/finalized-rule-packages",
+    saved = legacy_archive_fixture(lifecycle_client,
         json=_v2_save_payload(rule_package_v2_payload),
     )
 
@@ -407,8 +461,7 @@ def test_migration_normalizes_existing_duplicate_published_rows(tmp_path):
 def test_save_accepts_rules_with_unknown_features(lifecycle_client, rule_package_v2_payload):
     package = _append_unknown_feature_rule(rule_package_v2_payload)
 
-    saved = lifecycle_client.post(
-        "/api/extract/finalized-rule-packages",
+    saved = legacy_archive_fixture(lifecycle_client,
         json=_v2_save_payload(package),
     )
     assert saved.status_code == 200
@@ -442,8 +495,7 @@ def test_compile_and_save_preserve_rule_package(lifecycle_client, rule_package_v
     compiled = compile_response.json()
     assert compiled["validation"]["valid"] is True
 
-    saved = lifecycle_client.post(
-        "/api/extract/finalized-rule-packages",
+    saved = legacy_archive_fixture(lifecycle_client,
         json=_v2_save_payload(compiled["package"]),
     )
     assert saved.status_code == 200
@@ -472,7 +524,7 @@ def test_save_requires_template_mapping_before_publish(lifecycle_client, rule_pa
         }
     ]
 
-    saved = lifecycle_client.post("/api/extract/finalized-rule-packages", json=payload)
+    saved = legacy_archive_fixture(lifecycle_client, json=payload)
 
     assert saved.status_code == 422
     detail = saved.json()["detail"]
@@ -522,8 +574,23 @@ def test_group_mapping_coverage_passes_after_mappings_completed_over_multiple_sa
     lifecycle_client,
     rule_package_v2_payload,
 ):
+    # This case tests coverage without any deliverable machining candidates.
+    # Use machining processes only; real auxiliaries must remain exportable.
+    rule_package_v2_payload["route_catalog"]["processes"] = [
+        process for process in rule_package_v2_payload["route_catalog"]["processes"]
+        if process["process_id"] in {"process_rough_machine", "process_mill_slot"}
+    ]
+    for process in rule_package_v2_payload["route_catalog"]["processes"]:
+        process["main"] = True
+    rule_package_v2_payload["route_rules"]["rules"] = []
+    rule_package_v2_payload["test_cases"] = []
+
     async def require_two_feature_groups():
         async with lifecycle_client.lifecycle_session_factory() as db:
+            db.add_all([
+                Operation(id=11, project_id=12, name="粗加工"),
+                Operation(id=12, project_id=12, name="铣槽"),
+            ])
             template = await db.get(ProjectGroupTemplate, 1)
             template.tree_json = json.dumps([{
                 "key": "side-a",
@@ -613,6 +680,9 @@ def test_group_mapping_coverage_passes_after_mappings_completed_over_multiple_sa
                     "step_id": step["step_id"],
                     "step_name": step["name"],
                     "kind": step.get("kind", "primary"),
+                    "source_operation_id": source_operation_id,
+                    "source_step_order": step_order,
+                    "source_step_name": step["name"],
                     "source_steps": [{
                         "source_operation_id": source_operation_id,
                         "source_step_order": step_order,
@@ -623,6 +693,7 @@ def test_group_mapping_coverage_passes_after_mappings_completed_over_multiple_sa
             ],
         })
 
+    _prepare_current_mapping_route(lifecycle_client, payload, operations)
     final_route_save = lifecycle_client.put(
         "/api/extract/group-templates/step-mappings",
         json={
@@ -681,6 +752,15 @@ def test_step_mapping_precheck_passes_after_partial_group_mapping_is_completed(
     lifecycle_client,
     rule_package_v2_payload,
 ):
+    # Only the slot source participates in this two-leaf coverage case.
+    rule_package_v2_payload["route_catalog"]["processes"] = [
+        process for process in rule_package_v2_payload["route_catalog"]["processes"]
+        if process["process_id"] == "process_mill_slot"
+    ]
+    rule_package_v2_payload["route_catalog"]["processes"][0]["main"] = True
+    rule_package_v2_payload["route_rules"]["rules"] = []
+    rule_package_v2_payload["test_cases"] = []
+
     async def seed_two_feature_groups_and_source_step():
         async with lifecycle_client.lifecycle_session_factory() as db:
             db.add(DocumentOperationDetail(
@@ -744,6 +824,11 @@ def test_step_mapping_precheck_passes_after_partial_group_mapping_is_completed(
                 "source_steps": [],
             }
             if process_id == "process_mill_slot":
+                step_input.update({
+                    "source_operation_id": source_operation_id,
+                    "source_step_order": 1,
+                    "source_step_name": "铣槽",
+                })
                 step_input["source_steps"] = [{
                     "source_operation_id": source_operation_id,
                     "source_step_order": 1,
@@ -774,6 +859,7 @@ def test_step_mapping_precheck_passes_after_partial_group_mapping_is_completed(
             "final_targets": [{"process_id": "process_mill_slot", "step_id": "slot.mill"}],
         }
 
+    _prepare_current_mapping_route(lifecycle_client, payload, operations)
     first_save = lifecycle_client.put(
         "/api/extract/group-templates/step-mappings",
         json={
@@ -900,7 +986,7 @@ def test_save_allows_publish_without_step_mappings_when_process_mappings_exist(l
             }
         ]
 
-    saved = lifecycle_client.post("/api/extract/finalized-rule-packages", json=payload)
+    saved = legacy_archive_fixture(lifecycle_client, json=payload)
 
     assert saved.status_code == 200
     body = saved.json()
@@ -943,7 +1029,7 @@ def test_publish_rejects_noncurrent_or_inconsistent_route_before_superseding(
     lifecycle_client, rule_package_v2_payload, invalid_route,
 ):
     payload = _v2_save_payload(rule_package_v2_payload)
-    published = lifecycle_client.post("/api/extract/finalized-rule-packages", json=payload)
+    published = legacy_archive_fixture(lifecycle_client, json=payload)
     assert published.status_code == 200
 
     async def seed_current_route():
@@ -961,7 +1047,7 @@ def test_publish_rejects_noncurrent_or_inconsistent_route_before_superseding(
     assert any(item["code"] == "route_version" and item["status"] == "blocking"
                for item in precheck.json()["checklist"])
 
-    rejected = lifecycle_client.post("/api/extract/finalized-rule-packages", json=payload)
+    rejected = legacy_archive_fixture(lifecycle_client, json=payload)
     assert rejected.status_code in {409, 422}
 
     async def persisted_packages():
@@ -971,7 +1057,7 @@ def test_publish_rejects_noncurrent_or_inconsistent_route_before_superseding(
     packages = asyncio.run(persisted_packages())
     assert len(packages) == 1
     assert packages[0].id == published.json()["id"]
-    assert packages[0].status == "published"
+    assert packages[0].status == "superseded"
 
 
 @pytest.fixture
@@ -1038,7 +1124,7 @@ def test_precheck_preserves_segment_ids_for_rule_repair_navigation(
 
 
 def test_publish_freezes_three_demo_tables_and_source_versions(lifecycle_client, demo_publication_payload):
-    saved = lifecycle_client.post("/api/extract/finalized-rule-packages", json=demo_publication_payload)
+    saved = legacy_archive_fixture(lifecycle_client, json=demo_publication_payload)
     assert saved.status_code == 200, saved.text
     body = saved.json()
     assert set(body["demo_tables"]) == {"factor_table", "full_route_table", "rule_table"}
@@ -1088,7 +1174,7 @@ def test_publication_projects_mapped_steps_and_freezes_original_source(lifecycle
     assert checked.json()['ok'] is True, checked.text
     assert checked.json()['export_summary']['exported_step_count'] == 1
     assert checked.json()['export_summary']['excluded_steps'][0]['step_id'] == 'slot.unmapped'
-    published = lifecycle_client.post('/api/extract/finalized-rule-packages', json=payload)
+    published = legacy_archive_fixture(lifecycle_client, json=payload)
     assert published.status_code == 200, published.text
     body = published.json()
     assert [s['step_id'] for s in body['demo_tables']['full_route_table'][0]['steps']] == ['slot.mill']
@@ -1104,7 +1190,7 @@ def test_publication_projects_mapped_steps_and_freezes_original_source(lifecycle
 @pytest.mark.parametrize('compiler_version', ['demo-three-table/5', 'demo-three-table/4', 'demo-three-table/3', 'demo-three-table/2', 'demo-three-table/1', None, 'unknown'])
 def test_projected_snapshot_rejects_rehashed_rule_change(lifecycle_client, demo_publication_payload, compiler_version):
     from app.services.finalized_rule_package_helpers import _snapshot_hash
-    saved = lifecycle_client.post('/api/extract/finalized-rule-packages', json=demo_publication_payload)
+    saved = legacy_archive_fixture(lifecycle_client, json=demo_publication_payload)
     assert saved.status_code == 200, saved.text
 
     async def change_rule_and_rehash():
@@ -1129,17 +1215,28 @@ def test_fixed_route_publishes_three_tables_and_generates_without_factors(lifecy
     payload = deepcopy(demo_publication_payload)
     payload["input_schema"]["fields"] = []
     payload["factor_dictionary"] = {"schema_version": "2.0", "fields": []}
-    saved = lifecycle_client.post("/api/extract/finalized-rule-packages", json=payload)
+    saved = legacy_archive_fixture(lifecycle_client, json=payload)
     assert saved.status_code == 200, saved.text
     body = saved.json()
     assert body["status"] == "published"
     assert set(body["demo_tables"]) == {"factor_table", "full_route_table", "rule_table"}
     assert body["demo_tables"]["factor_table"] == []
     assert body["demo_tables"]["rule_table"] == [{"target": "process_mill_slot", "when": True}]
-    generated = lifecycle_client.post("/api/generate/", json={"project_id": 12, "factor_values": {}})
+    async def set_fixed_route():
+        async with lifecycle_client.lifecycle_session_factory() as db:
+            route = await db.get(NormalizedRouteVersion, 31)
+            route.route_json = json.dumps([{"id": "process_mill_slot", "normalized_step_name": "铣槽",
+                "doc_coverage": {"hit_docs": 1, "total_docs": 1},
+                "step_item_details": deepcopy(payload["route_catalog"]["processes"][0]["steps"])}])
+            await db.commit()
+    asyncio.run(set_fixed_route())
+    executable = lifecycle_client.post("/api/extract/executable-rule-revisions", json={
+        **payload, "expected_executable_revision": 1})
+    assert executable.status_code == 200, executable.text
+    generated = generate_current(lifecycle_client, json={"project_id": 12, "factor_values": {}})
     assert generated.status_code == 200, generated.text
     assert generated.json()["selected_process_ids"] == ["process_mill_slot"]
-    assert generated.json()["rule_package_id"] == body["id"]
+    assert generated.json()["executable_revision_id"] == executable.json()["id"]
 
 
 def test_precheck_rejects_outdated_workflow_revision(lifecycle_client, demo_publication_payload):
@@ -1161,8 +1258,7 @@ def test_precheck_rejects_outdated_workflow_revision(lifecycle_client, demo_publ
 def test_frozen_exports_reject_sources_from_a_different_package(
     lifecycle_client, demo_publication_payload, mutation,
 ):
-    saved = lifecycle_client.post(
-        "/api/extract/finalized-rule-packages", json=demo_publication_payload,
+    saved = legacy_archive_fixture(lifecycle_client, json=demo_publication_payload,
     )
     assert saved.status_code == 200, saved.text
 
@@ -1198,8 +1294,7 @@ def test_frozen_exports_reject_sources_from_a_different_package(
 def test_legacy_frozen_exports_validate_against_their_own_package_without_live_mapping(
     lifecycle_client, demo_publication_payload, changed_rule, compiler_version,
 ):
-    saved = lifecycle_client.post(
-        "/api/extract/finalized-rule-packages", json=demo_publication_payload,
+    saved = legacy_archive_fixture(lifecycle_client, json=demo_publication_payload,
     )
     assert saved.status_code == 200, saved.text
 
@@ -1361,7 +1456,7 @@ def test_publication_requires_template_reimport_after_route_reordered(lifecycle_
     assert checked.status_code == 200, checked.text
     assert not checked.json()["ok"]
     assert any(i["code"] == "group_template_missing" for i in checked.json()["blockers"])
-    published = lifecycle_client.post("/api/extract/finalized-rule-packages", json=payload)
+    published = legacy_archive_fixture(lifecycle_client, json=payload)
     assert published.status_code == 422, published.text
 
 
@@ -1397,7 +1492,7 @@ def test_publication_rejects_candidates_from_removed_merged_source(lifecycle_cli
     assert checked.status_code == 200, checked.text
     assert not checked.json()["ok"]
     assert any(i["code"] == "stale_step_mapping" for i in checked.json()["blockers"])
-    published = lifecycle_client.post("/api/extract/finalized-rule-packages", json=payload)
+    published = legacy_archive_fixture(lifecycle_client, json=payload)
     assert published.status_code == 422, published.text
 
 
@@ -1441,6 +1536,7 @@ def test_repeated_mapping_deletions_and_relinks_publish_only_current_saved_featu
         "final_targets": [{"process_id": "process_mill_slot", "step_id": "slot.mill"}],
     }
     face = {**slot, "template_group_path": ["端面"], "candidate_features": ["平面"]}
+    _prepare_current_mapping_route(client, payload, operations)
     revision = 1
     for mappings, ready in [([slot], False), ([slot, face], True), ([face], False),
                             ([], False), ([slot, face], True), ([slot], False), ([slot, face], True)]:
@@ -1461,7 +1557,7 @@ def test_repeated_mapping_deletions_and_relinks_publish_only_current_saved_featu
         if not ready:
             assert any(item["code"] == "group_template_mapping_missing" for item in checked.json()["blockers"])
 
-    published = client.post("/api/extract/finalized-rule-packages", json=payload)
+    published = legacy_archive_fixture(client, json=payload)
     assert published.status_code == 200, published.text
     assert published.json()["status"] == "published"
     assert published.json()["export_sources"]["template_revision"] == 8
@@ -1481,7 +1577,7 @@ def test_published_snapshot_executes_in_actual_downstream_route_engine(
     if not engine_path.is_file():
         pytest.skip("The actual downstream CAD engine is not available in this checkout")
 
-    saved = lifecycle_client.post("/api/extract/finalized-rule-packages", json=demo_publication_payload)
+    saved = legacy_archive_fixture(lifecycle_client, json=demo_publication_payload)
     assert saved.status_code == 200, saved.text
     snapshot = saved.json()["demo_tables"]
     table_filenames = {
@@ -1561,6 +1657,7 @@ def test_saved_final_tree_edits_precheck_publish_and_historical_exports_stay_con
             await db.commit()
 
     asyncio.run(seed_source())
+    initial_core = _prepare_current_mapping_route(client, payload, operations)
     initial_mapping = client.put('/api/extract/group-templates/step-mappings', json={
         'project_id': 12, 'expected_template_revision': 1, 'replace_all': True,
         'operations': operations, 'mappings': [mapping],
@@ -1568,23 +1665,66 @@ def test_saved_final_tree_edits_precheck_publish_and_historical_exports_stay_con
     assert initial_mapping.status_code == 200, initial_mapping.text
     checked = client.post('/api/extract/finalized-rule-packages/precheck', json=payload)
     assert checked.status_code == 200 and checked.json()['ok'], checked.text
-    initial = client.post('/api/extract/finalized-rule-packages', json=payload)
+    initial = legacy_archive_fixture(client, json=payload)
     assert initial.status_code == 200, initial.text
     frozen = initial.json()['demo_tables']
 
+    edited_payload = deepcopy(payload)
+    edited_process = edited_payload['route_catalog']['processes'][0]
+    hidden_step_keys = []
     if change == 'rename':
         operations[0]['operation_name'] = '精铣槽（已改名）'
         operations[0]['steps'][0]['step_name'] = '精铣槽底'
+        edited_process['display_name'] = operations[0]['operation_name']
+        edited_process['steps'][0]['name'] = operations[0]['steps'][0]['step_name']
     elif change == 'move_step':
         operations[0]['process_id'] = 'moved_slot_process'
         mapping['final_targets'][0]['process_id'] = 'moved_slot_process'
+        edited_process['process_id'] = 'moved_slot_process'
     else:
-        operations[0]['steps'] = []
+        # Mapping deletion projects the intact core; it never removes a member
+        # from the canonical operations submitted to the save boundary.
+        hidden_step_keys = ['slot.mill']
+
+    # The old fixture edited the core directly at the mapping boundary. Keep
+    # proving that request is rejected atomically before using the legal flow.
+    before_rejected = client.get('/api/extract/group-templates/current', params={'project_id': 12})
+    assert before_rejected.status_code == 200, before_rejected.text
+    invalid_operations = deepcopy(operations)
+    if change == 'remove_step':
+        invalid_operations[0]['steps'] = []
+    rejected = client.put('/api/extract/group-templates/step-mappings', json={
+        'project_id': 12, 'expected_template_revision': 2, 'replace_all': True,
+        'operations': invalid_operations, 'mappings': [] if change == 'remove_step' else [mapping],
+        'step_order_by_process': {operation['process_id']: [step['step_id'] for step in operation['steps']]
+                                  for operation in invalid_operations},
+    })
+    assert rejected.status_code == 422, rejected.text
+    after_rejected = client.get('/api/extract/group-templates/current', params={'project_id': 12})
+    assert after_rejected.status_code == 200, after_rejected.text
+    assert after_rejected.json() == before_rejected.json()
+
+    if change != 'remove_step':
+        _prepare_current_mapping_route(client, edited_payload, operations)
+        # Keep the old catalog for the stale-identity check, but bind it to the
+        # new route so this still tests stale tree content rather than version.
+        payload['route_version_id'] = edited_payload['route_version_id']
+        payload['manifest']['route_version_id'] = edited_payload['route_version_id']
     updated = client.put('/api/extract/group-templates/step-mappings', json={
         'project_id': 12, 'expected_template_revision': 2, 'replace_all': True,
         'operations': operations, 'mappings': [] if change == 'remove_step' else [mapping],
+        'hidden_step_keys': hidden_step_keys,
+        'step_order_by_process': {operation['process_id']: [step['step_id'] for step in operation['steps']]
+                                  for operation in operations},
     })
     assert updated.status_code == 200, updated.text
+    if change == 'remove_step':
+        assert updated.json()['hidden_step_keys'] == ['slot.mill']
+        assert updated.json()['mapping_output'][0]['steps'] == []
+        assert updated.json()['step_mappings'] == []
+        latest_core = client.get('/api/extract/executable-rule-revisions/latest', params={'project_id': 12})
+        assert latest_core.status_code == 200, latest_core.text
+        assert latest_core.json() == {**initial_core, 'has_current_generation': True}
     stale_save = client.put('/api/extract/group-templates/step-mappings', json={
         'project_id': 12, 'expected_template_revision': 2, 'replace_all': True,
         'operations': operations, 'mappings': [mapping],
@@ -1592,7 +1732,7 @@ def test_saved_final_tree_edits_precheck_publish_and_historical_exports_stay_con
     assert stale_save.status_code == 409, stale_save.text
     stale_precheck = client.post('/api/extract/finalized-rule-packages/precheck', json=payload)
     assert stale_precheck.status_code == 200 and not stale_precheck.json()['ok'], stale_precheck.text
-    assert client.post('/api/extract/finalized-rule-packages', json=payload).status_code == 422
+    assert legacy_archive_fixture(client, json=payload).status_code == 422
 
     if change != 'remove_step':
         if change == 'rename':
@@ -1603,7 +1743,7 @@ def test_saved_final_tree_edits_precheck_publish_and_historical_exports_stay_con
         ready = client.post('/api/extract/finalized-rule-packages/precheck', json=payload)
         assert ready.status_code == 200 and ready.json()['ok'], ready.text
         for version in (2, 3):
-            published = client.post('/api/extract/finalized-rule-packages', json=payload)
+            published = legacy_archive_fixture(client, json=payload)
             assert published.status_code == 200, published.text
             assert published.json()['version'] == version
             assert published.json()['demo_tables']['full_route_table'] == updated.json()['mapping_output']
@@ -1628,7 +1768,7 @@ def test_precheck_and_publish_reject_empty_mapped_route_without_creating_package
     assert precheck.json()["ok"] is False
     assert any(item["code"] == "demo_tables" and item["status"] == "blocking"
                for item in precheck.json()["checklist"])
-    saved = lifecycle_client.post("/api/extract/finalized-rule-packages", json=demo_publication_payload)
+    saved = legacy_archive_fixture(lifecycle_client, json=demo_publication_payload)
     assert saved.status_code == 422
     assert "全集路线" in saved.json()["detail"]["message"]
 
@@ -1658,9 +1798,9 @@ def test_precheck_rejects_missing_machining_precision_with_process_location(
     assert any(item["code"] == "missing_process_precision" and "铣槽" in item["message"]
                for item in body["blockers"])
 
-    published = lifecycle_client.post("/api/extract/finalized-rule-packages", json=demo_publication_payload)
+    published = legacy_archive_fixture(lifecycle_client, json=demo_publication_payload)
     assert published.status_code == 422
-    assert "铣槽" in published.text
+    assert "铣槽" in published.json()["detail"]["message"]
 
     async def package_count():
         async with lifecycle_client.lifecycle_session_factory() as db:
@@ -1693,7 +1833,7 @@ def test_legacy_package_reports_missing_snapshot_without_using_current_mapping(l
 def test_precheck_explains_unrepresentable_rules_without_superseding_previous_package(
     lifecycle_client, demo_publication_payload,
 ):
-    first = lifecycle_client.post("/api/extract/finalized-rule-packages", json=demo_publication_payload)
+    first = legacy_archive_fixture(lifecycle_client, json=demo_publication_payload)
     assert first.status_code == 200, first.text
     incompatible = deepcopy(demo_publication_payload)
     incompatible["route_catalog"]["processes"].append({
@@ -1737,7 +1877,7 @@ def test_precheck_explains_unrepresentable_rules_without_superseding_previous_pa
     assert dependency_blocker["prerequisite_process_names"] == ["淬火"]
     assert "第 1 项" in dependency_blocker["message"]
     assert "process_quench" not in dependency_blocker["message"]
-    rejected = lifecycle_client.post("/api/extract/finalized-rule-packages", json=incompatible)
+    rejected = legacy_archive_fixture(lifecycle_client, json=incompatible)
     assert rejected.status_code == 422
     latest = lifecycle_client.get("/api/extract/finalized-rule-packages/latest", params={"project_id": 12})
     assert latest.json()["id"] == first.json()["id"]
@@ -1773,9 +1913,9 @@ def test_migration_adds_snapshot_columns_without_fabricating_legacy_exports(tmp_
 def test_reading_superseded_export_returns_its_frozen_tables_and_checks_project(
     lifecycle_client, demo_publication_payload,
 ):
-    first = lifecycle_client.post("/api/extract/finalized-rule-packages", json=demo_publication_payload)
+    first = legacy_archive_fixture(lifecycle_client, json=demo_publication_payload)
     assert first.status_code == 200, first.text
-    second = lifecycle_client.post("/api/extract/finalized-rule-packages", json=demo_publication_payload)
+    second = legacy_archive_fixture(lifecycle_client, json=demo_publication_payload)
     assert second.status_code == 200, second.text
     historical = lifecycle_client.get(
         f"/api/extract/finalized-rule-packages/{first.json()['id']}", params={"project_id": 12},
@@ -1793,8 +1933,7 @@ def test_reading_superseded_export_returns_its_frozen_tables_and_checks_project(
 def test_route_reset_preserves_archived_frozen_export_after_route_foreign_key_is_removed(
     lifecycle_client, demo_publication_payload,
 ):
-    published = lifecycle_client.post(
-        '/api/extract/finalized-rule-packages', json=demo_publication_payload,
+    published = legacy_archive_fixture(lifecycle_client, json=demo_publication_payload,
     )
     assert published.status_code == 200, published.text
     async def reset_after_source_documents_change():
@@ -1871,7 +2010,7 @@ def test_publication_excludes_unmapped_machining_for_all_review_statuses(
             await db.commit()
 
     asyncio.run(seed_step_review())
-    published = lifecycle_client.post("/api/extract/finalized-rule-packages", json=payload)
+    published = legacy_archive_fixture(lifecycle_client, json=payload)
     assert published.status_code == 200, published.text
     tables = published.json()["demo_tables"]
     assert [process['process_id'] for process in tables['full_route_table']] == ['process_inspection']
@@ -1896,7 +2035,7 @@ def test_publication_rejects_empty_delivery_after_unmapped_required_process_is_e
     assert precheck.status_code == 200, precheck.text
     assert precheck.json()["ok"] is False, precheck.json()
     assert any(item['code'] == 'empty_export_route' for item in precheck.json()['blockers'])
-    published = lifecycle_client.post("/api/extract/finalized-rule-packages", json=demo_publication_payload)
+    published = legacy_archive_fixture(lifecycle_client, json=demo_publication_payload)
     assert published.status_code == 422, published.text
 
     async def count_publications():
@@ -1906,8 +2045,7 @@ def test_publication_rejects_empty_delivery_after_unmapped_required_process_is_e
     assert asyncio.run(count_publications()) == 0
 
 
-@pytest.mark.parametrize('join', ['all', 'any'])
-def test_generic_configuration_save_publish_and_generate_roundtrip(lifecycle_client, join):
+def test_four_mode_configuration_save_publish_and_generate_roundtrip(lifecycle_client):
     from app.services.rule_packages.condition_reviews import _manual_process_field_key
     from app.services.rule_packages.contracts import ProcessConfiguration
 
@@ -1916,6 +2054,8 @@ def test_generic_configuration_save_publish_and_generate_roundtrip(lifecycle_cli
         {'process_id': 'custom_prepare_17', 'display_name': '下料准备', 'main': True, 'default_sequence': 1, 'steps': [], 'source_operation_ids': [11]},
         {'process_id': 'custom_pretreat_29', 'display_name': '预处理', 'main': False, 'default_sequence': 2, 'steps': [], 'source_operation_ids': [12]},
         {'process_id': 'custom_finish_43', 'display_name': '表面精整', 'main': False, 'default_sequence': 3, 'steps': [], 'source_operation_ids': [13]},
+        {'process_id': 'custom_inspect_59', 'display_name': '精整检验', 'main': False, 'default_sequence': 4, 'steps': [], 'source_operation_ids': [14]},
+        {'process_id': 'custom_pack_61', 'display_name': '包装', 'main': False, 'default_sequence': 5, 'steps': [], 'source_operation_ids': [15]},
     ]
     switch = _manual_process_field_key('custom_pretreat_29')
     fields = [
@@ -1926,16 +2066,24 @@ def test_generic_configuration_save_publish_and_generate_roundtrip(lifecycle_cli
     configurations = [
         {'process_id': 'custom_prepare_17', 'occurrence': 'always', 'when': None, 'relations': []},
         {'process_id': 'custom_pretreat_29', 'occurrence': 'manual', 'when': {'field': switch, 'op': 'eq', 'value': True}, 'relations': []},
-        {'process_id': 'custom_finish_43', 'occurrence': 'conditional', 'when': {join: [
+        {'process_id': 'custom_finish_43', 'occurrence': 'conditional', 'when': {'all': [
             {'field': 'project_factor.treatment_class', 'op': 'eq', 'value': 'A'},
             {'field': 'project_factor.needs_finish', 'op': 'eq', 'value': True},
-        ]}, 'relations': [{'relation_type': 'trigger_after', 'source_process_ids': ['custom_pretreat_29'], 'target_process_ids': ['custom_finish_43'], 'source_match': 'all'}]},
+        ]}, 'relations': []},
+        {'process_id': 'custom_inspect_59', 'occurrence': 'associated', 'when': None, 'relations': [{'relation_type': 'trigger_after', 'source_process_ids': ['custom_finish_43'], 'target_process_ids': ['custom_inspect_59'], 'source_match': 'all'}]},
+        {'process_id': 'custom_pack_61', 'occurrence': 'associated', 'when': None, 'relations': [{'relation_type': 'trigger_after', 'source_process_ids': ['custom_inspect_59'], 'target_process_ids': ['custom_pack_61'], 'source_match': 'all'}]},
     ]
 
     async def seed_generic_route():
         async with client.lifecycle_session_factory() as db:
             route = await db.get(NormalizedRouteVersion, 31)
-            route.route_json = json.dumps([{'id': process['process_id'], 'normalized_step_name': process['display_name']} for process in processes], ensure_ascii=False)
+            for process in processes:
+                db.add(Operation(id=process['source_operation_ids'][0], project_id=12,
+                                 name=process['display_name'], sequence=process['default_sequence']))
+            route.route_json = json.dumps([{
+                'id': process['process_id'], 'normalized_step_name': process['display_name'],
+                'source_operation_ids': process['source_operation_ids'],
+            } for process in processes], ensure_ascii=False)
             template = await db.get(ProjectGroupTemplate, 1)
             template.mapping_output_json = json.dumps([{'process_id': process['process_id'], 'process_name': process['display_name'], 'process_type': '辅助工序', 'precision': '辅助工序', 'steps': []} for process in processes], ensure_ascii=False)
             template.step_mappings_json = '[]'
@@ -1947,7 +2095,7 @@ def test_generic_configuration_save_publish_and_generate_roundtrip(lifecycle_cli
         response = client.post('/api/extract/finalized-rule-packages/rule-conditions/configuration', json={
             'project_id': 12, 'route_id': 31, 'segment_id': configuration['process_id'], 'process_id': configuration['process_id'],
             'source_text': f'用户配置：{processes[index]["display_name"]}',
-            'candidate': {'kind': 'process_configuration', 'configuration': configuration, 'field_definitions': [] if index == 0 else fields[:1] if index == 1 else fields[1:]},
+            'candidate': {'kind': 'process_configuration', 'configuration': configuration, 'field_definitions': fields[:1] if index == 1 else fields[1:] if index == 2 else []},
             'processes': [{key: process[key] for key in ('process_id', 'display_name', 'main')} for process in processes],
         })
         assert response.status_code == 200, response.text
@@ -1970,7 +2118,7 @@ def test_generic_configuration_save_publish_and_generate_roundtrip(lifecycle_cli
     checked = client.post('/api/extract/finalized-rule-packages/precheck', json=payload)
     assert checked.status_code == 200, checked.text
     assert checked.json()['ok'] is True, checked.text
-    published = client.post('/api/extract/finalized-rule-packages', json=payload)
+    published = legacy_archive_fixture(client, json=payload)
     assert published.status_code == 200, published.text
     assert published.json()['status'] == 'published'
     latest = client.get('/api/extract/finalized-rule-packages/latest', params={'project_id': 12})
@@ -1978,21 +2126,25 @@ def test_generic_configuration_save_publish_and_generate_roundtrip(lifecycle_cli
     assert latest.json()['route_rules']['process_configurations'] == published.json()['route_rules']['process_configurations']
     assert [(option['value'], option['label']) for option in latest.json()['input_schema']['fields'][1]['options']] == [('A', 'A'), ('B', 'B'), ('C', 'C')]
 
-    # Hand-specified truth tables cover arbitrary IDs, false manual choice,
-    # all/any conditions and the trigger gate through the public API.
-    cases = [(True, 'A', True, True), (True, 'A', False, join == 'any'),
-             (True, 'B', True, join == 'any'), (True, 'B', False, False),
-             (False, 'A', True, False), (False, 'B', False, False)]
+    executable = client.post('/api/extract/executable-rule-revisions', json={
+        **payload, 'expected_executable_revision': 1})
+    assert executable.status_code == 200, executable.text
+
+    # Hand-specified truth tables exercise four independent modes and a
+    # transitive association chain through save, publication and generation.
+    cases = [(True, 'A', True, True), (True, 'A', False, False),
+             (True, 'B', True, False), (True, 'B', False, False),
+             (False, 'A', True, True), (False, 'B', False, False)]
     for enabled, category, finish, expected_finish in cases:
-        generated = client.post('/api/generate/', json={
+        generated = generate_current(client, json={
             'project_id': 12, 'factor_values': {switch: enabled, 'project_factor.treatment_class': category, 'project_factor.needs_finish': finish},
             'input_metadata': {field['key']: {'origin': 'manual'} for field in fields},
         })
         assert generated.status_code == 200, generated.text
-        expected_ids = ['custom_prepare_17'] + (['custom_pretreat_29'] if enabled else []) + (['custom_finish_43'] if expected_finish else [])
+        expected_ids = ['custom_prepare_17'] + (['custom_pretreat_29'] if enabled else []) + (['custom_finish_43', 'custom_inspect_59', 'custom_pack_61'] if expected_finish else [])
         assert generated.json()['selected_process_ids'] == expected_ids
-        assert generated.json()['rule_package_id'] == published.json()['id']
-        assert generated.json()['output_mode'] == 'finalized_rule_package_v2'
+        assert generated.json()['executable_revision_id'] == executable.json()['id']
+        assert generated.json()['output_mode'] == 'executable_rule_revision_v2'
 
 
 @pytest.mark.parametrize("field", [
@@ -2011,7 +2163,7 @@ def test_new_publication_preserves_supported_input_validation(
     response = lifecycle_client.post("/api/extract/finalized-rule-packages/precheck", json=payload)
     assert response.status_code == 200, response.text
     assert response.json()["ok"] is True, response.text
-    response = lifecycle_client.post("/api/extract/finalized-rule-packages", json=payload)
+    response = legacy_archive_fixture(lifecycle_client, json=payload)
     assert response.status_code == 200, response.text
     body = response.json()
     assert body['demo_tables']['factor_table'][0]['validation'] == field['validation']
@@ -2035,7 +2187,7 @@ def test_publication_rejects_collection_length_that_would_become_per_row_text_le
     assert response.json()['ok'] is False
     blocker = next(item for item in response.json()['blockers'] if item['code'] == 'unsupported_input_validation')
     assert blocker['field'] == 'cad_names'
-    response = lifecycle_client.post('/api/extract/finalized-rule-packages', json=payload)
+    response = legacy_archive_fixture(lifecycle_client, json=payload)
     assert response.status_code == 422, response.text
     assert any(item["code"] == "unsupported_input_validation" for item in response.json()["detail"]["blockers"])
 
@@ -2046,7 +2198,7 @@ def test_empty_input_validation_still_publishes(lifecycle_client, demo_publicati
     field = {"key": "length", "label": "长度", "type": "number", "validation": validation}
     payload["input_schema"]["fields"] = [field]
     payload["factor_dictionary"] = {"fields": [deepcopy(field)]}
-    response = lifecycle_client.post("/api/extract/finalized-rule-packages", json=payload)
+    response = legacy_archive_fixture(lifecycle_client, json=payload)
     assert response.status_code == 200, response.text
     assert response.json()["export_error"] is None
 
@@ -2083,7 +2235,7 @@ def test_removed_process_factor_does_not_block_publication_on_input_validation(
     checked = lifecycle_client.post("/api/extract/finalized-rule-packages/precheck", json=payload)
     assert checked.status_code == 200, checked.text
     assert checked.json()["ok"] is True, checked.text
-    saved = lifecycle_client.post("/api/extract/finalized-rule-packages", json=payload)
+    saved = legacy_archive_fixture(lifecycle_client, json=payload)
     assert saved.status_code == 200, saved.text
     assert saved.json()["demo_tables"]["factor_table"] == []
     assert saved.json()["demo_tables"]["rule_table"] == [{"target": "clean", "required": True}]

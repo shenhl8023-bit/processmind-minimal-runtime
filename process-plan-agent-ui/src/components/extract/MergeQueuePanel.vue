@@ -174,6 +174,7 @@ defineEmits<{
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -182,29 +183,33 @@ defineEmits<{
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 18px 20px 14px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  padding: 6px 12px;
   border-bottom: 1px solid #f1f5f9;
   background: linear-gradient(135deg, #fafbff 0%, #f8fafc 100%);
 }
-.route-pane-title {
-  font-size: 15px;
+.mqp-root .route-pane-title {
+  font-size: 13px;
   font-weight: 700;
   color: #0f172a;
   letter-spacing: -0.015em;
-  line-height: 1.2;
+  line-height: 20px;
+  overflow-wrap: anywhere;
 }
 .route-pane-subtitle {
-  font-size: 13px;
+  font-size: 12px;
   color: #94a3b8;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   font-weight: 500;
-  line-height: 1.2;
+  line-height: 20px;
 }
 
 /* ─── Toolbar ─────────────────────────────────────────── */
 .route-pane-toolbar {
-  padding: 10px 20px 8px;
+  padding: 6px 12px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -217,6 +222,7 @@ defineEmits<{
   gap: 0;
   color: #64748b;
   font-size: 12px;
+  flex-wrap: wrap;
 }
 .merge-inline-stat {
   display: flex;
@@ -240,6 +246,8 @@ defineEmits<{
 /* Batch action buttons */
 .merge-batch-actions { display: flex; gap: 6px; }
 .merge-batch-actions .btn {
+  min-width: 24px;
+  min-height: 24px;
   border: 1px solid #c7d2fe;
   background: transparent;
   color: #4f46e5;
@@ -262,11 +270,12 @@ defineEmits<{
 /* ─── List ────────────────────────────────────────────── */
 .merge-queue-list {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 2px;
   overflow-y: auto;
-  padding: 10px 14px 20px;
+  padding: 8px 12px 12px;
 }
 
 /* Guide banner */
@@ -277,7 +286,7 @@ defineEmits<{
   border: 1px solid #c7d2fe;
   border-left: 3px solid #6366f1;
   border-radius: 8px;
-  padding: 9px 13px;
+  padding: 5px 10px;
   line-height: 1.55;
   flex-shrink: 0;
   font-weight: 500;
@@ -289,7 +298,7 @@ defineEmits<{
   border: 1px solid #f1f5f9;
   border-radius: 10px;
   background: #fff;
-  padding: 11px 13px 11px 16px;
+  padding: 5px 12px;
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
   transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
   overflow: visible;
@@ -333,11 +342,11 @@ defineEmits<{
   cursor: pointer;
   user-select: none;
 }
-.merge-queue-main { min-width: 0; flex: 1; }
+.merge-queue-main { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 
 /* Operation name */
 .merge-queue-name {
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.45;
   font-weight: 700;
   color: #0f172a;
@@ -349,7 +358,7 @@ defineEmits<{
 
 /* Original operations */
 .merge-queue-members {
-  margin-top: 5px;
+  margin-top: 2px;
   font-size: 11.5px;
   line-height: 1.5;
   color: #64748b;
@@ -358,7 +367,7 @@ defineEmits<{
 
 /* Suggestion hint text – clamped */
 .merge-queue-hint {
-  margin-top: 4px;
+  margin-top: 2px;
   font-size: 11.5px;
   line-height: 1.55;
   color: #94a3b8;
@@ -373,7 +382,7 @@ defineEmits<{
   color: #6366f1;
 }
 
-.merge-queue-evidence { margin-top: 6px; font-size: 12px; color: #64748b; }
+.merge-queue-evidence { margin-top: 4px; font-size: 12px; color: #64748b; }
 .merge-queue-evidence summary { cursor: pointer; }
 
 /* Meta area (tag) */
@@ -388,12 +397,15 @@ defineEmits<{
 .merge-queue-actions-inline {
   display: flex;
   gap: 6px;
-  margin-top: 11px;
-  padding-top: 11px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  padding-top: 4px;
   border-top: 1px solid #f1f5f9;
   align-items: center;
 }
 .merge-queue-actions-inline > .btn {
+  min-width: 24px;
+  min-height: 24px;
   font-size: 12px;
   padding: 5px 14px;
   font-weight: 600;
@@ -432,8 +444,8 @@ defineEmits<{
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 10px;
-  padding-top: 10px;
+  margin-top: 4px;
+  padding-top: 4px;
   padding-bottom: 2px;
   border-top: 1px solid #f1f5f9;
   flex-wrap: wrap;
@@ -457,6 +469,8 @@ defineEmits<{
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
 }
 .merge-queue-rename .btn {
+  min-width: 24px;
+  min-height: 24px;
   font-size: 12px;
   padding: 5px 11px;
   border-radius: 7px;

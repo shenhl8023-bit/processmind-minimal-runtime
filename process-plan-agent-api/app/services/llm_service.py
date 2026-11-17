@@ -28,6 +28,7 @@ async def call_llm(
     config: dict[str, str] | None = None,
     timeout_seconds: float | None = None,
     max_retries: int | None = None,
+    max_tokens: int = 4096,
 ) -> str:
     """
     调用大模型 API（兼容 OpenAI Chat Completions 格式）。
@@ -44,6 +45,7 @@ async def call_llm(
         temperature=temperature,
         timeout_seconds=timeout_seconds,
         max_retries=max_retries,
+        max_tokens=max_tokens,
     )
 
 

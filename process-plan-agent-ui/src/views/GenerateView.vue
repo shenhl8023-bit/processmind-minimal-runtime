@@ -1,42 +1,46 @@
 <template>
   <div class="generate-view">
-    <div class="analysis-style-header">
-      <div class="ash-left-content">
-        <span class="ash-page-title">规则包验证与路线生成</span>
+    <div class="analysis-style-header workflow-page-header">
+      <div class="ash-left-content workflow-page-info">
+        <span class="ash-page-title workflow-page-title">工艺路线验证</span>
         <template v-if="projectId">
-          <span class="ash-dark-chip">{{ projectName || `任务 #${projectId}` }}</span>
+          <span class="ash-dark-chip" :title="projectName || `任务 #${projectId}`">{{ projectName || `任务 #${projectId}` }}</span>
           
           <div class="ash-meta-section">
             <span class="ash-meta-item ash-meta-stale" v-if="isResultStale">
-              规则包已更新 <strong>V{{ packageVersion }}</strong>（当前生成结果为 V{{ result?.rule_package_version }}）
+              规则已更新 <strong>V{{ packageVersion }}</strong>（当前生成结果为 V{{ result?.executable_revision }}）
             </span>
             <span class="ash-meta-item" v-else-if="displayedPackageVersion">
-              规则包 <strong>V{{ displayedPackageVersion }}</strong>
+              可验证规则 <strong>V{{ displayedPackageVersion }}</strong>
             </span>
             <span class="ash-meta-item ash-meta-stale" v-else>
-              规则包 <strong>未发布</strong>
+              可验证规则 <strong>未保存</strong>
             </span>
             <span class="ash-meta-item">
-              已填写 <strong :class="{ 'text-done': filledFieldCount === inputFields.length }">{{ filledFieldCount }}/{{ inputFields.length }}</strong>
+              已填写 <strong :class="{ 'text-done': filledFieldCount === activeInputFieldCount }">{{ filledFieldCount }}/{{ activeInputFieldCount }}</strong>
             </span>
           </div>
         </template>
       </div>
+      <button v-if="projectId" class="btn btn-primary" :disabled="!canExportRules || exportingRules" @click="exportRulePackage">{{ exportingRules ? '正在导出…' : '导出规则包' }}</button>
     </div>
 
     <section v-if="!projectId" class="empty-panel">
       <span class="empty-step">05</span>
       <h2>先选择一个工艺规程任务</h2>
-      <p>规则包验证与路线生成依赖已经定稿的规则包。请从任务列表选择项目，完成规则定稿后再进入此处。</p>
+      <p>工艺路线验证使用第四步保存的当前规则。请从任务列表选择项目，完成规则定稿后再进入此处。</p>
       <button class="btn btn-primary empty-action" type="button" @click="goUpload">进入任务列表</button>
     </section>
 
     <div v-else class="generate-grid">
       <GenerateInputPanel
+        :finalize-step-number="4"
         :project-id="projectId"
         :project-name="projectName"
         :input-fields="inputFields"
+        :process-definitions="executableRevision?.package.route_catalog.processes || []"
         :filled-field-count="filledFieldCount"
+        :input-field-count="activeInputFieldCount"
         :can-generate="canGenerate"
         :has-rule-package="hasRulePackage"
         :generating="generating"
@@ -70,17 +74,16 @@
       />
 
       <GenerateRouteOutputPanel
-        :error="error"
+        :error="''"
         :result="result"
         :project-name="projectName"
-        :input-field-count="inputFields.length"
+        :input-field-count="activeInputFieldCount"
         :filled-field-count="filledFieldCount"
         :has-rule-package="hasRulePackage"
         :can-generate="canGenerate"
         :generating="generating"
         :is-stale="isResultStale"
         :current-package-version="packageVersion"
-        @download="downloadOutputJson"
         @go-finalize="goFinalize"
         @fill-example="fillExampleValues"
       />
@@ -88,10 +91,13 @@
 
     <WorkflowNavFooter
       :summary="generateNavSummary"
+      :notices="generateNotices"
       previous-label="← 返回规则定稿"
-      next-label="已是最后一步"
+      :next-label="templateMappingVisible ? '继续分组模板映射（可选）' : '已完成路线验证'"
       :previous-disabled="!projectId"
-      next-disabled
+      :next-disabled="!canExportRules"
+      :show-next="templateMappingVisible"
+      @next="goTemplateMapping"
       @previous="goFinalize"
     />
   </div>
@@ -103,11 +109,10 @@ import { useRoute, useRouter } from 'vue-router'
 import GenerateInputPanel from '@/components/generate/GenerateInputPanel.vue'
 import GenerateRouteOutputPanel from '@/components/generate/GenerateRouteOutputPanel.vue'
 import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
+import type { WorkflowNotice } from '@/components/workflow/workflowNotice'
 import {
   generateRoute,
-  getLatestFinalizedRulePackage,
   listProjects,
-  type FinalizedRulePackageResult,
   type GenerateRouteResult,
 } from '@/api'
 import {
@@ -124,18 +129,18 @@ import {
   useGenerateInputFields,
 } from '@/composables/useGenerateInputFields'
 import {
-  downloadGeneratedRouteJson,
   formatGenerateErrorDetail,
 } from '@/utils/generateRouteOutput'
-import { createLatestWorkflowRequestGuard, getWorkflowDataRevision } from '@/composables/workflowDataCache'
+import { createLatestWorkflowRequestGuard } from '@/composables/workflowDataCache'
 import { workflowResetSignal } from '@/composables/workflowResetState'
+import { getLatestExecutableRuleRevision, getCurrentGenerationResults, exportExecutableRuleRevision, type ExecutableRuleRevision } from '@/api/executableRules'
+import { downloadValidatedRulePackage } from '@/utils/validatedRulePackageDownload'
+import { templateMappingVisible } from '@/composables/productStatus'
 
 const route = useRoute()
 const router = useRouter()
 let generateViewActive = false
 const contextLoading = ref(false)
-let initialLoadFinished = false
-let loadedDataRevision = -1
 const contextRequestGuard = createLatestWorkflowRequestGuard()
 const generationRequestGuard = createLatestWorkflowRequestGuard()
 let contextLoadRequestId = 0
@@ -146,6 +151,10 @@ const projectName = ref('')
 const inputSchema = ref<Record<string, any> | null>(null)
 const rulePackageRules = ref<Record<string, any> | null>(null)
 const hasRulePackage = ref(false)
+const executableRevision = ref<ExecutableRuleRevision | null>(null)
+const exportingRules = ref(false)
+const inputsRequireRegeneration = ref(false)
+const canExportRules = computed(() => Boolean(!contextLoading.value && !generating.value && !inputsRequireRegeneration.value && executableRevision.value?.generation_ready && (result.value?.executable_revision_id === executableRevision.value?.id && result.value?.executable_content_hash === executableRevision.value?.content_hash || executableRevision.value?.has_current_generation)))
 const packageVersion = ref<number | null>(null)
 const workflowRevision = ref(0)
 const generating = ref(false)
@@ -154,6 +163,7 @@ const result = ref<GenerateRouteResult | null>(null)
 const {
   addCustomArrayValue,
   addCustomSingleValue,
+  activeInputFieldCount,
   arrayFieldValues,
   canGenerate,
   clearAllFields,
@@ -184,46 +194,61 @@ const {
   schemaLoading: contextLoading,
 })
 
+watch(() => JSON.stringify([fieldValues.value, factorValues.value, factorMetadata.value]), () => {
+  if (contextLoading.value) return
+  inputsRequireRegeneration.value = true
+  result.value = null
+}, { flush: 'sync' })
+
 const generationUsesRulePackage = computed(() => (
-  Boolean(result.value?.rule_package_version)
-  && ['finalized_rule_package', 'finalized_rule_package_v2'].includes(result.value?.output_mode || '')
+  Boolean(result.value?.executable_revision)
+  && result.value?.output_mode === 'executable_rule_revision_v2'
 ))
 const displayedPackageVersion = computed(() => (
   generationUsesRulePackage.value
-    ? (result.value?.rule_package_version ?? null)
+    ? (result.value?.executable_revision ?? null)
     : packageVersion.value
 ))
 const packageMetaLabel = computed(() => {
-  if (!displayedPackageVersion.value) return '未发布'
-  return `发布版本 ${displayedPackageVersion.value}`
+  if (!displayedPackageVersion.value) return '未保存'
+  return `规则版本 ${displayedPackageVersion.value}`
 })
 
 const schemaStatusText = computed(() => {
   if (contextLoading.value) return '正在加载当前任务的输入参数…'
-  if (!hasRulePackage.value) return '当前任务还没有可用规则包。请先在第5步完成规则定稿并发布规则包。'
+  if (!hasRulePackage.value) return `当前任务还没有可用规则包。请先在第四步保存当前规则。`
   if (canGenerate.value && !inputFields.value.length) return '当前规则包为固定路线，无需填写参数，可直接生成。'
-  return '当前规则包的输入参数未能正确加载，请返回第5步检查规则包。'
+  return `当前规则包的输入参数未能正确加载，请返回第四步检查当前规则。`
 })
 
-const isResultStale = computed(() => {
-  if (!result.value?.rule_package_version || !packageVersion.value) return false
-  return result.value.rule_package_version !== packageVersion.value
-})
+const isResultStale = computed(() => Boolean(result.value && (result.value.executable_revision_id !== executableRevision.value?.id || result.value.executable_content_hash !== executableRevision.value?.content_hash)))
 
 const generateHintText = computed(() => {
   if (contextLoading.value) return '正在加载当前任务的输入参数，请稍候。'
-  if (!hasRulePackage.value) return '请先在第5步完成规则定稿并发布规则包。'
+  if (!hasRulePackage.value) return `请先在第四步保存当前规则。`
   if (!inputFields.value.length) return schemaStatusText.value
   return '请先补全必填输入参数。'
 })
+const generateNotices = computed<WorkflowNotice[]>(() => {
+  if (error.value) return [{ id: 'generate-error', level: 'error', summary: '规则验证或路线生成未完成', detail: error.value, actions: [{ label: '返回规则定稿', run: goFinalize }] }]
+  if (isResultStale.value) return [{ id: 'stale-result', level: 'warning', summary: '规则已更新，请重新生成路线', detail: `当前结果基于旧版 V${result.value?.executable_revision}，最新规则为 V${packageVersion.value}。`, actions: [{ label: '重新生成路线', run: runGenerate, disabled: !canGenerate.value || generating.value }] }]
+  if (generating.value) return [{ id: 'generating', level: 'progress', summary: '正在生成工艺路线' }]
+  if (inputsRequireRegeneration.value) return [{ id: 'changed-inputs', level: 'info', summary: '输入参数已修改，请重新生成路线', actions: [{ label: '重新生成路线', run: runGenerate, disabled: !canGenerate.value }] }]
+  if (hasRulePackage.value && !canGenerate.value && inputFields.value.length) return [{ id: 'generate-input', level: 'info', summary: '请补齐并确认零件条件', detail: generateHintText.value, actions: filledFieldCount.value === 0 ? [{ label: '填入示例', run: fillExampleValues }] : [] }]
+  return []
+})
+
 const generateNavSummary = computed(() => {
-  if (!projectId.value) return '请先选择一个任务，完成规则定稿后再进入规则包验证与路线生成。'
-  if (!hasRulePackage.value) return '当前任务还没有可用规则包，请返回第五步完成规则定稿并发布规则包。'
+  if (!projectId.value) return '请先选择一个任务，完成规则定稿后再进入工艺路线验证。'
+  if (!hasRulePackage.value) return '请返回第四步保存当前规则。'
   if (generating.value) return '正在生成工艺路线。'
-  if (isResultStale.value) return `检测到规则包已更新至 V${packageVersion.value}，当前展示为旧版 V${result.value?.rule_package_version} 结果，建议重新点击生成。`
-  if (result.value) return '路线已生成，可在右侧查看结果或导出 JSON。'
+  if (inputsRequireRegeneration.value) return '输入参数已修改，请重新生成并检查路线后再导出规则包。'
+  if (isResultStale.value) return `检测到规则已更新至 V${packageVersion.value}，当前展示为旧版 V${result.value?.executable_revision} 结果，建议重新点击生成。`
+  if (canExportRules.value) return templateMappingVisible.value
+    ? '请检查路线结果；满意后可导出规则包，或继续可选的分组模板映射。'
+    : '请检查路线结果；满意后可导出规则包。'
   if (canGenerate.value && !inputFields.value.length) return `规则包 ${packageMetaLabel.value} 已就绪，无需填写参数，可直接生成固定路线。`
-  return `规则包 ${packageMetaLabel.value} 已就绪，输入字段已填写 ${filledFieldCount.value}/${inputFields.value.length}。`
+  return `规则包 ${packageMetaLabel.value} 已就绪，输入字段已填写 ${filledFieldCount.value}/${activeInputFieldCount.value}。`
 })
 
 function goFinalize() {
@@ -238,14 +263,16 @@ function goUpload() {
 }
 
 function resetRulePackageMetadata() {
+  executableRevision.value = null
   packageVersion.value = null
   rulePackageRules.value = null
   workflowRevision.value = 0
 }
 
-function applyRulePackageMetadata(rulePackage: FinalizedRulePackageResult) {
-  packageVersion.value = rulePackage.version ?? null
-  rulePackageRules.value = rulePackage.route_rules ?? null
+function applyRulePackageMetadata(rulePackage: ExecutableRuleRevision) {
+  executableRevision.value = rulePackage
+  packageVersion.value = rulePackage.revision ?? null
+  rulePackageRules.value = rulePackage.package.route_rules ?? null
 }
 
 function clearGeneratedWorkflowState() {
@@ -259,43 +286,57 @@ function clearGeneratedWorkflowState() {
 }
 
 async function refreshGeneratedPackageMetadata(
-  generatedResult: GenerateRouteResult,
-  generatedProjectId: number,
-  requestId: number,
-  isLatest: () => boolean,
+  generatedResult: GenerateRouteResult, generatedProjectId: number, requestId: number, isLatest: () => boolean,
 ) {
-  if (!generatedResult.rule_package_version) return
-  const latestPackage = await getLatestFinalizedRulePackage(generatedProjectId, true).catch(() => null)
+  const latest = await getLatestExecutableRuleRevision(generatedProjectId)
   if (!isLatest() || requestId !== generationRequestId || projectId.value !== generatedProjectId) return
-  if (!latestPackage) return
-  if (latestPackage.version !== generatedResult.rule_package_version) {
-    inputSchema.value = latestPackage.input_schema
-    applyRulePackageMetadata(latestPackage)
+  if (!latest?.generation_ready) { clearRulePackageContext(); result.value = null; return }
+  if (latest.id !== generatedResult.executable_revision_id || latest.content_hash !== generatedResult.executable_content_hash) {
+    result.value = null
+    inputSchema.value = latest.package.input_schema
     initializeFieldValues()
-    return
   }
-  if (
-    generatedResult.rule_package_hash
-    && latestPackage.content_hash
-    && generatedResult.rule_package_hash !== latestPackage.content_hash
-  ) return
-  applyRulePackageMetadata(latestPackage)
+  applyRulePackageMetadata(latest)
+}
+
+function goTemplateMapping() {
+  if (canExportRules.value && templateMappingVisible.value) router.push({ path: '/template-mapping', query: buildProjectRouteQuery(projectId.value) })
+}
+
+async function exportRulePackage() {
+  if (!canExportRules.value || !executableRevision.value || !projectId.value || exportingRules.value) return
+  const revision = executableRevision.value, id = projectId.value, context = contextLoadRequestId
+  const isCurrent = () => projectId.value === id && executableRevision.value?.id === revision.id && contextLoadRequestId === context && !inputsRequireRegeneration.value
+  exportingRules.value = true
+  error.value = ''
+  try {
+    const saved = await exportExecutableRuleRevision(revision.id, {
+      project_id: id, expected_workflow_revision: workflowRevision.value,
+      expected_content_hash: revision.content_hash, include_template_mapping: false,
+    })
+    if (!isCurrent()) return
+    await downloadValidatedRulePackage(saved, projectName.value, { isCurrent })
+  } catch (e: any) {
+    if (projectId.value === id && contextLoadRequestId === context) error.value = formatGenerateErrorDetail(e?.response?.data?.detail || e?.message)
+  } finally { exportingRules.value = false }
 }
 
 async function runGenerate() {
-  if (!projectId.value || contextLoading.value || generating.value || !canGenerate.value) return
+  if (!projectId.value || !executableRevision.value?.generation_ready || contextLoading.value || generating.value || !canGenerate.value) return
   const request = generationRequestGuard.start()
   const generatedProjectId = projectId.value
   const loadedContextRequestId = contextLoadRequestId
   const requestId = ++generationRequestId
+  const requestedInputs = JSON.stringify({ factor_values: factorValues.value, input_metadata: factorMetadata.value })
+  const requestedFields = JSON.stringify(fieldValues.value)
   generating.value = true
   error.value = ''
   try {
     const generatedResult = await generateRoute({
       project_id: generatedProjectId,
+      executable_revision_id: executableRevision.value.id,
       expected_workflow_revision: workflowRevision.value,
-      factor_values: factorValues.value,
-      input_metadata: factorMetadata.value,
+      ...JSON.parse(requestedInputs),
     })
     if (
       !request.isLatest()
@@ -303,7 +344,9 @@ async function runGenerate() {
       || loadedContextRequestId !== contextLoadRequestId
       || projectId.value !== generatedProjectId
     ) return
+    if (requestedFields !== JSON.stringify(fieldValues.value) || requestedInputs !== JSON.stringify({ factor_values: factorValues.value, input_metadata: factorMetadata.value })) return
     result.value = generatedResult
+    inputsRequireRegeneration.value = false
     await refreshGeneratedPackageMetadata(
       generatedResult, generatedProjectId, requestId,
       () => request.isLatest() && loadedContextRequestId === contextLoadRequestId,
@@ -315,6 +358,7 @@ async function runGenerate() {
       || loadedContextRequestId !== contextLoadRequestId
       || projectId.value !== generatedProjectId
     ) return
+    if (requestedFields !== JSON.stringify(fieldValues.value) || requestedInputs !== JSON.stringify({ factor_values: factorValues.value, input_metadata: factorMetadata.value })) return
     console.error(err)
     const fieldLabels = Object.fromEntries(
       inputFields.value.map(field => [field.key, field.name || field.key]),
@@ -328,19 +372,35 @@ async function runGenerate() {
   }
 }
 
-function downloadOutputJson() {
-  downloadGeneratedRouteJson({
-    result: result.value,
-    projectName: projectName.value,
-    projectId: projectId.value,
-  })
-}
-
 function clearRulePackageContext() {
+  result.value = null
   inputSchema.value = null
   hasRulePackage.value = false
   resetRulePackageMetadata()
   resetFieldValues()
+}
+
+function canonicalInputSnapshot(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalInputSnapshot)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => [key, canonicalInputSnapshot(item)]))
+  }
+  return value
+}
+
+function generationInputSnapshot(factorValuesValue: unknown, metadataValue: unknown): string {
+  const normalizedMetadata = Object.fromEntries(Object.entries((metadataValue || {}) as Record<string, any>)
+    .map(([key, value]) => [key, {
+      origin: value?.origin,
+      unit: value?.unit ?? null,
+      evidence: Array.isArray(value?.evidence) ? value.evidence : [],
+    }]))
+  return JSON.stringify(canonicalInputSnapshot({
+    factor_values: factorValuesValue || {},
+    input_metadata: normalizedMetadata,
+  }))
 }
 
 function setLoadingProject(nextProjectId: number | null) {
@@ -349,6 +409,7 @@ function setLoadingProject(nextProjectId: number | null) {
   generationRequestId += 1
   generating.value = false
   result.value = null
+  inputsRequireRegeneration.value = false
   error.value = ''
   projectId.value = nextProjectId
   projectName.value = nextProjectId ? `任务 #${nextProjectId}` : ''
@@ -356,7 +417,7 @@ function setLoadingProject(nextProjectId: number | null) {
   return true
 }
 
-async function loadGenerateContext() {
+async function loadGenerateContext(retryInvalidated = true) {
   const request = contextRequestGuard.start()
   const requestId = ++contextLoadRequestId
   const requestedProjectId = String(route.query.project_id || '')
@@ -366,6 +427,7 @@ async function loadGenerateContext() {
   if (Number.isInteger(hintedProjectId) && hintedProjectId > 0) {
     setLoadingProject(hintedProjectId)
   }
+  let inputsAtLoad = JSON.stringify([fieldValues.value, factorValues.value, factorMetadata.value])
   try {
     const projects = await listProjects()
     if (
@@ -380,7 +442,7 @@ async function loadGenerateContext() {
       return
     }
     const targetProjectId = Number(resolvedProjectId)
-    setLoadingProject(targetProjectId)
+    if (setLoadingProject(targetProjectId)) inputsAtLoad = JSON.stringify([fieldValues.value, factorValues.value, factorMetadata.value])
     if (requestedProjectId !== resolvedProjectId) {
       void router.replace({
         path: route.path,
@@ -390,7 +452,7 @@ async function loadGenerateContext() {
     const currentProject = projects.find(project => project.id === targetProjectId)
     projectName.value = currentProject?.name || `任务 #${targetProjectId}`
     workflowRevision.value = currentProject?.workflow_revision || 0
-    const latestPackage = await getLatestFinalizedRulePackage(targetProjectId).catch((err) => {
+    const latestPackage = await getLatestExecutableRuleRevision(targetProjectId).catch((err) => {
       if (err?.response?.status === 404) return null
       throw err
     })
@@ -401,11 +463,30 @@ async function loadGenerateContext() {
       || projectId.value !== targetProjectId
       || (currentRouteProjectId !== requestedProjectId && currentRouteProjectId !== resolvedProjectId)
     ) return
-    if (latestPackage?.input_schema) {
-      inputSchema.value = latestPackage.input_schema
+    if (inputsAtLoad !== JSON.stringify([fieldValues.value, factorValues.value, factorMetadata.value])) {
+      inputsRequireRegeneration.value = true
+      result.value = null
+    }
+    if (latestPackage?.generation_ready && latestPackage.package?.input_schema) {
+      if (executableRevision.value?.id !== latestPackage.id || executableRevision.value?.content_hash !== latestPackage.content_hash) result.value = null
+      inputSchema.value = latestPackage.package.input_schema
       hasRulePackage.value = true
       applyRulePackageMetadata(latestPackage)
       initializeFieldValues()
+      if (latestPackage.has_current_generation && !inputsRequireRegeneration.value) {
+        const restoringInputs = generationInputSnapshot(factorValues.value, factorMetadata.value)
+        const generated = await getCurrentGenerationResults(targetProjectId)
+        if (!request.isCurrent() || requestId !== contextLoadRequestId || projectId.value !== targetProjectId) return
+        const historical = generated.results[0]
+        const historicalInputs = historical?.input_factors
+        const historicalSnapshot = historicalInputs && typeof historicalInputs === 'object'
+          ? generationInputSnapshot(historicalInputs.factor_values, historicalInputs.input_metadata)
+          : null
+        if (!historical || historicalSnapshot === null || restoringInputs !== historicalSnapshot) {
+          inputsRequireRegeneration.value = true
+          result.value = null
+        } else result.value = generated.executable_revision_id === latestPackage.id ? historical : null
+      }
     } else {
       clearRulePackageContext()
     }
@@ -416,19 +497,20 @@ async function loadGenerateContext() {
     error.value = formatGenerateErrorDetail(err?.response?.data?.detail ?? err?.message)
   } finally {
     if (request.isLatest() && requestId === contextLoadRequestId) {
+      if (!request.isCurrent() && generateViewActive) {
+        if (retryInvalidated) {
+          await loadGenerateContext(false)
+          return
+        }
+        clearRulePackageContext()
+        error.value = '规则包在加载期间再次更新，请重新进入本页刷新后再生成。'
+      }
       contextLoading.value = false
-      loadedDataRevision = getWorkflowDataRevision()
     }
   }
 }
 
-onMounted(async () => {
-  try {
-    await loadGenerateContext()
-  } finally {
-    initialLoadFinished = true
-  }
-})
+onMounted(() => { void loadGenerateContext() })
 
 watch(() => route.query.project_id, () => {
   if (!generateViewActive) return
@@ -448,17 +530,18 @@ watch(workflowResetSignal, (signal) => {
 
 onActivated(() => {
   generateViewActive = true
-  if (!initialLoadFinished || contextLoading.value) return
-
   const routeProjectId = Number(route.query.project_id || 0)
   const projectChanged = routeProjectId > 0 && routeProjectId !== projectId.value
-  if (!projectChanged && loadedDataRevision === getWorkflowDataRevision()) return
+  if (contextLoading.value && !projectChanged) return
+  // Always reach the API cache so its TTL can detect publication in another window.
   void loadGenerateContext()
 })
 
 onDeactivated(() => {
   generateViewActive = false
-  loadedDataRevision = getWorkflowDataRevision()
+  contextRequestGuard.start()
+  contextLoadRequestId += 1
+  contextLoading.value = false
 })
 </script>
 

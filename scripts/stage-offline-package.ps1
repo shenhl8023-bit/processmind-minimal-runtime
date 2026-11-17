@@ -30,6 +30,8 @@ $allowedTopLevelFiles = @(
   'Dockerfile.api',
   'Dockerfile.web',
   'README.md',
+  'product-profile.json',
+  'product-features.json',
   'requirement.txt',
   'start-api.cmd',
   'start-api.sh',

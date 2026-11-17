@@ -41,6 +41,7 @@ from app.services.route_merge.workspace import (
 from app.services.process_knowledge import canonicalize_route_label
 from app.services.analysis_drafts import AnalysisRuleDraft, validate_rule_draft
 from app.services.rule_packages.condition_contracts import RuleConditionProcessOption
+from app.services.rule_packages.process_identity import route_process_identities
 
 
 def canonical_normalized_route_json(normalized_route: list[dict[str, object]] | list[Any] | Any) -> str:
@@ -305,6 +306,8 @@ async def build_saved_normalized_route_response(
     await migrate_legacy_quench_process_id_reviews(version_row, db)
     await invalidate_legacy_nondestructive_relation_reviews(version_row, db)
     response = serialize_saved_normalized_route_version(version_row)
+    response.analysis_locked_at = version_row.analysis_locked_at
+    response.analysis_locked = version_row.analysis_locked_at is not None
     project = (
         await db.execute(select(Project).where(Project.id == version_row.project_id))
     ).scalar_one_or_none()
@@ -342,15 +345,32 @@ async def save_segment_rule_review_record(
             select(NormalizedRouteVersion).where(
                 NormalizedRouteVersion.id == route_id,
                 NormalizedRouteVersion.project_id == project_id,
-            )
+            ).execution_options(populate_existing=True)
         )
     ).scalars().first()
     if not version_row:
         raise HTTPException(404, "当前保存路线版本不存在。")
 
+    from app.services.analysis_lock import require_analysis_editable
+
+    require_analysis_editable(version_row)
+
     normalized_decision = str(decision or "accepted").strip().lower()
+    for item in question_trail or []:
+        if item.get("nodeId") == "__guidance_snapshot":
+            from app.services.analysis_guidance import AnalysisGuidanceConfiguration
+            try:
+                snapshot = AnalysisGuidanceConfiguration.model_validate_json(item.get("value") or "")
+            except ValueError as exc:
+                raise HTTPException(422, "本次问答版本无效，请重新加载原问题。") from exc
+            if snapshot.generation_route_id is not None and snapshot.generation_route_id != route_id:
+                raise HTTPException(409, "问答与当前路线版本不一致，请刷新。")
     if normalized_decision not in {"accepted", "rejected", "pending"}:
         raise HTTPException(400, "规则决策只支持 accepted / rejected / pending。")
+    if normalized_decision == 'accepted' and analysis_draft is None and any(
+        str(item.get('nodeId') or '').startswith('guided_') for item in question_trail or []
+    ):
+        raise HTTPException(422, '请先完成工序问答并保存完整的规则草稿。')
 
     def _resolved_merge_name_from_trail() -> str:
         for item in question_trail or []:
@@ -432,6 +452,16 @@ async def save_segment_rule_review_record(
         )
     ).scalars().first()
 
+    from app.services.analysis_object_dependencies import object_signature, invalidate_object_dependents, validate_object_reuse
+    previous_object = object_signature(existing.question_trail_json, existing.decision) if existing else None
+    next_object = object_signature(json.dumps(list(question_trail or []), ensure_ascii=False), normalized_decision)
+    invalidated_segment_ids = []
+    if normalized_decision == 'accepted':
+        await validate_object_reuse(db, route_id, segment_id, parse_route_json(version_row.route_json),
+                                    list(question_trail or []), analysis_draft)
+    if previous_object != next_object or existing is None:
+        invalidated_segment_ids = await invalidate_object_dependents(db, route_id, segment_id)
+
     normalized_step_name = ""
     if normalized_decision == "pending" and analysis_draft is None:
         if existing:
@@ -450,19 +480,20 @@ async def save_segment_rule_review_record(
                 analysis_draft.status = "confirmed" if not analysis_draft.missing else "incomplete"
             else:
                 route_items = parse_route_json(version_row.route_json)
+                identities = route_process_identities(route_items)
                 processes = [
                     RuleConditionProcessOption(
-                        process_id=str(item.get("id") or ""),
-                        display_name=str(item.get("normalized_step_name") or item.get("process_name") or item.get("id") or ""),
+                        process_id=item.export_process_id,
+                        display_name=item.display_name,
                         main=True,
                     )
-                    for item in route_items
-                    if isinstance(item, dict) and str(item.get("id") or "").strip()
+                    for item in identities
                 ]
+                current_process_id = next((item.export_process_id for item in identities if item.segment_id == segment_id), segment_id)
                 issues = validate_rule_draft(
                     analysis_draft,
                     processes,
-                    segment_id,
+                    current_process_id,
                     require_confirmation=True,
                 )
                 if issues:
@@ -503,4 +534,5 @@ async def save_segment_rule_review_record(
         analysis_status="reviewed" if factor_reviews or rule_review else "pending",
         normalized_step_name=normalized_step_name or None,
         rule_review=rule_review,
+        invalidated_segment_ids=invalidated_segment_ids,
     )

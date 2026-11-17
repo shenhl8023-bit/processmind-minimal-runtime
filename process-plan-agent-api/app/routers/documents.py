@@ -1,13 +1,12 @@
 """
-文件上传与参考资料管理 API
+工艺规程文件管理 API
 """
 from __future__ import annotations
 
-import json
+import asyncio
 import logging
 import os
 import uuid
-import zipfile
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -15,13 +14,13 @@ from urllib.parse import quote
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select, text
 from typing import List
 
 from app.core.paths import UPLOAD_DIR
 from app.database import get_db
-from app.models.models import Document, DocumentOperationDetail, Reference, Project
-from app.schemas.schemas import DocumentOut, DocumentPreviewOut, ReferenceCreate, ReferenceOut
+from app.models.models import Document, DocumentOperationDetail, Project
+from app.schemas.schemas import DocumentOut, DocumentPreviewOut
 from app.services.file_parser import extract_text
 from app.services.document_detail_cache_prewarm import (
     cancel_document_detail_cache_prewarm,
@@ -31,15 +30,13 @@ from app.services.route_merge.workspace import (
     get_route_merge_project_lock,
     invalidate_project_document_derived_state,
 )
-from app.services.rule_packages.lifecycle import supersede_published_rule_packages
 from app.services.extraction_tasks import cancel_extraction_task, delete_extraction_task_state
 
 router = APIRouter(prefix="/api/documents", tags=["文件与资料管理"])
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 logger = logging.getLogger(__name__)
 
-ALLOWED_UPLOAD_EXTENSIONS = frozenset({"pdf", "doc", "docx", "xls", "xlsx", "json"})
-REFERENCE_UPLOAD_EXTENSIONS = frozenset({*ALLOWED_UPLOAD_EXTENSIONS, "txt", "md"})
+PRIMARY_DOCUMENT_EXTENSIONS = frozenset({"pdf"})
 UPLOAD_CHUNK_BYTES = 1024 * 1024
 
 
@@ -74,7 +71,7 @@ def _safe_original_name(filename: str | None) -> str:
     return normalized
 
 
-def _upload_extension(filename: str, allowed_extensions=ALLOWED_UPLOAD_EXTENSIONS) -> str:
+def _upload_extension(filename: str, allowed_extensions=PRIMARY_DOCUMENT_EXTENSIONS) -> str:
     extension = Path(filename).suffix.lower().lstrip(".")
     if extension not in allowed_extensions:
         supported = ", ".join(sorted(allowed_extensions))
@@ -82,44 +79,97 @@ def _upload_extension(filename: str, allowed_extensions=ALLOWED_UPLOAD_EXTENSION
     return extension
 
 
-def _validate_upload_content(path: Path, extension: str) -> None:
+def _pdf_has_unreadable_image_body(page) -> bool:
+    """Flag a dominant raster body supported only by incidental text.
+
+    This is a scan warning heuristic, not OCR: a small logo is harmless, and
+    an existing searchable scan needs meaningful lines across its body.
+    """
+    import fitz
+
+    # Text/image coordinates are unrotated even when the displayed page rotates.
+    bounds = page.rect * page.derotation_matrix
+    body = fitz.Rect(bounds.x0 + bounds.width * 0.05, bounds.y0 + bounds.height * 0.10,
+                     bounds.x1 - bounds.width * 0.05, bounds.y1 - bounds.height * 0.10)
+    if body.is_empty:
+        return False
+    # Excluding image bytes avoids decoding large scans just to inspect text.
+    text_blocks = page.get_text("dict", flags=0)["blocks"]
+    for image in page.get_image_info():
+        image_body = fitz.Rect(image["bbox"]) & body
+        if image_body.get_area() < body.get_area() * 0.5:
+            continue
+        lines = []
+        character_count = 0
+        for block in text_blocks:
+            for line in block.get("lines", []):
+                text_value = "".join(span["text"] for span in line["spans"])
+                meaningful_count = sum(character.isalnum() for character in text_value)
+                line_bounds = fitz.Rect(line["bbox"])
+                center = (line_bounds.tl + line_bounds.br) / 2
+                if meaningful_count < 4 or center not in image_body:
+                    continue
+                lines.append(line_bounds)
+                character_count += meaningful_count
+        # Page numbers, headers and a single long watermark cannot establish
+        # body readability. Require multiple meaningful, distributed lines.
+        if character_count < 40 or len(lines) < 3:
+            return True
+        text_height = max(line.y1 for line in lines) - min(line.y0 for line in lines)
+        if text_height < image_body.height * 0.2:
+            return True
+    return False
+
+
+def _validate_upload_content(path: Path, extension: str, original_name: str) -> None:
     with path.open("rb") as handle:
         header = handle.read(8)
 
     if extension == "pdf":
         if not header.startswith(b"%PDF-"):
             raise HTTPException(415, "PDF 文件内容与扩展名不匹配")
-        return
-
-    if extension in {"doc", "xls"}:
-        if header != bytes.fromhex("D0CF11E0A1B11AE1"):
-            raise HTTPException(415, f"{extension.upper()} 文件内容与扩展名不匹配")
-        return
-
-    if extension in {"docx", "xlsx"}:
         try:
-            with zipfile.ZipFile(path) as archive:
-                entries = archive.infolist()
-                names = {entry.filename for entry in entries}
-                total_uncompressed = sum(entry.file_size for entry in entries)
-                total_compressed = sum(entry.compress_size for entry in entries)
-        except (OSError, zipfile.BadZipFile) as exc:
-            raise HTTPException(415, f"{extension.upper()} 文件不是有效的 Office 文档") from exc
-        if total_uncompressed > 300 * 1024 * 1024:
-            raise HTTPException(413, "Office 文件解压后不能超过 300 MB")
-        if total_compressed and total_uncompressed / total_compressed > 100:
-            raise HTTPException(422, "Office 文件压缩比异常，无法处理")
-        expected_prefix = "word/" if extension == "docx" else "xl/"
-        if "[Content_Types].xml" not in names or not any(name.startswith(expected_prefix) for name in names):
-            raise HTTPException(415, f"{extension.upper()} 文件内容与扩展名不匹配")
-        return
+            import fitz
 
-    if extension == "json":
-        try:
-            with path.open("r", encoding="utf-8-sig") as handle:
-                json.load(handle)
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise HTTPException(415, "JSON 文件内容无效") from exc
+            # The staged file intentionally uses a .part suffix, so provide
+            # the content type explicitly instead of relying on its suffix.
+            with fitz.open(stream=path.read_bytes(), filetype="pdf") as document:
+                if document.is_encrypted:
+                    raise HTTPException(422, f"文件 {original_name} 受密码保护，请解除密码后重新上传")
+                if document.page_count < 1:
+                    raise HTTPException(422, f"文件 {original_name} 没有可读取页面")
+
+                unreadable_pages = []
+                readable_text_found = False
+                for page_number in range(document.page_count):
+                    page = document.load_page(page_number)
+                    page_text = page.get_text("text").strip()
+                    if page_text:
+                        readable_text_found = True
+                        if _pdf_has_unreadable_image_body(page):
+                            unreadable_pages.append(page_number + 1)
+                    elif page.get_images(full=True):
+                        unreadable_pages.append(page_number + 1)
+
+                if unreadable_pages:
+                    page_list = "、".join(str(number) for number in unreadable_pages)
+                    raise HTTPException(
+                        422,
+                        f"文件 {original_name} 的第{page_list}页正文文字不足或不可提取，疑似扫描页；请先完成文字识别后重新上传",
+                    )
+                if not readable_text_found:
+                    raise HTTPException(
+                        422,
+                        f"文件 {original_name} 未提取到可读取文字，请检查 PDF 内容或先完成文字识别",
+                    )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(
+                422,
+                f"文件 {original_name} 无法读取，请检查 PDF 是否损坏或重新导出",
+            ) from exc
+        return
 
 
 def _cleanup_upload_paths(paths: list[Path]) -> None:
@@ -130,29 +180,10 @@ def _cleanup_upload_paths(paths: list[Path]) -> None:
             logger.warning("Failed to clean uploaded file %s", path, exc_info=True)
 
 
-async def _invalidate_reference_rule_assets(db: AsyncSession, project_id: int | None) -> None:
-    normalized_project_id = int(project_id or 0)
-    if normalized_project_id <= 0:
-        return
-    await supersede_published_rule_packages(normalized_project_id, db)
-    project = (
-        await db.execute(select(Project).where(Project.id == normalized_project_id))
-    ).scalar_one_or_none()
-    if project:
-        has_documents = bool(
-            (
-                await db.execute(
-                    select(Document.id).where(Document.project_id == normalized_project_id).limit(1)
-                )
-            ).first()
-        )
-        project.status = "UPLOADED" if has_documents else "CREATED"
-
-
 async def _stage_upload(
     upload: UploadFile,
     remaining_batch_bytes: int,
-    allowed_extensions=ALLOWED_UPLOAD_EXTENSIONS,
+    allowed_extensions=PRIMARY_DOCUMENT_EXTENSIONS,
 ) -> StagedUpload:
     original_name = _safe_original_name(upload.filename)
     extension = _upload_extension(original_name, allowed_extensions)
@@ -176,19 +207,24 @@ async def _stage_upload(
             os.fsync(output.fileno())
         if size == 0:
             raise HTTPException(400, f"文件 {original_name} 不能为空")
-        _validate_upload_content(staged_path, extension)
+        _validate_upload_content(staged_path, extension, original_name)
         os.replace(staged_path, final_path)
         return StagedUpload(original_name, extension, final_path, size)
-    except Exception:
+    except BaseException:
         _cleanup_upload_paths([staged_path, final_path])
         raise
     finally:
-        await upload.close()
+        try:
+            await upload.close()
+        except BaseException:
+            # Cancellation here happens after rename, before the caller owns it.
+            _cleanup_upload_paths([staged_path, final_path])
+            raise
 
 
 async def _stage_uploads(
     files: List[UploadFile],
-    allowed_extensions=ALLOWED_UPLOAD_EXTENSIONS,
+    allowed_extensions=PRIMARY_DOCUMENT_EXTENSIONS,
 ) -> list[StagedUpload]:
     if not files:
         raise HTTPException(400, "至少选择一个文件")
@@ -209,7 +245,7 @@ async def _stage_uploads(
             staged.append(item)
             total_size += item.size
         return staged
-    except Exception:
+    except BaseException:
         _cleanup_upload_paths([item.path for item in staged])
         for upload in files:
             await upload.close()
@@ -230,35 +266,65 @@ async def upload_documents(
     db: AsyncSession = Depends(get_db)
 ):
     """批量上传典型工艺规程文件"""
-    project = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
-    if not project:
-        raise HTTPException(404, "任务不存在")
-
     staged = await _stage_uploads(files)
     results: list[Document] = []
+    committed = False
     try:
-        for item in staged:
-            doc = Document(
-                project_id=project_id,
-                filename=item.path.name,
-                original_name=item.original_name,
-                file_type=item.extension,
-                file_size=item.size,
-            )
-            db.add(doc)
-            await db.flush()
-            results.append(doc)
-
         async with get_route_merge_project_lock(project_id):
+            project = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
+            if not project:
+                raise HTTPException(404, "任务不存在")
+
+            # Include records inserted by older clients/importers after startup.
+            await db.execute(text("""
+                INSERT OR IGNORE INTO document_id_sequence (id)
+                SELECT id FROM documents ORDER BY id DESC LIMIT 1
+            """))
+            for item in staged:
+                document_id = (await db.execute(text(
+                    "INSERT INTO document_id_sequence DEFAULT VALUES RETURNING id"
+                ))).scalar_one()
+                doc = Document(
+                    id=int(document_id),
+                    project_id=project_id,
+                    filename=item.path.name,
+                    original_name=item.original_name,
+                    file_type=item.extension,
+                    file_size=item.size,
+                )
+                db.add(doc)
+                await db.flush()
+                results.append(doc)
+
             cancel_document_detail_cache_prewarm(project_id)
-            await invalidate_project_document_derived_state(db, project_id)
+            await invalidate_project_document_derived_state(
+                db, project_id, document_ids=[int(doc.id) for doc in results],
+            )
             cancel_extraction_task(project_id)
             await delete_extraction_task_state(db, project_id)
             project.status = "UPLOADED"
-            await db.commit()
-    except Exception:
-        await db.rollback()
-        _cleanup_upload_paths([item.path for item in staged])
+            commit_task = asyncio.create_task(db.commit())
+            try:
+                await asyncio.shield(commit_task)
+            except asyncio.CancelledError:
+                # A commit can succeed before its await returns. Keep the lock
+                # and settle it before deciding whether staged PDFs can be removed.
+                while not commit_task.done():
+                    try:
+                        await asyncio.shield(commit_task)
+                    except asyncio.CancelledError:
+                        continue
+                    except Exception:
+                        break
+                committed = not commit_task.cancelled() and commit_task.exception() is None
+                raise
+            committed = True
+    except BaseException:
+        if not committed:
+            try:
+                await db.rollback()
+            finally:
+                _cleanup_upload_paths([item.path for item in staged])
         raise
 
     try:
@@ -278,24 +344,31 @@ async def list_documents(project_id: int = Query(...), db: AsyncSession = Depend
 
 
 @router.delete("/{doc_id}")
-async def delete_document(doc_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_document(
+    doc_id: int,
+    db: AsyncSession = Depends(get_db),
+    project_id: int | None = None,
+    expected_filename: str | None = None,
+):
     """删除文档"""
     result = await db.execute(select(Document).where(Document.id == doc_id))
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(404, "文档不存在")
+    if (
+        project_id is None
+        or not expected_filename
+        or doc.project_id != project_id
+        or doc.filename != expected_filename
+    ):
+        raise HTTPException(409, "文件列表已变化，请刷新后再删除。")
     path = UPLOAD_DIR / doc.filename
     project_id = int(doc.project_id or 0)
     try:
         if project_id > 0:
             async with get_route_merge_project_lock(project_id):
                 cancel_document_detail_cache_prewarm(project_id)
-                await invalidate_project_document_derived_state(db, project_id)
-                await db.execute(
-                    update(Reference)
-                    .where(Reference.document_id == doc_id)
-                    .values(document_id=None)
-                )
+                await invalidate_project_document_derived_state(db, project_id, document_ids=[doc_id])
                 await db.execute(
                     delete(DocumentOperationDetail).where(
                         DocumentOperationDetail.document_id == doc_id
@@ -363,22 +436,11 @@ async def view_document_file(doc_id: int, db: AsyncSession = Depends(get_db)):
     if not path.exists():
         raise HTTPException(404, "文档文件不存在")
 
-    media_type_map = {
-        "pdf": "application/pdf",
-        "doc": "application/msword",
-        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "xls": "application/vnd.ms-excel",
-        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "json": "application/json",
-        "txt": "text/plain; charset=utf-8",
-    }
     file_type = (doc.file_type or "").lower()
-    media_type = media_type_map.get(file_type, "application/octet-stream")
-    disposition = "inline" if file_type == "pdf" else "attachment"
     headers = {
-        "Content-Disposition": _content_disposition(doc.original_name, disposition)
+        "Content-Disposition": _content_disposition(doc.original_name, "inline")
     }
-    return FileResponse(path, media_type=media_type, headers=headers)
+    return FileResponse(path, media_type="application/pdf", headers=headers)
 
 
 @router.get("/{doc_id}/pdf-pages")
@@ -440,105 +502,3 @@ async def render_pdf_page(
 
     headers = {"Cache-Control": "private, max-age=300"}
     return StreamingResponse(image, media_type="image/png", headers=headers)
-
-
-# ---------- 参考资料 ----------
-
-@router.post("/references", response_model=ReferenceOut)
-async def create_reference(
-    body: ReferenceCreate,
-    db: AsyncSession = Depends(get_db)
-):
-    """创建手写参考资料"""
-    if body.ref_type != "written":
-        raise HTTPException(422, "手写参考资料的 ref_type 必须为 written")
-    project_id = body.project_id
-    if project_id is not None:
-        project = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
-        if not project:
-            raise HTTPException(404, "任务不存在")
-
-    document_id = body.document_id
-    if document_id is not None:
-        document = (await db.execute(select(Document).where(Document.id == document_id))).scalar_one_or_none()
-        if not document:
-            raise HTTPException(404, "关联文档不存在")
-        if project_id is not None and document.project_id != project_id:
-            raise HTTPException(400, "关联文档不属于当前任务")
-        project_id = document.project_id
-
-    ref = Reference(
-        project_id=project_id,
-        title=body.title,
-        content=body.content,
-        ref_type=body.ref_type,
-        document_id=document_id,
-    )
-    db.add(ref)
-    await db.flush()
-    await _invalidate_reference_rule_assets(db, project_id)
-    await db.commit()
-    await db.refresh(ref)
-    return ref
-
-
-@router.post("/references/upload", response_model=List[ReferenceOut])
-async def upload_references(
-    files: List[UploadFile] = File(...),
-    project_id: int = Form(...),
-    db: AsyncSession = Depends(get_db)
-):
-    """批量上传参考资料文件"""
-    project = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
-    if not project:
-        raise HTTPException(404, "任务不存在")
-
-    staged = await _stage_uploads(files, REFERENCE_UPLOAD_EXTENSIONS)
-    results: list[Reference] = []
-    try:
-        for item in staged:
-            ref = Reference(
-                project_id=project_id,
-                title=item.original_name,
-                ref_type="uploaded",
-                filename=item.path.name,
-            )
-            db.add(ref)
-            await db.flush()
-            results.append(ref)
-        await _invalidate_reference_rule_assets(db, project_id)
-        await db.commit()
-        return results
-    except Exception:
-        await db.rollback()
-        _cleanup_upload_paths([item.path for item in staged])
-        raise
-
-
-@router.get("/references", response_model=List[ReferenceOut])
-async def list_references(project_id: int = Query(...), db: AsyncSession = Depends(get_db)):
-    """列出所有参考资料"""
-    result = await db.execute(
-        select(Reference).where(Reference.project_id == project_id).order_by(Reference.created_at.desc())
-    )
-    return result.scalars().all()
-
-
-@router.delete("/references/{ref_id}")
-async def delete_reference(ref_id: int, db: AsyncSession = Depends(get_db)):
-    """删除参考资料"""
-    result = await db.execute(select(Reference).where(Reference.id == ref_id))
-    ref = result.scalar_one_or_none()
-    if not ref:
-        raise HTTPException(404, "参考资料不存在")
-    project_id = int(ref.project_id or 0)
-    path = UPLOAD_DIR / ref.filename if ref.ref_type == "uploaded" and ref.filename else None
-    await db.delete(ref)
-    await _invalidate_reference_rule_assets(db, project_id)
-    await db.commit()
-    if path is not None:
-        try:
-            path.unlink(missing_ok=True)
-        except OSError:
-            logger.warning("Deleted reference row but could not remove file %s", path, exc_info=True)
-    return {"ok": True}

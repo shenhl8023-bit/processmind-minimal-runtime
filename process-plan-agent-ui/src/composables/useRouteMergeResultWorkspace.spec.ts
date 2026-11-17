@@ -3,7 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { useRouteMergeResultWorkspace } from './useRouteMergeResultWorkspace'
 
-function createWorkspace(sourceOperationIds = [900006]) {
+function createWorkspace(sourceOperationIds = [900006], {
+  entries = new Map<string, string>(),
+  projectCreatedAt = '2026-11-02T06:00:00.000000',
+} = {}) {
   const sourceOperation = {
     id: 900006,
     name: '车削加工（B侧）',
@@ -21,7 +24,6 @@ function createWorkspace(sourceOperationIds = [900006]) {
     factors: [],
   }
   const sourceOperations = [sourceOperation, secondOperation]
-  const entries = new Map<string, string>()
   const localStorage = {
     getItem: vi.fn((key: string) => entries.get(key) ?? null),
     setItem: vi.fn((key: string, value: string) => entries.set(key, value)),
@@ -35,6 +37,7 @@ function createWorkspace(sourceOperationIds = [900006]) {
 
   const workspace = useRouteMergeResultWorkspace({
     projectId: ref(3),
+    projectCreatedAt: ref(projectCreatedAt),
     routeMergeNormalizedSegments: ref([{
       id: 'split-900006',
       normalized_step_name: '车削加工（B侧）',
@@ -60,6 +63,33 @@ function createWorkspace(sourceOperationIds = [900006]) {
 
 describe('useRouteMergeResultWorkspace', () => {
   afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
+  it('restores a saved draft for the same project identity', () => {
+    const entries = new Map<string, string>()
+    const original = createWorkspace([900006], { entries })
+    original.syncRouteMergePreviewDraftFromNormalizedRoute()
+    original.renamePreviewItem({ itemId: original.routeMergeResultItems.value[0]!.id, name: '人工确认名称' })
+    original.saveRouteResultDraftToStorage()
+    const restored = createWorkspace([900006], { entries })
+
+    restored.syncRouteMergePreviewDraft()
+    expect(restored.routeMergeResultItems.value[0]?.name).toBe('人工确认名称')
+  })
+
+  it('does not restore or delete another project draft when project and operation ids are reused', () => {
+    const entries = new Map<string, string>()
+    const old = createWorkspace([900006], { entries, projectCreatedAt: '2026-10-30T03:00:00.000000' })
+    old.syncRouteMergePreviewDraftFromNormalizedRoute()
+    old.renamePreviewItem({ itemId: old.routeMergeResultItems.value[0]!.id, name: '旧项目人工名称' })
+    old.saveRouteResultDraftToStorage()
+    const current = createWorkspace([900006], { entries })
+
+    current.syncRouteMergePreviewDraft()
+    expect(current.routeMergeResultItems.value[0]?.name).toBe('车削加工（B侧）')
+    current.clearRouteResultDraftStorage()
+    old.syncRouteMergePreviewDraft()
+    expect(old.routeMergeResultItems.value[0]?.name).toBe('旧项目人工名称')
+  })
+
   it('does not split one source operation into its individual source steps', () => {
     const workspace = createWorkspace()
 

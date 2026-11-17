@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 from typing import Any
@@ -11,6 +12,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.services.llm_service import call_llm, parse_json_from_llm
+from app.services.rule_packages.authoring_validation import validate_authored_candidate
 from app.services.rule_packages.condition_contracts import (
     CanonicalConditionField,
     ProcessRelationCandidate,
@@ -30,7 +32,7 @@ from app.services.rule_packages.expression_engine import iter_condition_fields
 # Bump this whenever deterministic parsing changes.  Persisted reviews include
 # the parser version, so a new rule vocabulary must invalidate stale/invalid
 # candidates instead of reusing the old result after a page reload.
-CONDITION_PARSER_VERSION = "2026.09.12.2"
+CONDITION_PARSER_VERSION = "2026.11.05.1"
 logger = logging.getLogger(__name__)
 
 
@@ -222,14 +224,20 @@ async def _parse_with_llm(
 工序只能使用输入给出的 process_id，禁止创造工序。
 条件字段优先复用 allowed_fields。原文明确给出了新的属性名称和取值、但 allowed_fields 无法表达时，必须创建项目动态因素，并放入 candidate.field_definitions；禁止把明确的属性条件错误塞进“特殊要求”。
 动态因素 key 必须以 project_factor. 开头，只能使用小写英文字母、数字、点、下划线和连字符；label 保留用户原始中文字段名。类别取值使用 single_select，是否类使用 boolean，数值阈值使用 number；动态类别允许后续出现更多取值，所以 allow_custom 必须为 true。
-优先判断是否为工序关系：触发并排序(trigger_after)、仅排序(order_after)、前置依赖(requires)、互斥(conflicts)。
-工序关系只能引用 allowed_processes 中的 process_id；current_process 通常是目标工序。
-非工序关系再转换为严格的 when/then 规则 AST：并且用 all，或者用 any，否定用 not。
+当前只允许四种互斥出现方式：固定出现、人工Bool选择、全部条件满足、跟随一个来源工序。
+关联只允许单来源触发并排序(trigger_after)，目标只能是 current_process，不得附加字段条件。
+仅排序、前置依赖、互斥、多来源、混合字段条件和关联的原文必须返回 unresolved，不得改写或丢弃其中一部分。
+参数条件转换为严格的 when/then AST：并且用 all；只允许纳入 current_process，不允许排除或控制其他工序。
+不允许 any/not 分组。跨字段的“或”和整体否定必须返回 unresolved，禁止改成 all 或只保留一个分支。
+单一字段的值列表可以使用非空的 in/contains_any/contains_all；每个条件必须有完整且非空的字段、关系、值。保留原文全部条件。
 candidate.evidence 必须原样截取 source_text 中支持判断的关键片段，禁止改写或补充原文不存在的内容。
 标准字段已经能表达的检验、标印、表面处理等特殊要求继续使用 special.requirements，value 使用简明、可复用的要求名称，例如“追溯标印”“镀铜要求”。如果原文明确提出了一个标准字段无法表达、后续可由用户回答的新属性，例如“是否为试制件”“是否需要客户见证”，则创建 project_factor.* 的 boolean 动态因素；不要新增 custom.requirements 字段。
 遇到字段库未预列、但原文已经给出明确取值的结构特征或工艺要求时，仍使用受控字段：未知结构特征使用 cad.features contains 原文中的简明特征标签；未知工艺要求使用 special.requirements contains 原文中的简明要求标签。不要因为标签值不在 options 中而返回 unresolved。
 IT 等级数字越小代表精度越高；“达到 IT8/IT8及以上精度”通常转换为数值 <= 8。
 公差、粗糙度等“达到某值/不大于某值”转换为 <=。
+硬度“达到 HRC58”转换为 >= 58；禁止将其他硬度量表直接当成 HRC。
+完整闭区间使用 between 并保留两端；不完整、倒置或边界不明确的区间返回 unresolved。
+公差字段单位为 mm，粗糙度字段单位为 μm；只支持明确的毫米与微米换算，其他显式单位必须返回 unresolved，不能丢弃单位。
 如果条件无法可靠映射，返回 unresolved，并且不要猜测。
 参数条件输出格式：
 {"candidate":{"kind":"condition","when":{"field":"...","op":"...","value":1},"then":{"include_process_ids":["..."],"exclude_process_ids":[],"reason":"..."},"field_definitions":[],"preview":"...","evidence":"原文关键片段"},"confidence":0.0,"warnings":[],"unresolved":[]}
@@ -266,81 +274,187 @@ IT 等级数字越小代表精度越高；“达到 IT8/IT8及以上精度”通
     payload = parse_json_from_llm(raw)
     if not isinstance(payload, dict):
         return None, None, ["AI 返回内容不是有效 JSON，已尝试使用本地解析器。"]
-    unresolved = [str(item) for item in payload.get("unresolved", []) if str(item).strip()]
-    warnings = [str(item) for item in payload.get("warnings", []) if str(item).strip()]
+    raw_unresolved = payload.get("unresolved", [])
+    raw_warnings = payload.get("warnings", [])
+    if raw_unresolved is not None and not isinstance(raw_unresolved, list):
+        return None, None, ["AI 返回的规则结构未通过格式校验，已尝试使用本地解析器。"]
+    if raw_warnings is not None and not isinstance(raw_warnings, list):
+        return None, None, ["AI 返回的规则结构未通过格式校验，已尝试使用本地解析器。"]
+    unresolved = [str(item) for item in (raw_unresolved or []) if str(item).strip()]
+    warnings = [str(item) for item in (raw_warnings or []) if str(item).strip()]
+    raw_confidence = payload.get("confidence")
+    try:
+        confidence = float(raw_confidence) if raw_confidence is not None else (0.0 if unresolved else 0.8)
+        if isinstance(raw_confidence, bool) or not math.isfinite(confidence):
+            raise ValueError("confidence must be a finite number")
+    except (TypeError, ValueError, OverflowError):
+        return None, None, [*warnings, "AI 返回的规则结构未通过格式校验，已尝试使用本地解析器。"]
+    confidence = max(0.0, min(1.0, confidence))
     if unresolved:
-        return None, float(payload.get("confidence") or 0), [*warnings, *unresolved]
+        return None, confidence, [*warnings, *unresolved]
     candidate = _candidate_from_payload(payload)
     if not candidate:
         return None, None, [*warnings, "AI 返回的规则结构未通过格式校验，已尝试使用本地解析器。"]
-    try:
-        confidence = float(payload.get("confidence"))
-    except (TypeError, ValueError):
-        confidence = 0.8
-    return candidate, max(0.0, min(1.0, confidence)), warnings
+    return candidate, confidence, warnings
 
 
-def _comparison_operator(text: str, *, it_grade: bool = False) -> str:
-    if re.search(r"不低于|不少于|至少|大于等于|≥", text):
+def _comparison_operator(text: str, *, it_grade: bool = False, higher_is_better: bool = False) -> str:
+    # Match the complete inclusive/negative phrase before its positive substring.
+    if re.search(r"不低于|不小于|不少于|至少|大于等于|>=|≥", text):
         return "lte" if it_grade else "gte"
+    if re.search(r"不高于", text):
+        return "gte" if it_grade else "lte"
+    if re.search(r"不大于|不超过|不多于|至多|小于等于|<=|≤|及以上精度", text):
+        return "lte"
+    if re.search(r"达到", text):
+        return "gte" if higher_is_better else "lte"
+    if re.search(r"优于", text):
+        return "lt" if it_grade else "lte"
     if re.search(r"高于|大于|超过|>", text):
         return "lt" if it_grade else "gt"
     if re.search(r"低于|小于|少于|<", text):
         return "gt" if it_grade else "lt"
-    if re.search(r"不大于|不超过|至多|小于等于|≤|达到|优于|及以上精度", text):
-        return "lte"
     return "lte" if it_grade else "eq"
+
+
+_NUMERIC_VALUE = r"[+-]?(?:\d+(?:\.\d+)?|\.\d+)"
+_NUMERIC_UNIT = r"[A-Za-zμµ\u4e00-\u9fff°/%²³]*"
+_NUMERIC_RANGE_SEPARATOR = r"(?:到|至|[~～〜–—-])"
+_TOLERANCE_FIELDS = {
+    "圆柱度": "tolerance.cylindricity_mm",
+    "同轴度": "tolerance.coaxiality_mm",
+    "同心度": "tolerance.coaxiality_mm",
+    "圆跳动": "tolerance.runout_mm",
+    "全跳动": "tolerance.runout_mm",
+    "位置度": "tolerance.position_mm",
+    "平面度": "tolerance.flatness_mm",
+    "垂直度": "tolerance.perpendicularity_mm",
+    "圆度": "tolerance.roundness_mm",
+}
+
+
+def _numeric_condition_from_clause(text: str) -> tuple[ConditionNode | None, list[str]]:
+    """Parse complete numeric quantities, or explain why they need clarification."""
+    marker = re.search(r"IT\s*(?=\d)", text, re.IGNORECASE)
+    scale = "it"
+    if marker:
+        field = ("precision.outer_diameter_it" if re.search(r"外圆|外径", text) else
+                 "precision.inner_diameter_it" if re.search(r"内孔|内径|孔", text) else
+                 "precision.dimension_it")
+    else:
+        marker = re.search(r"粗糙度|R[azqt](?=\s*" + _NUMERIC_VALUE + r")", text, re.IGNORECASE)
+        field, scale = "surface.roughness_ra", "ra"
+    if marker is None:
+        for label, tolerance_field in _TOLERANCE_FIELDS.items():
+            marker = re.search(label, text)
+            if marker:
+                field, scale = tolerance_field, ""
+                break
+    if marker is None:
+        marker = re.search(r"硬度|(?:HR[A-Z]|HBW?|HV|HS)(?=\s*" + _NUMERIC_VALUE + r")", text, re.IGNORECASE)
+        field, scale = "mechanical.hardness_hrc", "hrc"
+    if marker is None:
+        return None, []
+
+    expression = text[marker.end():]
+    first_number = re.search(_NUMERIC_VALUE, expression)
+    if first_number is None:
+        return None, []
+    boundary_issue = ["数值区间或比较关系不完整，无法保留全部边界；请明确上下限及其是否包含等号。"]
+    prefix = expression[:first_number.start()]
+    if (re.search(r"不在|不介于|未达到|不到|不等于|!=|≠", text)
+            or re.search(_NUMERIC_RANGE_SEPARATOR, re.sub(r"达到|至少|至多", "", prefix))):
+        return None, boundary_issue
+    # Prefix scales (HB200) matter just as much as suffix units (200HV).
+    prefix_units = re.findall(r"[A-Za-zμµ]+|[\u4e00-\u9fff]*氏", text[:marker.end()] + prefix)
+    unit_issue = ["数值条件含不支持或不明确的单位/硬度量表，请明确使用字段单位后重试。"]
+    if any(unit.casefold() != scale for unit in prefix_units):
+        return None, unit_issue
+    # Only comparison vocabulary and the field's own scale may precede the
+    # quantity. Otherwise a prefix unit such as “英寸10” would disappear.
+    numeric_prefix = re.sub(r"HRC|Ra|IT", "", prefix, flags=re.IGNORECASE)
+    if not re.fullmatch(
+        r"(?:不低于|不小于|不少于|不高于|不大于|不超过|不多于|大于等于|小于等于"
+        r"|达到|优于|高于|低于|大于|小于|超过|少于|至少|至多|等于|介于"
+        r"|公差|要求|数值|目标|必须|应|需|为|是|在|[<>=≤≥:：\s])*", numeric_prefix,
+    ):
+        return None, unit_issue
+
+    body = expression[first_number.start():].strip()
+    body = re.sub(r"(?:之间|范围内|范围|及以上精度|以上精度)$", "", body).strip()
+    interval = re.fullmatch(
+        rf"(?P<low>{_NUMERIC_VALUE})\s*(?P<low_unit>{_NUMERIC_UNIT}?)\s*"
+        rf"{_NUMERIC_RANGE_SEPARATOR}\s*(?P<high_scale>[A-Za-z]+)?\s*"
+        rf"(?P<high>{_NUMERIC_VALUE})\s*(?P<high_unit>{_NUMERIC_UNIT})", body,
+    )
+    if interval:
+        if re.search(r"大于|小于|高于|低于|超过|至少|至多|不少于|不多于|优于|达到|[<>≤≥]", text[:marker.end()] + prefix):
+            return None, boundary_issue
+        if interval.group("high_scale") and interval.group("high_scale").casefold() != scale:
+            return None, unit_issue
+        quantities = [float(interval.group("low")), float(interval.group("high"))]
+        low_unit, high_unit = interval.group("low_unit"), interval.group("high_unit")
+        # A single written unit applies to both bounds; explicit mixed units
+        # are converted separately before checking their numeric order.
+        units = [low_unit or high_unit, high_unit or low_unit]
+    else:
+        single = re.fullmatch(rf"(?P<value>{_NUMERIC_VALUE})\s*(?P<unit>{_NUMERIC_UNIT})", body)
+        if single is None:
+            return None, boundary_issue
+        quantities, units = [float(single.group("value"))], [single.group("unit")]
+
+    if field.startswith("tolerance."):
+        factors = {"": 1.0, "mm": 1.0, "毫米": 1.0, "um": 0.001, "μm": 0.001, "µm": 0.001, "微米": 0.001}
+    elif scale == "ra":
+        factors = {"": 1.0, "mm": 1000.0, "毫米": 1000.0, "um": 1.0, "μm": 1.0, "µm": 1.0, "微米": 1.0}
+    else:
+        factors = {"": 1.0, scale: 1.0}
+        if scale == "it":
+            factors["级"] = 1.0
+    if any(unit.casefold() not in factors for unit in units):
+        return None, unit_issue
+    values = [quantity * factors[unit.casefold()] for quantity, unit in zip(quantities, units)]
+    if not all(math.isfinite(value) for value in values):
+        return None, ["数值阈值必须是有限数字，请明确条件。"]
+    if interval:
+        if values[0] > values[1]:
+            return None, ["数值区间下限不能大于上限，请核对数值与单位。"]
+        return ConditionNode(field=field, op="between", value=values), []
+    return ConditionNode(
+        field=field, op=_comparison_operator(text, it_grade=scale == "it", higher_is_better=scale == "hrc"),
+        value=values[0],
+    ), []
 
 
 def _leaf_from_clause(clause: str) -> ConditionNode | None:
     text = clause.strip()
-    it_match = re.search(r"IT\s*(\d{1,2})", text, re.IGNORECASE)
-    if it_match:
-        if re.search(r"外圆|外径", text):
-            field = "precision.outer_diameter_it"
-        elif re.search(r"内孔|内径|孔", text):
-            field = "precision.inner_diameter_it"
-        else:
-            field = "precision.dimension_it"
-        return ConditionNode(field=field, op=_comparison_operator(text, it_grade=True), value=int(it_match.group(1)))
+    if re.fullmatch(r"(?:零件|工件|产品)?(?:存在|具有|具备|包含)?孔类(?:结构|特征)", text):
+        # The question-tree answer names the broad hole category. Express it
+        # using the existing reviewed CAD categories, without inventing a
+        # separate machining requirement or an unconstrained tag value.
+        return ConditionNode(field="cad.features", op="contains_any", value=[
+            "普通孔/辅助孔", "铰孔/精孔", "型孔/割扁", "顶尖孔",
+        ])
+    if text in {"键", "键结构"}:
+        return ConditionNode(field="cad.features", op="contains", value="槽类特征")
+    alternatives = [part.strip() for part in re.split(r"或者|或是|或|、", text) if part.strip()]
+    if len(alternatives) > 1:
+        children = [_leaf_from_clause(part) for part in alternatives]
+        if all(child is not None and child.op == "contains" for child in children):
+            if len({child.field for child in children}) == 1:
+                values = list(dict.fromkeys(child.value for child in children))
+                return ConditionNode(field=children[0].field, op="contains_any" if len(values) > 1 else "contains", value=values if len(values) > 1 else values[0])
+    numeric_condition, numeric_issues = _numeric_condition_from_clause(text)
+    if numeric_condition is not None or numeric_issues:
+        return numeric_condition
 
-    ra_match = re.search(r"(?:Ra|粗糙度)[^\d]{0,8}(\d+(?:\.\d+)?)", text, re.IGNORECASE)
-    if ra_match:
-        return ConditionNode(
-            field="surface.roughness_ra",
-            op=_comparison_operator(text),
-            value=float(ra_match.group(1)),
-        )
-
-    tolerance_fields = {
-        "圆柱度": "tolerance.cylindricity_mm",
-        "同轴度": "tolerance.coaxiality_mm",
-        "同心度": "tolerance.coaxiality_mm",
-        "圆跳动": "tolerance.runout_mm",
-        "全跳动": "tolerance.runout_mm",
-        "位置度": "tolerance.position_mm",
-        "平面度": "tolerance.flatness_mm",
-        "垂直度": "tolerance.perpendicularity_mm",
-        "圆度": "tolerance.roundness_mm",
-    }
-    for label, field in tolerance_fields.items():
-        if label not in text:
-            continue
-        value_match = re.search(rf"{label}[^\d]{{0,12}}(\d+(?:\.\d+)?)", text)
-        if value_match:
-            return ConditionNode(field=field, op=_comparison_operator(text), value=float(value_match.group(1)))
-
-    hardness_match = re.search(r"(?:HRC|硬度)[^\d]{0,8}(\d+(?:\.\d+)?)", text, re.IGNORECASE)
-    if hardness_match:
-        return ConditionNode(
-            field="mechanical.hardness_hrc",
-            op=_comparison_operator(text),
-            value=float(hardness_match.group(1)),
-        )
-
-    material_match = re.search(r"(?:材料|材质|牌号)[为是：:\s]*([A-Za-z0-9\-]+)", text)
-    if material_match:
-        return ConditionNode(field="material.grade", op="eq", value=material_match.group(1))
+    material_values = re.findall(
+        r"(?:材料(?:牌号)?|材质|牌号)[为是：:\s]*"
+        r"([A-Za-z0-9\-]+(?:\s*(?:或者|或是|或|、)\s*[A-Za-z0-9\-]+)*)", text,
+    )
+    if material_values:
+        values = list(dict.fromkeys(value.strip() for group in material_values for value in re.split(r"或者|或是|或|、", group)))
+        return ConditionNode(field="material.grade", op="in" if len(values) > 1 else "eq", value=values if len(values) > 1 else values[0])
 
     feature_aliases = (
         ("中心孔", "顶尖孔"),
@@ -381,7 +495,7 @@ def _leaf_from_clause(clause: str) -> ConditionNode | None:
         if alias not in text:
             continue
         leaf = ConditionNode(field="cad.features", op="contains", value=value)
-        if re.search(rf"无{re.escape(alias)}|不含{re.escape(alias)}|没有{re.escape(alias)}", text):
+        if re.search(rf"(?:无|不含|没有|不具备|不存在|未包含)\s*{re.escape(alias)}", text):
             return ConditionNode(not_condition=leaf)
         matched_values.append(value)
     matched_values = list(dict.fromkeys(matched_values))
@@ -451,7 +565,8 @@ def _dynamic_categorical_condition(
         return None
     label = match.group("label").strip()
     raw_value = match.group("value").strip(" “'\"”")
-    values = [item.strip() for item in re.split(r"或者|或是|或|、", raw_value) if item.strip()]
+    values = [re.sub(rf"^{re.escape(label)}(?:为|是|等于|属于)\s*", "", item.strip())
+              for item in re.split(r"或者|或是|或|、", raw_value) if item.strip()]
     if not label or not values or label in {"该工序", "此工序", "当前工序"}:
         return None
     if label in {"零件", "产品", "工件"}:
@@ -597,22 +712,72 @@ def _convert_boolean_fields_to_special_requirements(
     })
 
 
+def _condition_text(source_text: str) -> str:
+    """Remove the action before looking for fields or conjunctions in its gate."""
+    text = re.split(r"不纳入|纳入|加入|(?<!工艺)安排|设置|增加|排除|取消", source_text, maxsplit=1)[0]
+    text = re.split(
+        r"(?:时|则|情况下)[，,。；;\s]*(?:需(?:要)?|应|就|才|可)?(?:出现|进行|执行|实施)",
+        text, maxsplit=1,
+    )[0]
+    text = re.sub(r"^(?:当|如果|若)\s*", "", text.strip())
+    return re.sub(r"(?:时|则|情况下)?[，,。；;\s]*$", "", text).strip()
+
+
+def _condition_clauses(source_text: str) -> list[str]:
+    return [part.strip() for part in re.split(
+        r"并且|同时|而且|且|以及|和|与|及(?!以[上下])|[，,；;]", _condition_text(source_text),
+    ) if part.strip()]
+
+
+def _negated_requirement_issues(source_text: str) -> list[str]:
+    # “无损” names an inspection requirement; its first character is not
+    # negation. Check the surrounding predicate before either local or AI parsing.
+    for clause in _condition_clauses(source_text):
+        if not re.search(r"要求|需求|无损|磁粉|裂纹|荧光|探伤|追溯|标印", clause):
+            continue
+        if re.search(r"没有|不存在|不具备|不含|不需要|无需|无(?!损)|未提出|未要求", clause):
+            return ["特殊要求的否定条件当前无法表达，请重新明确出现条件；不能改写为正向包含。"]
+    return []
+
+
+def _disjunction_issues(source_text: str) -> list[str]:
+    for clause in _condition_clauses(source_text):
+        if _is_vague_template_clause(clause) or not re.search(r"或者|或是|或", clause):
+            continue
+        fields = set()
+        unmapped = []
+        for part in re.split(r"或者|或是|或|、", clause):
+            leaf = _leaf_from_clause(part)
+            dynamic = _dynamic_categorical_condition(f"当{part}时，纳入此工序")
+            if leaf is not None:
+                fields.update(iter_condition_fields(leaf))
+            elif dynamic:
+                fields.add(dynamic[0].field)
+            elif _known_special_requirement(part, "当前工序"):
+                fields.add("special.requirements")
+            else:
+                unmapped.append(part.strip())
+        inherited_field = next(iter(fields)) if len(fields) == 1 else None
+        definition = condition_field_map().get(inherited_field)
+        if definition and definition.type == "number":
+            return ["数值比较之间的“或”需要任一满足分组，当前只支持全部满足；请明确条件。"]
+        for part in unmapped:
+            if inherited_field == "material.grade" and re.fullmatch(r"[A-Za-z0-9\-]+", part):
+                continue
+            if inherited_field and inherited_field.startswith("project_factor.") and not re.search(
+                r"为|等于|属于|满足|存在|具有|具备|需要|要求|完成|硬度|精度|粗糙度|公差|材料|材质|客户见证", part,
+            ):
+                continue
+            return ["含“或”的条件分支无法可靠映射到同一字段的值列表；请补充全部分支，不能只保留一项。"]
+        if len(fields) > 1:
+            return ["当前条件只支持全部满足；跨字段的“或”不能自动改写，请明确选择出现条件。"]
+    return []
+
+
 def _parse_condition_tree(source_text: str) -> ConditionNode | None:
-    condition_text = re.split(r"(?:则|时)[，,]?\s*(?:纳入|加入|排除|不纳入|取消)", source_text, maxsplit=1)[0]
-    or_parts = [item.strip() for item in re.split(r"或者|或是|\s或\s", condition_text) if item.strip()]
-    if len(or_parts) > 1:
-        children = [_parse_condition_tree(item) for item in or_parts]
-        if all(children):
-            return ConditionNode(any_conditions=children)
+    if _disjunction_issues(source_text):
         return None
-    and_parts = [
-        item.strip()
-        for item in re.split(
-            r"并且|同时|而且|且|，?以及|，(?=只有部分结构或工艺要求|不同结构类型)",
-            condition_text,
-        )
-        if item.strip()
-    ]
+    and_parts = _condition_clauses(source_text)
     if len(and_parts) > 1:
         parsed_parts = [(item, _leaf_from_clause(item)) for item in and_parts]
         unresolved_parts = [item for item, child in parsed_parts if child is None]
@@ -625,7 +790,7 @@ def _parse_condition_tree(source_text: str) -> ConditionNode | None:
         if children and all(_is_vague_template_clause(item) for item in unresolved_parts):
             return children[0] if len(children) == 1 else ConditionNode(all_conditions=children)
         return None
-    return _leaf_from_clause(condition_text)
+    return _leaf_from_clause(and_parts[0]) if and_parts else None
 
 
 def _parse_locally(
@@ -634,9 +799,13 @@ def _parse_locally(
     current_process_name: str,
     processes: list[RuleConditionProcessOption],
 ) -> RuleConditionCandidate | None:
-    special_requirement = _known_special_requirement(source_text, current_process_name)
-    dynamic_condition = None if special_requirement else _dynamic_categorical_condition(source_text)
     parsed_condition = _parse_condition_tree(source_text)
+    clauses = [clause for clause in _condition_clauses(source_text) if not _is_vague_template_clause(clause)]
+    # A failed conjunction is not permission to salvage a single matching field.
+    if parsed_condition is None and len(clauses) != 1:
+        return None
+    special_requirement = _known_special_requirement(_condition_text(source_text), current_process_name)
+    dynamic_condition = None if special_requirement else _dynamic_categorical_condition(source_text)
     when = parsed_condition or (
         ConditionNode(field="special.requirements", op="contains", value=special_requirement) if special_requirement else (
             (dynamic_condition[0] if dynamic_condition else None)
@@ -650,7 +819,10 @@ def _parse_locally(
         current_process_id,
         processes,
     )
-    exclude = bool(re.search(r"排除|不纳入|取消", source_text))
+    # Match the action as a whole: “安排除铜” contains “排除” across its
+    # verb/name boundary, but still means include the stripping process.
+    action_match = re.search(r"不纳入|纳入|加入|(?<!工艺)安排|设置|增加|排除|取消", source_text)
+    exclude = bool(action_match and action_match.group() in {"排除", "不纳入", "取消"})
     action = RuleAction(
         include_process_ids=[] if exclude else process_ids,
         exclude_process_ids=process_ids if exclude else [],
@@ -780,6 +952,118 @@ def _parse_process_relation(
     )
 
 
+def _has_field_gate(source_text: str, processes: list[RuleConditionProcessOption]) -> bool:
+    gate = _condition_text(source_text)
+    # Process names may themselves contain feature/inspection words. They are
+    # relation references, not additional parameter predicates.
+    for process in sorted(processes, key=lambda item: len(item.display_name), reverse=True):
+        gate = gate.replace(process.display_name, "")
+    # These action/purpose clauses follow the relation's gate rather than
+    # adding predicates (for example “粗加工后释放应力，避免变形”).
+    gate = re.split(
+        r"(?<=后)(?:[，,\s]*(?:需(?:要)?|应|就|才|可))?(?:释放|进行|执行|实施|处理)"
+        r"|(?:就|才)(?:出现|释放|进行|执行|实施|处理)", gate, maxsplit=1,
+    )[0]
+    for clause in _condition_clauses(gate):
+        if _leaf_from_clause(clause) is not None:
+            return True
+        sentence = f"当{clause}时，纳入此工序"
+        if _dynamic_categorical_condition(sentence) or _generic_tag_condition(sentence):
+            return True
+        # Recognizing a relation does not authorize discarding unknown gate
+        # text. Only relation vocabulary may remain after process references.
+        residual = re.sub(
+            r"前面|此前|之前|之后|进入路线|工序|这个|这道|当前|该|此|存在|出现|已经|已|完成"
+            r"|粗加工|粗车|粗铣|粗磨|粗镗|粗钻|车削|周边加工|机械加工|车后"
+            r"|需要|需|应|就|才|可|有|后|时|的情况下", "", clause,
+        )
+        if residual.strip(" ，,。；;：:。“”\"'（）()"):
+            return True
+    return False
+
+
+def _condition_leaves(node: ConditionNode) -> list[ConditionNode]:
+    if node.all_conditions is not None:
+        return [leaf for child in node.all_conditions for leaf in _condition_leaves(child)]
+    return [node]
+
+
+def _requires_leaf(node: ConditionNode, expected: ConditionNode) -> bool:
+    """Check required semantics throughout ALL, including set-valued leaves."""
+    for leaf in _condition_leaves(node):
+        if leaf == expected:
+            return True
+        if leaf.field == expected.field and expected.op == "contains":
+            if leaf.op == "contains_all" and expected.value in leaf.value:
+                return True
+            if leaf.op == "contains_any" and leaf.value == [expected.value]:
+                return True
+    return False
+
+
+def _model_coverage_issues(
+    candidate: RuleConditionCandidate, source_text: str, current_process_name: str,
+) -> list[str]:
+    clauses = [clause for clause in _condition_clauses(source_text) if not _is_vague_template_clause(clause)]
+    when = candidate.configuration.when if candidate.configuration else candidate.when
+    expected = []
+    for clause in clauses:
+        leaf = _leaf_from_clause(clause)
+        if leaf is None:
+            dynamic = _dynamic_categorical_condition(f"当{clause}时，纳入此工序")
+            if dynamic:
+                leaf = dynamic[0]
+                # A model may choose a different key for the same authored label.
+                definition = next((item for item in candidate.field_definitions if item.label == dynamic[1].label), None)
+                if definition:
+                    leaf = leaf.model_copy(update={"field": definition.key})
+        if leaf is not None:
+            expected.append(leaf)
+    requirement = _known_special_requirement(_condition_text(source_text), current_process_name)
+    if requirement:
+        expected.append(ConditionNode(field="special.requirements", op="contains", value=requirement))
+    if when is None:
+        return ["模型候选丢失了原文的出现条件，请重新设置。"] if expected or len(clauses) > 1 else []
+    missing = any(not _requires_leaf(when, leaf) for leaf in expected)
+    # Unmapped clauses must not disappear just because a known clause matched.
+    if missing or (len(clauses) > 1 and len(_condition_leaves(when)) < len(set(clauses))):
+        return ["模型候选未保留原文全部条件，无法可靠映射；请补充完整条件后重试。"]
+    return []
+
+
+def _parse_manual_configuration(
+    source_text: str,
+    current_process_id: str,
+    current_process_name: str,
+) -> RuleConditionCandidate | None:
+    # This is the complete guided-manual summary, not a substring signal.
+    # Recognize it before feature/category inference can mistake the process
+    # name for a feature, or split “是否” into “是” + a categorical value.
+    name = current_process_name.strip()
+    if not name or source_text.strip().rstrip("。").strip() != f"{name}由用户每次决定是否安排":
+        return None
+    value = 0x811C9DC5
+    for char in current_process_id:
+        value = ((value ^ ord(char)) * 0x01000193) & 0xFFFFFFFF
+    key = f"project_factor.manual_process_{value:08x}"
+    return RuleConditionCandidate(
+        kind="process_configuration",
+        configuration={
+            "process_id": current_process_id,
+            "occurrence": "manual",
+            "when": {"field": key, "op": "eq", "value": True},
+            "relations": [],
+        },
+        field_definitions=[CanonicalConditionField(
+            key=key, label=f"是否需要{name}", category="可选工序", type="boolean",
+            operators=["eq", "neq"], required=False, source="用户直接设定",
+            options=[], allow_custom=False,
+        )],
+        preview=source_text.strip(),
+        evidence=source_text.strip(),
+    )
+
+
 async def parse_rule_condition(
     source_text: str,
     current_process_id: str,
@@ -788,14 +1072,31 @@ async def parse_rule_condition(
     *,
     llm_config: dict[str, str] | None = None,
 ) -> tuple[RuleConditionCandidate | None, float | None, list[str]]:
-    # Explicit relationship words in the user's text take precedence over the
-    # target process category. A process can be conditionally included in one
-    # sentence and ordered after another process in a different sentence.
+    manual_candidate = _parse_manual_configuration(source_text, current_process_id, current_process_name)
+    if manual_candidate is not None:
+        issues = [
+            *validate_candidate(manual_candidate, processes, current_process_id=current_process_id),
+            *validate_authored_candidate(manual_candidate, current_process_id),
+        ]
+        if issues:
+            return None, None, list(dict.fromkeys(issues))
+        logger.info("rule_condition_parse_source source=local_manual")
+        return manual_candidate, 1.0, []
+    source_issues = _negated_requirement_issues(source_text)
+    if source_issues:
+        return None, None, source_issues
     local_relation_candidate = _parse_process_relation(
         source_text,
         current_process_id,
         processes,
     )
+    source_issues = _disjunction_issues(source_text)
+    if source_issues and local_relation_candidate is None:
+        return None, None, source_issues
+    numeric_issues = [issue for clause in _condition_clauses(source_text)
+                      for issue in _numeric_condition_from_clause(clause)[1]]
+    if numeric_issues:
+        return None, None, list(dict.fromkeys(numeric_issues))
     local_condition_candidate = _parse_locally(
         source_text,
         current_process_id,
@@ -812,10 +1113,16 @@ async def parse_rule_condition(
     # parameter condition.  It still remains only a *candidate* and must be
     # confirmed by the user before it can enter the exported rule package.
     if local_relation_candidate:
-        relation_issues = validate_candidate(local_relation_candidate, processes)
-        if not relation_issues:
-            logger.info("rule_condition_parse_source source=local_relation")
-            return local_relation_candidate, 0.9, []
+        relation_issues = [
+            *validate_candidate(local_relation_candidate, processes),
+            *validate_authored_candidate(local_relation_candidate, current_process_id),
+        ]
+        if relation_issues:
+            return None, None, list(dict.fromkeys(relation_issues))
+        if _has_field_gate(source_text, processes):
+            return None, None, ["字段条件与关联工序不能混合，请明确选择一种出现模式；原文条件未作改写。"]
+        logger.info("rule_condition_parse_source source=local_relation")
+        return local_relation_candidate, 0.9, []
 
     if local_condition_candidate and (
         local_condition_candidate.field_definitions
@@ -826,6 +1133,7 @@ async def parse_rule_condition(
             processes,
             current_process_id=current_process_id,
         )
+        local_issues.extend(validate_authored_candidate(local_condition_candidate, current_process_id))
         if not local_issues:
             logger.info("rule_condition_parse_source source=local_condition")
             issues = (
@@ -835,6 +1143,7 @@ async def parse_rule_condition(
             )
             confidence = 0.75 if issues else 0.9
             return local_condition_candidate, confidence, issues
+        return None, None, list(dict.fromkeys(local_issues))
 
     candidate, confidence, issues = await _parse_with_llm(
         source_text,
@@ -852,36 +1161,15 @@ async def parse_rule_condition(
             processes,
             current_process_id=current_process_id,
         )
-        expected_special_requirement = (
-            None if local_relation_candidate else _known_special_requirement(source_text, current_process_name)
-        )
-        model_uses_expected_special_requirement = (
-            candidate.kind == "condition"
-            and candidate.when is not None
-            and candidate.when.field == "special.requirements"
-            and candidate.when.op == "contains"
-            and candidate.when.value == expected_special_requirement
-        )
-        if not validation_issues and not (
-            local_relation_candidate and candidate.kind != "process_relation"
-        ) and not (expected_special_requirement and not model_uses_expected_special_requirement):
+        validation_issues.extend(validate_authored_candidate(candidate, current_process_id))
+        if candidate.kind == "process_relation" and _has_field_gate(source_text, processes):
+            validation_issues.append("字段条件与关联工序不能混合，请明确选择一种出现模式。")
+        if not validation_issues:
+            validation_issues.extend(_model_coverage_issues(candidate, source_text, current_process_name))
+        if not validation_issues:
             logger.info("rule_condition_parse_source source=llm")
             return candidate, confidence, issues
         issues.extend(validation_issues)
-        if local_relation_candidate and candidate.kind != "process_relation":
-            issues.append("模型候选与明确的工序关系语义不一致，已改用关联工序候选。")
-        if expected_special_requirement and not model_uses_expected_special_requirement:
-            issues.append("模型候选与明确的特殊要求语义不一致，已改用特殊要求候选。")
-
-    # A model may be unavailable or reject an ambiguous sentence. Local patterns keep
-    # the most common process-relation wording usable without lowering validation rules.
-    if local_relation_candidate:
-        relation_issues = validate_candidate(local_relation_candidate, processes)
-        if not relation_issues:
-            fallback_note = "已使用内置规则解析器生成候选结果，请重点核对。" if issues else ""
-            logger.info("rule_condition_parse_source source=local_relation_fallback")
-            return local_relation_candidate, 0.9, [*issues, *([fallback_note] if fallback_note else [])]
-        issues.extend(relation_issues)
 
     local_candidate = local_condition_candidate
     if local_candidate:
@@ -890,6 +1178,7 @@ async def parse_rule_condition(
             processes,
             current_process_id=current_process_id,
         )
+        local_issues.extend(validate_authored_candidate(local_candidate, current_process_id))
         if not local_issues:
             fallback_note = "已使用内置规则解析器生成候选结果，请重点核对。" if issues else ""
             logger.info("rule_condition_parse_source source=local_condition_fallback")

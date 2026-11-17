@@ -12,6 +12,44 @@ from app.services.route_analysis import save_segment_rule_review_record
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('explicit_id', [True, False])
+async def test_confirmed_guided_draft_uses_the_same_export_identity_as_fourth_step(explicit_id):
+    engine = create_async_engine('sqlite+aiosqlite:///:memory:')
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    process_id = 'export_custom' if explicit_id else 'process_quench'
+    item = {'id': 'segment_quench', 'normalized_step_name': '淬火'}
+    if explicit_id:
+        item['export_process_id'] = process_id
+    async with factory() as session:
+        session.add(NormalizedRouteVersion(id=3, project_id=7, version=1, route_json=json.dumps([item])))
+        await session.commit()
+        draft = AnalysisRuleDraft(scope='当前工序', object='淬火', condition_text='固定安排淬火。', status='confirmed', candidate={
+            'kind': 'process_configuration', 'configuration': {'process_id': process_id, 'occurrence': 'always', 'when': None, 'relations': []}, 'preview': '固定安排淬火。',
+        })
+        result = await save_segment_rule_review_record(project_id=7, route_id=3, segment_id='segment_quench', decision='accepted', note='', summary_lines=[], question_trail=[{'nodeId': 'guided_mode', 'value': 'mainline', 'label': '固定安排'}], analysis_draft=draft, db=session)
+        assert result.rule_review.analysis_draft.candidate.configuration.process_id == process_id
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_guided_trail_cannot_be_accepted_without_its_executable_draft():
+    engine = create_async_engine('sqlite+aiosqlite:///:memory:')
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        session.add(NormalizedRouteVersion(id=3, project_id=7, version=1, route_json='[{"id":"s","normalized_step_name":"钻孔"}]'))
+        await session.commit()
+        with pytest.raises(HTTPException) as exc:
+            await save_segment_rule_review_record(project_id=7, route_id=3, segment_id='s', decision='accepted', note='', summary_lines=[], question_trail=[{'nodeId': 'guided_mode', 'value': 'condition', 'label': '按条件'}], db=session)
+        assert exc.value.status_code == 422
+        assert not (await session.execute(select(NormalizedRouteSegmentRuleReview))).scalars().all()
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_pending_analysis_draft_is_saved_and_serialized():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:

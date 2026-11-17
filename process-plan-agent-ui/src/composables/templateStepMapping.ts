@@ -77,6 +77,26 @@ export function buildTemplateStepRefs(operation: TemplateOperation): TemplateSte
   })
 }
 
+export function templateStepOrder(operations: TemplateOperation[], saved: Record<string, string[]> = {}) {
+  return Object.fromEntries(operations.map(operation => {
+    const key = operation.process_id || `op_${operationId(operation)}`
+    const ids = buildTemplateStepRefs(operation).map(step => step.step_key)
+    const order = saved[key]
+    return [key, order && order.length === ids.length && new Set(order).size === ids.length
+      && order.every(id => ids.includes(id)) ? [...order] : ids]
+  }))
+}
+
+export function moveTemplateStep(order: string[], hidden: string[], key: string, direction: -1 | 1) {
+  const visible = order.filter(id => !hidden.includes(id))
+  const index = visible.indexOf(key)
+  const neighbour = visible[index + direction]
+  if (index < 0 || !neighbour) return [...order]
+  const result = [...order], left = result.indexOf(key), right = result.indexOf(neighbour)
+  ;[result[left], result[right]] = [result[right]!, result[left]!]
+  return result
+}
+
 export function chunkTemplateSuggestionOperations(
   operations: TemplateGroupMappingOperationInput[],
   maxStepCount = 6,

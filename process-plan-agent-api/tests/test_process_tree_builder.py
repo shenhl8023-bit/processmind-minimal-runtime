@@ -73,6 +73,33 @@ def test_invalid_model_order_falls_back_and_keeps_packaging_last(monkeypatch):
     assert [item["sequence"] for item in ordered] == [10, 20]
 
 
+def test_ordering_can_receive_answer_after_provider_uses_4096_reasoning_tokens(monkeypatch):
+    import asyncio
+    import httpx
+    import json
+    from app.services import llm_client, process_tree_orderer, llm_service
+
+    async def configured():
+        return {'url': 'https://example.test/v1/chat/completions', 'key': 'synthetic', 'model': 'reasoning-demo'}
+
+    def provider(request):
+        payload = json.loads(request.content)
+        if payload['max_tokens'] <= 4096:
+            return httpx.Response(200, json={'choices': [{'finish_reason': 'length', 'message': {'content': '', 'reasoning_content': 'budget exhausted'}}]})
+        return httpx.Response(200, json={'choices': [{'finish_reason': 'stop', 'message': {'content': '{"ordered_ids":[20,10,30]}'}}]})
+
+    real_client = httpx.AsyncClient
+    transport = httpx.MockTransport(provider)
+    monkeypatch.setattr(llm_client.httpx, 'AsyncClient', lambda **kwargs: real_client(transport=transport, **kwargs))
+    monkeypatch.setattr(llm_service, 'get_llm_config', configured)
+    tree = [{'id': 10, 'name': '工序甲', 'sequence': 10}, {'id': 20, 'name': '工序乙', 'sequence': 20}, {'id': 30, 'name': '包装', 'sequence': 30}]
+
+    result = asyncio.run(process_tree_orderer.order_process_tree(tree, []))
+
+    assert [item['id'] for item in result] == [20, 10, 30]
+    assert [item['sequence'] for item in result] == [10, 20, 30]
+
+
 def test_slow_tree_ordering_falls_back_without_waiting_for_provider(monkeypatch):
     import asyncio
     from app.services import process_tree_orderer

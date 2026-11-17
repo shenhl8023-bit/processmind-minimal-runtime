@@ -1,5 +1,7 @@
 <template>
   <WorkflowNavFooter
+    :notices="notices"
+    :summary="entering ? '正在保存标准化路线…' : pendingCount ? `还有 ${pendingCount} 组归并待处理` : '候选归并已完成，可进入规则分析'"
     previous-label="← 返回上传资料"
     :next-label="entering ? '正在保存并进入规则分析...' : canEnter ? '进入规则分析 →' : '进入规则分析'"
     :previous-disabled="entering"
@@ -7,29 +9,15 @@
     @previous="$emit('previous')"
     @next="$emit('next')"
   >
-    <template #summary>
-      <div class="footer-status-pill-wrap">
-        <span v-if="entering" class="footer-status-pill footer-status-pill-info">
-          <span class="footer-status-pill-icon footer-status-pill-spinner"></span>
-          正在保存标准化结果路线，保存完成后会自动进入规则分析。
-        </span>
-        <span v-else-if="pendingCount > 0" class="footer-status-pill footer-status-pill-warning">
-          <span class="footer-status-pill-icon">!</span>
-          请先完成全部候选归并判断，当前还有 <strong class="highlight-count">{{ pendingCount }}</strong> 组待处理。
-        </span>
-        <span v-else class="footer-status-pill footer-status-pill-success">
-          <span class="footer-status-pill-icon">✓</span>
-          候选归并已全部完成！已生成标准化母路线，可进入规则分析阶段。
-        </span>
-      </div>
-    </template>
   </WorkflowNavFooter>
 </template>
 
 <script setup lang="ts">
 import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
+import type { WorkflowNotice } from '@/components/workflow/workflowNotice'
 
 defineProps<{
+  notices?: WorkflowNotice[]
   pendingCount: number
   canEnter: boolean
   entering?: boolean

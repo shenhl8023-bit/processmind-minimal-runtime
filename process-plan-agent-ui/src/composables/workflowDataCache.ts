@@ -63,14 +63,12 @@ export function clearWorkflowDataCache(key: string) {
 }
 
 export function clearWorkflowDataCacheByPrefix(prefix: string) {
-  let cleared = false
   Array.from(workflowDataCache.keys()).forEach((key) => {
     if (key.startsWith(prefix)) {
       workflowDataCache.delete(key)
-      cleared = true
     }
   })
-  if (cleared) bumpWorkflowDataRevision()
+  bumpWorkflowDataRevision()
 }
 
 export function clearWorkflowProjectDataCache(projectId?: string | number | null) {
@@ -78,14 +76,12 @@ export function clearWorkflowProjectDataCache(projectId?: string | number | null
   if (!normalizedProjectId) return
   const projectSuffix = `:${normalizedProjectId}`
   const projectSegment = `${projectSuffix}:`
-  let cleared = false
   Array.from(workflowDataCache.keys()).forEach((key) => {
     if (key.endsWith(projectSuffix) || key.includes(projectSegment)) {
       workflowDataCache.delete(key)
-      cleared = true
     }
   })
-  if (cleared) bumpWorkflowDataRevision()
+  bumpWorkflowDataRevision()
 }
 
 export function clearAllWorkflowDataCache() {

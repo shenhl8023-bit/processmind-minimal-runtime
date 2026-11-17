@@ -1,10 +1,19 @@
 <template>
   <article class="detail-card detail-card-wide tree-panel-enhanced">
     <div class="detail-card-title">
-      <span class="title-text">问题树补充判断</span>
+      <span class="title-text">工序判定</span>
+      <div v-if="showResultActions" class="tree-result-actions">
+        <button v-if="actionableTrailCount" type="button" class="tree-action-btn-secondary" @click="emit('reanswer-last')">
+          重答最后一题
+        </button>
+        <button type="button" class="tree-action-btn-secondary tree-action-btn-accent" @click="emit('reset')">
+          重新判断这道工序
+        </button>
+      </div>
     </div>
+    <p v-if="readOnly && !hideReadOnlyNotice" class="tree-readonly-notice" role="status">{{ readOnlyReason || '已进入规则定稿，请到规则定稿页调整。需要从头分析时，请使用顶部“重新回答全部”。' }}</p>
 
-    <div v-if="!visible && !hasAnsweredContent && !hasSavedSummary && !hasSavedTrail" class="tree-empty">
+    <div v-if="!visible && !hasAnsweredContent && !hasSavedTrail" class="tree-empty">
       <div class="empty-icon">📂</div>
       <div class="empty-text">{{ emptyReason }}</div>
     </div>
@@ -13,14 +22,12 @@
 
 
       <div v-if="displayTrail.length" class="tree-trail">
-        <div class="tree-trail-title">
-          <span class="trail-title-dot"></span>本轮已确认的工序判定链
-        </div>
+        <div class="tree-trail-title">已选条件</div>
         <div class="tree-trail-list">
           <div v-for="(item, index) in displayTrail" :key="`${item.nodeId}-${item.value}`" class="tree-trail-node">
             <span class="tree-trail-chip">
-              <span class="tree-trail-chip-dot"></span>
-              {{ item.label }}
+              <span class="tree-trail-chip-dot" aria-hidden="true"></span>
+              <span class="tree-trail-label">{{ item.label }}</span>
             </span>
             <span v-if="index < displayTrail.length - 1" class="tree-trail-arrow">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
@@ -31,22 +38,27 @@
         </div>
       </div>
 
-      <div v-if="hasSavedSummary && !currentQuestion" class="tree-result-card">
-        <div class="tree-result-title">
-          <span class="result-title-icon">💾</span>已保存判定结论
-        </div>
-        <ul class="tree-saved-list">
-          <li v-for="line in savedSummaryLinesSafe" :key="line">{{ line }}</li>
-        </ul>
-      </div>
-
       <div v-if="currentQuestion" class="tree-question-card">
         <div class="tree-question-head">
           <div class="tree-question-prompt">{{ currentQuestion.prompt }}</div>
           <span class="tree-prompt-source">{{ promptSourceLabel }}</span>
         </div>
 
-        <div v-if="isMaterialTableQuestion" class="tree-table-wrap">
+        <div v-if="currentQuestion.customEditor">
+          <button type="button" class="btn btn-primary" :disabled="readOnly" @click="emit('edit-custom')">自行设置出现规则</button>
+        </div>
+        <div v-else-if="currentQuestion.numeric" class="tree-numeric-editor">
+          <label class="tree-numeric-field">
+            <span>自定义阈值（{{ currentQuestion.numeric.unit }}）</span>
+            <input type="number" :value="numericDraft" :min="currentQuestion.numeric.min" :max="currentQuestion.numeric.max" :step="currentQuestion.numeric.integer ? 1 : 'any'" :disabled="readOnly" :aria-invalid="Boolean(numericDraft && !numericValid)" @input="numericDraft = ($event.target as HTMLInputElement).value" @keydown.enter.prevent="submitNumeric" />
+          </label>
+          <div v-if="currentQuestion.options.length" class="tree-numeric-presets" role="group" aria-label="阈值快捷选项">
+            <button v-for="option in currentQuestion.options" :key="option.value" type="button" :aria-pressed="numericDraft !== '' && Number(numericDraft) === Number(option.value)" :disabled="readOnly" @click="numericDraft = option.value">{{ option.label }}</button>
+          </div>
+          <button type="button" class="tree-numeric-confirm" data-testid="confirm-numeric-threshold" :disabled="readOnly || !numericValid" @click="submitNumeric">确认阈值</button>
+          <p v-if="numericDraft && !numericValid" role="alert">请输入{{ currentQuestion.numeric.integer ? '1～18的整数' : '有效数值' }}{{ currentQuestion.numeric.exclusiveMin ? '（必须大于0）' : '' }}。</p>
+        </div>
+        <div v-else-if="isMaterialTableQuestion" class="tree-table-wrap">
           <table class="tree-table">
             <thead>
               <tr>
@@ -66,6 +78,7 @@
                 <td class="tree-table-check-col">
                   <input
                     :checked="row.selected"
+                    :disabled="readOnly"
                     type="checkbox"
                     class="tree-table-checkbox"
                     @change="toggleMaterialRow(row.id)"
@@ -74,6 +87,7 @@
                 <td v-if="materialScopeMode !== 'category'">
                   <input
                     :value="row.grade"
+                    :disabled="readOnly"
                     type="text"
                     class="tree-table-input"
                     placeholder="手动填写材料牌号"
@@ -83,6 +97,7 @@
                 <td v-if="materialScopeMode !== 'grade'">
                   <select
                     :value="row.category"
+                    :disabled="readOnly"
                     class="tree-table-select"
                     @change="updateMaterialRow(row.id, 'category', ($event.target as HTMLSelectElement).value)"
                   >
@@ -103,7 +118,7 @@
               </tr>
             </tbody>
           </table>
-          <button type="button" class="tree-table-add-btn" @click="appendMaterialRow">
+          <button type="button" class="tree-table-add-btn" :disabled="readOnly" @click="appendMaterialRow">
             + 新增一行材料
           </button>
         </div>
@@ -114,7 +129,8 @@
             :key="`${currentQuestion.id}-${option.value}`"
             :role="currentQuestion.multiple ? 'checkbox' : 'radio'"
             :aria-checked="isSelected(option)"
-            tabindex="0"
+            :tabindex="readOnly ? -1 : 0"
+            :aria-disabled="Boolean(readOnly)"
             class="tree-option-btn"
             :class="{
               active: isSelected(option),
@@ -131,6 +147,7 @@
                 <input
                   :ref="setOtherInputRef"
                   :value="mergeNameOtherDraft"
+                  :disabled="readOnly"
                   type="text"
                   class="tree-option-inline-input-flat"
                   :placeholder="getPlaceholderForOption(option)"
@@ -182,7 +199,7 @@
           <button
             type="button"
             class="tree-action-btn tree-action-btn-primary"
-            :disabled="selectedCount < minSelections"
+            :disabled="readOnly || selectedCount < minSelections"
             @click="submitMultiSelection"
           >
             {{ currentQuestion.confirmLabel || '确认选择' }}
@@ -191,39 +208,37 @@
 
 
         <!-- 动作按钮区 -->
-        <div class="tree-action-row">
+        <div
+          v-if="!readOnly && (actionableTrailCount || noteDraftText || (currentQuestion.multiple && selectedCount))"
+          class="tree-action-row"
+        >
           <button
-            v-if="currentQuestion.multiple"
+            v-if="currentQuestion.multiple && selectedCount"
             class="tree-action-btn-secondary"
-            :disabled="!selectedCount"
+            :disabled="readOnly || !selectedCount"
             @click="clearCurrentSelection"
           >
             清空本题选择
           </button>
-          <button class="tree-action-btn-secondary" :disabled="!actionableTrailCount" @click="$emit('reanswer-last')">
+          <button v-if="actionableTrailCount" class="tree-action-btn-secondary" @click="$emit('reanswer-last')">
             重答最后一题
           </button>
-          <button class="tree-action-btn-secondary" :disabled="!actionableTrailCount && !noteDraft" @click="$emit('reset')">
+          <button v-if="actionableTrailCount || noteDraftText" class="tree-action-btn-secondary" @click="$emit('reset')">
             重新判断这道工序
           </button>
         </div>
       </div>
 
       <div v-else-if="hasCurrentResult" class="tree-result-card">
-        <div class="tree-result-title">当前判定结论</div>
-        <div v-if="resultSummaryText" class="tree-result-container">
-          <span class="tree-result-badge">✔</span>
+        <div v-if="resultSummaryText" class="tree-result-container" role="group" aria-label="判定结论">
+          <span class="tree-result-badge" aria-hidden="true">
+            <svg viewBox="0 0 16 16" fill="none" width="12" height="12">
+              <path d="m3.5 8 3 3 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </span>
           <div class="tree-result-text">{{ resultSummaryText }}</div>
         </div>
         <div v-if="noteDraft" class="tree-result-note">补充说明：{{ noteDraft }}</div>
-        <div v-if="showResultActions" class="tree-action-row">
-          <button v-if="actionableTrailCount" class="tree-action-btn-secondary" @click="$emit('reanswer-last')">
-            重答最后一题
-          </button>
-          <button class="tree-action-btn-secondary tree-action-btn-accent" @click="$emit('reset')">
-            重新判断这道工序
-          </button>
-        </div>
       </div>
     </template>
   </article>
@@ -241,6 +256,9 @@ import {
 type TreeOption = QuestionTreeOption
 
 const props = defineProps<{
+  hideReadOnlyNotice?: boolean
+  readOnly?: boolean
+  readOnlyReason?: string
   visible: boolean
   emptyReason: string
   currentQuestion: {
@@ -252,11 +270,13 @@ const props = defineProps<{
     minSelections?: number
     confirmLabel?: string
     sourceHint?: string
+    recommendedValues?: string[]
+    numeric?: { min: number; max?: number; exclusiveMin?: boolean; integer?: boolean; unit: string }
+    customEditor?: boolean
   } | null
   trail: Array<{ nodeId: string; value: string; label: string }>
   resultSummary: string
   noteDraft: string
-  savedSummaryLines?: string[]
   savedTrail?: Array<{ nodeId: string; value: string; label: string }>
   sourceHint?: string
 }>()
@@ -267,7 +287,22 @@ const emit = defineEmits<{
   'update-note': [value: string]
   'reanswer-last': []
   reset: []
+  'edit-custom': []
 }>()
+
+const numericDraft = ref('')
+const numericValid = computed(() => {
+  const config = props.currentQuestion?.numeric
+  const n = Number(numericDraft.value)
+  return Boolean(config && numericDraft.value.trim() && Number.isFinite(n) && (config.exclusiveMin ? n > config.min : n >= config.min) && (config.max === undefined || n <= config.max) && (!config.integer || Number.isInteger(n)))
+})
+watch(() => props.currentQuestion?.id, () => { numericDraft.value = '' }, { immediate: true })
+function submitNumeric() {
+  if (props.readOnly || !numericValid.value) return
+  const unit = props.currentQuestion!.numeric!.unit
+  const n = String(Number(numericDraft.value))
+  emit('choose-option', { value: n, label: `${unit === 'IT' ? 'IT' : ''}${n}${unit === 'IT' ? '' : ` ${unit}`}` })
+}
 
 const multiSelectionMap = ref<Record<string, TreeOption[]>>({})
 
@@ -296,7 +331,7 @@ const {
 } = useEditableOtherOption({
   currentQuestion: computed(() => props.currentQuestion),
   currentAnswer,
-  onSubmit: option => emit('choose-option', option),
+  onSubmit: option => { if (!props.readOnly) emit('choose-option', option) },
 })
 
 function setOtherInputRef(el: Element | ComponentPublicInstance | null) {
@@ -304,6 +339,7 @@ function setOtherInputRef(el: Element | ComponentPublicInstance | null) {
 }
 
 function handleMergeNameOtherKeydown(event: KeyboardEvent) {
+  if (props.readOnly) return
   event.stopPropagation()
   if (event.key === 'Escape') {
     event.preventDefault()
@@ -349,9 +385,7 @@ const displayTrail = computed(() => {
   return savedTrailSafe.value
 })
 const actionableTrailCount = computed(() => displayTrail.value.length)
-const savedSummaryLinesSafe = computed(() => (props.savedSummaryLines || []).filter(line => String(line || '').trim()))
-const hasSavedSummary = computed(() => savedSummaryLinesSafe.value.length > 0)
-const showResultActions = computed(() => actionableTrailCount.value > 0 || hasCurrentResult.value)
+const showResultActions = computed(() => !props.readOnly && !props.currentQuestion && hasCurrentResult.value)
 const selectedCount = computed(() =>
   isMaterialTableQuestion.value
     ? selectedMaterialCount.value
@@ -376,6 +410,7 @@ function isFallbackOption(option: TreeOption) {
 const recommendedOptions = computed<TreeOption[]>(() => {
   const question = props.currentQuestion
   if (!question) return []
+  if (question.id.startsWith('guided_')) return question.options.filter(option => (question.recommendedValues || []).includes(option.value))
   const preferred = question.options.filter(option => !isFallbackOption(option))
   const ordered = preferred.length ? preferred : question.options
   if (isMaterialTableQuestion.value) {
@@ -398,6 +433,7 @@ const recommendedReasonText = computed(() => {
   const question = props.currentQuestion
   if (!question || !recommendedOptions.value.length) return ''
   const questionId = String(question.id || '')
+  if (questionId.startsWith('guided_')) return '依据当前项目配置推荐，采用后与手动回答生成同一份规则；你可以自行调整。'
   if (questionId === 'merge_name_root') {
     return '这道题只围绕组合名本身拆分出的统一名称候选作答；系统优先推荐当前候选池里排在前面的标准工序名。'
   }
@@ -462,6 +498,7 @@ function isRecommendedOption(option: TreeOption) {
 }
 
 function handleOptionClick(option: TreeOption) {
+  if (props.readOnly) return
   const question = props.currentQuestion
   if (!question) return
   if (!question.multiple) {
@@ -485,6 +522,7 @@ function handleOptionClick(option: TreeOption) {
 }
 
 function clearCurrentSelection() {
+  if (props.readOnly) return
   const questionId = props.currentQuestion?.id || ''
   if (!questionId) return
   if (isMaterialTableQuestion.value) {
@@ -498,6 +536,7 @@ function clearCurrentSelection() {
 }
 
 function submitMultiSelection() {
+  if (props.readOnly) return
   if (!props.currentQuestion?.multiple || selectedCount.value < minSelections.value) return
   if (isMaterialTableQuestion.value) {
     emit('choose-options', selectedMaterialOptions())
@@ -509,25 +548,45 @@ function submitMultiSelection() {
 </script>
 
 <style scoped>
+.tree-readonly-notice {
+  margin: 8px 0;
+  color: #475569;
+  font-size: 13px;
+}
+
+.tree-option-btn[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* Container styling adjustments */
 .tree-panel-enhanced {
-  background: #ffffff;
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
-  padding: 14px 16px;
+  background: var(--pm-surface);
+  border-radius: var(--pm-radius-card);
+  border: 1px solid var(--pm-border);
+  box-shadow: none;
+  padding: 10px 12px;
 }
 
 .detail-card-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: #0f172a;
-  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--pm-text);
+  line-height: 20px;
+  margin-bottom: 8px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
 }
 
+.tree-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
 
 /* Empty reason text */
 .tree-empty {
@@ -553,60 +612,61 @@ function submitMultiSelection() {
 
 /* Trail sequence pipeline style */
 .tree-trail {
-  padding: 7px 10px;
-  border-radius: 6px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  margin-bottom: 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px 8px;
 }
 
 .tree-trail-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: #64748b;
-  margin-bottom: 8px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.trail-title-dot {
-  width: 5px;
-  height: 5px;
-  background: #6366f1;
-  border-radius: 50%;
-  display: inline-block;
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--pm-text-secondary);
+  line-height: 24px;
 }
 
 .tree-trail-list {
   display: flex;
+  flex: 1;
+  min-width: 0;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 4px 6px;
 }
 
 .tree-trail-node {
   display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
   align-items: center;
   gap: 4px;
 }
 
 .tree-trail-chip {
   display: inline-flex;
+  min-width: 0;
+  min-height: 24px;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   border-radius: 4px;
-  padding: 3px 8px;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  color: #475569;
-  font-size: 11px;
+  padding: 2px 8px;
+  background: var(--pm-surface-subtle);
+  border: 1px solid var(--pm-border);
+  color: var(--pm-text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.tree-trail-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .tree-trail-chip-dot {
   width: 5px;
   height: 5px;
-  background: #10b981;
+  flex-shrink: 0;
+  background: var(--pm-primary);
   border-radius: 50%;
 }
 
@@ -616,7 +676,8 @@ function submitMultiSelection() {
   justify-content: center;
   width: 12px;
   height: 12px;
-  color: #94a3b8;
+  flex-shrink: 0;
+  color: var(--pm-text-muted);
 }
 
 .tree-trail-arrow svg {
@@ -633,21 +694,12 @@ function submitMultiSelection() {
   box-shadow: none;
   position: relative;
   overflow: visible;
-  margin-top: 10px;
+  margin-top: 0;
 }
 
-.tree-result-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: #64748b;
-  margin-bottom: 8px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.result-title-icon {
-  font-size: 12px;
+.tree-trail + .tree-question-card,
+.tree-trail + .tree-result-card {
+  margin-top: 8px;
 }
 
 .tree-question-head {
@@ -676,8 +728,8 @@ function submitMultiSelection() {
   justify-content: center;
   width: 16px;
   height: 16px;
-  background: #eef2ff;
-  color: #6366f1;
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary);
   border-radius: 3px;
   font-size: 10px;
   font-weight: 700;
@@ -721,7 +773,7 @@ function submitMultiSelection() {
 .tree-option-btn:focus,
 .tree-option-btn:focus-visible {
   outline: none;
-  border-color: #6366f1;
+  border-color: var(--pm-primary);
 }
 
 .tree-option-btn:hover {
@@ -741,8 +793,8 @@ function submitMultiSelection() {
 
 /* Selected active option card styles */
 .tree-option-btn.active {
-  border-color: #6366f1;
-  background: #f5f3ff;
+  border-color: var(--pm-primary);
+  background: var(--pm-primary-soft);
   font-weight: 500;
 }
 
@@ -778,8 +830,8 @@ function submitMultiSelection() {
 
 .tree-option-inline-input-flat:focus {
   outline: none;
-  border-color: #6366f1;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+  border-color: var(--pm-primary);
+  box-shadow: var(--pm-focus-ring);
 }
 
 /* Radio Circles */
@@ -803,8 +855,8 @@ function submitMultiSelection() {
 }
 
 .tree-option-btn.active .tree-option-radio {
-  border-color: #6366f1;
-  background: #6366f1;
+  border-color: var(--pm-primary);
+  background: var(--pm-primary);
 }
 
 .tree-option-btn.active .tree-option-radio::after {
@@ -848,9 +900,9 @@ function submitMultiSelection() {
   flex-shrink: 0;
   font-size: 10px;
   font-weight: 500;
-  color: #059669;
-  background: #ecfdf5;
-  border: 1px solid #a7f3d0;
+  color: var(--pm-primary);
+  background: var(--pm-primary-soft);
+  border: 1px solid var(--pm-primary-border);
   border-radius: 4px;
   padding: 1px 6px;
 }
@@ -860,7 +912,7 @@ function submitMultiSelection() {
   margin-top: 8px;
   padding: 7px 10px;
   border-radius: 5px;
-  background: #fafbff;
+  background: var(--pm-surface-subtle);
   border: 1px solid #e2e8f0;
   display: flex;
   align-items: center;
@@ -873,8 +925,8 @@ function submitMultiSelection() {
   width: 20px;
   height: 20px;
   border-radius: 3px;
-  background: #eef2ff;
-  color: #6366f1;
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -900,7 +952,7 @@ function submitMultiSelection() {
 .tree-recommend-reason {
   font-size: 10.5px;
   line-height: 1.4;
-  color: #94a3b8;
+  color: var(--pm-text-secondary);
   margin-top: 2px;
 }
 
@@ -942,7 +994,7 @@ function submitMultiSelection() {
 }
 
 .tree-table tr.is-selected {
-  background: #f5f3ff;
+  background: var(--pm-primary-soft);
 }
 
 .tree-table tr.tree-table-empty-row:hover {
@@ -978,8 +1030,8 @@ function submitMultiSelection() {
   min-width: 44px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: #eef2ff;
-  color: #4f46e5;
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary);
   font-size: 11px;
   font-weight: 700;
 }
@@ -992,7 +1044,7 @@ function submitMultiSelection() {
 .tree-table-checkbox {
   width: 14px;
   height: 14px;
-  accent-color: #6366f1;
+  accent-color: var(--pm-primary);
   cursor: pointer;
 }
 
@@ -1022,7 +1074,7 @@ function submitMultiSelection() {
 .tree-table-input:focus,
 .tree-table-select:focus {
   outline: none;
-  border-color: #6366f1;
+  border-color: var(--pm-primary);
   background: #ffffff;
 }
 
@@ -1032,7 +1084,7 @@ function submitMultiSelection() {
   background: #ffffff;
   border: none;
   border-top: 1px dashed #e2e8f0;
-  color: #6366f1;
+  color: var(--pm-primary);
   font-size: 11.5px;
   font-weight: 500;
   cursor: pointer;
@@ -1042,7 +1094,7 @@ function submitMultiSelection() {
 
 .tree-table-add-btn:hover {
   background: #f8fafc;
-  color: #4f46e5;
+  color: var(--pm-primary);
 }
 
 /* Multi actions */
@@ -1109,41 +1161,42 @@ function submitMultiSelection() {
 
 .tree-note-input:focus {
   outline: none;
-  border-color: #6366f1;
+  border-color: var(--pm-primary);
 }
 
 /* Current Judgment conclusions page styling */
 .tree-result-container {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
+  gap: 8px;
+  background: var(--pm-primary-soft);
+  border: 1px solid var(--pm-primary-border);
   border-radius: 6px;
-  padding: 10px 14px;
-  margin-bottom: 12px;
+  padding: 8px 10px;
 }
 
 .tree-result-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
-  background: #10b981;
-  color: #ffffff;
+  background: var(--pm-primary);
+  color: var(--pm-surface);
   font-size: 10px;
   font-weight: 600;
   flex-shrink: 0;
-  margin-top: 1px;
+  margin-top: 2px;
 }
 
 .tree-result-text {
   font-size: 13px;
-  font-weight: 600;
-  color: #1e293b;
-  line-height: 1.5;
+  font-weight: 500;
+  color: var(--pm-text);
+  line-height: 1.55;
+  min-width: 0;
+  overflow-wrap: anywhere;
   margin: 0;
 }
 
@@ -1158,28 +1211,6 @@ function submitMultiSelection() {
   border: 1px solid #e2e8f0;
 }
 
-.tree-saved-list {
-  margin: 0;
-  padding-left: 16px;
-  font-size: 12.5px;
-  line-height: 1.7;
-  color: #475569;
-}
-
-.tree-saved-list li {
-  position: relative;
-  list-style-type: none;
-  padding-left: 6px;
-}
-
-.tree-saved-list li::before {
-  content: "•";
-  color: #6366f1;
-  display: inline-block;
-  width: 1em;
-  margin-left: -1em;
-}
-
 /* Secondary history control action buttons */
 .tree-action-row {
   margin-top: 10px;
@@ -1192,8 +1223,10 @@ function submitMultiSelection() {
 }
 
 .tree-action-btn-secondary {
-  padding: 4px 9px;
-  font-size: 11px;
+  min-height: 28px;
+  padding: 3px 8px;
+  font-size: 12px;
+  line-height: 18px;
   font-weight: 500;
   color: #64748b;
   border: 1px solid #e2e8f0;
@@ -1220,20 +1253,20 @@ function submitMultiSelection() {
 .tree-action-btn-accent {
   border-color: #cbd5e1;
   background: #ffffff;
-  color: #4f46e5;
+  color: var(--pm-primary);
 }
 
 .tree-action-btn-accent:hover:not(:disabled) {
   border-color: #cbd5e1;
-  background: #f5f3ff;
-  color: #4338ca;
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary-hover);
 }
 
 .tree-action-btn-primary {
   padding: 5px 12px;
   font-size: 11.5px;
   font-weight: 500;
-  background: #4f46e5;
+  background: var(--pm-primary);
   border: 1px solid transparent;
   color: #ffffff;
   border-radius: 4px;
@@ -1242,6 +1275,6 @@ function submitMultiSelection() {
 }
 
 .tree-action-btn-primary:hover:not(:disabled) {
-  background: #4338ca;
+  background: var(--pm-primary-hover);
 }
 </style>

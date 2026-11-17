@@ -1,10 +1,12 @@
 import * as Vue from 'vue'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import { transformSync } from 'esbuild'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import source from './FinalizePublishPrecheckDialog.vue?raw'
 
 const componentModule = { exports: {} as any }
+const templateMappingVisible = Vue.ref(true)
+afterEach(() => { templateMappingVisible.value = true })
 const compiled = compileScript(parse(source).descriptor, {
   id: 'finalize-precheck-dialog-test',
   inlineTemplate: true,
@@ -13,6 +15,7 @@ const code = transformSync(compiled.content, { loader: 'ts', format: 'cjs', plat
 new Function('require', 'module', 'exports', code)(
   (id: string) => {
     if (id === 'vue') return Vue
+    if (id === '@/composables/productStatus') return { templateMappingVisible }
     throw new Error(`Unexpected dependency: ${id}`)
   },
   componentModule,
@@ -73,6 +76,18 @@ function mount(result: any) {
 }
 
 describe('finalize publish precheck dialog', () => {
+  it('hides mapping repair when the deployment hides template mapping', async () => {
+    templateMappingVisible.value = false
+    const { app, host } = mount({ project_id: 9, ok: false, checklist: [], blockers: [
+      { code: 'group_template_mapping_missing', message: '模板映射待修复' },
+      { code: 'user_rule_sources_unconfirmed', message: '规则待确认' },
+    ] })
+    try {
+      await Vue.nextTick()
+      expect(findNode(host, node => node.type === 'button' && textContent(node).includes('修复映射'))).toBeNull()
+      expect(findNode(host, node => node.type === 'button' && textContent(node).includes('查看待处理规则'))).not.toBeNull()
+    } finally { app.unmount() }
+  })
   it('shows exported counts and explains unmapped machining exclusions', async () => {
     const { app, host } = mount({
       project_id: 9, ok: true, checklist: [], blockers: [],

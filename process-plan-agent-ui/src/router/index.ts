@@ -14,9 +14,9 @@ export const workflowRouteLoaders = [
   loadUploadView,
   loadExtractView,
   loadAnalysisView,
-  loadTemplateMappingView,
   loadFinalizeView,
   loadGenerateView,
+  loadTemplateMappingView,
 ]
 
 const router = createRouter({

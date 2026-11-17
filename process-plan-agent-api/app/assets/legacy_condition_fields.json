@@ -1,0 +1,564 @@
+[
+  {
+    "key": "material.grade",
+    "label": "材料牌号",
+    "category": "材料",
+    "type": "single_select",
+    "operators": [
+      "eq",
+      "neq",
+      "in"
+    ],
+    "aliases": [
+      "材料",
+      "材质",
+      "材料牌号"
+    ],
+    "unit": null,
+    "required": true,
+    "source": "CAD/PLM",
+    "options": [
+      {
+        "value": "9Cr18",
+        "label": "9Cr18"
+      },
+      {
+        "value": "95Cr18",
+        "label": "95Cr18"
+      },
+      {
+        "value": "4Cr14Ni14W2Mo",
+        "label": "4Cr14Ni14W2Mo"
+      },
+      {
+        "value": "6061",
+        "label": "6061"
+      }
+    ],
+    "allow_custom": false,
+    "validation": null
+  },
+  {
+    "key": "precision.outer_diameter_it",
+    "label": "外圆尺寸精度 IT",
+    "category": "尺寸精度",
+    "type": "number",
+    "operators": [
+      "eq",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "between"
+    ],
+    "aliases": [
+      "外圆精度",
+      "外径精度",
+      "外圆IT"
+    ],
+    "unit": null,
+    "required": false,
+    "source": "CAD/工艺要求",
+    "options": [],
+    "allow_custom": true,
+    "validation": {
+      "min": 5,
+      "max": 10
+    }
+  },
+  {
+    "key": "precision.inner_diameter_it",
+    "label": "内孔尺寸精度 IT",
+    "category": "尺寸精度",
+    "type": "number",
+    "operators": [
+      "eq",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "between"
+    ],
+    "aliases": [
+      "内孔精度",
+      "孔精度",
+      "内径精度",
+      "孔IT"
+    ],
+    "unit": null,
+    "required": false,
+    "source": "CAD/工艺要求",
+    "options": [],
+    "allow_custom": true,
+    "validation": {
+      "min": 5,
+      "max": 10
+    }
+  },
+  {
+    "key": "precision.dimension_it",
+    "label": "尺寸精度 IT",
+    "category": "尺寸精度",
+    "type": "number",
+    "operators": [
+      "eq",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "between"
+    ],
+    "aliases": [
+      "尺寸精度",
+      "IT等级",
+      "公差等级"
+    ],
+    "unit": null,
+    "required": false,
+    "source": "CAD/工艺要求",
+    "options": [],
+    "allow_custom": true,
+    "validation": {
+      "min": 5,
+      "max": 10
+    }
+  },
+  {
+    "key": "surface.roughness_ra",
+    "label": "表面粗糙度 Ra",
+    "category": "表面质量",
+    "type": "number",
+    "operators": [
+      "eq",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "between"
+    ],
+    "aliases": [
+      "粗糙度",
+      "表面粗糙度",
+      "Ra"
+    ],
+    "unit": "μm",
+    "required": false,
+    "source": "CAD/工艺要求",
+    "options": [],
+    "allow_custom": true,
+    "validation": {
+      "min": 0
+    }
+  },
+  {
+    "key": "tolerance.roundness_mm",
+    "label": "圆度公差",
+    "category": "形位公差",
+    "type": "number",
+    "operators": [
+      "eq",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "between"
+    ],
+    "aliases": [
+      "圆度"
+    ],
+    "unit": "mm",
+    "required": false,
+    "source": "CAD/工艺要求",
+    "options": [],
+    "allow_custom": true,
+    "validation": {
+      "min": 0
+    }
+  },
+  {
+    "key": "tolerance.cylindricity_mm",
+    "label": "圆柱度公差",
+    "category": "形位公差",
+    "type": "number",
+    "operators": [
+      "eq",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "between"
+    ],
+    "aliases": [
+      "圆柱度"
+    ],
+    "unit": "mm",
+    "required": false,
+    "source": "CAD/工艺要求",
+    "options": [],
+    "allow_custom": true,
+    "validation": {
+      "min": 0
+    }
+  },
+  {
+    "key": "tolerance.coaxiality_mm",
+    "label": "同轴度公差",
+    "category": "形位公差",
+    "type": "number",
+    "operators": [
+      "eq",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "between"
+    ],
+    "aliases": [
+      "同轴度",
+      "同心度"
+    ],
+    "unit": "mm",
+    "required": false,
+    "source": "CAD/工艺要求",
+    "options": [],
+    "allow_custom": true,
+    "validation": {
+      "min": 0
+    }
+  },
+  {
+    "key": "tolerance.runout_mm",
+    "label": "跳动公差",
+    "category": "形位公差",
+    "type": "number",
+    "operators": [
+      "eq",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "between"
+    ],
+    "aliases": [
+      "圆跳动",
+      "全跳动",
+      "跳动"
+    ],
+    "unit": "mm",
+    "required": false,
+    "source": "CAD/工艺要求",
+    "options": [],
+    "allow_custom": true,
+    "validation": {
+      "min": 0
+    }
+  },
+  {
+    "key": "tolerance.position_mm",
+    "label": "位置度公差",
+    "category": "形位公差",
+    "type": "number",
+    "operators": [
+      "eq",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "between"
+    ],
+    "aliases": [
+      "位置度"
+    ],
+    "unit": "mm",
+    "required": false,
+    "source": "CAD/工艺要求",
+    "options": [],
+    "allow_custom": true,
+    "validation": {
+      "min": 0
+    }
+  },
+  {
+    "key": "tolerance.flatness_mm",
+    "label": "平面度公差",
+    "category": "形位公差",
+    "type": "number",
+    "operators": [
+      "eq",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "between"
+    ],
+    "aliases": [
+      "平面度"
+    ],
+    "unit": "mm",
+    "required": false,
+    "source": "CAD/工艺要求",
+    "options": [],
+    "allow_custom": true,
+    "validation": {
+      "min": 0
+    }
+  },
+  {
+    "key": "tolerance.perpendicularity_mm",
+    "label": "垂直度公差",
+    "category": "形位公差",
+    "type": "number",
+    "operators": [
+      "eq",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "between"
+    ],
+    "aliases": [
+      "垂直度"
+    ],
+    "unit": "mm",
+    "required": false,
+    "source": "CAD/工艺要求",
+    "options": [],
+    "allow_custom": true,
+    "validation": {
+      "min": 0
+    }
+  },
+  {
+    "key": "geometry.diameter_mm",
+    "label": "特征直径",
+    "category": "几何尺寸",
+    "type": "number",
+    "operators": [
+      "eq",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "between"
+    ],
+    "aliases": [
+      "直径",
+      "孔径",
+      "外径"
+    ],
+    "unit": "mm",
+    "required": false,
+    "source": "CAD",
+    "options": [],
+    "allow_custom": true,
+    "validation": {
+      "min": 0
+    }
+  },
+  {
+    "key": "geometry.length_mm",
+    "label": "特征长度",
+    "category": "几何尺寸",
+    "type": "number",
+    "operators": [
+      "eq",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "between"
+    ],
+    "aliases": [
+      "长度",
+      "深度"
+    ],
+    "unit": "mm",
+    "required": false,
+    "source": "CAD",
+    "options": [],
+    "allow_custom": true,
+    "validation": {
+      "min": 0
+    }
+  },
+  {
+    "key": "mechanical.hardness_hrc",
+    "label": "目标硬度 HRC",
+    "category": "性能要求",
+    "type": "number",
+    "operators": [
+      "eq",
+      "gt",
+      "gte",
+      "lt",
+      "lte",
+      "between"
+    ],
+    "aliases": [
+      "硬度",
+      "HRC",
+      "目标硬度"
+    ],
+    "unit": "HRC",
+    "required": false,
+    "source": "图样技术要求",
+    "options": [],
+    "allow_custom": true,
+    "validation": {
+      "min": 0,
+      "max": 80
+    }
+  },
+  {
+    "key": "cad.features",
+    "label": "CAD 特征集合",
+    "category": "结构特征",
+    "type": "multi_select",
+    "operators": [
+      "contains",
+      "contains_any",
+      "contains_all"
+    ],
+    "aliases": [
+      "CAD特征",
+      "结构特征",
+      "槽",
+      "孔",
+      "扁位"
+    ],
+    "unit": null,
+    "required": true,
+    "source": "CAD",
+    "options": [
+      {
+        "value": "扁位/平面",
+        "label": "扁位/平面"
+      },
+      {
+        "value": "槽类特征",
+        "label": "槽类特征"
+      },
+      {
+        "value": "普通孔/辅助孔",
+        "label": "普通孔/辅助孔"
+      },
+      {
+        "value": "铰孔/精孔",
+        "label": "铰孔/精孔"
+      },
+      {
+        "value": "型孔/割扁",
+        "label": "型孔/割扁"
+      },
+      {
+        "value": "顶尖孔",
+        "label": "顶尖孔"
+      }
+    ],
+    "allow_custom": false,
+    "validation": null
+  },
+  {
+    "key": "precision.grades",
+    "label": "精度/表面要求集合",
+    "category": "精度要求",
+    "type": "multi_select",
+    "operators": [
+      "contains",
+      "contains_any",
+      "contains_all"
+    ],
+    "aliases": [
+      "精加工要求",
+      "磨削要求",
+      "研磨要求"
+    ],
+    "unit": null,
+    "required": true,
+    "source": "CAD/工艺要求",
+    "options": [
+      {
+        "value": "孔精加工",
+        "label": "孔精加工"
+      },
+      {
+        "value": "珩孔要求",
+        "label": "珩孔要求"
+      },
+      {
+        "value": "研孔要求",
+        "label": "研孔要求"
+      },
+      {
+        "value": "外圆磨削",
+        "label": "外圆磨削"
+      },
+      {
+        "value": "端面磨削",
+        "label": "端面磨削"
+      },
+      {
+        "value": "槽磨削",
+        "label": "槽磨削"
+      },
+      {
+        "value": "研外圆",
+        "label": "研外圆"
+      }
+    ],
+    "allow_custom": false,
+    "validation": null
+  },
+  {
+    "key": "special.requirements",
+    "label": "特殊要求",
+    "category": "特殊要求",
+    "type": "multi_select",
+    "operators": [
+      "contains",
+      "contains_any",
+      "contains_all"
+    ],
+    "aliases": [
+      "特殊要求",
+      "技术要求",
+      "检验要求",
+      "表面处理要求"
+    ],
+    "unit": null,
+    "required": false,
+    "source": "人工补充/图样技术要求",
+    "options": [
+      {
+        "value": "渗氮层要求",
+        "label": "渗氮层要求"
+      },
+      {
+        "value": "铬酸阳极化要求",
+        "label": "铬酸阳极化要求"
+      },
+      {
+        "value": "硬质阳极化要求",
+        "label": "硬质阳极化要求"
+      },
+      {
+        "value": "追溯标印",
+        "label": "追溯标印"
+      },
+      {
+        "value": "无损检测要求",
+        "label": "无损检测要求"
+      },
+      {
+        "value": "磁粉检查要求",
+        "label": "磁粉检查要求"
+      },
+      {
+        "value": "烧伤检查要求",
+        "label": "烧伤检查要求"
+      }
+    ],
+    "allow_custom": false,
+    "validation": null
+  }
+]

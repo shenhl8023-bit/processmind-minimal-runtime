@@ -1,17 +1,18 @@
 <template>
-  <div class="card project-card">
-    <div class="project-card-header">
-      <div class="project-card-title-row">
+  <section class="project-board-section">
+    <header class="project-card-header workflow-page-header">
+      <div class="project-card-title-row workflow-page-info">
         <svg class="header-icon-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="3" y="3" width="7" height="9" rx="1" />
           <rect x="14" y="3" width="7" height="5" rx="1" />
           <rect x="14" y="12" width="7" height="9" rx="1" />
           <rect x="3" y="16" width="7" height="5" rx="1" />
         </svg>
-        <span class="project-card-title">上传任务资料</span>
-        <span class="project-card-desc">先创建工艺规程规则任务，再按任务上传文件。每个任务的文档、规则和生成结果独立保存。</span>
+        <span class="project-card-title workflow-page-title">上传任务资料</span>
+        <span class="project-card-desc workflow-page-description">先创建工艺规程规则任务，再按任务上传文件。每个任务的文档、规则和生成结果独立保存。</span>
       </div>
-    </div>
+    </header>
+    <div class="card project-card">
     <div class="project-board">
       <button class="project-tile project-tile-new" :disabled="creatingProject" @click="$emit('create')">
         <div class="new-tile-inner">
@@ -72,7 +73,8 @@
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -2px; margin-right: 4px;"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
       删除任务会一起删除该任务下的上传文件、提炼规则和生成结果
     </div>
-  </div>
+    </div>
+  </section>
 </template>
 
 <script setup lang="ts">
@@ -92,9 +94,15 @@ defineEmits<{
 </script>
 
 <style scoped>
+.project-board-section {
+  min-width: 0;
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+
 .project-card {
   padding: 12px 14px;
-  margin-bottom: 10px;
+  margin-bottom: 0;
   flex-shrink: 0;
 }
 

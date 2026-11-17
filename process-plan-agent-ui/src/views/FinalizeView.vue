@@ -1,19 +1,20 @@
 <template>
   <div class="finalize-view">
-    <div class="analysis-style-header">
-      <div class="ash-left-content">
-        <span class="ash-page-title">规则定稿</span>
-        <span class="ash-dark-chip">{{ projectName || '未命名任务' }}</span>
+    <div class="analysis-style-header workflow-page-header">
+      <div class="ash-left-content workflow-page-info">
+        <span class="ash-page-title workflow-page-title">规则定稿</span>
+        <span class="ash-dark-chip" :title="projectName || '未命名任务'">{{ projectName || '未命名任务' }}</span>
         
         <div class="ash-meta-section">
           <span class="ash-meta-item">路线版本 <strong>V{{ savedRoute?.version || '-' }}</strong></span>
-          <span class="ash-meta-item" v-if="lastExportedRulePackageVersion">规则包 <strong>V{{ lastExportedRulePackageVersion }}</strong></span>
-          <span class="ash-meta-item ash-meta-stale" v-else-if="outdatedRulePackageVersion">规则包 V{{ outdatedRulePackageVersion }} <strong>有未发布修改</strong></span>
+          <span class="ash-meta-item" v-if="lastExportedRulePackageVersion">可验证规则 <strong>V{{ lastExportedRulePackageVersion }}</strong></span>
+          <span class="ash-meta-item ash-meta-stale" v-else-if="outdatedRulePackageVersion">规则已有修改，请重新生成路线验证</span>
           <span v-if="hasUnsavedEdits" class="ash-meta-item ash-meta-stale"><strong>未保存 {{ unsavedCards.length }} 项</strong></span>
           <span v-if="reviewableRuleCount" class="ash-review-progress">
             <span>已确认 <strong>{{ confirmedRuleCount }}/{{ reviewableRuleCount }}</strong></span>
           </span>
           <span v-else class="ash-meta-item">无需确认条件规则</span>
+          <span v-if="pendingReviewCards.length" class="ash-meta-item ash-selection-count">待确认 <strong>{{ pendingReviewCards.length }}</strong> · 已选 <strong>{{ selectedReviewCards.length }}</strong></span>
         </div>
 
         <button
@@ -30,10 +31,11 @@
         </button>
       </div>
 
-      <div class="ash-actions">
-        <button class="ash-template-link" type="button" @click="goToTemplateMapping">
-          模板映射
-        </button>
+      <div class="ash-actions workflow-page-actions">
+        <div v-if="pendingReviewCards.length" class="ash-selection-actions" role="group" aria-label="批量选择规则">
+          <button class="ash-quiet-action" type="button" :disabled="loading || !visiblePendingReviewCards.length || batchReviewing || batchParsing || resettingWorkflow || exportingRulePackage" @click="toggleSelectAllPending">{{ allPendingSelected ? '取消全选' : '全选当前项' }}</button>
+          <button class="ash-btn-outline" type="button" :disabled="loading || !selectedReviewCards.length || batchReviewing || batchParsing || resettingWorkflow || exportingRulePackage" @click="handleConfirmSelectedCandidates">确认已选（{{ selectedReviewCards.length }}）</button>
+        </div>
         <button
           class="ash-quiet-action"
           type="button"
@@ -43,64 +45,26 @@
           :disabled="loading || resettingWorkflow || batchParsing || batchReviewing || exportingRulePackage || !savedRoute"
         >重新识别</button>
         <button
-          class="ash-icon-action"
+          class="ash-btn-outline"
           type="button"
-          title="刷新结果"
-          aria-label="刷新结果"
-          @click="reloadWorkspace"
-          :disabled="loading || resettingWorkflow || !projectId"
+          @click="handleConfirmAllCandidates"
+          :disabled="loading || Boolean(error) || resettingWorkflow || reviewAndExporting || batchParsing || batchReviewing || exportingRulePackage || !segmentCards.length"
         >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M20 7v5h-5" />
-            <path d="M4 17v-5h5" />
-            <path d="M5.7 9a7 7 0 0 1 11.6-2.1L20 12M4 12l2.7 5.1A7 7 0 0 0 18.3 15" />
-          </svg>
-        </button>
-        <button
-          class="ash-btn-primary ash-btn-phase-active"
-          @click="handleReviewAndExport"
-          :disabled="resettingWorkflow || reviewAndExporting || batchParsing || batchReviewing || exportingRulePackage || !segmentCards.length"
-        >
-          {{ reviewAndExportButtonLabel }}
+          {{ batchReviewing ? `正在确认 ${batchReviewCompleted}/${batchReviewTotal}` : '确认全部规则' }}
         </button>
       </div>
     </div>
 
-    <!-- 轻量级浮动提示，不挤占页面主体结构 -->
-    <transition name="toast-fade">
-      <div v-if="batchNotice" class="batch-toast" role="status">
-        <span>{{ batchNotice }}</span>
-      </div>
-    </transition>
-
-    <section v-if="preprocessFailureSummary" class="preprocess-failure-panel" role="alert">
-      <div class="preprocess-failure-head">
-        <span class="preprocess-failure-icon">!</span>
-        <div>
-          <strong>{{ preprocessFailureSummary.title }}</strong>
-          <p>{{ preprocessFailureSummary.message }}</p>
-        </div>
-      </div>
-      <ul v-if="preprocessFailureSummary.lines.length" class="preprocess-failure-list">
-        <li v-for="line in preprocessFailureSummary.lines" :key="line">{{ line }}</li>
-      </ul>
-      <p v-if="preprocessFailureSummary.overflowCount" class="preprocess-failure-more">
-        另有 {{ preprocessFailureSummary.overflowCount }} 条失败记录，修复后可刷新或重新识别。
-      </p>
-    </section>
-
-
-
-    <div v-if="!projectId" class="empty-state card">
-      <div class="empty-mark">04</div>
-      <div class="empty-title">{{ FINALIZE_VIEW_COPY.emptyProjectTitle }}</div>
-      <div class="empty-text">{{ FINALIZE_VIEW_COPY.emptyProjectText }}</div>
-    </div>
-
-    <div v-else-if="loading" class="empty-state card">
+    <div v-if="workspaceLoading" class="empty-state card" role="status">
       <div class="empty-mark">···</div>
       <div class="empty-title">{{ FINALIZE_VIEW_COPY.loadingTitle }}</div>
       <div class="empty-text">{{ FINALIZE_VIEW_COPY.loadingText }}</div>
+    </div>
+
+    <div v-else-if="!projectId" class="empty-state card">
+      <div class="empty-mark">04</div>
+      <div class="empty-title">{{ FINALIZE_VIEW_COPY.emptyProjectTitle }}</div>
+      <div class="empty-text">{{ FINALIZE_VIEW_COPY.emptyProjectText }}</div>
     </div>
 
     <div v-else-if="error" class="empty-state card empty-state-error">
@@ -116,7 +80,7 @@
       <div class="empty-text">{{ FINALIZE_VIEW_COPY.emptySegmentText }}</div>
     </div>
 
-    <div v-else class="finalize-layout">
+    <div v-else class="finalize-layout" :aria-busy="loading">
       <FinalizeRouteNav
         :title="FINALIZE_VIEW_COPY.routeOverview"
         :items="visibleSegments"
@@ -141,21 +105,6 @@
           <span>暂无待处理工序</span>
           <button class="ash-template-link" type="button" @click="onlyPending = false">查看全部规则</button>
         </div>
-        <div v-if="pendingReviewCards.length" class="rule-review-toolbar">
-          <span>待确认 {{ pendingReviewCards.length }} 项 · 已选 {{ selectedReviewCards.length }} 项</span>
-          <div class="rule-review-actions">
-            <button
-              class="ash-btn-outline"
-              :disabled="batchReviewing || batchParsing || resettingWorkflow || exportingRulePackage"
-              @click="toggleSelectAllPending"
-            >
-              {{ allPendingSelected ? '取消全选' : '一键全选' }}
-            </button>
-            <button class="ash-btn-outline" :disabled="!selectedReviewCards.length || batchReviewing || batchParsing || resettingWorkflow || exportingRulePackage" @click="handleConfirmSelectedCandidates">
-              {{ batchReviewing ? `正在确认 ${batchReviewCompleted}/${batchReviewTotal}` : '确认选中规则' }}
-            </button>
-          </div>
-        </div>
 
 
         <FinalizeRuleCard
@@ -171,9 +120,10 @@
           :edit-label="FINALIZE_VIEW_COPY.edit"
           :condition-label="FINALIZE_VIEW_COPY.conditionLabel"
           :condition-fields="conditionFields"
+          :route-segments="savedRoute?.segments || []"
           :process-options="conditionProcessOptions"
           :condition-busy="conditionBusySegmentIds.has(item.segment.id)"
-          :actions-disabled="batchReviewing || resettingWorkflow || exportingRulePackage"
+          :actions-disabled="loading || batchParsing || batchReviewing || resettingWorkflow || exportingRulePackage"
           :condition-error="conditionErrors[item.segment.id]"
           :selectable="pendingReviewCards.some(card => card.segment.id === item.segment.id)"
           :selected="selectedRuleIds.has(item.segment.id)"
@@ -196,12 +146,13 @@
 
     <WorkflowNavFooter
       :summary="finalizeNavSummary"
-      previous-label="← 返回模板映射"
-      next-label="进入规则包验证 →"
+      :notices="finalizeNotices"
+      previous-label="← 返回规则分析"
+      next-label="保存并进入路线验证 →"
       :previous-disabled="!projectId"
-      :next-disabled="!projectId || !lastExportedRulePackageVersion || hasUnsavedEdits"
-      @previous="goToTemplateMapping"
-      @next="goToGenerate"
+      :next-disabled="!projectId || loading || Boolean(error) || resettingWorkflow || reviewAndExporting || batchParsing || batchReviewing || exportingRulePackage || !segmentCards.length || hasUnsavedEdits || publishBlockingCount > 0"
+      @previous="goBackToAnalysis"
+      @next="handleReviewAndExport"
     />
 
     <div v-if="blockedExportCards.length" class="export-blocker-overlay" @click.self="closeBlockedExportDialog">
@@ -276,10 +227,11 @@
 </template>
 
 <script setup lang="ts">
-import { getCurrentGroupTemplate } from '@/api/extract'
-import { getTemplateMappingStatus } from '@/composables/projectGroupTemplateCheck'
-import { buildFinalTemplateMappingOperations } from '@/composables/finalTemplateMappingOperations'
-import { ruleFinalizeResetCopy } from '@/composables/workflowResetCopy'
+import { resetCopyForEdition } from '@/composables/workflowResetCopy'
+import { templateMappingVisible } from '@/composables/productStatus'
+import { validateAuthoredCandidate } from '@/utils/processConfigurationEditor'
+
+const ruleFinalizeResetCopy = computed(() => resetCopyForEdition('finalize', templateMappingVisible.value))
 
 import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
@@ -288,15 +240,16 @@ import FinalizePublishPrecheckDialog from '@/components/finalize/FinalizePublish
 import { nextPendingSegmentId } from '@/utils/finalizeRulePresentation'
 import FinalizeRuleCard from '@/components/finalize/FinalizeRuleCard.vue'
 import WorkflowNavFooter from '@/components/workflow/WorkflowNavFooter.vue'
+import type { WorkflowNotice } from '@/components/workflow/workflowNotice'
 import WorkflowResetDialog from '@/components/workflow/WorkflowResetDialog.vue'
 import {
   getSavedNormalizedRoute,
-  getLatestFinalizedRulePackage,
   getSupersetRoute,
   listOperations,
   listProjects,
   type RulePackagePrecheckResult,
   resetWorkflow,
+  enterRuleFinalization,
   type OperationItem,
   type SavedNormalizedRouteVersionResult,
 } from '@/api'
@@ -304,7 +257,6 @@ import {
   confirmRuleCondition,
   getConditionFieldRegistry,
   getRulePreprocessingStatus,
-  compileRulePackage,
   parseRuleCondition,
   saveRuleConditionDraft,
   startRulePreprocessing,
@@ -326,21 +278,22 @@ import {
 } from '@/composables/finalizeViewHelpers'
 import { openFinalizePrecheckDialog } from '@/composables/finalizePrecheckDialog'
 import type { FinalizeCard } from '@/composables/finalizeViewHelpers'
+import { confirmFinalizeBatch, type FinalizeBatchResult } from '@/composables/finalizeBatchConfirmation'
 import { useFinalizeDrafts } from '@/composables/useFinalizeDrafts'
 import { useFinalizeUnsavedEdits } from '@/composables/useFinalizeUnsavedEdits'
-import { useFinalizeRulePackageExport } from '@/composables/useFinalizeRulePackageExport'
+import { useFinalizeRuleRevision } from '@/composables/useFinalizeRuleRevision'
+import { getLatestExecutableRuleRevision, saveExecutableRuleRevision } from '@/api/executableRules'
 import { useRouteSegmentSteps } from '@/composables/useRouteSegmentSteps'
 import { buildRulePreprocessFailureSummary, buildRulePreprocessingTriggerKey } from '@/composables/rulePreprocessingTrigger'
 import { buildProjectRouteQuery, resolveAvailableProjectId } from '@/composables/useCurrentProject'
 import { FINALIZE_VIEW_COPY } from '@/config/finalizeRulePresentation'
-import { createLatestWorkflowRequestGuard, getWorkflowDataRevision } from '@/composables/workflowDataCache'
+import { clearWorkflowProjectDataCache, createLatestWorkflowRequestGuard } from '@/composables/workflowDataCache'
 import { isWorkflowRevisionConflict, publishWorkflowReset, workflowResetSignal } from '@/composables/workflowResetState'
-import { createBackgroundTaskGuard, runBackgroundTask } from '@/composables/runBackgroundTask'
+import { createBackgroundTaskGuard } from '@/composables/runBackgroundTask'
 import {
   buildManualBooleanRuleCandidate,
   exportProcessIdForItem,
   exportBlockingCards,
-  buildCompileRequestFromCards,
   blockedExportPrimaryActionLabel,
   exportBlockedReasonLabel,
   groupExportBlockedCards,
@@ -349,39 +302,44 @@ import {
   hasCurrentConfirmedUserRule,
   normalizeExportProcessName,
   requiresServerRuleConditionRefresh,
+  requiresConfirmedUserRule,
 } from '@/utils/finalizeRulePackage'
 
 const route = useRoute()
 const router = useRouter()
 let finalizeViewActive = false
-let initialLoadFinished = false
-let loadedDataRevision = -1
 let locallyHandledResetAt = 0
 const workspaceRequestGuard = createLatestWorkflowRequestGuard()
+let loadingProjectId = ''
 
-const loading = ref(false)
+const loading = ref(true)
 const error = ref('')
 const workspaceErrorTitle = ref<string>(FINALIZE_VIEW_COPY.errorTitle)
 const projectId = ref<number | null>(null)
 const projectName = ref('')
 const savedRoute = ref<SavedNormalizedRouteVersionResult | null>(null)
+// Same-project refreshes keep mounted cards and their disclosure state. A new
+// project must never display the previous project's route while it is loading.
+const workspaceLoading = computed(() => loading.value && (!savedRoute.value
+  || savedRoute.value.project_id !== Number(route.query.project_id || projectId.value)))
 const operations = ref<OperationItem[]>([])
 const supersetOperations = ref<OperationItem[]>([])
 const onlyPending = ref(true)
 const selectedRuleIds = ref(new Set<string>())
 const conditionErrors = ref<Record<string, string>>({})
 const activeSegmentId = ref('')
+const executableRevisionCounter = ref(0)
 const lastExportedRulePackageVersion = ref<number | null>(null)
 const outdatedRulePackageVersion = ref<number | null>(null)
 const conditionFields = ref<CanonicalConditionField[]>([])
 const conditionBusySegmentIds = ref(new Set<string>())
 const conditionBusyCounts = new Map<string, number>()
 const batchParsing = ref(false)
-const batchParseCompleted = ref(0)
-const batchParseTotal = ref(0)
 const batchReviewing = ref(false)
 const batchReviewCompleted = ref(0)
 const batchReviewTotal = ref(0)
+const batchConfirmationResult = ref<FinalizeBatchResult | null>(null)
+const batchConfirmationIssues = computed(() => batchConfirmationResult.value?.items.filter(item => item.status !== 'confirmed') || [])
 const preprocessStatus = ref<RulePreprocessStatus | null>(null)
 const preprocessFailureSummary = computed(() => buildRulePreprocessFailureSummary(preprocessStatus.value))
 const precheckResult = ref<RulePackagePrecheckResult | null>(null)
@@ -392,11 +350,11 @@ let preprocessEpoch = 0
 let lastRulePreprocessTriggerKey = ''
 const reviewAndExporting = ref(false)
 const batchNotice = ref('')
+const validationIssue = ref('')
 const resetDialogVisible = ref(false)
 const resettingWorkflow = ref(false)
 let batchNoticeTimer: ReturnType<typeof setTimeout> | null = null
 let workflowConflictReload: Promise<void> | null = null
-let batchParseExecutionId = 0
 const recognitionTaskGuard = createBackgroundTaskGuard()
 
 function setBatchNotice(msg: string) {
@@ -449,9 +407,7 @@ const { unsavedCards, hasUnsavedEdits, setRuleEditState, clearRuleEditStates } =
   segmentCards, inlineEditingSegmentId, inlineEditingText,
 )
 
-const conditionalCards = computed(() => segmentCards.value.filter(item => finalizeRuleMode(item) === 'conditional'))
-const relationCards = computed(() => segmentCards.value.filter(item => finalizeRuleMode(item) === 'relation'))
-const reviewableCards = computed(() => [...conditionalCards.value, ...relationCards.value])
+const reviewableCards = computed(() => segmentCards.value.filter(requiresConfirmedUserRule))
 const reviewableRuleCount = computed(() => reviewableCards.value.length)
 const unresolvedRuleCount = computed(() => segmentCards.value.filter(item => finalizeRuleMode(item) === 'unresolved').length)
 const reviewFocusCards = computed(() => {
@@ -467,12 +423,11 @@ const batchEligibleCards = computed(() => reviewableCards.value.filter((item) =>
 }))
 const pendingReviewCards = computed(() => reviewableCards.value.filter((item) => {
   const review = item.conditionReview
-  const expectedKind = finalizeRuleMode(item) === 'relation' ? 'process_relation' : 'condition'
   return !unsavedCards.value.some(card => card.segment.id === item.segment.id)
     && review?.status === 'pending_confirmation'
     && review.source_text.trim() === item.conditionText.trim()
     && Boolean(review.candidate && review.source_hash)
-    && (review.candidate?.kind || 'condition') === expectedKind
+    && !requiresServerRuleConditionRefresh(item)
 }))
 const publishBlockingCount = computed(() => reviewFocusCards.value.length)
 const precheckBlockerCount = computed(() => {
@@ -481,7 +436,11 @@ const precheckBlockerCount = computed(() => {
 })
 const canOpenPrecheck = computed(() => publishBlockingCount.value === 0 && Boolean(precheckResult.value))
 const selectedReviewCards = computed(() => pendingReviewCards.value.filter(item => selectedRuleIds.value.has(item.segment.id)))
-const allPendingSelected = computed(() => pendingReviewCards.value.length > 0 && selectedReviewCards.value.length === pendingReviewCards.value.length)
+const visiblePendingReviewCards = computed(() => {
+  const visibleIds = new Set(visibleSegments.value.map(item => item.segment.id))
+  return pendingReviewCards.value.filter(item => visibleIds.has(item.segment.id))
+})
+const allPendingSelected = computed(() => visiblePendingReviewCards.value.length > 0 && visiblePendingReviewCards.value.every(item => selectedRuleIds.value.has(item.segment.id)))
 const confirmedRuleCount = computed(() => reviewableCards.value.filter(item => (
   hasCurrentConfirmedUserRule(item) && !unsavedCards.value.some(card => card.segment.id === item.segment.id)
 )).length)
@@ -492,21 +451,21 @@ function toggleRuleSelection(item: FinalizeCard) {
   selectedRuleIds.value = ids
 }
 function toggleSelectAllPending() {
+  if (loading.value) return
   const ids = new Set(selectedRuleIds.value)
   if (allPendingSelected.value) {
-    pendingReviewCards.value.forEach(item => ids.delete(item.segment.id))
+    visiblePendingReviewCards.value.forEach(item => ids.delete(item.segment.id))
   } else {
-    pendingReviewCards.value.forEach(item => ids.add(item.segment.id))
+    visiblePendingReviewCards.value.forEach(item => ids.add(item.segment.id))
   }
   selectedRuleIds.value = ids
 }
 const readyRuleCount = computed(() => reviewableCards.value.filter((item) => {
   if (hasCurrentConfirmedUserRule(item)) return true
   const review = item.conditionReview
-  const expectedKind = finalizeRuleMode(item) === 'relation' ? 'process_relation' : 'condition'
   return review?.status === 'pending_confirmation'
     && review.source_text.trim() === item.conditionText.trim()
-    && (review.candidate?.kind || 'condition') === expectedKind
+    && !requiresServerRuleConditionRefresh(item)
 }).length)
 const conditionProcessOptions = computed<RuleConditionProcessOption[]>(() => {
   const options = new Map<string, RuleConditionProcessOption>()
@@ -521,24 +480,39 @@ const conditionProcessOptions = computed<RuleConditionProcessOption[]>(() => {
   })
   return Array.from(options.values())
 })
+const finalizeNotices = computed<WorkflowNotice[]>(() => {
+  const notices: WorkflowNotice[] = []
+  if (validationIssue.value) notices.push({ id: 'validation', level: 'error', summary: validationIssue.value, actions: [{ label: '关闭', run: () => { validationIssue.value = '' } }] })
+  if (batchNotice.value) notices.push({ id: 'batch', level: 'info', summary: batchNotice.value })
+  if (batchConfirmationResult.value) {
+    const result = batchConfirmationResult.value
+    notices.push({ id: 'confirmation', level: result.remainingCount ? 'warning' : 'success', summary: `本次已确认 ${result.successCount} 项，剩余 ${result.remainingCount} 项待处理`, detail: batchConfirmationIssues.value.map(item => `${item.sequence} · ${item.name}：${item.reason}`).join('\n') })
+  }
+  if (preprocessFailureSummary.value) {
+    const failure = preprocessFailureSummary.value
+    notices.push({ id: 'preprocess', level: 'error', summary: failure.title, detail: [failure.message, ...failure.lines, ...(failure.overflowCount ? [`另有 ${failure.overflowCount} 条失败记录`] : [])].join('\n'), actions: [{ label: '刷新结果', run: reloadWorkspace, disabled: loading.value || resettingWorkflow.value }] })
+  }
+  return notices
+})
+
 const finalizeNavSummary = computed(() => {
-  if (!projectId.value) return '请先完成第三步规则分析，再进入规则定稿。'
   if (loading.value) return '正在装载第四步定稿结果。'
+  if (!projectId.value) return '请先完成第三步规则分析，再进入规则定稿。'
   if (error.value) return '当前没有可预览的定稿结果，请返回规则分析。'
   if (!segmentCards.value.length) return '当前没有可展示的工序，请先在第三步完成至少一版规则分析结果。'
-  if (hasUnsavedEdits.value) return `有 ${unsavedCards.value.length} 项未保存，请先保存或取消修改后再发布。`
+  if (hasUnsavedEdits.value) return `有 ${unsavedCards.value.length} 项未保存，请先保存或取消修改后再进入验证。`
   if (unresolvedRuleCount.value) return `还有 ${unresolvedRuleCount.value} 道工序需要补充具体条件。`
   if (readyRuleCount.value < reviewableRuleCount.value) {
     if (batchParsing.value) {
       return `正在识别规则；当前 ${readyRuleCount.value}/${reviewableRuleCount.value} 条已识别。`
     }
-    return `还有 ${reviewableRuleCount.value - readyRuleCount.value} 条规则待识别，可在对应卡片中重试识别。`
+    return `还有 ${reviewableRuleCount.value - readyRuleCount.value} 条规则待处理，可在对应卡片中补充条件或设置出现规则。`
   }
   if (reviewFocusCards.value.length) return `已确认 ${confirmedRuleCount.value}/${reviewableRuleCount.value} 条规则，请核对剩余待处理项。`
   if (precheckResult.value && !precheckResult.value.ok) return `发布预检有 ${precheckBlockerCount.value} 项待修复，请查看预检结果并处理。`
-  if (outdatedRulePackageVersion.value) return `有未发布修改，当前发布版本仍为 V${outdatedRulePackageVersion.value}，请确认修改后重新发布。`
-  if (!lastExportedRulePackageVersion.value) return '规则已全部确认，可发布规则包。'
-  return `规则包 V${lastExportedRulePackageVersion.value} 已就绪，可进入规则包验证与路线生成。`
+  if (outdatedRulePackageVersion.value) return '规则已修改，请保存后使用当前规则重新生成路线验证。'
+  if (!lastExportedRulePackageVersion.value) return '规则已全部确认，可保存并进入路线验证。'
+  return `可验证规则 V${lastExportedRulePackageVersion.value} 已就绪，可进入工艺路线验证。`
 })
 
 /** Whether a given nav item needs attention */
@@ -595,9 +569,10 @@ function setConditionBusy(segmentId: string, busy: boolean) {
   conditionBusySegmentIds.value = new Set(conditionBusyCounts.keys())
 }
 
-function hasCurrentConditionText(segmentId: string, sourceText: string) {
+function hasCurrentConditionText(segmentId: string, sourceText: string, reviewToken?: string) {
   const current = segmentCards.value.find(item => item.segment.id === segmentId)
   return current?.conditionText.trim() === sourceText.trim()
+    && (reviewToken === undefined || (current.conditionReview?.review_token ?? '') === reviewToken)
 }
 
 function isRuleWorkspaceCurrent(requestProject: number, requestRoute: number, requestRevision: number) {
@@ -667,10 +642,14 @@ async function handleSaveInlineEdit(item: ReturnType<typeof buildFinalizeCards>[
   const sourceText = inlineEditingText.value.trim()
   if (sourceText === item.conditionText.trim()) { cancelInlineEdit(); return }
   if (!sourceText) return
+  validationIssue.value = ''
   const requestProject = projectId.value
   const requestRoute = savedRoute.value.route_id
   const requestRevision = savedRoute.value.workflow_revision
+  const requestReviewToken = item.conditionReview?.review_token ?? ''
+  const requestSource = item.conditionText
   const requestIsCurrent = () => isRuleWorkspaceCurrent(requestProject, requestRoute, requestRevision)
+    && hasCurrentConditionText(item.segment.id, requestSource, requestReviewToken)
   delete conditionErrors.value[item.segment.id]
   setConditionBusy(item.segment.id, true)
   try {
@@ -678,6 +657,7 @@ async function handleSaveInlineEdit(item: ReturnType<typeof buildFinalizeCards>[
       project_id: requestProject,
       route_id: requestRoute,
       expected_workflow_revision: requestRevision,
+      expected_review_token: requestReviewToken,
       segment_id: item.segment.id,
       source_text: sourceText,
     })
@@ -691,7 +671,7 @@ async function handleSaveInlineEdit(item: ReturnType<typeof buildFinalizeCards>[
       return
     }
     await nextTick()
-    const parsed = await parseConditionItem(item, false, sourceText)
+    const parsed = await parseConditionItem(item, false, sourceText, () => isRuleWorkspaceCurrent(requestProject, requestRoute, requestRevision), response.review.review_token ?? '')
     setBatchNotice(parsed ? '修改已保存并识别，请核对后确认规则。' : '原文已保存，识别尚未完成，请稍后重试。')
   } catch (err: any) {
     if (!requestIsCurrent()) return
@@ -704,6 +684,7 @@ async function handleSaveInlineEdit(item: ReturnType<typeof buildFinalizeCards>[
 }
 
 async function handleStartInlineEdit(item: FinalizeCard) {
+  validationIssue.value = ''
   const editingAnotherItem = inlineEditingSegmentId.value && inlineEditingSegmentId.value !== item.segment.id
   if (editingAnotherItem && unsavedCards.value.some(card => card.segment.id === inlineEditingSegmentId.value)) {
     setBatchNotice('请先保存或取消正在编辑的原文，再修改另一条规则。')
@@ -715,16 +696,21 @@ async function handleStartInlineEdit(item: FinalizeCard) {
 
 async function handleResetInlineEdit(item: ReturnType<typeof buildFinalizeCards>[number]) {
   if (!projectId.value || !savedRoute.value || conditionBusySegmentIds.value.has(item.segment.id)) return
+  validationIssue.value = ''
   const requestProject = projectId.value
   const requestRoute = savedRoute.value.route_id
   const requestRevision = savedRoute.value.workflow_revision
+  const requestReviewToken = item.conditionReview?.review_token ?? ''
+  const requestSource = item.conditionText
   const requestIsCurrent = () => isRuleWorkspaceCurrent(requestProject, requestRoute, requestRevision)
+    && hasCurrentConditionText(item.segment.id, requestSource, requestReviewToken)
   setConditionBusy(item.segment.id, true)
   try {
     const response = await saveRuleConditionDraft({
       project_id: requestProject,
       route_id: requestRoute,
       expected_workflow_revision: requestRevision,
+      expected_review_token: requestReviewToken,
       segment_id: item.segment.id,
       source_text: item.defaultConditionText,
     })
@@ -737,7 +723,7 @@ async function handleResetInlineEdit(item: ReturnType<typeof buildFinalizeCards>
       return
     }
     await nextTick()
-    await parseConditionItem(item, false, item.defaultConditionText)
+    await parseConditionItem(item, false, item.defaultConditionText, () => isRuleWorkspaceCurrent(requestProject, requestRoute, requestRevision), response.review.review_token ?? '')
   } catch (err: any) {
     if (!requestIsCurrent()) return
     if (await handleWorkflowRevisionConflict(err)) return
@@ -752,19 +738,23 @@ async function parseConditionItem(
   showError = false,
   sourceText = item.conditionText,
   isCurrent = () => true,
+  expectedReviewToken = item.conditionReview?.review_token ?? '',
 ) {
   if (!isCurrent() || !projectId.value || !savedRoute.value) return false
   delete conditionErrors.value[item.segment.id]
   const requestProject = projectId.value
   const requestRoute = savedRoute.value.route_id
   const requestRevision = savedRoute.value.workflow_revision
+  const requestReviewToken = expectedReviewToken
   const requestIsCurrent = () => isRuleWorkspaceCurrent(requestProject, requestRoute, requestRevision)
+    && hasCurrentConditionText(item.segment.id, sourceText, requestReviewToken)
   setConditionBusy(item.segment.id, true)
   try {
     const response = await parseRuleCondition({
       project_id: projectId.value,
       route_id: savedRoute.value.route_id,
       expected_workflow_revision: requestRevision,
+      expected_review_token: requestReviewToken,
       segment_id: item.segment.id,
       source_text: sourceText,
       process_id: exportProcessIdForItem(item),
@@ -791,49 +781,45 @@ async function parseConditionItem(
 }
 
 async function handleParseCondition(item: ReturnType<typeof buildFinalizeCards>[number]) {
+  validationIssue.value = ''
   await parseConditionItem(item, false)
 }
 
-async function handleBatchParseConditions(
-  queue = [...batchEligibleCards.value],
-  isCurrent = () => true,
-) {
-  if (batchParsing.value || !queue.length || !isCurrent()) return
-  const executionId = ++batchParseExecutionId
-  batchParsing.value = true
-  batchParseCompleted.value = 0
-  batchParseTotal.value = queue.length
-  batchNotice.value = ''
-  let cursor = 0
-  let successCount = 0
-
-  async function worker() {
-    while (cursor < queue.length && isCurrent()) {
-      const item = queue[cursor++]
-      if (!item) continue
-      if (await parseConditionItem(item, false, item.conditionText, isCurrent)) successCount += 1
-      if (!isCurrent()) return
-      batchParseCompleted.value += 1
-    }
-  }
-
+async function handleConfirmAllCandidates() {
+  if (batchReviewing.value || loading.value || error.value || resettingWorkflow.value || reviewAndExporting.value || batchParsing.value || exportingRulePackage.value || !projectId.value || !savedRoute.value) return
+  validationIssue.value = ''
+  const requestProject = projectId.value
+  const requestRoute = savedRoute.value.route_id
+  const requestRevision = savedRoute.value.workflow_revision
+  batchReviewing.value = true
+  batchConfirmationResult.value = null
   try {
-    await Promise.all(Array.from({ length: Math.min(3, queue.length) }, () => worker()))
-    if (!isCurrent()) return
-    const failedCount = queue.length - successCount
-    if (failedCount > 0) {
-      setBatchNotice(`已识别 ${successCount} 条规则；${failedCount} 条还需要补充。`)
-      onlyPending.value = true
+    const result = await confirmFinalizeBatch({
+      cards: () => segmentCards.value,
+      unsavedIds: () => new Set(unsavedCards.value.map(card => card.segment.id)),
+      busyIds: () => conditionBusySegmentIds.value,
+      isCurrent: () => isRuleWorkspaceCurrent(requestProject, requestRoute, requestRevision),
+      displayName: card => finalizeSegmentDisplayName(card.segment),
+      confirm: (card, candidate) => handleConfirmCondition(card, candidate, false, false),
+      errorFor: id => conditionErrors.value[id],
+      errorMessage: conditionErrorMessage,
+      onProgress: (completed, total) => {
+        batchReviewCompleted.value = completed
+        batchReviewTotal.value = total
+      },
+    })
+    if (result) {
+      batchConfirmationResult.value = result
+      setBatchNotice(`已确认 ${result.successCount} 项，剩余 ${result.remainingCount} 项待处理。`)
     }
-
   } finally {
-    if (executionId === batchParseExecutionId) batchParsing.value = false
+    batchReviewing.value = false
   }
 }
 
-
 async function handleConfirmSelectedCandidates() {
-  if (batchReviewing.value || !selectedReviewCards.value.length || !projectId.value || !savedRoute.value) return
+  if (loading.value || batchReviewing.value || !selectedReviewCards.value.length || !projectId.value || !savedRoute.value) return
+  validationIssue.value = ''
   const queue = [...selectedReviewCards.value]
   const requestProject = projectId.value
   const requestRoute = savedRoute.value.route_id
@@ -863,23 +849,33 @@ async function handleConfirmCondition(
   item: ReturnType<typeof buildFinalizeCards>[number],
   candidate: RuleConditionCandidate,
   advance = true,
+  refreshOnConflict = true,
 ) {
   if (!projectId.value || !savedRoute.value || !item.conditionReview?.source_hash) return
   // A quick confirm and a background candidate refresh must not submit two
   // versions of the same card at once.
   if (conditionBusySegmentIds.value.has(item.segment.id)) return
+  validationIssue.value = ''
+  const authoringIssues = validateAuthoredCandidate(candidate, exportProcessIdForItem(item))
+  if (authoringIssues.length) {
+    conditionErrors.value[item.segment.id] = authoringIssues.join('；')
+    return false
+  }
   delete conditionErrors.value[item.segment.id]
   const requestProject = projectId.value
   const requestRoute = savedRoute.value.route_id
   const requestRevision = savedRoute.value.workflow_revision
-  const requestIsCurrent = () => isRuleWorkspaceCurrent(requestProject, requestRoute, requestRevision)
+  const requestReviewToken = item.conditionReview?.review_token ?? ''
   const requestSource = item.conditionText
+  const requestIsCurrent = () => isRuleWorkspaceCurrent(requestProject, requestRoute, requestRevision)
+    && hasCurrentConditionText(item.segment.id, requestSource, requestReviewToken)
   setConditionBusy(item.segment.id, true)
   try {
     const response = await confirmRuleCondition({
       project_id: projectId.value,
       route_id: savedRoute.value.route_id,
       expected_workflow_revision: requestRevision,
+      expected_review_token: requestReviewToken,
       segment_id: item.segment.id,
       source_text: item.conditionText,
       source_hash: item.conditionReview.source_hash,
@@ -903,8 +899,17 @@ async function handleConfirmCondition(
     return true
   } catch (err: any) {
     if (!requestIsCurrent()) return false
+    if (!refreshOnConflict && isWorkflowRevisionConflict(err)) {
+      const reason = conditionErrorMessage(err)
+      conditionErrors.value[item.segment.id] = reason
+      return { status: 'workflow_conflict' as const, reason }
+    }
     if (await handleWorkflowRevisionConflict(err)) return
     if (isConditionSourceConflict(err)) {
+      if (!refreshOnConflict) {
+        conditionErrors.value[item.segment.id] = '规则内容已经变化，请核对最新内容后重试。'
+        return false
+      }
       const refreshed = await parseConditionItem(item, false)
       setBatchNotice(refreshed
           ? `"「${finalizeSegmentDisplayName(item.segment)}」"的候选已按最新条件更新，请核对后再审核。`
@@ -923,16 +928,25 @@ async function handleSaveConfiguration(
   candidate: RuleConditionCandidate,
 ) {
   if (!projectId.value || !savedRoute.value || !candidate.configuration || conditionBusySegmentIds.value.has(item.segment.id)) return
+  validationIssue.value = ''
+  const authoringIssues = validateAuthoredCandidate(candidate, exportProcessIdForItem(item))
+  if (authoringIssues.length) {
+    conditionErrors.value[item.segment.id] = authoringIssues.join('；')
+    return false
+  }
   const requestProject = projectId.value
   const requestRoute = savedRoute.value.route_id
   const requestRevision = savedRoute.value.workflow_revision
+  const requestReviewToken = item.conditionReview?.review_token ?? ''
   const requestSource = item.conditionText
   const requestIsCurrent = () => isRuleWorkspaceCurrent(requestProject, requestRoute, requestRevision)
+    && hasCurrentConditionText(item.segment.id, requestSource, requestReviewToken)
   delete conditionErrors.value[item.segment.id]
   setConditionBusy(item.segment.id, true)
   try {
     const response = await saveProcessConfiguration({
       project_id: requestProject, route_id: requestRoute, expected_workflow_revision: requestRevision,
+      expected_review_token: requestReviewToken,
       segment_id: item.segment.id, process_id: exportProcessIdForItem(item),
       source_text: candidate.preview || item.conditionText, candidate, processes: conditionProcessOptions.value, confirmed_by: '用户直接设定',
     })
@@ -959,10 +973,14 @@ async function handleSaveConfiguration(
 
 async function handleSetMainline(item: ReturnType<typeof buildFinalizeCards>[number]) {
   if (!projectId.value || !savedRoute.value || conditionBusySegmentIds.value.has(item.segment.id)) return
+  validationIssue.value = ''
   const requestProject = projectId.value
   const requestRoute = savedRoute.value.route_id
   const requestRevision = savedRoute.value.workflow_revision
+  const requestReviewToken = item.conditionReview?.review_token ?? ''
+  const requestSource = item.conditionText
   const requestIsCurrent = () => isRuleWorkspaceCurrent(requestProject, requestRoute, requestRevision)
+    && hasCurrentConditionText(item.segment.id, requestSource, requestReviewToken)
   const processName = normalizeExportProcessName(finalizeSegmentDisplayName(item.segment))
   const sourceText = `设置为主工序，始终纳入“${processName}”工序。`
   setConditionBusy(item.segment.id, true)
@@ -971,6 +989,7 @@ async function handleSetMainline(item: ReturnType<typeof buildFinalizeCards>[num
       project_id: projectId.value,
       route_id: savedRoute.value.route_id,
       expected_workflow_revision: requestRevision,
+      expected_review_token: requestReviewToken,
       segment_id: item.segment.id,
       source_text: sourceText,
     })
@@ -993,10 +1012,14 @@ async function handleSetBoolean(
   label: string,
 ) {
   if (!projectId.value || !savedRoute.value || conditionBusySegmentIds.value.has(item.segment.id)) return
+  validationIssue.value = ''
   const requestProject = projectId.value
   const requestRoute = savedRoute.value.route_id
   const requestRevision = savedRoute.value.workflow_revision
+  const requestReviewToken = item.conditionReview?.review_token ?? ''
+  const requestSource = item.conditionText
   const requestIsCurrent = () => isRuleWorkspaceCurrent(requestProject, requestRoute, requestRevision)
+    && hasCurrentConditionText(item.segment.id, requestSource, requestReviewToken)
   const processName = normalizeExportProcessName(finalizeSegmentDisplayName(item.segment))
   const switchLabel = label.trim()
   if (!switchLabel) return
@@ -1008,6 +1031,7 @@ async function handleSetBoolean(
       project_id: projectId.value,
       route_id: savedRoute.value.route_id,
       expected_workflow_revision: requestRevision,
+      expected_review_token: requestReviewToken,
       segment_id: item.segment.id,
       process_id: exportProcessIdForItem(item),
       source_text: sourceText,
@@ -1037,57 +1061,27 @@ function finalizeSegmentMetaLabel(segment: SavedNormalizedRouteVersionResult['se
   return segmentDisplayMetaLabel(segment)
 }
 
-const {
-  exportingRulePackage,
-  downloadRuleDocument,
-} = useFinalizeRulePackageExport({
-  projectId,
-  projectName,
-  savedRoute,
-  segmentCards,
-  unsavedCards,
-  savingRuleIds: conditionBusySegmentIds,
-  displayName: finalizeSegmentDisplayName,
-  metaLabel: finalizeSegmentMetaLabel,
-  phaseLabel: resolveFinalizePhase,
-  primarySteps: finalizeSegmentPrimarySteps,
-  attachedSteps: finalizeSegmentAttachedSteps,
-  finalSteps: finalizeSegmentStepNodes,
-  conditionFields,
-  onBlockedCards: (cards) => {
-    setBatchNotice(`还有 ${cards.length} 项待处理，请先核对规则。`)
-    if (cards[0]) void locateBlockedCard(cards[0].segment.id)
-  },
-  onExportIssue: (issue) => {
-    if (precheckResult.value && !precheckResult.value.ok) return
-    showPrecheckDialog.value = false
-    exportIssue.value = { ...issue, context: '规则包发布' }
-  },
-  onPrecheck: (result) => {
-    precheckResult.value = result
-    if (!result.ok || result.export_summary) {
-      openPrecheckDialog()
-    }
-  },
-  onExportedVersion: (version, meta) => {
-    lastExportedRulePackageVersion.value = version
+const { preparingValidation: exportingRulePackage, prepareValidation } = useFinalizeRuleRevision({
+  projectId, projectName, savedRoute, cards: segmentCards, unsavedCards,
+  savingRuleIds: conditionBusySegmentIds, displayName: finalizeSegmentDisplayName,
+  phaseLabel: resolveFinalizePhase, primarySteps: finalizeSegmentPrimarySteps,
+  attachedSteps: finalizeSegmentAttachedSteps, finalSteps: finalizeSegmentStepNodes,
+  conditionFields, saveRevision: (payload) => saveExecutableRuleRevision(payload, executableRevisionCounter.value),
+  onSaved: (revision) => {
+    executableRevisionCounter.value = revision.revision
+    lastExportedRulePackageVersion.value = revision.revision
     outdatedRulePackageVersion.value = null
-    console.info(`规则包 V${version} 已发布，可用于第 5 步验证生成。`, meta)
+    goToGenerate()
   },
-  onWorkflowConflict: () => loadWorkspace(true),
-})
-
-const reviewAndExportButtonLabel = computed(() => {
-  if (batchParsing.value) return `正在识别 ${batchParseCompleted.value}/${batchParseTotal.value}`
-  if (batchReviewing.value) return `正在审核 ${batchReviewCompleted.value}/${batchReviewTotal.value}`
-  if (exportingRulePackage.value) return '正在发布规则包...'
-  return '发布规则包'
+  onIssue: (message) => { validationIssue.value = message },
+  onBlocked: async (cards) => { if (cards[0]) await locateBlockedCard(cards[0].segment.id) },
 })
 
 async function handleReviewAndExport() {
   if (reviewAndExporting.value || batchParsing.value || batchReviewing.value || exportingRulePackage.value) return
+  validationIssue.value = ''
   if (unsavedCards.value.length) {
-    setBatchNotice(`有 ${unsavedCards.value.length} 项未保存，请先保存或取消修改后再发布。`)
+    setBatchNotice(`有 ${unsavedCards.value.length} 项未保存，请先保存或取消修改后再进入验证。`)
     await locateBlockedCard(unsavedCards.value[0]!.segment.id)
     return
   }
@@ -1106,15 +1100,14 @@ async function handleReviewAndExport() {
       await locateBlockedCard(remaining[0].segment.id)
       return
     }
-    await downloadRuleDocument()
+    await prepareValidation()
   } finally {
     reviewAndExporting.value = false
   }
 }
 
-const validMappingCount = ref(0)
 function goToTemplateMapping() {
-  router.push({ path: '/template-mapping', query: buildProjectRouteQuery(projectId.value) })
+  if (templateMappingVisible.value) router.push({ path: '/template-mapping', query: buildProjectRouteQuery(projectId.value) })
 }
 
 function openPrecheckDialog() {
@@ -1183,6 +1176,7 @@ function stopPreprocessPolling() {
 function invalidateRulePreprocessing() {
   preprocessEpoch += 1
   preprocessRefreshInFlight = null
+  batchParsing.value = false
   stopPreprocessPolling()
 }
 
@@ -1204,6 +1198,7 @@ async function pollRulePreprocessing() {
     if (!isPreprocessWorkspaceCurrent(epoch, requestProject, requestRoute, requestRevision)) return
     const previous = preprocessStatus.value?.task_status
     preprocessStatus.value = next
+    batchParsing.value = next.task_status === 'running' || next.task_status === 'queued'
     if (next.task_status === 'running' || next.task_status === 'queued') {
       stopPreprocessPolling()
       preprocessPollTimer = window.setTimeout(() => {
@@ -1216,13 +1211,18 @@ async function pollRulePreprocessing() {
         if (hasUnsavedEdits.value || conditionBusySegmentIds.value.size) {
           setBatchNotice('后台识别已完成，请保存或取消当前修改后刷新结果。')
         } else {
-          await loadWorkspace(true)
+          await loadWorkspace(true, false)
         }
       }
     }
   } catch (err) {
     if (!isPreprocessWorkspaceCurrent(epoch, requestProject, requestRoute, requestRevision)) return
     console.warn('读取规则预处理状态失败', err)
+    stopPreprocessPolling()
+    preprocessPollTimer = window.setTimeout(() => {
+      preprocessPollTimer = null
+      if (isPreprocessWorkspaceCurrent(epoch, requestProject, requestRoute, requestRevision)) void pollRulePreprocessing()
+    }, 1200)
   } finally {
     if (preprocessRefreshInFlight === owner) preprocessRefreshInFlight = null
   }
@@ -1244,12 +1244,13 @@ async function startRulePreprocessingForWorkspace() {
   if (triggerKey === lastRulePreprocessTriggerKey) {
     const status = preprocessStatus.value?.task_status
     if (status === 'running' || status === 'queued') {
+      batchParsing.value = true
       void pollRulePreprocessing()
       return
     }
     if (status === 'completed' || status === 'failed') return
   }
-  const items = reviewableCards.value.map(item => ({
+  const items = batchEligibleCards.value.map(item => ({
     segment_id: item.segment.id,
     process_id: exportProcessIdForItem(item),
     process_name: normalizeExportProcessName(finalizeSegmentDisplayName(item.segment)),
@@ -1259,6 +1260,7 @@ async function startRulePreprocessingForWorkspace() {
   try {
     lastRulePreprocessTriggerKey = triggerKey
     preprocessStatus.value = null
+    batchParsing.value = true
     const next = await startRulePreprocessing({
       project_id: requestProject,
       route_id: requestRoute,
@@ -1268,34 +1270,50 @@ async function startRulePreprocessingForWorkspace() {
     })
     if (!isPreprocessWorkspaceCurrent(epoch, requestProject, requestRoute, requestRevision)) return
     preprocessStatus.value = next
+    batchParsing.value = next.task_status === 'running' || next.task_status === 'queued'
     if (next.task_status === 'running' || next.task_status === 'queued') {
       void pollRulePreprocessing()
+    } else if (next.task_status === 'completed') {
+      if (hasUnsavedEdits.value || conditionBusySegmentIds.value.size) {
+        setBatchNotice('后台识别已完成，请保存或取消当前修改后刷新结果。')
+      } else {
+        await loadWorkspace(true, false)
+      }
     }
   } catch (err) {
     if (!isPreprocessWorkspaceCurrent(epoch, requestProject, requestRoute, requestRevision)) return
+    batchParsing.value = false
     lastRulePreprocessTriggerKey = ''
     console.warn('启动规则预处理失败', err)
   }
 }
 
-async function loadWorkspace(forceRefresh = false) {
+async function loadWorkspace(forceRefresh = false, autoPreprocess = true) {
   if (hasUnsavedEdits.value) {
     setBatchNotice('有未保存的修改，当前编辑仍保留。请先保存或取消修改后再刷新结果。')
     return
   }
   invalidateRulePreprocessing()
-  const request = workspaceRequestGuard.start()
+  let request = workspaceRequestGuard.start()
+  const requestedProjectId = String(route.query.project_id || '')
+  loadingProjectId = requestedProjectId
+  let workspaceProjectId: number | null = null
+  const isCurrent = () => request.isCurrent()
+    && (String(route.query.project_id || '') === requestedProjectId
+      || String(route.query.project_id || '') === String(workspaceProjectId))
+    && (workspaceProjectId === null || projectId.value === workspaceProjectId)
   precheckResult.value = null
-  validMappingCount.value = 0
   loading.value = true
+  lastExportedRulePackageVersion.value = null
+  outdatedRulePackageVersion.value = null
   conditionErrors.value = {}
   selectedRuleIds.value = new Set()
   error.value = ''
   workspaceErrorTitle.value = FINALIZE_VIEW_COPY.errorTitle
   try {
     const projectList = await listProjects(forceRefresh)
-    if (!request.isCurrent()) return
-    const resolvedProjectId = resolveAvailableProjectId(String(route.query.project_id || ''), projectList)
+    if (!isCurrent()) return
+    const resolvedProjectId = resolveAvailableProjectId(requestedProjectId, projectList)
     if (!resolvedProjectId) {
       projectId.value = null
       projectName.value = ''
@@ -1309,6 +1327,8 @@ async function loadWorkspace(forceRefresh = false) {
     }
 
     projectId.value = Number(resolvedProjectId)
+    workspaceProjectId = projectId.value
+    loadingProjectId = resolvedProjectId
     if (String(route.query.project_id || '') !== resolvedProjectId) {
       void router.replace({
         path: route.path,
@@ -1317,26 +1337,33 @@ async function loadWorkspace(forceRefresh = false) {
     }
     const currentProject = projectList.find(project => project.id === projectId.value)
     projectName.value = currentProject?.name || `任务 #${projectId.value}`
-    const [routeResult, operationList, supersetResult, latestPackage, fieldRegistry, groupTemplate] = await Promise.all([
+    const [routeResult, operationList, supersetResult, fieldRegistry, executableRevision] = await Promise.all([
       getSavedNormalizedRoute(projectId.value, forceRefresh),
       listOperations(projectId.value, forceRefresh),
       getSupersetRoute(projectId.value, forceRefresh),
-      getLatestFinalizedRulePackage(projectId.value, forceRefresh).catch(() => null),
       getConditionFieldRegistry(),
-      getCurrentGroupTemplate(projectId.value).catch((cause: any) => { if (cause?.response?.status === 404) return null; throw cause }),
+      getLatestExecutableRuleRevision(projectId.value),
     ])
-    if (!request.isCurrent()) return
-    const mappingStatus = getTemplateMappingStatus(groupTemplate, buildFinalTemplateMappingOperations(routeResult.segments, supersetResult.superset_route || []))
-    validMappingCount.value = mappingStatus.validCount
-    if (!mappingStatus.validCount) {
-      savedRoute.value = null
-      await router.replace({ path: '/template-mapping', query: buildProjectRouteQuery(projectId.value) })
-      return
+    if (!isCurrent()) return
+    const analysisLock = await enterRuleFinalization({
+      project_id: projectId.value,
+      route_id: routeResult.route_id,
+      expected_workflow_revision: routeResult.workflow_revision,
+    })
+    if (!isCurrent()) return
+    if (!routeResult.analysis_locked) {
+      clearWorkflowProjectDataCache(projectId.value)
+      request = workspaceRequestGuard.start()
     }
+    Object.assign(routeResult, {
+      analysis_locked: analysisLock.analysis_locked,
+      analysis_locked_at: analysisLock.analysis_locked_at,
+    })
     savedRoute.value = routeResult
     operations.value = operationList
     supersetOperations.value = supersetResult.superset_route || []
     conditionFields.value = fieldRegistry.fields || []
+    executableRevisionCounter.value = executableRevision?.revision || 0
     clearRuleEditStates()
     cancelInlineEdit()
     const skippedLocalDrafts = readDrafts(routeResult.segments)
@@ -1345,43 +1372,11 @@ async function loadWorkspace(forceRefresh = false) {
     }
     activeSegmentId.value = routeResult.segments[0]?.id || ''
     await nextTick()
-    if (!request.isCurrent()) return
+    if (!isCurrent()) return
     lastExportedRulePackageVersion.value = null
     outdatedRulePackageVersion.value = null
-    if (latestPackage) {
-      const routeMatches = latestPackage.schema_version === '2.0'
-        && latestPackage.route_version_id === routeResult.route_id
-      if (!routeMatches || !latestPackage.content_hash || exportBlockingCards(segmentCards.value).length) {
-        outdatedRulePackageVersion.value = latestPackage.version
-      } else {
-        try {
-          const currentPackage = await compileRulePackage(buildCompileRequestFromCards({
-            projectId: projectId.value,
-            packageName: latestPackage.package_name,
-            routeVersionId: routeResult.route_id,
-            cards: segmentCards.value,
-            displayName: finalizeSegmentDisplayName,
-            phaseLabel: resolveFinalizePhase,
-            primarySteps: finalizeSegmentPrimarySteps,
-            attachedSteps: finalizeSegmentAttachedSteps,
-            finalSteps: finalizeSegmentStepNodes,
-            conditionFields: conditionFields.value,
-          }))
-          if (!request.isCurrent()) return
-          if (currentPackage.content_hash === latestPackage.content_hash) {
-            lastExportedRulePackageVersion.value = latestPackage.version
-          } else {
-            outdatedRulePackageVersion.value = latestPackage.version
-          }
-        } catch (hashCheckError) {
-          if (!request.isCurrent()) return
-          console.warn('无法校验现有规则包是否为最新版本', hashCheckError)
-          outdatedRulePackageVersion.value = latestPackage.version
-        }
-      }
-    }
   } catch (err: any) {
-    if (!request.isCurrent()) return
+    if (!isCurrent()) return
     if (Number(err?.response?.status) !== 404) console.error(err)
     savedRoute.value = null
     operations.value = []
@@ -1389,20 +1384,20 @@ async function loadWorkspace(forceRefresh = false) {
     lastExportedRulePackageVersion.value = null
     outdatedRulePackageVersion.value = null
     workspaceErrorTitle.value = Number(err?.response?.status) === 404
-      ? '当前任务尚未完成第三步保存'
-      : FINALIZE_VIEW_COPY.errorTitle
-    error.value = err?.response?.data?.detail || '当前任务还没有第三步可预览的已保存结果，请先回到第三步完成分析。'
+      ? '当前任务尚未完成第三步保存' : FINALIZE_VIEW_COPY.errorTitle
+    error.value = err?.response?.data?.detail?.message || err?.response?.data?.detail
+      || '当前任务还没有第三步可预览的已保存结果，请先回到第三步完成分析。'
   } finally {
     if (!request.isLatest()) return
     loading.value = false
-    loadedDataRevision = getWorkflowDataRevision()
-    if (request.isCurrent() && savedRoute.value && !error.value) {
-      void startRulePreprocessingForWorkspace()
+    if (isCurrent() && savedRoute.value && !error.value && autoPreprocess) {
+      await startRulePreprocessingForWorkspace()
     }
   }
 }
 
 async function reloadWorkspace() {
+  validationIssue.value = ''
   if (!await ensureRuleEditsSaved()) return
   await loadWorkspace(true)
 }
@@ -1432,15 +1427,28 @@ onBeforeRouteUpdate((to, from) => (
 ))
 
 async function handleResetAllRecognition() {
-  if (resettingWorkflow.value || !projectId.value || !savedRoute.value) return
+  if (resettingWorkflow.value || loading.value || batchParsing.value || batchReviewing.value
+    || reviewAndExporting.value || exportingRulePackage.value || !finalizeViewActive
+    || !projectId.value || !savedRoute.value) return
+  const requestProject = projectId.value
+  const requestRoute = savedRoute.value.route_id
+  const requestRevision = savedRoute.value.workflow_revision
+  const task = recognitionTaskGuard.start()
+  const isCurrent = () => task.isCurrent() && finalizeViewActive
+    && projectId.value === requestProject && Number(route.query.project_id) === requestProject
+  validationIssue.value = ''
   resettingWorkflow.value = true
   batchNotice.value = ''
   try {
+    if (!await ensureRuleEditsSaved() || !isCurrent()) return
+    invalidateRulePreprocessing()
     const result = await resetWorkflow({
-      project_id: projectId.value,
+      project_id: requestProject,
       from_step: 4,
-      expected_workflow_revision: savedRoute.value.workflow_revision,
+      expected_workflow_revision: requestRevision,
     })
+    if (!isCurrent() || result.project_id !== requestProject
+      || !isRuleWorkspaceCurrent(requestProject, requestRoute, requestRevision)) return
     publishWorkflowReset({
       projectId: result.project_id,
       fromStep: 4,
@@ -1450,20 +1458,14 @@ async function handleResetAllRecognition() {
     resetDialogVisible.value = false
     onlyPending.value = true
     setBatchNotice('重置完成，正在后台准备重新识别。')
-    const task = recognitionTaskGuard.start()
     const context = {
       projectId: result.project_id,
       workflowRevision: result.workflow_revision,
-      isCurrent: task.isCurrent,
+      isCurrent,
     }
-    runBackgroundTask(() => restartAllRecognitionInBackground(context), (err) => {
-      showFinalizeNotice(
-        '重新识别失败',
-        '现有条件原文仍然保留，请刷新页面后重试。',
-        conditionErrorMessage(err),
-      )
-    })
+    await restartAllRecognitionInBackground(context)
   } catch (err: any) {
+    if (!isCurrent()) return
     showFinalizeNotice(
       '重新识别失败',
       '现有条件原文仍然保留，请刷新页面后重试。',
@@ -1479,6 +1481,7 @@ async function restartAllRecognitionInBackground(context: {
   workflowRevision: number
   isCurrent: () => boolean
 }) {
+  if (!context.isCurrent()) return
   await loadWorkspace(true)
   if (
     !context.isCurrent()
@@ -1490,21 +1493,19 @@ async function restartAllRecognitionInBackground(context: {
   if (error.value) {
     throw new Error(error.value)
   }
-  await nextTick()
-  const queue = [...batchEligibleCards.value]
-  if (!queue.length) {
+  if (!batchEligibleCards.value.length && !batchParsing.value) {
     setBatchNotice('没有需要重新识别的规则；有效的已确认规则已保留。')
-    return
   }
-  await handleBatchParseConditions(queue, context.isCurrent)
 }
 
 watch(() => route.query.project_id, () => {
   if (!finalizeViewActive) return
+  // Project discovery may canonicalize a missing/stale query via replace().
+  // That changes the URL for the existing load, rather than starting a new one.
+  if (String(route.query.project_id || '') === loadingProjectId) return
   invalidateRulePreprocessing()
   preprocessStatus.value = null
   recognitionTaskGuard.cancel()
-  batchParseExecutionId += 1
   batchParsing.value = false
   void loadWorkspace()
 })
@@ -1515,7 +1516,6 @@ function handleExternalWorkflowReset(signal: typeof workflowResetSignal.value) {
   locallyHandledResetAt = signal.emittedAt
   invalidateRulePreprocessing()
   recognitionTaskGuard.cancel()
-  batchParseExecutionId += 1
   batchParsing.value = false
   markExportedRulePackageOutdated()
   if (hasUnsavedEdits.value || conditionBusySegmentIds.value.size) {
@@ -1523,6 +1523,7 @@ function handleExternalWorkflowReset(signal: typeof workflowResetSignal.value) {
     return
   }
   if (signal.fromStep <= 3) clearAllDrafts()
+  if (!finalizeViewActive) return
   void loadWorkspace(true)
 }
 
@@ -1534,6 +1535,9 @@ watch(() => pendingReviewCards.value.map(item => [item.segment.id, `${item.condi
   selectedRuleIds.value = new Set(current.filter(([id, signature]) => selectedRuleIds.value.has(id) && before.get(id) === signature).map(([id]) => id))
 })
 watch(() => projectId.value, () => { conditionErrors.value = {}; selectedRuleIds.value = new Set() })
+watch(() => [projectId.value, savedRoute.value?.route_id, savedRoute.value?.workflow_revision], () => {
+  batchConfirmationResult.value = null
+})
 
 watch(drafts, () => {
   persistDrafts()
@@ -1543,53 +1547,63 @@ watch([visibleSegments, onlyPending], () => {
   syncActiveSegment()
 }, { deep: true })
 
-onMounted(async () => {
+onMounted(() => {
+  finalizeViewActive = true
   window.addEventListener('beforeunload', protectUnsavedPage)
-  try {
-    await loadWorkspace()
-  } finally {
-    initialLoadFinished = true
-  }
+  void loadWorkspace()
 })
 
 onBeforeUnmount(() => {
   finalizeViewActive = false
+  workspaceRequestGuard.start()
   invalidateRulePreprocessing()
+  recognitionTaskGuard.cancel()
   window.removeEventListener('beforeunload', protectUnsavedPage)
 })
 
 onActivated(() => {
   finalizeViewActive = true
-  if (!initialLoadFinished || loading.value) return
-
-  const routeProjectId = Number(route.query.project_id || 0)
-  const projectChanged = routeProjectId > 0 && routeProjectId !== projectId.value
-  if (!projectChanged && loadedDataRevision === getWorkflowDataRevision()) {
+  if (hasUnsavedEdits.value || conditionBusySegmentIds.value.size) {
     void startRulePreprocessingForWorkspace()
-    const pid = projectId.value
-    if (pid && savedRoute.value) void getCurrentGroupTemplate(pid).then(template => {
-      if (!finalizeViewActive || projectId.value !== pid || !savedRoute.value) return
-      validMappingCount.value = getTemplateMappingStatus(template, buildFinalTemplateMappingOperations(savedRoute.value.segments, supersetOperations.value)).validCount
-      if (!validMappingCount.value) goToTemplateMapping()
-    }).catch(() => { if (finalizeViewActive && projectId.value === pid) goToTemplateMapping() })
     return
   }
-  void loadWorkspace()
+  // Initial activation follows mounting before discovery has resolved an ID;
+  // the mounted request already owns that load.
+  if (loading.value && loadingProjectId === String(route.query.project_id || '')) return
+  // Mapping writes and changes from another window can retire the package
+  // without changing this mounted view's cached route or rules.
+  void loadWorkspace(true)
 })
 
 onDeactivated(() => {
   finalizeViewActive = false
+  workspaceRequestGuard.start()
+  loading.value = false
   invalidateRulePreprocessing()
   recognitionTaskGuard.cancel()
-  batchParseExecutionId += 1
   batchParsing.value = false
-  loadedDataRevision = getWorkflowDataRevision()
 })
 </script>
 
 <style scoped>
-.rule-review-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; padding: 10px 14px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; color: #64748b; font-size: 12px; }
-.rule-review-actions { display: flex; align-items: center; gap: 8px; }
+.batch-confirmation-result {
+  flex-shrink: 0;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border: 1px solid var(--pm-border-strong);
+  border-radius: 8px;
+  background: var(--pm-surface-subtle);
+  color: var(--pm-text-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.batch-confirmation-result ul { margin: 8px 0 0; padding-left: 20px; }
+.batch-confirmation-result li + li { margin-top: 4px; }
+
+.ash-selection-actions { display: flex; align-items: center; gap: 6px; padding-right: 8px; margin-right: 2px; border-right: 1px solid var(--pm-border); }
+.ash-selection-count { white-space: nowrap; }
 
 .finalize-view {
   --workflow-nav-right-inset: 0px;
@@ -1599,7 +1613,7 @@ onDeactivated(() => {
   min-height: 0;
   padding: 0;
   overflow: hidden;
-  background: #f8fafc;
+  background: var(--pm-surface-subtle);
 }
 
 .analysis-style-header {
@@ -1607,8 +1621,8 @@ onDeactivated(() => {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--pm-surface);
+  border: 1px solid var(--pm-border);
   border-radius: 8px;
   padding: 5px 12px;
   box-shadow: 0 1.5px 5px rgba(15, 23, 42, 0.02);
@@ -1616,9 +1630,9 @@ onDeactivated(() => {
 }
 
 .ash-meta-stale {
-  color: #9a3412;
-  background: #fff7ed;
-  border-color: #fed7aa;
+  color: var(--pm-warning);
+  background: var(--pm-warning-soft);
+  border-color: var(--pm-warning-border);
 }
 
 .ash-left-content {
@@ -1632,7 +1646,7 @@ onDeactivated(() => {
 .ash-page-title {
   font-size: 15px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--pm-text);
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -1643,7 +1657,7 @@ onDeactivated(() => {
   border: 1px solid #c9d3e3;
   padding: 2px 8px;
   border-radius: 5px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   flex-shrink: 0;
   max-width: 160px;
@@ -1657,14 +1671,14 @@ onDeactivated(() => {
   align-items: center;
   gap: 12px;
   margin-left: 4px;
-  border-left: 1px solid #cbd5e1;
+  border-left: 1px solid var(--pm-border-strong);
   padding-left: 12px;
   min-width: 0;
 }
 
 .ash-meta-item {
-  font-size: 12.5px;
-  color: #64748b;
+  font-size: 13px;
+  color: var(--pm-text-muted);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1672,7 +1686,7 @@ onDeactivated(() => {
 }
 
 .ash-meta-item strong {
-  color: #0f172a;
+  color: var(--pm-text);
   font-weight: 700;
 }
 
@@ -1680,12 +1694,12 @@ onDeactivated(() => {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  color: #64748b;
+  color: var(--pm-text-muted);
   font-size: 12px;
   white-space: nowrap;
 }
 
-.ash-review-progress strong { color: #0f172a; font-weight: 700; }
+.ash-review-progress strong { color: var(--pm-text); font-weight: 700; }
 
 .ash-publish-state {
   display: inline-flex;
@@ -1693,10 +1707,10 @@ onDeactivated(() => {
   gap: 6px;
   flex: 0 0 auto;
   padding: 4px 9px;
-  border: 1px solid #bbf7d0;
+  border: 1px solid var(--pm-success-border);
   border-radius: 999px;
-  color: #166534;
-  background: #f0fdf4;
+  color: var(--pm-success);
+  background: var(--pm-success-soft);
   font-size: 12px;
   line-height: 1;
   font-family: inherit;
@@ -1707,16 +1721,16 @@ onDeactivated(() => {
 .ash-publish-state:disabled { opacity: 1; cursor: default; }
 
 .ash-publish-state--blocked {
-  border-color: #fed7aa;
-  color: #9a3412;
-  background: #fff7ed;
+  border-color: var(--pm-warning-border);
+  color: var(--pm-warning);
+  background: var(--pm-warning-soft);
 }
 
 .ash-publish-state-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #22c55e;
+  background: var(--pm-success);
   box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.12);
 }
 
@@ -1735,7 +1749,7 @@ onDeactivated(() => {
   padding: 7px 4px;
   border: 0;
   background: transparent;
-  color: #4f46e5;
+  color: var(--pm-primary);
   font: inherit;
   font-size: 12px;
   font-weight: 600;
@@ -1743,7 +1757,7 @@ onDeactivated(() => {
   cursor: pointer;
 }
 
-.ash-template-link:hover { color: #3730a3; text-decoration: underline; }
+.ash-template-link:hover { color: var(--pm-primary); text-decoration: underline; }
 
 .ash-quiet-action,
 .ash-icon-action {
@@ -1754,7 +1768,7 @@ onDeactivated(() => {
   border: 1px solid transparent;
   border-radius: 7px;
   background: transparent;
-  color: #64748b;
+  color: var(--pm-text-muted);
   font: inherit;
   font-size: 12px;
   font-weight: 600;
@@ -1763,46 +1777,46 @@ onDeactivated(() => {
 }
 
 .ash-quiet-action { padding: 5px 7px; white-space: nowrap; }
-.ash-quiet-action:hover:not(:disabled) { background: #f1f5f9; color: #334155; }
+.ash-quiet-action:hover:not(:disabled) { background: var(--pm-surface-subtle); color: var(--pm-text-secondary); }
 .ash-icon-action { width: 30px; padding: 0; }
-.ash-icon-action:hover:not(:disabled) { border-color: #e2e8f0; background: #f8fafc; color: #334155; }
+.ash-icon-action:hover:not(:disabled) { border-color: var(--pm-border); background: var(--pm-surface-subtle); color: var(--pm-text-secondary); }
 .ash-quiet-action:disabled,
-.ash-icon-action:disabled { color: #94a3b8; cursor: not-allowed; }
+.ash-icon-action:disabled { color: var(--pm-text-muted); cursor: not-allowed; }
 .ash-quiet-action:focus-visible,
-.ash-icon-action:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+.ash-icon-action:focus-visible { outline: 2px solid var(--pm-primary-border); outline-offset: 2px; }
 
 .ash-btn-outline {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #ffffff;
-  border: 1px solid #6366f1;
-  color: #6366f1;
+  background: var(--pm-surface);
+  border: 1px solid var(--pm-primary);
+  color: var(--pm-primary);
   padding: 3px 12px;
   border-radius: 8px;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
 }
-.ash-btn-outline:hover:not(:disabled) { background: #f5f3ff; border-color: #4f46e5; color: #4f46e5; }
-.ash-btn-outline:disabled { opacity: 0.45; cursor: not-allowed; border-color: #cbd5e1; color: #94a3b8; }
+.ash-btn-outline:hover:not(:disabled) { background: var(--pm-primary-soft); border-color: var(--pm-primary); color: var(--pm-primary); }
+.ash-btn-outline:disabled { opacity: 0.45; cursor: not-allowed; border-color: var(--pm-border-strong); color: var(--pm-text-muted); }
 
 .ash-btn-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 4px 12px;
-  border: 1px solid #4f46e5;
+  border: 1px solid var(--pm-primary);
   border-radius: 8px;
-  background: #4f46e5;
-  color: #fff;
+  background: var(--pm-primary);
+  color: var(--pm-surface);
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
   transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
 }
-.ash-btn-primary:hover:not(:disabled) { background: #4338ca; border-color: #4338ca; }
+.ash-btn-primary:hover:not(:disabled) { background: var(--pm-primary-hover); border-color: var(--pm-primary-hover); }
 .ash-btn-primary:disabled { opacity: .45; cursor: not-allowed; }
 
 .export-blocker-overlay {
@@ -1813,16 +1827,16 @@ onDeactivated(() => {
   place-items: center;
   padding: 24px;
   background: rgba(15, 23, 42, 0.45);
-  backdrop-filter: blur(2px);
+
 }
 
 .export-blocker-dialog {
   width: min(520px, 100%);
   max-height: min(680px, calc(100vh - 48px));
   overflow: auto;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--pm-border);
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--pm-surface);
   box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.12), 0 8px 10px -6px rgba(15, 23, 42, 0.08);
 }
 
@@ -1832,13 +1846,13 @@ onDeactivated(() => {
   justify-content: space-between;
   gap: 16px;
   padding: 20px 24px 16px;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--pm-surface-subtle);
 }
 
 .export-blocker-kicker {
   display: inline-block;
   margin-bottom: 4px;
-  color: #64748b;
+  color: var(--pm-text-muted);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -1846,7 +1860,7 @@ onDeactivated(() => {
 
 .export-blocker-header h2 {
   margin: 0;
-  color: #0f172a;
+  color: var(--pm-text);
   font-size: 19px;
   font-weight: 650;
   line-height: 1.4;
@@ -1863,26 +1877,26 @@ onDeactivated(() => {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #64748b;
+  color: var(--pm-text-muted);
   font-size: 13px;
   cursor: pointer;
   transition: background-color 0.15s, color 0.15s;
 }
 
 .export-blocker-close:hover {
-  background: #f1f5f9;
-  color: #1e293b;
+  background: var(--pm-surface-subtle);
+  color: var(--pm-text);
 }
 
 .export-blocker-copy {
   margin: 0;
   padding: 14px 24px;
-  color: #475569;
+  color: var(--pm-text-secondary);
   font-size: 14px;
   line-height: 1.7;
   font-weight: 400;
-  background: #f8fafc;
-  border-bottom: 1px solid #f1f5f9;
+  background: var(--pm-surface-subtle);
+  border-bottom: 1px solid var(--pm-surface-subtle);
 }
 
 .export-blocker-group {
@@ -1899,17 +1913,17 @@ onDeactivated(() => {
 .export-blocker-group-head strong {
   font-size: 13px;
   font-weight: 600;
-  color: #334155;
+  color: var(--pm-text-secondary);
 }
 
 .export-blocker-group-head span {
   display: inline-flex;
   align-items: center;
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
-  color: #64748b;
-  background: #f1f5f9;
+  color: var(--pm-text-muted);
+  background: var(--pm-surface-subtle);
   border-radius: 9999px;
   font-variant-numeric: tabular-nums;
 }
@@ -1929,9 +1943,9 @@ onDeactivated(() => {
   gap: 12px;
   min-height: 42px;
   padding: 0 12px 0 14px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--pm-border);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--pm-surface);
   transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -1940,14 +1954,14 @@ onDeactivated(() => {
 }
 
 .export-blocker-list-item--clickable:hover {
-  border-color: #cbd5e1;
-  background: #f8fafc;
+  border-color: var(--pm-border-strong);
+  background: var(--pm-surface-subtle);
 }
 
 .export-blocker-list span {
   display: inline-block;
   min-width: 28px;
-  color: #64748b;
+  color: var(--pm-text-muted);
   font-size: 13px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
@@ -1957,7 +1971,7 @@ onDeactivated(() => {
 .export-blocker-list strong {
   flex: 1;
   overflow: hidden;
-  color: #1e293b;
+  color: var(--pm-text);
   font-size: 14px;
   font-weight: 600;
   line-height: 1.45;
@@ -1970,8 +1984,8 @@ onDeactivated(() => {
   align-items: center;
   padding: 2px 8px;
   border-radius: 4px;
-  background: #fff7ed;
-  color: #c2410c;
+  background: var(--pm-warning-soft);
+  color: var(--pm-warning);
   border: 1px solid #ffedd5;
   font-size: 12px;
   font-weight: 600;
@@ -1991,8 +2005,8 @@ onDeactivated(() => {
   gap: 10px;
   margin-top: 16px;
   padding: 14px 24px;
-  border-top: 1px solid #e2e8f0;
-  background: #ffffff;
+  border-top: 1px solid var(--pm-border);
+  background: var(--pm-surface);
 }
 
 .batch-toast {
@@ -2004,8 +2018,8 @@ onDeactivated(() => {
   align-items: center;
   gap: 8px;
   padding: 9px 16px;
-  background: #1e293b;
-  color: #f8fafc;
+  background: var(--pm-text);
+  color: var(--pm-surface-subtle);
   font-size: 13px;
   font-weight: 500;
   border-radius: 8px;
@@ -2027,9 +2041,9 @@ onDeactivated(() => {
 .preprocess-failure-panel {
   margin: -2px 0 12px;
   padding: 12px 14px;
-  border: 1px solid #fed7aa;
+  border: 1px solid var(--pm-warning-border);
   border-radius: 10px;
-  background: linear-gradient(135deg, #fff7ed 0%, #fffaf5 100%);
+  background: var(--pm-warning-soft);
   color: #7c2d12;
   box-shadow: 0 8px 18px rgba(251, 146, 60, 0.10);
 }
@@ -2049,7 +2063,7 @@ onDeactivated(() => {
   flex: 0 0 20px;
   border-radius: 50%;
   background: #fb923c;
-  color: #fff;
+  color: var(--pm-surface);
   font-size: 12px;
   font-weight: 800;
   line-height: 1;
@@ -2063,7 +2077,7 @@ onDeactivated(() => {
 
 .preprocess-failure-head p {
   margin: 3px 0 0;
-  color: #9a3412;
+  color: var(--pm-warning);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -2071,7 +2085,7 @@ onDeactivated(() => {
 .preprocess-failure-list {
   margin: 10px 0 0 30px;
   padding: 0;
-  color: #9a3412;
+  color: var(--pm-warning);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -2083,7 +2097,7 @@ onDeactivated(() => {
 
 .preprocess-failure-more {
   margin: 8px 0 0 30px;
-  color: #c2410c;
+  color: var(--pm-warning);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -2092,18 +2106,18 @@ onDeactivated(() => {
 
 /* ===== Phase-active button highlight ===== */
 .ash-btn-primary.ash-btn-phase-active {
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.30), 0 4px 12px rgba(79, 70, 229, 0.25);
-  transform: translateY(-1px);
+  box-shadow: 0 0 0 2px rgba(36, 95, 168, 0.30), 0 4px 12px rgba(36, 95, 168, 0.25);
+  transform: none;
 }
 .ash-btn-outline.ash-btn-phase-active {
-  border-color: #4f46e5;
-  color: #4338ca;
-  background: #eef2ff;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.22), 0 4px 12px rgba(99, 102, 241, 0.12);
-  transform: translateY(-1px);
+  border-color: var(--pm-primary);
+  color: var(--pm-primary-hover);
+  background: var(--pm-primary-soft);
+  box-shadow: 0 0 0 2px rgba(36, 95, 168, 0.22), 0 4px 12px rgba(36, 95, 168, 0.12);
+  transform: none;
 }
 
-.text-done { color: #16a34a !important; }
+.text-done { color: var(--pm-success) !important; }
 
 .finalize-layout {
   display: grid;
@@ -2118,8 +2132,8 @@ onDeactivated(() => {
   min-width: 0;
   overflow-y: auto;
   border-radius: 14px;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--pm-surface);
+  border: 1px solid var(--pm-border);
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
   padding: 12px 16px;
 }
@@ -2130,8 +2144,8 @@ onDeactivated(() => {
   justify-content: space-between;
   gap: 12px;
   min-height: 36px;
-  color: #64748b;
-  font-size: 12.5px;
+  color: var(--pm-text-muted);
+  font-size: 13px;
 }
 
 .export-issue-overlay {
@@ -2150,9 +2164,9 @@ onDeactivated(() => {
   gap: 14px;
   width: min(560px, 100%);
   padding: 22px;
-  border: 1px solid #d8e0eb;
+  border: 1px solid var(--pm-border);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--pm-surface);
   box-shadow: 0 20px 46px rgba(15, 23, 42, 0.24);
 }
 
@@ -2162,8 +2176,8 @@ onDeactivated(() => {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: #fff0e7;
-  color: #b54708;
+  background: var(--pm-warning-soft);
+  color: var(--pm-warning);
   font-size: 18px;
   font-weight: 800;
 }
@@ -2171,29 +2185,29 @@ onDeactivated(() => {
 .export-issue-kicker {
   display: block;
   margin-bottom: 4px;
-  color: #64748b;
+  color: var(--pm-text-muted);
   font-size: 12px;
   font-weight: 700;
 }
 
 .export-issue-dialog h2 {
   margin: 0;
-  color: #0f172a;
+  color: var(--pm-text);
   font-size: 18px;
   line-height: 1.4;
 }
 
 .export-issue-dialog p {
   margin: 8px 0 0;
-  color: #475569;
+  color: var(--pm-text-secondary);
   font-size: 14px;
   line-height: 1.65;
 }
 
 .export-issue-details {
   margin-top: 14px;
-  border-top: 1px solid #e2e8f0;
-  color: #475569;
+  border-top: 1px solid var(--pm-border);
+  color: var(--pm-text-secondary);
   font-size: 12px;
 }
 
@@ -2209,8 +2223,8 @@ onDeactivated(() => {
   margin: 8px 0 0;
   padding: 10px;
   border-radius: 6px;
-  background: #f8fafc;
-  color: #475569;
+  background: var(--pm-surface-subtle);
+  color: var(--pm-text-secondary);
   font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
   white-space: pre-wrap;
 }
@@ -2300,8 +2314,8 @@ onDeactivated(() => {
   position: fixed;
   inset: 0;
   background: rgba(15, 23, 42, 0.52);
-  backdrop-filter: blur(12px) saturate(120%);
-  -webkit-backdrop-filter: blur(12px) saturate(120%);
+
+
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2312,7 +2326,7 @@ onDeactivated(() => {
 .edit-drawer {
   width: min(520px, 100%);
   max-height: calc(100vh - 80px);
-  background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+  background: var(--pm-surface);
   border-radius: 20px;
   overflow: hidden;
   display: flex;
@@ -2320,7 +2334,7 @@ onDeactivated(() => {
   box-shadow:
     0 32px 64px -16px rgba(15, 23, 42, 0.22),
     0 0 0 1px rgba(148, 163, 184, 0.1),
-    0 0 0 4px rgba(99, 102, 241, 0.04);
+    0 0 0 4px rgba(36, 95, 168, 0.04);
 }
 
 /* --- Header --- */
@@ -2330,7 +2344,7 @@ onDeactivated(() => {
   justify-content: space-between;
   gap: 16px;
   padding: 24px 28px 20px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.04) 0%, rgba(255, 255, 255, 0.9) 100%);
+  background: var(--pm-primary-soft);
   border-bottom: 1px solid rgba(226, 232, 240, 0.7);
   flex-shrink: 0;
 }
@@ -2346,11 +2360,11 @@ onDeactivated(() => {
   align-items: center;
   padding: 3px 10px;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  background: linear-gradient(135deg, #6366f1 0%, #818cf8 100%);
-  color: #ffffff;
+  background: var(--pm-primary);
+  color: var(--pm-surface);
   width: fit-content;
 }
 
@@ -2358,7 +2372,7 @@ onDeactivated(() => {
   font-size: 19px;
   line-height: 1.3;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--pm-text);
   letter-spacing: -0.02em;
 }
 
@@ -2366,7 +2380,7 @@ onDeactivated(() => {
   margin-top: -2px;
   font-size: 12px;
   line-height: 1.45;
-  color: #94a3b8;
+  color: var(--pm-text-muted);
 }
 
 .drawer-close-btn {
@@ -2374,9 +2388,9 @@ onDeactivated(() => {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  border: 1px solid #e2e8f0;
-  background: #ffffff;
-  color: #94a3b8;
+  border: 1px solid var(--pm-border);
+  background: var(--pm-surface);
+  color: var(--pm-text-muted);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -2385,9 +2399,9 @@ onDeactivated(() => {
 }
 
 .drawer-close-btn:hover {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
-  color: #475569;
+  background: var(--pm-surface-subtle);
+  border-color: var(--pm-border-strong);
+  color: var(--pm-text-secondary);
   transform: scale(1.05);
 }
 
@@ -2405,7 +2419,7 @@ onDeactivated(() => {
 
 .drawer-divider {
   height: 1px;
-  background: linear-gradient(90deg, transparent 0%, #e2e8f0 20%, #e2e8f0 80%, transparent 100%);
+  background: var(--pm-border);
   margin: 20px 0;
 }
 
@@ -2418,7 +2432,7 @@ onDeactivated(() => {
 .drawer-section-title {
   font-size: 13px;
   font-weight: 600;
-  color: #4f46e5;
+  color: var(--pm-primary);
   margin-bottom: 10px;
   display: flex;
   align-items: center;
@@ -2432,7 +2446,7 @@ onDeactivated(() => {
   width: 3px;
   height: 14px;
   border-radius: 2px;
-  background: linear-gradient(180deg, #6366f1 0%, #a5b4fc 100%);
+  background: var(--pm-primary);
   flex-shrink: 0;
 }
 
@@ -2441,11 +2455,11 @@ onDeactivated(() => {
   width: 100%;
   resize: vertical;
   border-radius: 10px;
-  border: 1.5px solid #e2e8f0;
+  border: 1.5px solid var(--pm-border);
   padding: 12px 14px;
   font-size: 13px;
   line-height: 1.7;
-  color: #0f172a;
+  color: var(--pm-text);
   background: #fafbfc;
   outline: none;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
@@ -2453,21 +2467,21 @@ onDeactivated(() => {
 }
 
 .drawer-textarea::placeholder {
-  color: #94a3b8;
+  color: var(--pm-text-muted);
   font-weight: 400;
 }
 
 .drawer-textarea:hover {
-  border-color: #c7d2fe;
-  background: #ffffff;
+  border-color: var(--pm-primary-border);
+  background: var(--pm-surface);
 }
 
 .drawer-textarea:focus {
-  border-color: #818cf8;
-  background: #ffffff;
+  border-color: var(--pm-primary-border);
+  background: var(--pm-surface);
   box-shadow:
-    0 0 0 3px rgba(99, 102, 241, 0.1),
-    0 2px 8px rgba(99, 102, 241, 0.06);
+    0 0 0 3px rgba(36, 95, 168, 0.1),
+    0 2px 8px rgba(36, 95, 168, 0.06);
 }
 
 /* --- Factor Checkbox Items --- */
@@ -2479,7 +2493,7 @@ onDeactivated(() => {
   border-radius: 10px;
   background: #fafbfc;
   border: 1.5px solid #e8ecf1;
-  color: #334155;
+  color: var(--pm-text-secondary);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -2487,17 +2501,17 @@ onDeactivated(() => {
 }
 
 .drawer-factor-item:hover {
-  border-color: #c7d2fe;
-  background: #f8faff;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.06);
+  border-color: var(--pm-primary-border);
+  background: var(--pm-primary-soft);
+  transform: none;
+  box-shadow: 0 2px 8px rgba(36, 95, 168, 0.06);
 }
 
 .drawer-factor-item.is-active {
-  background: linear-gradient(135deg, #eef2ff 0%, #f0f3ff 100%);
-  border-color: #818cf8;
-  color: #3730a3;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.08);
+  background: var(--pm-primary-soft);
+  border-color: var(--pm-primary-border);
+  color: var(--pm-primary);
+  box-shadow: 0 2px 8px rgba(36, 95, 168, 0.08);
 }
 
 .drawer-factor-item input {
@@ -2509,8 +2523,8 @@ onDeactivated(() => {
   width: 18px;
   height: 18px;
   border-radius: 5px;
-  border: 1.5px solid #cbd5e1;
-  background: #ffffff;
+  border: 1.5px solid var(--pm-border-strong);
+  background: var(--pm-surface);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2518,17 +2532,17 @@ onDeactivated(() => {
 }
 
 .drawer-factor-item.is-active .factor-checkbox {
-  background: linear-gradient(135deg, #6366f1 0%, #818cf8 100%);
-  border-color: #6366f1;
+  background: var(--pm-primary);
+  border-color: var(--pm-primary);
   transform: scale(1.05);
-  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 2px 6px rgba(36, 95, 168, 0.3);
 }
 
 .factor-checkbox svg {
   width: 11px;
   height: 11px;
   fill: none;
-  stroke: #ffffff;
+  stroke: var(--pm-surface);
   stroke-width: 2.5;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -2562,9 +2576,9 @@ onDeactivated(() => {
   gap: 5px;
   font-size: 12px;
   font-weight: 600;
-  color: #4f46e5;
-  background: #eef2ff;
-  border: 1px solid #e0e7ff;
+  color: var(--pm-primary);
+  background: var(--pm-primary-soft);
+  border: 1px solid var(--pm-primary-soft);
   border-radius: 999px;
   padding: 5px 12px;
   cursor: pointer;
@@ -2572,10 +2586,10 @@ onDeactivated(() => {
 }
 
 .drawer-action-chip:hover:not(:disabled) {
-  background: #e0e7ff;
-  border-color: #c7d2fe;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.12);
+  background: var(--pm-primary-soft);
+  border-color: var(--pm-primary-border);
+  transform: none;
+  box-shadow: 0 2px 6px rgba(36, 95, 168, 0.12);
 }
 
 .drawer-action-chip:disabled {
@@ -2591,7 +2605,7 @@ onDeactivated(() => {
   padding: 16px 28px;
   border-top: 1px solid rgba(226, 232, 240, 0.7);
   background: rgba(248, 250, 252, 0.9);
-  backdrop-filter: blur(8px);
+
   flex-shrink: 0;
 }
 
@@ -2608,28 +2622,28 @@ onDeactivated(() => {
 }
 
 .drawer-foot-btn-reset {
-  background: #ffffff;
-  color: #475569;
-  border: 1px solid #cbd5e1;
+  background: var(--pm-surface);
+  color: var(--pm-text-secondary);
+  border: 1px solid var(--pm-border-strong);
 }
 
 .drawer-foot-btn-reset:hover {
-  background: #f1f5f9;
-  border-color: #94a3b8;
-  color: #1e293b;
+  background: var(--pm-surface-subtle);
+  border-color: var(--pm-text-muted);
+  color: var(--pm-text);
 }
 
 .drawer-foot-btn-save {
-  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
-  color: #ffffff;
+  background: var(--pm-primary);
+  color: var(--pm-surface);
   border: none;
-  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.25);
+  box-shadow: 0 2px 8px rgba(36, 95, 168, 0.25);
 }
 
 .drawer-foot-btn-save:hover {
-  background: linear-gradient(135deg, #4338ca 0%, #4f46e5 100%);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
+  background: var(--pm-primary);
+  transform: none;
+  box-shadow: 0 4px 14px rgba(36, 95, 168, 0.35);
 }
 
 /* --- Drawer Transitions --- */
@@ -2660,13 +2674,13 @@ onDeactivated(() => {
 .empty-state {
   text-align: center;
   padding: 34px 28px 38px;
-  background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
+  background: var(--pm-surface);
 }
 
 .empty-mark {
   font-size: 28px;
   font-weight: 700;
-  color: #94a3b8;
+  color: var(--pm-text-muted);
   margin-bottom: 12px;
 }
 
@@ -2677,15 +2691,15 @@ onDeactivated(() => {
   height: 36px;
   margin: 0 auto 12px;
   border-radius: 50%;
-  color: #15803d;
-  background: #dcfce7;
+  color: var(--pm-success);
+  background: var(--pm-success-soft);
   font-size: 22px;
 }
 
 .empty-title {
   font-size: 18px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--pm-text);
   margin-bottom: 8px;
   letter-spacing: -0.01em;
 }
@@ -2693,15 +2707,15 @@ onDeactivated(() => {
 .empty-text {
   font-size: 14px;
   line-height: 1.8;
-  color: #64748b;
+  color: var(--pm-text-muted);
   font-weight: 400;
   max-width: 620px;
   margin: 0 auto 18px;
 }
 
 .empty-state-error {
-  border-color: #fecaca;
-  background: linear-gradient(180deg, #ffffff 0%, #fff8f8 100%);
+  border-color: var(--pm-danger-border);
+  background: var(--pm-danger-soft);
 }
 
 .empty-mark--warning {
@@ -2711,7 +2725,7 @@ onDeactivated(() => {
   height: 36px;
   margin: 0 auto 12px;
   border-radius: 50%;
-  color: #c2410c;
+  color: var(--pm-warning);
   background: #ffedd5;
   font-size: 20px;
   font-weight: bold;
@@ -2724,7 +2738,7 @@ onDeactivated(() => {
 }
 
 .ash-publish-state--clickable:hover {
-  transform: translateY(-1px);
+  transform: none;
   filter: brightness(0.96);
 }
 
@@ -2756,4 +2770,58 @@ onDeactivated(() => {
     margin-top: 12px;
   }
 }
+
+/* PM016: typography, surfaces and actions share the global compact theme. */
+.finalize-view { background: transparent; }
+.analysis-style-header { flex-wrap: wrap; gap: 8px 12px; padding: 10px 12px; border-radius: var(--pm-radius-card); box-shadow: var(--pm-shadow-card); }
+.ash-left-content, .ash-meta-section, .ash-actions, .rule-review-toolbar, .rule-review-actions { flex-wrap: wrap; min-width: 0; }
+.ash-page-title { font-size: 20px; font-weight: 600; line-height: 28px; }
+.ash-dark-chip { background: var(--pm-surface-subtle); border: 1px solid var(--pm-border); color: var(--pm-text-secondary); font-weight: 500; }
+.ash-meta-section { gap: 6px 12px; }
+.ash-actions { gap: 6px; }
+.ash-btn-primary, .ash-btn-outline { min-height: var(--pm-control-height); height: auto; padding: 5px 12px; border-radius: var(--pm-radius-control); font-size: 13px; line-height: 20px; font-weight: 500; box-shadow: none; }
+.ash-btn-primary, .ash-btn-primary.ash-btn-phase-active { background: var(--pm-primary); border-color: var(--pm-primary); }
+.ash-btn-primary:hover:not(:disabled) { background: var(--pm-primary-hover); border-color: var(--pm-primary-hover); box-shadow: none; transform: none; }
+.ash-btn-outline.ash-btn-phase-active { background: var(--pm-primary-soft); border-color: var(--pm-primary); box-shadow: none; }
+.ash-meta-stale { color: var(--pm-warning); }
+.finalize-layout { gap: 12px; }
+/* FinalizeRouteNav keeps its own geometry and events; adapt its legacy palette. */
+.finalize-view :deep(.route-nav) { border-color: var(--pm-border); border-radius: var(--pm-radius-card); background: var(--pm-surface); box-shadow: var(--pm-shadow-card); padding: 12px; }
+.finalize-view :deep(.route-nav-head) { flex-wrap: wrap; }
+.finalize-view :deep(.section-title) { color: var(--pm-text); font-weight: 600; }
+.finalize-view :deep(.route-filter) { background: var(--pm-surface-subtle); }
+.finalize-view :deep(.route-filter-option) { min-height: 28px; font-size: 12px; color: var(--pm-text-secondary); }
+.finalize-view :deep(.route-filter-option span) { font-size: 12px; color: var(--pm-text-secondary); background: var(--pm-disabled-bg); }
+.finalize-view :deep(.route-filter-option--active) { border-color: var(--pm-primary-border); background: var(--pm-surface); color: var(--pm-primary); box-shadow: none; }
+.finalize-view :deep(.route-filter-option--active span) { background: var(--pm-primary-soft); color: var(--pm-primary); }
+.finalize-view :deep(.phase-dot) { background: var(--pm-border-strong); box-shadow: 0 0 0 1px var(--pm-border-strong); }
+.finalize-view :deep(.phase-dot--active) { background: var(--pm-primary); box-shadow: 0 0 0 1px var(--pm-primary), 0 0 0 3px rgba(36, 95, 168, .16); }
+.finalize-view :deep(.phase-line) { background: var(--pm-border); }
+.finalize-view :deep(.phase-item) { min-width: 0; background: var(--pm-surface); border-color: var(--pm-border); }
+.finalize-view :deep(.phase-item:hover) { background: var(--pm-surface-subtle); border-color: var(--pm-border-strong); box-shadow: none; }
+.finalize-view :deep(.phase-item.active) { background: var(--pm-primary-soft); border-color: var(--pm-primary-border); box-shadow: none; }
+.finalize-view :deep(.phase-item.active::after) { background: var(--pm-primary); }
+.finalize-view :deep(.phase-item-seq) { min-height: 20px; font-size: 12px; background: var(--pm-surface-subtle); color: var(--pm-text-secondary); border-color: var(--pm-border); }
+.finalize-view :deep(.phase-item.active .phase-item-seq) { background: var(--pm-primary); color: #fff; border-color: var(--pm-primary); }
+.finalize-view :deep(.phase-item-name) { color: var(--pm-text); }
+.finalize-view :deep(.phase-item-meta) { font-size: 12px; color: var(--pm-text-muted); }
+.finalize-view :deep(.phase-steps-btn) { min-height: 28px; font-size: 12px; color: var(--pm-text-secondary); }
+.finalize-view :deep(.phase-steps-btn:hover) { color: var(--pm-primary); }
+.finalize-view :deep(.phase-steps-count), .finalize-view :deep(.phase-item-step-chip) { font-size: 12px; color: var(--pm-text-secondary); background: var(--pm-surface-subtle); border-color: var(--pm-border); }
+.finalize-view :deep(.phase-steps-btn:hover .phase-steps-count) { color: var(--pm-primary); background: var(--pm-primary-soft); border-color: var(--pm-primary-border); }
+.finalize-view :deep(.phase-item-edited) { font-size: 12px; color: var(--pm-warning); background: var(--pm-warning-soft); }
+.finalize-view :deep(.route-filter-option:focus-visible), .finalize-view :deep(.phase-item:focus-visible), .finalize-view :deep(.phase-steps-btn:focus-visible) { outline: 2px solid var(--pm-primary); outline-offset: 2px; }
+.finalize-results { border-radius: var(--pm-radius-card); padding: 10px; box-shadow: var(--pm-shadow-card); }
+.ash-actions { flex-wrap: wrap; justify-content: flex-end; }
+.ash-actions .ash-btn-outline { min-height: var(--pm-control-height-small); padding: 3px 9px; font-size: 12px; }
+.batch-confirmation-result { max-height: 180px; border-color: var(--pm-warning-border); color: var(--pm-warning); background: var(--pm-warning-soft); line-height: 20px; }
+.drawer-overlay { background: rgba(35, 53, 74, .35); }
+.edit-drawer, .export-issue-dialog { border-radius: var(--pm-radius-dialog); border-color: var(--pm-border); box-shadow: var(--pm-shadow-popup); }
+.drawer-head, .drawer-foot { flex-shrink: 0; }
+.drawer-body { min-width: 0; min-height: 0; }
+.drawer-foot { flex-wrap: wrap; gap: 8px; }
+.finalize-view button:focus-visible, .drawer-overlay button:focus-visible, .drawer-overlay summary:focus-visible { outline: 2px solid var(--pm-primary); outline-offset: 2px; }
+@media (min-width: 901px) and (max-width: 1080px) { .finalize-layout { grid-template-columns: 260px minmax(0, 1fr); } }
+@media (max-width: 900px) { .ash-actions button { min-height: 32px; } }
+@media (prefers-reduced-motion: reduce) { .finalize-view button, .edit-drawer { transition: none; } }
 </style>

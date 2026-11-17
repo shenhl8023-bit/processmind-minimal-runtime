@@ -74,6 +74,27 @@ async def _completed():
 
 
 @pytest.mark.asyncio
+async def test_call_llm_passes_requested_output_budget_to_chat_endpoint(monkeypatch):
+    from app.services import llm_service
+
+    def provider(request):
+        import json
+        payload = json.loads(request.content)
+        assert payload['max_tokens'] == 16384
+        return httpx.Response(200, json={'choices': [{'message': {'content': '{"ordered_ids":[20,10]}'}}]})
+
+    real_client = httpx.AsyncClient
+    transport = httpx.MockTransport(provider)
+    monkeypatch.setattr(llm_client.httpx, 'AsyncClient', lambda **kwargs: real_client(transport=transport, **kwargs))
+
+    result = await llm_service.call_llm(
+        'system', 'user', config={'url': 'https://example.test/v1/chat/completions', 'key': 'synthetic', 'model': 'demo'},
+        max_tokens=16384, max_retries=0,
+    )
+    assert result == '{"ordered_ids":[20,10]}'
+
+
+@pytest.mark.asyncio
 async def test_responses_endpoint_accepts_a_non_streaming_json_response(monkeypatch):
     """Some OpenAI-compatible Responses endpoints ignore stream=true and return JSON."""
 

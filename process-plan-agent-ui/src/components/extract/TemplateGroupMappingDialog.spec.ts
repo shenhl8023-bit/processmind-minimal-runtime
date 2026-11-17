@@ -4,10 +4,19 @@ import { transformSync } from 'esbuild'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import source from './TemplateGroupMappingDialog.vue?raw'
 import treeNodeSource from './TemplateGroupTreeNode.vue?raw'
+import footerSource from '@/components/workflow/WorkflowNavFooter.vue?raw'
 import * as groupMapping from '@/composables/templateGroupMapping'
 import * as stepMapping from '@/composables/templateStepMapping'
 import * as processMapping from '@/composables/templateGroupProcessMapping'
 import * as templateCheck from '@/composables/projectGroupTemplateCheck'
+import * as mappingEdits from '@/composables/templateMappingEdits'
+import { useProjectGroupTemplate } from '@/composables/useProjectGroupTemplate'
+import { getCurrentGroupTemplate, saveGroupTemplateStepMappings } from '@/api/extract'
+
+vi.mock('@/api/extract', () => ({
+  getCurrentGroupTemplate: vi.fn(), saveGroupTemplateStepMappings: vi.fn(),
+  saveGroupTemplateMappings: vi.fn(), commitGroupTemplate: vi.fn(), previewGroupTemplate: vi.fn(),
+}))
 
 // Run the actual component setup with deferred API calls, without a DOM.
 const script = compileScript(parse(source).descriptor, { id: 'template-dialog-test' })
@@ -17,6 +26,9 @@ const api = { suggestTemplateStepMappings: vi.fn(), suggestTemplateProcessPrecis
 let model: any
 const module = { exports: {} as any }
 const iconStub = Vue.defineComponent({ setup: () => () => null })
+const footerRenderModule = { exports: {} as any }
+const footerCode = transformSync(compileScript(parse(footerSource).descriptor, { id: 'mapping-footer-render', inlineTemplate: true }).content, { loader: 'ts', format: 'cjs', platform: 'node' }).code
+new Function('require', 'module', 'exports', footerCode)((id: string) => { if (id === 'vue') return Vue; throw new Error(id) }, footerRenderModule, footerRenderModule.exports)
 const treeRenderModule = { exports: {} as any }
 const treeRenderCode = transformSync(compileScript(parse(treeNodeSource).descriptor, {
   id: 'template-tree-render-test', inlineTemplate: true,
@@ -32,9 +44,11 @@ function testRequire(id: string) {
   if (id === '@/composables/templateStepMapping') return stepMapping
   if (id === '@/composables/templateGroupProcessMapping') return processMapping
   if (id === '@/composables/projectGroupTemplateCheck') return templateCheck
+  if (id === '@/composables/templateMappingEdits') return mappingEdits
   if (id === '@/composables/useProjectGroupTemplate') return { useProjectGroupTemplate: () => model }
   if (id === '@element-plus/icons-vue') return new Proxy({}, { get: () => iconStub })
   if (id === '@/components/extract/TemplateGroupTreeNode.vue') return treeRenderModule.exports.default
+  if (id === '@/components/workflow/WorkflowNavFooter.vue') return footerRenderModule.exports.default
   if (id.endsWith('.vue')) return iconStub
   throw new Error(`Unexpected dependency: ${id}`)
 }
@@ -76,11 +90,12 @@ const renderRenderer = Vue.createRenderer({
   querySelector: () => teleportTarget,
 } as any)
 let app: ReturnType<typeof renderer.createApp> | undefined
-function mount(operationCount = 1, operations?: any[]) {
+function mount(operationCount = 1, operations?: any[], extraProps: Record<string, unknown> = {}) {
   let state: any
   const emitted: any[] = []
   const props = Vue.reactive({
-    modelValue: true, projectId: 28, legacyAliases: {}, embedded: true,
+    modelValue: true, projectId: 28, routeVersionId: 31, workflowRevision: 4, legacyAliases: {}, embedded: true,
+    ...extraProps,
     operations: operations || Array.from({ length: operationCount }, (_, index) => ({
       id: 11 + index, name: '钻孔加工', step_items: ['钻孔'],
     })),
@@ -292,6 +307,63 @@ const finalOperation = (process_id: string, sourceIds = [11]) => ({
     source_steps: sourceIds.map(id => ({ source_operation_id: id, source_step_order: 1, source_step_name: '钻孔' })) }],
 })
 
+describe('mapping dialog with the real conflict recovery model', () => {
+  async function conflictDialog() {
+    const snapshot = (revision: number, mappings: any[] = []) => ({
+      project_id: 28, template_revision: revision, mappings: [], step_mappings: mappings,
+      tree: [{ key: 'hole', name: '孔', path: ['孔'], children: [], feature_selections: ['孔(盲孔)', '孔(通孔)'] }],
+      mapping_output: [],
+    })
+    vi.mocked(getCurrentGroupTemplate).mockResolvedValue(snapshot(1) as any)
+    const effects = Vue.effectScope()
+    model = effects.run(() => useProjectGroupTemplate(Vue.ref(28), Vue.ref({}), Vue.ref(4)))!
+    const { state } = mount(1, [finalOperation('a')])
+    await Vue.nextTick()
+    await Promise.resolve()
+    await Vue.nextTick()
+    state.activeStepKey.value = state.stepRefs.value[0].step_key
+    state.selectedFeatureKeys.value = [JSON.stringify(['hole', '孔(盲孔)'])]
+    state.linkActiveStep()
+    const remoteMapping = { ...Object.values(state.draftStepMappings.value)[0] as any, candidate_features: ['孔(通孔)'] }
+    vi.mocked(getCurrentGroupTemplate).mockResolvedValue(snapshot(2, [remoteMapping]) as any)
+    vi.mocked(saveGroupTemplateStepMappings).mockRejectedValueOnce({ response: { status: 409 } })
+      .mockImplementation(async (_id, _revision, mappings) => snapshot(3, mappings) as any)
+    return { state, effects }
+  }
+
+  it('synchronizes the visible draft to the recovered revision after HTTP 409', async () => {
+    const { state, effects } = await conflictDialog()
+    try {
+      expect(await state.saveStepMappings()).toBe(false)
+      expect(model.templateRevision.value).toBe(2)
+      expect(Object.values(state.draftStepMappings.value).flatMap((item: any) => item.candidate_features)).toEqual(['孔(通孔)'])
+      expect(state.dirty.value).toBe(false)
+      expect(state.visibleError.value).toContain('请核对')
+    } finally { effects.stop() }
+  })
+
+  it('never submits a revision-1 view draft with the recovered revision-2 token', async () => {
+    const { state, effects } = await conflictDialog()
+    try {
+      await state.saveStepMappings()
+      await state.saveStepMappings()
+      const retry = vi.mocked(saveGroupTemplateStepMappings).mock.calls[1]!
+      expect(retry[1]).toBe(2)
+      expect(retry[2].map(item => item.candidate_features)).toEqual([['孔(通孔)']])
+    } finally { effects.stop() }
+  })
+
+  it('refuses to save a draft if a separate model reload has changed its base revision', async () => {
+    const { state, effects } = await conflictDialog()
+    try {
+      await model.load()
+      await state.saveStepMappings()
+      expect(vi.mocked(saveGroupTemplateStepMappings).mock.calls).toHaveLength(0)
+      expect(Object.values(state.draftStepMappings.value).flatMap((item: any) => item.candidate_features)).toEqual(['孔(通孔)'])
+    } finally { effects.stop() }
+  })
+})
+
 describe('precision completion before saving mappings', () => {
   it('blocks saving with a named missing precision and preserves the draft', async () => {
     model.saveStepMappings = vi.fn().mockResolvedValue(true)
@@ -383,7 +455,7 @@ function nodeText(node: any): string {
 
 function findMappingAction(root: any) {
   const visit = (node: any): any[] => [node, ...(node.children || []).flatMap(visit)]
-  return visit(root).find(node => node.type === 'button' && /保存工步映射|进入规则定稿|关联工步后继续/.test(nodeText(node)))
+  return visit(root).find(node => node.type === 'button' && /保存并导出规则包|更新规则包/.test(nodeText(node)))
 }
 
 describe('mapping save edit protection', () => {
@@ -488,12 +560,12 @@ describe('mapping save edit protection', () => {
     expect(precision.props.disabled).toBe(false)
     expect(precision.props.value).toBe('半精加工')
     expect(visit(root).filter(node => node.props['aria-label'] === '解除关联')).toHaveLength(1)
-    if (!success) expect(nodeText(findMappingAction(root))).toContain('保存工步映射')
+    if (!success) expect(nodeText(findMappingAction(root))).toContain('保存并导出规则包')
   })
 })
 
 describe('final-step mapping decisions', () => {
-  it('enters rule finalization from a clean saved mapping without saving again', async () => {
+  it('updates a saved rule package by saving again before emitting the export hook', async () => {
     const mapping = savedFinalStepMapping()
     model.template.value.step_mappings = [mapping]
     model.draftStepMappings.value = [mapping]
@@ -506,7 +578,7 @@ describe('final-step mapping decisions', () => {
       legacyAliases: {},
       embedded: true,
       operations: [finalOperation('a')],
-      onContinue: () => emitted.push('continue'),
+      onSave: () => emitted.push('save'),
     })
     app.mount(root)
     await Vue.nextTick()
@@ -514,13 +586,13 @@ describe('final-step mapping decisions', () => {
     await Vue.nextTick()
 
     const action = findMappingAction(root)
-    expect(nodeText(action)).toContain('进入规则定稿')
-    action.props.onClick()
-    expect(model.saveStepMappings).not.toHaveBeenCalled()
-    expect(emitted).toEqual(['continue'])
+    expect(nodeText(action)).toContain('更新规则包')
+    await action.props.onClick()
+    expect(model.saveStepMappings).toHaveBeenCalledTimes(1)
+    expect(emitted).toEqual(['save'])
   })
 
-  it('saves dirty mappings first and only enters finalization on the next click', async () => {
+  it('saves dirty mappings and emits the export hook in one primary action', async () => {
     const mapping = savedFinalStepMapping()
     model.template.value.step_mappings = [mapping]
     model.draftStepMappings.value = [mapping]
@@ -533,7 +605,7 @@ describe('final-step mapping decisions', () => {
       legacyAliases: {},
       embedded: true,
       operations: [{ ...finalOperation('a'), precision: '' }],
-      onContinue: () => emitted.push('continue'),
+      onSave: () => emitted.push('save'),
     })
     app.mount(root)
     await Vue.nextTick()
@@ -545,16 +617,13 @@ describe('final-step mapping decisions', () => {
     precision.props.onChange({ target: { value: '精加工' } })
     await Vue.nextTick()
     const saveAction = findMappingAction(root)
-    expect(nodeText(saveAction)).toContain('保存工步映射')
+    expect(nodeText(saveAction)).toContain('保存并导出规则包')
     await saveAction.props.onClick()
     await Vue.nextTick()
 
     expect(model.saveStepMappings).toHaveBeenCalledTimes(1)
-    expect(emitted).toEqual([])
-    const continueAction = findMappingAction(root)
-    expect(nodeText(continueAction)).toContain('进入规则定稿')
-    continueAction.props.onClick()
-    expect(emitted).toEqual(['continue'])
+    expect(emitted).toEqual(['save'])
+    expect(nodeText(findMappingAction(root))).toContain('更新规则包')
   })
 
   it('blocks continuation when no valid mapping has been saved', async () => {
@@ -574,7 +643,7 @@ describe('final-step mapping decisions', () => {
     await Vue.nextTick()
 
     const action = findMappingAction(root)
-    expect(nodeText(action)).toContain('关联工步后继续')
+    expect(nodeText(action)).toContain('保存并导出规则包')
     expect(action.props.disabled).toBe(true)
   })
 
@@ -612,7 +681,45 @@ describe('final-step mapping decisions', () => {
 
     expect(model.saveStepMappings).toHaveBeenCalledWith(expect.objectContaining([
       expect.objectContaining({ process_id: 'precision_unknown', precision: '半精加工' }),
-    ]))
+    ]), expect.objectContaining({ hidden_step_keys: [], waived_group_paths: [] }))
+    expect(state.dirty.value).toBe(false)
+  })
+
+  it('restores unsaved precision after remount and clears it when explicitly discarded', async () => {
+    const values = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    })
+    const operation = { ...finalOperation('a'), precision: '粗加工' }
+    const first = mount(1, [operation])
+    await Vue.nextTick()
+    first.state.setOperationPrecision(operation, '精加工')
+    expect(mappingEdits.hasPendingTemplateMappingEdits(28, 31, 4, 1)).toBe(true)
+    app?.unmount()
+
+    const second = mount(1, [operation])
+    await Vue.nextTick()
+    expect(second.state.operationPrecision(operation)).toBe('精加工')
+    expect(second.state.dirty.value).toBe(true)
+    second.state.discardChanges()
+    expect(second.state.operationPrecision(operation)).toBe('粗加工')
+    expect(second.state.dirty.value).toBe(false)
+    expect(mappingEdits.hasPendingTemplateMappingEdits(28, 31, 4, 1)).toBe(false)
+  })
+
+  it('discards a failed save candidate and restores the server mapping snapshot', async () => {
+    model.saveStepMappings = vi.fn().mockResolvedValue(false)
+    const { state } = mount(1, [finalOperation('a')])
+    await Vue.nextTick()
+    state.activeStepKey.value = state.stepRefs.value[0].step_key
+    state.selectedFeatureKeys.value = [JSON.stringify(['hole', '孔(盲孔)'])]
+    state.linkActiveStep()
+    await state.saveStepMappings()
+    expect(model.draftStepMappings.value.length).toBeGreaterThan(0)
+    state.discardChanges()
+    expect(Object.values(state.draftStepMappings.value)).toEqual([])
     expect(state.dirty.value).toBe(false)
   })
 
@@ -657,21 +764,24 @@ describe('final-step mapping decisions', () => {
 
     expect(actionLabels).not.toContain('确认为通用工步')
     expect(template).not.toContain('撤销通用确认')
-    expect(template).toContain('分组覆盖 {{ coveredFeatureGroupCount }}/{{ featureGroupCount }}')
-    expect(template).toContain('未覆盖 {{ uncoveredFeatureGroupCount }}')
+    expect(template).toContain('已映射 {{ coveredFeatureGroupCount }} · 已豁免 {{ waivedFeatureGroupCount }} · 待映射 {{ uncoveredFeatureGroupCount }}')
+    expect(template).toContain('待映射 {{ uncoveredFeatureGroupCount }}')
     expect(template).not.toContain('待审核')
   })
 
-  it('explains machining mapping requirements and auxiliary retention for delivery', () => {
-    expect(template).toContain('加工工步只有完成有效特征映射才参与三表交付')
-    expect(template).toContain('无映射加工工步不导出')
-    expect(template).toContain('未覆盖 {{ uncoveredFeatureGroupCount }}')
+  it('explains optional mapping and hidden-step output without implying core route deletion', () => {
+    expect(template).toContain('在已验证的完整母路线基础上补充模板特征映射')
+    expect(template).toContain('删除工步不参与映射输出')
+    expect(template).toContain('待映射 {{ uncoveredFeatureGroupCount }}')
     expect(template).not.toContain('待审核')
-    expect(template).toContain('辅助工序按规则保留')
+    expect(template).toContain('叶子分组可自行豁免')
   })
 
   it('keeps the mapping guidance in the top navigation row', () => {
-    expect(template).toMatch(/<header class="tgmd-header">[\s\S]*?class="tgmd-review-guidance tgmd-header-guidance"[\s\S]*?class="tgmd-header-actions"/)
+    const workspaceHeader = [...template.matchAll(/<header\b[^>]*>([\s\S]*?)<\/header>/g)]
+      .find(match => match[1]?.includes('template-group-mapping-workspace-title'))?.[1]
+    expect(workspaceHeader).toContain('tgmd-header-guidance')
+    expect(workspaceHeader).toContain('tgmd-header-actions')
     expect(template).not.toMatch(/<section class="tgmd-pane tgmd-operation-pane">[\s\S]*?tgmd-review-guidance/)
   })
 
@@ -896,4 +1006,343 @@ describe('final-step mapping decisions', () => {
     await state.saveStepMappings()
     expect(model.draftStepMappings.value).toEqual([])
   })
+})
+
+// Batch 5: drive the real setup/render functions and keep only network IO mocked.
+describe('mapping-only hidden steps and leaf waivers', () => {
+  const visit = (node: any): any[] => [node, ...(node.children || []).flatMap(visit)]
+  const snapshot = (revision = 1, extra: any = {}) => ({
+    project_id: 28, template_revision: revision, mappings: [], step_mappings: [], mapping_output: [],
+    tree: [{ key: 'parent', name: 'A侧', path: ['A侧'], feature_selections: [], children: [
+      { key: 'hole', name: '孔', path: ['A侧', '孔'], children: [], feature_selections: ['孔(盲孔)'] },
+      { key: 'slot', name: '槽', path: ['A侧', '槽'], children: [], feature_selections: ['外环槽'] },
+    ] }], ...extra,
+  })
+  function storedDrafts() {
+    const values = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    })
+    return values
+  }
+  async function render(operations = [finalOperation('a'), finalOperation('b')]) {
+    const root: any = { type: 'root', children: [], props: {} }
+    app = renderRenderer.createApp(renderModule.exports.default, {
+      modelValue: true, projectId: 28, routeVersionId: 31, workflowRevision: 4,
+      legacyAliases: {}, embedded: true, operations,
+    })
+    app.mount(root)
+    await Vue.nextTick()
+    await Promise.resolve()
+    await Vue.nextTick()
+    return root
+  }
+
+  it('deletes a mapped step, moves visible neighbours and restores unmapped without resetting order', async () => {
+    storedDrafts()
+    const operation = finalOperation('a')
+    operation.steps = ['A', 'B', 'C', 'D'].map((name, index) => ({ ...operation.steps[0]!,
+      step_id: `a.s${index + 1}`, step_name: name, source_step_order: index + 1, source_step_name: name,
+      source_steps: [{ source_operation_id: 11, source_step_order: index + 1, source_step_name: name }] }))
+    const original = JSON.stringify(operation)
+    const mapping = { ...savedFinalStepMapping(), source_step_order: 2, source_step_name: 'B',
+      final_targets: [{ process_id: 'a', step_id: 'a.s2' }] }
+    model.template.value.step_mappings = [mapping]
+    model.draftStepMappings.value = [mapping]
+    const { state } = mount(1, [operation])
+    await Vue.nextTick()
+    state.hideStep(state.stepRefs.value[1])
+    expect(state.hiddenStepKeys.value).toEqual(['a.s2'])
+    expect(Object.values(state.draftStepMappings.value)).toEqual([])
+    state.moveStep(state.stepRefs.value[3], -1)
+    expect(state.visibleStepsForOperation(operation).map((s: any) => s.step_name)).toEqual(['A', 'D', 'C'])
+    state.restoreHiddenSteps()
+    expect(state.visibleStepsForOperation(operation).map((s: any) => s.step_key)).toEqual(['a.s1', 'a.s2', 'a.s4', 'a.s3'])
+    expect(state.stepMappings(state.stepRefs.value[1])).toEqual([])
+    expect(JSON.stringify(operation)).toBe(original)
+    await Vue.nextTick()
+    app?.unmount()
+    const reloaded = mount(1, [operation]).state
+    await Vue.nextTick()
+    expect(reloaded.visibleStepsForOperation(operation).map((s: any) => s.step_key)).toEqual(['a.s1', 'a.s2', 'a.s4', 'a.s3'])
+    expect(reloaded.stepMappings(reloaded.stepRefs.value[1])).toEqual([])
+  })
+
+  it('renders waiver in the leaf row, greys only the waived leaf and leaves undo enabled', async () => {
+    model.template.value = snapshot()
+    const root = await render()
+    expect(visit(root).some(node => node.props.class === 'tgmd-leaf-waivers')).toBe(false)
+    const toggle = visit(root).find(node => node.props['data-waiver-leaf-key'] === 'hole')
+    expect(toggle.parent.props.class).toContain('tgtn-row')
+    toggle.props.onClick({ stopPropagation() {} })
+    await Vue.nextTick()
+    expect(toggle.props.disabled).toBe(false)
+    expect(toggle.parent.props.class).toContain('tgtn-row-waived')
+    expect(nodeText(toggle.parent)).not.toContain('待映射')
+  })
+
+  it('hides an unmapped full-route step through its button, restores it globally and never changes the mother route', async () => {
+    const operations = [finalOperation('a'), finalOperation('b')]
+    const original = JSON.stringify(operations)
+    const root = await render(operations)
+    const button = visit(root).find(node => node.type === 'button' && node.props['data-hide-step-key'] === 'a.s1')
+    expect(button).toBeDefined()
+    button.props.onClick({ stopPropagation() {} })
+    await Vue.nextTick()
+    expect(visit(root).filter(node => node.props.class?.includes('tgmd-step-row'))).toHaveLength(1)
+    const restore = visit(root).find(node => node.type === 'button' && nodeText(node).includes('恢复全部工步'))
+    expect(restore.props.disabled).toBe(false)
+    expect(nodeText(root)).not.toContain('智能判定精度')
+    restore.props.onClick()
+    await Vue.nextTick()
+    expect(visit(root).filter(node => node.props.class?.includes('tgmd-step-row'))).toHaveLength(2)
+    expect(restore.props.disabled).toBe(true)
+    expect(JSON.stringify(operations)).toBe(original)
+  })
+
+  it('deletes mapped steps and excludes deleted steps from recommendations and active linking', async () => {
+    const mapping = savedFinalStepMapping()
+    model.template.value.step_mappings = [mapping]
+    model.draftStepMappings.value = [mapping]
+    const { state } = mount(1, [finalOperation('a'), finalOperation('b')])
+    await Vue.nextTick()
+    expect(typeof state.hideStep).toBe('function')
+    state.hideStep(state.stepRefs.value[0])
+    expect(state.hiddenStepKeys.value).toEqual(['a.s1'])
+    expect(state.stepMappings(state.stepRefs.value[0])).toEqual([])
+    state.hideStep(state.stepRefs.value[1])
+    expect(state.hiddenStepKeys.value).toEqual(['a.s1', 'b.s1'])
+    state.activeStepKey.value = 'b.s1'
+    state.selectedFeatureKeys.value = [JSON.stringify(['hole', '孔(盲孔)'])]
+    expect(state.canLinkActiveStep.value).toBe(false)
+    expect(state.suggestionOperations().map((operation: any) => operation.operation_id)).toEqual([])
+    expect(state.applySuggestedMappings(response.suggestions)).toEqual({ added: 0, supplemented: 0, preserved: 0 })
+  })
+
+  it('restores hidden keys and waivers from a saved response, dropping stale keys and parent paths', async () => {
+    const mapping = { ...savedFinalStepMapping(), template_group_path: ['A侧', '孔'] }
+    model.template.value = snapshot(1, {
+      step_mappings: [mapping], hidden_step_keys: ['b.s1', 'stale.s1'],
+      waived_group_paths: [['A侧'], ['A侧', '槽'], ['旧模板', '孔']],
+    })
+    model.draftStepMappings.value = [mapping]
+    const { state } = mount(1, [finalOperation('a'), finalOperation('b')])
+    await Vue.nextTick()
+    expect(state.hiddenStepKeys?.value).toEqual(['b.s1'])
+    expect(state.waivedGroupPaths?.value).toEqual([['A侧', '槽']])
+    expect(state.coveredFeatureGroupCount.value).toBe(1)
+    expect(state.waivedFeatureGroupCount?.value).toBe(1)
+    expect(state.uncoveredFeatureGroupCount.value).toBe(0)
+    expect(state.dirty.value).toBe(false)
+    expect(state.canContinue.value).toBe(true)
+  })
+
+  it('hydrates older responses with no new fields as empty clean exception state', async () => {
+    const { state } = mount(1, [finalOperation('a')])
+    await Vue.nextTick()
+    expect(state.hiddenStepKeys?.value).toEqual([])
+    expect(state.waivedGroupPaths?.value).toEqual([])
+    expect(state.dirty.value).toBe(false)
+  })
+
+  it('allows explicit per-leaf waiver and undo without creating any feature binding or parent waiver', async () => {
+    model.template.value = snapshot()
+    const { state } = mount(1, [finalOperation('a')])
+    await Vue.nextTick()
+    expect(typeof state.toggleLeafWaiver).toBe('function')
+    state.toggleLeafWaiver('parent')
+    expect(state.waivedGroupPaths.value).toEqual([])
+    state.toggleLeafWaiver('hole')
+    expect(state.waivedGroupPaths.value).toEqual([['A侧', '孔']])
+    expect(state.waivedFeatureGroupCount.value).toBe(1)
+    expect(state.coveredFeatureGroupCount.value).toBe(0)
+    expect(state.uncoveredFeatureGroupCount.value).toBe(1)
+    expect(Object.values(state.draftStepMappings.value)).toEqual([])
+    expect(state.dirty.value).toBe(true)
+    state.toggleLeafWaiver('hole')
+    expect(state.uncoveredFeatureGroupCount.value).toBe(2)
+    expect(state.dirty.value).toBe(false)
+  })
+
+  it('renders a waiver toggle for each leaf, separate counts and no parent toggle', async () => {
+    model.template.value = snapshot()
+    const root = await render()
+    const toggles = visit(root).filter(node => node.type === 'button' && node.props['data-waiver-leaf-key'])
+    expect(toggles.map(node => node.props['data-waiver-leaf-key'])).toEqual(['hole', 'slot'])
+    toggles[0].props.onClick({ stopPropagation() {} })
+    await Vue.nextTick()
+    expect(nodeText(root)).toContain('已映射 0 · 已豁免 1 · 待映射 1')
+    expect(nodeText(toggles[0])).toContain('取消豁免')
+    expect(nodeText(findMappingAction(root))).toContain('保存并导出规则包')
+  })
+
+  it('cannot link a previously selected feature after its leaf is waived', async () => {
+    model.template.value = snapshot()
+    const { state } = mount(1, [finalOperation('a')])
+    await Vue.nextTick()
+    state.activeStepKey.value = 'a.s1'
+    state.selectedFeatureKeys.value = [JSON.stringify(['hole', '孔(盲孔)'])]
+    expect(state.canLinkActiveStep.value).toBe(true)
+    state.toggleLeafWaiver('hole')
+    expect(state.canLinkActiveStep.value).toBe(false)
+    state.linkActiveStep()
+    expect(Object.values(state.draftStepMappings.value)).toEqual([])
+  })
+
+  it('does not let recommendations map an explicitly waived leaf', async () => {
+    const { state } = mount(1, [finalOperation('a')])
+    await Vue.nextTick()
+    state.toggleLeafWaiver('hole')
+    const result = state.applySuggestedMappings(response.suggestions)
+    expect(result.added).toBe(0)
+    expect(Object.values(state.draftStepMappings.value)).toEqual([])
+    expect(state.waivedFeatureGroupCount.value).toBe(1)
+  })
+
+  it('counts an already mapped leaf as mapped and does not add a redundant waiver', async () => {
+    model.template.value.step_mappings = [savedFinalStepMapping()]
+    model.draftStepMappings.value = [savedFinalStepMapping()]
+    const { state } = mount(1, [finalOperation('a')])
+    await Vue.nextTick()
+    expect(typeof state.toggleLeafWaiver).toBe('function')
+    state.toggleLeafWaiver('hole')
+    expect(state.waivedGroupPaths.value).toEqual([])
+    expect(state.coveredFeatureGroupCount.value).toBe(1)
+    expect(state.waivedFeatureGroupCount.value).toBe(0)
+  })
+
+  it('persists unsaved hide/waiver edits through remount, and explicit discard restores the saved state', async () => {
+    storedDrafts()
+    model.template.value = snapshot()
+    let mounted = mount(1, [finalOperation('a')])
+    await Vue.nextTick()
+    expect(typeof mounted.state.hideStep).toBe('function')
+    mounted.state.hideStep(mounted.state.stepRefs.value[0])
+    mounted.state.toggleLeafWaiver('slot')
+    await Vue.nextTick()
+    app?.unmount()
+    mounted = mount(1, [finalOperation('a')])
+    await Vue.nextTick()
+    expect(mounted.state.hiddenStepKeys.value).toEqual(['a.s1'])
+    expect(mounted.state.waivedGroupPaths.value).toEqual([['A侧', '槽']])
+    expect(mounted.state.dirty.value).toBe(true)
+    mounted.state.discardChanges()
+    expect(mounted.state.hiddenStepKeys.value).toEqual([])
+    expect(mounted.state.waivedGroupPaths.value).toEqual([])
+    expect(mounted.state.dirty.value).toBe(false)
+  })
+
+  it('clears both saved and draft exceptions when replacing a template even with the same named leaves', async () => {
+    storedDrafts()
+    model.template.value = snapshot(1, { hidden_step_keys: ['a.s1'], waived_group_paths: [['A侧', '槽']] })
+    model.confirmTemplate = vi.fn(async () => {
+      model.template.value = snapshot(2)
+      model.templateRevision.value = 2
+      return true
+    })
+    const { state } = mount(1, [finalOperation('a')])
+    await Vue.nextTick()
+    expect(state.hiddenStepKeys?.value).toEqual(['a.s1'])
+    state.toggleLeafWaiver('hole')
+    await state.confirmPreview()
+    expect(state.hiddenStepKeys.value).toEqual([])
+    expect(state.waivedGroupPaths.value).toEqual([])
+    expect(state.dirty.value).toBe(false)
+  })
+
+  it('round-trips exceptions with the real persistence model and emits a hook only after the successful save', async () => {
+    vi.mocked(getCurrentGroupTemplate).mockResolvedValue(snapshot() as any)
+    const effects = Vue.effectScope()
+    model = effects.run(() => useProjectGroupTemplate(Vue.ref(28), Vue.ref({}), Vue.ref(4)))!
+    const { state, emitted } = mount(1, [finalOperation('a')])
+    await Vue.nextTick(); await Promise.resolve(); await Vue.nextTick()
+    expect(typeof state.hideStep).toBe('function')
+    state.hideStep(state.stepRefs.value[0])
+    state.toggleLeafWaiver('hole')
+    state.toggleLeafWaiver('slot')
+    let finish!: (snapshot: any) => void
+    vi.mocked(saveGroupTemplateStepMappings).mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    try {
+      const pending = state.handlePrimaryAction()
+      expect(emitted.filter(event => event[0] === 'save')).toEqual([])
+      expect(vi.mocked(saveGroupTemplateStepMappings).mock.calls[0]).toEqual([
+        28, 1, [], expect.any(Array), 4,
+        expect.objectContaining({ hidden_step_keys: ['a.s1'], waived_group_paths: [['A侧', '孔'], ['A侧', '槽']],
+          step_order_by_process: { a: ['a.s1'] }, expected_route_version_id: 31 }),
+      ])
+      finish(snapshot(2, { hidden_step_keys: ['a.s1'], waived_group_paths: [['A侧', '孔'], ['A侧', '槽']] }))
+      await pending
+      expect(state.dirty.value).toBe(false)
+      expect(state.primaryActionLabel.value).toBe('更新规则包')
+      expect(emitted.filter(event => event[0] === 'save')).toEqual([['save', {
+        stepMappings: [], templateRevision: 2, hiddenStepKeys: ['a.s1'], waivedGroupPaths: [['A侧', '孔'], ['A侧', '槽']],
+      }]])
+      app?.unmount()
+      const reloaded = mount(1, [finalOperation('a')])
+      vi.mocked(getCurrentGroupTemplate).mockResolvedValue(snapshot(2, { hidden_step_keys: ['a.s1'], waived_group_paths: [['A侧', '孔'], ['A侧', '槽']] }) as any)
+      await model.load(); reloaded.state.syncDraftFromTemplate()
+      expect(reloaded.state.hiddenStepKeys.value).toEqual(['a.s1'])
+      expect(reloaded.state.waivedFeatureGroupCount.value).toBe(2)
+    } finally { effects.stop() }
+  })
+})
+
+describe('atomic mapping export callback', () => {
+  it.each([true, false])('uses the optional callback once and emits the existing save hook only after success (%s)', async success => {
+    const snapshot: any = {
+      project_id: 28, template_revision: 1, mappings: [], step_mappings: [], mapping_output: [],
+      tree: [{ key: 'hole', name: '孔', path: ['孔'], children: [], feature_selections: ['孔(盲孔)'] }],
+    }
+    vi.mocked(getCurrentGroupTemplate).mockResolvedValue(snapshot)
+    const effects = Vue.effectScope()
+    model = effects.run(() => useProjectGroupTemplate(Vue.ref(28), Vue.ref({}), Vue.ref(4)))!
+    let finish!: (value: any) => void
+    let fail!: (cause: any) => void
+    const beforeSave = vi.fn(() => new Promise<any>((resolve, reject) => { finish = resolve; fail = reject }))
+    const { state, emitted } = mount(1, [finalOperation('a')], { beforeSave })
+    await Vue.nextTick(); await Promise.resolve(); await Vue.nextTick()
+    state.hideStep(state.stepRefs.value[0])
+    state.toggleLeafWaiver('hole')
+    try {
+      const pending = state.handlePrimaryAction()
+      await state.handlePrimaryAction()
+      expect(beforeSave).toHaveBeenCalledTimes(1)
+      expect(beforeSave).toHaveBeenCalledWith(expect.objectContaining({
+        project_id: 28, expected_template_revision: 1, expected_workflow_revision: 4,
+        mappings: [], replace_all: true, hidden_step_keys: ['a.s1'], waived_group_paths: [['孔']],
+      }))
+      expect(vi.mocked(saveGroupTemplateStepMappings)).not.toHaveBeenCalled()
+      expect(emitted.filter(event => event[0] === 'save')).toEqual([])
+      expect(model.saving.value).toBe(true)
+      state.restoreHiddenSteps()
+      state.toggleLeafWaiver('hole')
+      expect(state.hiddenStepKeys.value).toEqual(['a.s1'])
+      expect(state.waivedGroupPaths.value).toEqual([['孔']])
+      if (success) finish({ ...snapshot, template_revision: 2, hidden_step_keys: ['a.s1'], waived_group_paths: [['孔']] })
+      else fail({ response: { status: 422, data: { detail: '映射导出失败' } } })
+      await pending
+      expect(emitted.filter(event => event[0] === 'save')).toHaveLength(success ? 1 : 0)
+      expect(state.dirty.value).toBe(!success)
+      expect(state.hiddenStepKeys.value).toEqual(['a.s1'])
+      expect(state.waivedGroupPaths.value).toEqual([['孔']])
+    } finally { effects.stop() }
+  })
+})
+
+it('keeps precision completion inside smart recommendation even when every mapping step is hidden', async () => {
+  const operation = { ...finalOperation('a'), precision: '' }
+  api.suggestTemplateProcessPrecisions.mockResolvedValue({
+    project_id: 28, template_revision: 1,
+    suggestions: [{ process_id: 'a', precision: '精加工', confidence: 1, reason: 'fixture' }], warnings: [],
+  })
+  const { state } = mount(1, [operation])
+  await Vue.nextTick()
+  state.hideStep(state.stepRefs.value[0])
+  await state.suggestAllSteps()
+  expect(api.suggestTemplateStepMappings).not.toHaveBeenCalled()
+  expect(api.suggestTemplateProcessPrecisions).toHaveBeenCalledTimes(1)
+  expect(state.operationPrecision(operation)).toBe('精加工')
+  expect(state.hiddenStepKeys.value).toEqual(['a.s1'])
 })

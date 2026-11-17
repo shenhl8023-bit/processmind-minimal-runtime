@@ -5,10 +5,49 @@ from sqlalchemy import UniqueConstraint, Boolean, Column, DateTime, Float, Forei
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.database import Base
+from sqlalchemy import event, inspect, delete, update
+from sqlalchemy.orm import Session
 
 
 def utcnow():
     return datetime.now(timezone.utc)
+
+
+@event.listens_for(Session, "before_flush")
+def _invalidate_changed_executable_sources(session, flush_context, instances):
+    """Cover every ORM authoring path, including route analysis transactions.
+
+    Keep invalidation in the same write transaction as its source change.
+    Template rows and analysis locks deliberately do not participate.
+    """
+    from app.services.rule_packages.executable_revisions import REVIEW_SOURCE_FIELDS, native_route
+
+    projects = set()
+    for row in set(session.new).union(session.dirty, session.deleted):
+        changed = row in session.new or row in session.deleted
+        state = inspect(row)
+        if isinstance(row, NormalizedRouteSegmentRuleReview):
+            changed = changed or any(state.attrs[key].history.has_changes() for key in REVIEW_SOURCE_FIELDS)
+        elif isinstance(row, NormalizedRouteVersion):
+            history = state.attrs.route_json.history
+            if not changed and history.has_changes():
+                try:
+                    changed = not history.deleted or native_route(history.deleted[0]) != native_route(row.route_json)
+                except (ValueError, TypeError):
+                    changed = True
+        else:
+            continue
+        if changed and row.project_id:
+            projects.add(row.project_id)
+    if not projects:
+        return
+    session.execute(update(ExecutableRuleRevision).where(ExecutableRuleRevision.project_id.in_(projects))
+                    .values(status="invalid"), execution_options={"synchronize_session": False})
+    session.execute(delete(GeneratedRoute).where(GeneratedRoute.project_id.in_(projects)),
+                    execution_options={"synchronize_session": False})
+    session.execute(update(FinalizedRulePackage).where(FinalizedRulePackage.project_id.in_(projects),
+                    FinalizedRulePackage.status == "published").values(status="superseded"),
+                    execution_options={"synchronize_session": False})
 
 
 # ---------- 项目 / 任务 ----------
@@ -24,12 +63,12 @@ class Project(Base):
     domain_stage = Column(String(255), nullable=True)
     domain_analysis_stale = Column(Boolean, nullable=False, default=False, server_default='0')
     workflow_revision = Column(Integer, nullable=False, default=0, server_default="0")
+    analysis_guidance_json = Column(Text, nullable=True)
     status = Column(String(20), default="CREATED")  # CREATED / UPLOADED / EXTRACTING / ROUTE_SET_READY / GENERATED / EXTRACT_ERROR
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     documents = relationship("Document", back_populates="project")
-    references = relationship("Reference", back_populates="project")
     operations = relationship("Operation", back_populates="project")
     document_operation_details = relationship("DocumentOperationDetail", back_populates="project")
     generated_routes = relationship("GeneratedRoute", back_populates="project")
@@ -40,6 +79,7 @@ class Project(Base):
     normalized_route_segment_factor_reviews = relationship("NormalizedRouteSegmentFactorReview", back_populates="project")
     normalized_route_segment_rule_reviews = relationship("NormalizedRouteSegmentRuleReview", back_populates="project")
     finalized_rule_packages = relationship("FinalizedRulePackage", back_populates="project")
+    executable_rule_revisions = relationship("ExecutableRuleRevision", cascade="all, delete-orphan")
     knowledge_evidence_snapshots = relationship(
         "KnowledgeEvidenceSnapshot",
         back_populates="project",
@@ -83,6 +123,12 @@ class ProjectGroupTemplate(Base):
     mappings_json = Column(Text, nullable=False, default="[]")
     step_mappings_json = Column(Text, nullable=False, default="[]")
     mapping_output_json = Column(Text, nullable=False, default="[]")
+    step_order_by_process_json = Column(Text, nullable=False, default="{}", server_default="{}")
+    mapping_context_json = Column(Text, nullable=False, default="{}", server_default="{}")
+    hidden_step_keys_json = Column(Text, nullable=False, default="[]", server_default="[]")
+    waived_group_paths_json = Column(Text, nullable=False, default="[]", server_default="[]")
+    # Keep the unfiltered mapping input so restore/replacement cannot lose steps.
+    mapping_operations_json = Column(Text, nullable=False, default="[]", server_default="[]")
     mapping_output_mode = Column(String(30), nullable=False, default="unknown", server_default="unknown")
     template_revision = Column(Integer, nullable=False, default=1, server_default="1")
     group_count = Column(Integer, nullable=False, default=0)
@@ -117,8 +163,17 @@ class ExtractionTaskState(Base):
 
 
 # ---------- 工艺规程文件 ----------
+class DocumentIdSequence(Base):
+    """Monotonic allocator also used by databases with the legacy documents DDL."""
+    __tablename__ = "document_id_sequence"
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id = Column(Integer, primary_key=True)
+
+
 class Document(Base):
     __tablename__ = "documents"
+    __table_args__ = {"sqlite_autoincrement": True}
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
@@ -131,27 +186,7 @@ class Document(Base):
     created_at = Column(DateTime, default=utcnow)
 
     project = relationship("Project", back_populates="documents")
-    references = relationship("Reference", back_populates="document")
     operation_details = relationship("DocumentOperationDetail", back_populates="document")
-
-
-# ---------- 参考资料 ----------
-class Reference(Base):
-    __tablename__ = "references"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
-    title = Column(String(255), nullable=False)
-    content = Column(Text)
-    ref_type = Column(String(20), default="written")  # written / uploaded
-    filename = Column(String(255))
-    document_id = Column(Integer, ForeignKey("documents.id"), nullable=True)
-    created_at = Column(DateTime, default=utcnow)
-    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
-
-    project = relationship("Project", back_populates="references")
-    document = relationship("Document", back_populates="references")
-
 
 # ---------- 工序 ----------
 class Operation(Base):
@@ -217,6 +252,7 @@ class GeneratedRoute(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
+    executable_revision_id = Column(Integer, ForeignKey("executable_rule_revisions.id"), nullable=True)
     input_factors = Column(Text)  # JSON string
     result_json = Column(Text)     # JSON string
     created_at = Column(DateTime, default=utcnow)
@@ -297,6 +333,7 @@ class NormalizedRouteVersion(Base):
     total_docs = Column(Integer, default=0)
     segment_count = Column(Integer, default=0)
     route_json = Column(Text)
+    analysis_locked_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utcnow)
 
     project = relationship("Project", back_populates="normalized_route_versions")
@@ -358,6 +395,27 @@ class NormalizedRouteSegmentRuleReview(Base):
 
     project = relationship("Project", back_populates="normalized_route_segment_rule_reviews")
     route_version = relationship("NormalizedRouteVersion", back_populates="rule_reviews")
+
+
+class ExecutableRuleRevision(Base):
+    """Internal executable core; independent of an optional exported snapshot."""
+
+    __tablename__ = "executable_rule_revisions"
+    __table_args__ = (UniqueConstraint("project_id", "revision"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
+    route_version_id = Column(Integer, ForeignKey("normalized_route_versions.id"), nullable=True)
+    revision = Column(Integer, nullable=False)
+    status = Column(String(20), nullable=False, default="current")
+    package_json = Column(Text, nullable=False)
+    normalized_route_json = Column(Text, nullable=False)
+    content_hash = Column(String(64), nullable=False)
+    source_hash = Column(String(64), nullable=False)
+    validation_json = Column(Text, nullable=False)
+    rule_report_md = Column(Text, default="")
+    created_by = Column(String(100), default="默认用户")
+    created_at = Column(DateTime, default=utcnow)
 
 
 class FinalizedRulePackage(Base):

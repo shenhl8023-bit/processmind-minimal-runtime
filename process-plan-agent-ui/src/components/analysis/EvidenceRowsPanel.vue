@@ -75,9 +75,10 @@ function cleanDocName(name?: string) {
 
 <style scoped>
 .detail-card-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: #0f172a;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--pm-text);
 }
 
 .detail-card-count {
@@ -106,9 +107,10 @@ function cleanDocName(name?: string) {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: #6366f1;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--pm-primary);
 }
 
 .detail-collapse-chevron {

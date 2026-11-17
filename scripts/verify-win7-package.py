@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 from email.parser import BytesParser
 import hashlib
 import json
@@ -32,6 +33,8 @@ REQUIRED_PATHS = (
     ".env.example",
     "requirements-win7-py38.txt",
     "manifest.json",
+    "product-profile.json",
+    "launcher-config.json",
 )
 CHECKSUM_LINE = re.compile(r"^(?P<digest>[0-9a-fA-F]{64})\s{2}(?P<path>.+?)\s*$")
 # Trust the actual official x64 runtime, not the manifest's Python version.
@@ -260,6 +263,41 @@ def _load_checksums(root: Path, relative: str, errors: List[str]) -> Dict[str, s
     return checksums
 
 
+def _check_product_profile(root: Path, manifest: Dict[str, object], errors: List[str]) -> None:
+    try:
+        profile = json.loads((root / "product-profile.json").read_text(encoding="utf-8-sig"))
+        if not isinstance(profile, dict) or set(profile) != {"edition", "template_mapping_enabled", "expires_at"}:
+            raise ValueError("required fields are missing or unsupported")
+        edition = profile["edition"]
+        if edition not in ("full", "basic-trial"):
+            raise ValueError("unsupported edition")
+        if profile["template_mapping_enabled"] is not (edition == "full"):
+            raise ValueError("edition and feature flag do not match")
+        expiry = profile["expires_at"]
+        if edition == "basic-trial":
+            if not isinstance(expiry, str):
+                raise ValueError("trial expiry is required")
+            parsed = datetime.fromisoformat(expiry.replace("Z", "+00:00"))
+            if parsed.tzinfo is None or parsed.utcoffset() is None:
+                raise ValueError("trial expiry must include a timezone")
+        elif expiry is not None:
+            raise ValueError("full edition must not have a trial expiry")
+        if manifest.get("edition", "full") != edition or manifest.get("trial_expires_at") != expiry:
+            raise ValueError("manifest does not match delivered configuration")
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        errors.append("invalid product profile: %s" % exc)
+
+
+def _check_launcher_config(root: Path, errors: List[str]) -> None:
+    try:
+        config = json.loads((root / "launcher-config.json").read_text(encoding="utf-8-sig"))
+        if (not isinstance(config, dict) or set(config) != {"port"}
+                or type(config["port"]) is not int or not 1 <= config["port"] <= 65535):
+            raise ValueError("port must be an integer from 1 to 65535; no other fields are supported")
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        errors.append("invalid launcher-config.json: %s" % exc)
+
+
 def verify_package(package_root: Path) -> List[str]:
     """Return actionable verification errors; an empty list means valid."""
 
@@ -270,6 +308,9 @@ def verify_package(package_root: Path) -> List[str]:
 
     manifest = _load_manifest(root, errors)
     checksum_relative = _check_manifest(manifest, errors) if manifest is not None else "SHA256SUMS.txt"
+    if manifest is not None:
+        _check_product_profile(root, manifest, errors)
+    _check_launcher_config(root, errors)
 
     for relative in REQUIRED_PATHS:
         path = root / Path(*relative.split("/"))
@@ -292,6 +333,10 @@ def verify_package(package_root: Path) -> List[str]:
         expected = checksums.get(relative)
         if expected is None:
             errors.append("missing SHA256 entry: %s" % relative)
+            continue
+        # Users may change only the validated port configuration. Program and
+        # trial profile hashes remain immutable; the checksum entry is required.
+        if relative == "launcher-config.json":
             continue
         actual = _sha256(path)
         if actual != expected:

@@ -1,0 +1,145 @@
+/* Shared page toolbar, based on the template mapping header. Keep this scoped
+   to the workflow main area so global navigation and dialogs retain geometry. */
+.workflow-shell .main-area .workflow-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  min-width: 0;
+  min-height: var(--pm-page-header-height);
+  gap: 6px 10px;
+  margin: 0 0 var(--pm-page-header-gap);
+  padding: var(--pm-page-header-padding-y) var(--pm-page-header-padding-x);
+  border: 1px solid var(--pm-border);
+  border-radius: var(--pm-radius-card);
+  background: var(--pm-surface);
+  box-shadow: var(--pm-shadow-card);
+}
+
+.workflow-shell .main-area .workflow-page-info {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex: 1 1 0;
+  flex-wrap: nowrap;
+  min-width: 0;
+  gap: 8px;
+}
+
+.workflow-shell .main-area .workflow-page-header .workflow-page-title {
+  flex: 0 0 auto;
+  margin: 0;
+  color: var(--pm-text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.workflow-shell .main-area .workflow-page-description {
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  color: var(--pm-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workflow-shell .main-area .workflow-page-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  min-width: 0;
+  gap: 6px;
+  width: auto;
+}
+
+.workflow-shell .main-area .workflow-page-header :is(.btn, .btn-accept-all-global, .ash-btn-outline, .ash-quiet-action, .ash-icon-action, .tgmd-command) {
+  flex-shrink: 0;
+  min-height: var(--pm-control-height-small);
+  height: var(--pm-control-height-small);
+  width: auto;
+  padding: 3px 8px;
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.workflow-shell .main-area .workflow-page-header .ash-dark-chip {
+  max-width: 160px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workflow-shell .main-area .workflow-page-header .ash-meta-section {
+  flex-wrap: nowrap;
+  width: auto;
+  min-width: 0;
+  gap: 8px;
+  margin-left: 0;
+  padding-left: 8px;
+}
+
+.workflow-shell .main-area .workflow-page-header .ash-meta-item {
+  white-space: nowrap;
+}
+
+.workflow-shell .main-area .workflow-page-info > .tgmd-title-row {
+  flex: 1 1 0;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.workflow-shell .main-area .workflow-page-header .tgmd-title-tag {
+  flex-shrink: 0;
+}
+
+/* The mapping workspace already supplies the shared 6px gap. */
+.workflow-shell .main-area .tgmd-page > .workflow-page-header {
+  margin-bottom: 0;
+}
+
+@media (max-width: 1100px) {
+  .workflow-shell .main-area .workflow-page-header .workflow-page-description {
+    display: none;
+  }
+}
+
+@media (max-width: 1000px) {
+  .workflow-shell .main-area .workflow-page-header {
+    flex-wrap: wrap;
+  }
+
+  .workflow-shell .main-area .workflow-page-info,
+  .workflow-shell .main-area .workflow-page-actions,
+  .workflow-shell .main-area .workflow-page-header .ash-meta-section {
+    flex-wrap: wrap;
+  }
+
+  .workflow-shell .main-area .workflow-page-actions {
+    max-width: 100%;
+    margin-left: auto;
+  }
+}
+
+@media (max-width: 600px) {
+  .workflow-shell .main-area .workflow-page-info {
+    flex-basis: 100%;
+  }
+
+  .workflow-shell .main-area .workflow-page-header .ash-dark-chip {
+    min-width: 0;
+    max-width: min(160px, 100%);
+    flex-shrink: 1;
+  }
+}

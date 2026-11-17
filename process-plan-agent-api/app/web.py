@@ -5,10 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse, HTMLResponse
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException
 from starlette.staticfiles import StaticFiles
 from starlette.types import Scope
+
+from app.core.compat import run_in_thread
+from app.core.product_profile import get_product_profile
 
 
 class SPAStaticFiles(StaticFiles):
@@ -16,7 +20,7 @@ class SPAStaticFiles(StaticFiles):
 
     async def get_response(self, path: str, scope: Scope):
         try:
-            return await super().get_response(path, scope)
+            response = await super().get_response(path, scope)
         except HTTPException as exc:
             if exc.status_code == 404 and scope["method"] in {"GET", "HEAD"}:
                 requested_path = path.replace("\\", "/").strip("/").lower()
@@ -28,8 +32,20 @@ class SPAStaticFiles(StaticFiles):
                     for item in Headers(scope=scope).get("accept", "").split(",")
                 )
                 if not is_api_path and not is_asset_path and not Path(path).suffix and accepts_html:
-                    return await super().get_response("index.html", scope)
-            raise
+                    response = await super().get_response("index.html", scope)
+                else:
+                    raise
+            else:
+                raise
+
+        if isinstance(response, FileResponse) and Path(response.path).resolve() == (Path(self.directory) / "index.html").resolve():
+            # Publish the explicit delivery edition with the entrypoint itself,
+            # so a full installation never waits for a separate status request.
+            content = await run_in_thread(Path(response.path).read_text, encoding="utf-8")
+            marker = '<meta name="processmind-edition" content="full" />'
+            content = content.replace(marker, '<meta name="processmind-edition" content="%s" />' % get_product_profile().edition)
+            return HTMLResponse(content, headers={"Cache-Control": "no-store"})
+        return response
 
 
 def install_frontend(app: FastAPI, frontend_dir: Path) -> None:

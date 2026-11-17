@@ -1,5 +1,8 @@
 import { computed, ref, watch, type Ref } from 'vue'
 import { referencedRequirementOptions } from '@/utils/requirementOptionUsage'
+import { isMaterialInput } from './generateFactorGroups'
+import { actualProjectItGrades, isActualProjectItField } from '@/utils/projectConditionFields'
+import { sharedFeatureField } from '@/utils/featureInputProjection'
 
 export type GenerateInputField = {
   key: string
@@ -11,6 +14,7 @@ export type GenerateInputField = {
   required?: boolean
   allow_custom?: boolean
   unit?: string
+  rule_hint?: string
   validation?: {
     min?: number | null
     max?: number | null
@@ -35,8 +39,8 @@ type FactorDictionaryEntry = {
   required?: boolean
 }
 
-function isPrecisionItField(field: Pick<GenerateInputField, 'key' | 'name'>) {
-  return /^precision\.(?:dimension|outer_diameter|inner_diameter)_it$/.test(field.key)
+function isPrecisionItField(field: Pick<GenerateInputField, 'key' | 'name' | 'unit'>) {
+  return isActualProjectItField(field)
     || /尺寸精度\s*IT/i.test(field.name || '')
 }
 
@@ -45,9 +49,28 @@ function normalizeFieldValidation(field: GenerateInputField): GenerateInputField
   return field.validation
 }
 
+function actualItRuleHint(key: string, rules: Record<string, any> | null | undefined) {
+  const descriptions: string[] = []
+  function visit(condition: any, negated = false) {
+    if (!condition || typeof condition !== 'object') return
+    if (condition.field === key) {
+      const format = (value: unknown) => Number(value) === -1 ? 'IT01' : `IT${value}`
+      const labels: Record<string, string> = { lte: '及更高精度', lt: '以上精度（不含该级）', gte: '及更低精度', gt: '以下精度（不含该级）', eq: '', neq: '以外的等级' }
+      const text = condition.op === 'between' && Array.isArray(condition.value) ? `${format(condition.value[0])}～${format(condition.value[1])}` : `${format(condition.value)}${labels[condition.op] ?? `（${condition.op}）`}`
+      descriptions.push(negated ? `不满足${text}` : text)
+    }
+    for (const child of condition.all || condition.any || []) visit(child, negated)
+    if (condition.not) visit(condition.not, !negated)
+  }
+  for (const rule of [...(rules?.rules || []), ...(rules?.process_configurations || [])]) if (rule.enabled !== false) visit(rule.when)
+  return descriptions.length ? `当前规则：${[...new Set(descriptions)].join('；')}。允许输入 IT5～IT10，触发与否按规则判断。` : ''
+}
+
 function normalizeGenerateInputField(field: GenerateInputField): GenerateInputField {
   return {
     ...field,
+    ...(isMaterialInput(field) ? { allow_custom: false, type: 'single_select' } : {}),
+    ...(isPrecisionItField(field) ? { allowed_values: actualProjectItGrades.map(String), allow_custom: false } : {}),
     validation: normalizeFieldValidation(field),
   }
 }
@@ -174,6 +197,18 @@ export function isBooleanField(field: GenerateInputField) {
   return field.type === 'boolean' || field.type === 'bool'
 }
 
+function isManualProcessSwitch(field: GenerateInputField) {
+  return isBooleanField(field)
+    && field.key.startsWith('project_factor.manual_process_')
+    && field.source === '用户直接设定'
+}
+
+function isFeaturePresence(field: GenerateInputField) {
+  return sharedFeatureField.test(field.key) && field.key.endsWith('.present') && isBooleanField(field)
+}
+
+const isDefaultOffField = (field: GenerateInputField) => isManualProcessSwitch(field) || isFeaturePresence(field)
+
 export function isNumberField(field: GenerateInputField) {
   return field.type === 'number' || field.type === 'integer'
 }
@@ -187,10 +222,10 @@ export function fieldTypeLabel(field: GenerateInputField) {
 }
 
 function exampleValueForField(field: GenerateInputField) {
+  if (isPrecisionItField(field)) return actualProjectItGrades[0]
   if (field.examples?.length) return isArrayField(field) ? [field.examples[0]] : field.examples[0]
   if (field.allowed_values?.length) return isArrayField(field) ? [field.allowed_values[0]] : field.allowed_values[0]
   if (isBooleanField(field)) return true
-  if (isPrecisionItField(field)) return 5
   if (isNumberField(field)) return field.validation?.min ?? Math.min(0, field.validation?.max ?? 0)
   if (isArrayField(field)) return ['示例特征']
   const minLength = Math.max(0, field.validation?.min_length ?? 0)
@@ -223,6 +258,9 @@ function isReusableFieldValue(field: GenerateInputField, value: any) {
     if (rawValue === '') return false
     const normalized = typeof rawValue === 'number' ? rawValue : Number(rawValue)
     if (!Number.isFinite(normalized)) return false
+    if (isPrecisionItField(field) && (!Number.isInteger(normalized) || !actualProjectItGrades.includes(normalized))) return false
+    if (!isPrecisionItField(field) && field.unit === 'IT' && (!Number.isInteger(normalized) || normalized < 1 || normalized > 18)) return false
+    if (/\.ra$/.test(field.key) && normalized <= 0) return false
     if (field.type === 'integer' && !Number.isInteger(normalized)) return false
     if (typeof field.validation?.min === 'number' && normalized < field.validation.min) return false
     if (typeof field.validation?.max === 'number' && normalized > field.validation.max) return false
@@ -261,7 +299,7 @@ export function useGenerateInputFields(args: {
     const schema = args.inputSchema.value
     if (!schema) return []
     if (String(schema.schema_version || '') === '2.0' && Array.isArray(schema.fields)) {
-      const fields = normalizeV2Fields(schema.fields)
+      const fields = normalizeV2Fields(schema.fields).map(field => ({ ...field, ...(isPrecisionItField(field) ? { rule_hint: actualItRuleHint(field.key, args.rulePackageRules?.value) } : {}) }))
       const rules = args.rulePackageRules?.value
       if (!rules || (!Array.isArray(rules.rules) && !Array.isArray(rules.process_configurations))) return fields
       const requirements = referencedRequirementOptions([
@@ -284,14 +322,23 @@ export function useGenerateInputFields(args: {
       .map(normalizeGenerateInputField)
   })
 
-  const requiredFields = computed(() => inputFields.value.filter(field => field.required))
-  const filledFieldCount = computed(() => inputFields.value.filter(field => hasConfirmedFieldValue(field)).length)
+  function isActiveField(field: GenerateInputField) {
+    const match = sharedFeatureField.exec(field.key)
+    return !match || match[2] === 'present' || fieldValues.value[`${match[1]}.present`] === true
+  }
+  const activeFields = computed(() => inputFields.value.filter(isActiveField))
+  const activeInputFieldCount = computed(() => activeFields.value.length)
+  const requiredFields = computed(() => activeFields.value.filter(field => field.required || (sharedFeatureField.test(field.key) && !isFeaturePresence(field))))
+  const filledFieldCount = computed(() => activeFields.value.filter(field => hasConfirmedFieldValue(field)).length)
 
   const factorValues = computed(() => {
     const values: Record<string, any> = {}
-    inputFields.value.forEach((field) => {
+    activeFields.value.forEach((field) => {
       const value = fieldValues.value[field.key]
       if (!hasConfirmedFieldValue(field)) return
+      // Missing optional Bool input already means off; only submit a supplied
+      // value when we can also send its actual input-origin metadata.
+      if (isDefaultOffField(field) && fieldValueOrigin(field.key) === 'unset' && value === false) return
       if (Array.isArray(value)) {
         values[field.key] = value.filter(Boolean)
       } else if (isNumberField(field)) {
@@ -310,7 +357,7 @@ export function useGenerateInputFields(args: {
 
   const factorMetadata = computed<Record<string, GenerateInputMetadata>>(() => {
     const metadata: Record<string, GenerateInputMetadata> = {}
-    inputFields.value.forEach((field) => {
+    activeFields.value.forEach((field) => {
       if (!hasConfirmedFieldValue(field)) return
       const origin = fieldValueOrigin(field.key)
       if (origin !== 'manual' && origin !== 'extracted') return
@@ -332,7 +379,8 @@ export function useGenerateInputFields(args: {
         ? Array.isArray(args.inputSchema.value?.fields)
         : Array.isArray(args.inputSchema.value?.required_inputs) || Array.isArray(args.inputSchema.value?.optional_inputs))
       && requiredFields.value.every(field => hasConfirmedFieldValue(field))
-      && inputFields.value.every(field => !hasFieldValue(field.key) || hasConfirmedFieldValue(field)),
+      && activeFields.value.every(field => !hasFieldValue(field.key) || hasConfirmedFieldValue(field))
+      && hardnessIntervalsValid(),
     ),
   )
 
@@ -350,7 +398,7 @@ export function useGenerateInputFields(args: {
       if (isArrayField(field)) {
         nextValues[field.key] = []
       } else if (isBooleanField(field)) {
-        nextValues[field.key] = undefined
+        nextValues[field.key] = isDefaultOffField(field) ? false : undefined
       } else {
         nextValues[field.key] = ''
       }
@@ -368,11 +416,21 @@ export function useGenerateInputFields(args: {
     const value = fieldValues.value[key]
     if (Array.isArray(value)) return value.length > 0
     if (typeof value === 'string') return value.trim().length > 0
-    return Boolean(value)
+    return value !== undefined && value !== null
+  }
+
+  function hardnessIntervalsValid() {
+    return inputFields.value.filter(field => field.key.endsWith('.hardness_min')).every(field => {
+      const maxKey = field.key.replace(/\.hardness_min$/, '.hardness_max')
+      if (!hasFieldValue(field.key) && !hasFieldValue(maxKey)) return true
+      if (!hasFieldValue(field.key) || !hasFieldValue(maxKey)) return false
+      return Number(fieldValues.value[field.key]) <= Number(fieldValues.value[maxKey])
+    })
   }
 
   function hasValidFieldValue(field: GenerateInputField) {
     const value = fieldValues.value[field.key]
+    if (/\.hardness_(min|max)$/.test(field.key) && !hardnessIntervalsValid()) return false
     if (isBooleanField(field)) return typeof value === 'boolean'
     if (isNumberField(field)) return isReusableFieldValue(field, value)
     return isReusableFieldValue(field, value) && hasFieldValue(field.key)
@@ -384,6 +442,7 @@ export function useGenerateInputFields(args: {
 
   function hasConfirmedFieldValue(field: GenerateInputField) {
     const origin = fieldValueOrigin(field.key)
+    if (origin === 'unset' && isDefaultOffField(field) && fieldValues.value[field.key] === false) return true
     return (origin === 'manual' || origin === 'extracted' || origin === 'example') && hasValidFieldValue(field)
   }
 
@@ -437,6 +496,16 @@ export function useGenerateInputFields(args: {
   function setFieldBoolean(key: string, value: boolean) {
     fieldValues.value[key] = value
     fieldOrigins.value[key] = 'manual'
+    const match = sharedFeatureField.exec(key)
+    if (match?.[2] === 'present' && !value) {
+      for (const field of inputFields.value) {
+        if (field.key.startsWith(`${match[1]}.`) && field.key !== key) {
+          fieldValues.value[field.key] = ''
+          fieldOrigins.value[field.key] = 'unset'
+          delete customInputValues.value[field.key]
+        }
+      }
+    }
   }
 
   function setCustomInput(key: string, value: string) {
@@ -464,6 +533,7 @@ export function useGenerateInputFields(args: {
   }
 
   function addCustomSingleValue(key: string) {
+    if (inputFields.value.find(field => field.key === key)?.allow_custom !== true) return
     const value = String(customInputValues.value[key] || '').trim()
     if (!value) return
     fieldValues.value[key] = value
@@ -475,7 +545,7 @@ export function useGenerateInputFields(args: {
     const nextValues: Record<string, any> = {}
     inputFields.value.forEach((field) => {
       if (isArrayField(field)) nextValues[field.key] = []
-      else if (isBooleanField(field)) nextValues[field.key] = undefined
+      else if (isBooleanField(field)) nextValues[field.key] = isDefaultOffField(field) ? false : undefined
       else nextValues[field.key] = ''
     })
     fieldValues.value = nextValues
@@ -519,6 +589,7 @@ export function useGenerateInputFields(args: {
     addCustomArrayValue,
     addCustomSingleValue,
     arrayFieldValues,
+    activeInputFieldCount,
     canGenerate,
     clearAllFields,
     customInputValues,

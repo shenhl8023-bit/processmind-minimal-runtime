@@ -19,6 +19,7 @@ COPY process-plan-agent-api/knowledge /app/process-plan-agent-api/knowledge
 COPY process-plan-agent-api/prompt_templates.md /app/process-plan-agent-api/prompt_templates.md
 COPY process-plan-agent-api/prompt_parts /app/process-plan-agent-api/prompt_parts
 COPY docs/配置模板 /app/docs/配置模板
+COPY product-profile.json /app/product-profile.json
 
 RUN mkdir -p /app/process-plan-agent-api/uploads /data
 

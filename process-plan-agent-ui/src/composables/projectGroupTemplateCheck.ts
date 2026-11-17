@@ -42,20 +42,26 @@ export function getTemplateMappingStatus(
     ...validSteps.map(mapping => pathKey(mapping.template_group_path)),
     ...validLegacy.map(mapping => pathKey(mapping.template_group_path)),
   ])
-  const missingFeatureGroups = featureGroups.filter(node => !mappedPaths.has(pathKey(node.path)))
+  const waivedPaths = new Set((template?.waived_group_paths || []).filter(path => Array.isArray(path)
+    && path.every(part => typeof part === 'string')).map(pathKey))
+  const mappedFeatureGroups = featureGroups.filter(node => mappedPaths.has(pathKey(node.path)))
+  const waivedFeatureGroups = featureGroups.filter(node => !mappedPaths.has(pathKey(node.path)) && waivedPaths.has(pathKey(node.path)))
+  const missingFeatureGroups = featureGroups.filter(node => !mappedPaths.has(pathKey(node.path)) && !waivedPaths.has(pathKey(node.path)))
   return {
     validCount: validLegacy.length + validSteps.length,
     invalidCount: (template?.mappings || []).length - validLegacy.length + confirmed.length - validSteps.length + general.length - validGeneral.length,
     validSteps,
     validGeneral,
     validLegacy,
+    mappedFeatureGroups,
+    waivedFeatureGroups,
     missingFeatureGroups,
   }
 }
 
 export function isGroupTemplateReady(template: ProjectGroupTemplate | null | undefined): boolean {
   const status = getTemplateMappingStatus(template)
-  return status.validCount > 0 && status.missingFeatureGroups.length === 0
+  return (status.validCount > 0 || status.waivedFeatureGroups.length > 0) && status.missingFeatureGroups.length === 0
 }
 
 export async function checkProjectGroupTemplateReady(projectId: number): Promise<GroupTemplateCheckResult> {

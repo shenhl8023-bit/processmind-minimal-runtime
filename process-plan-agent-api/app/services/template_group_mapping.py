@@ -9,6 +9,7 @@ import re
 from typing import Any
 
 from fastapi import HTTPException
+from httpx import ResponseNotRead
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.schemas import (
@@ -78,8 +79,21 @@ def _normalized_text(value: Any) -> str:
 def _llm_failure_warning(exc: Exception) -> str:
     if isinstance(exc, LLMResponseError):
         return "模型接口已响应，但响应中没有包含可用文本，已保留程序候选供人工选择。"
-    status_code = getattr(getattr(exc, "response", None), "status_code", None)
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
     if isinstance(status_code, int):
+        try:
+            payload = response.json()
+        except (ValueError, TypeError, AttributeError, ResponseNotRead):
+            payload = None
+        error = payload.get("error") if isinstance(payload, dict) else None
+        # Only interpret a known code. Provider messages may contain private
+        # model names, credentials or request details and must not be echoed.
+        if isinstance(error, dict) and error.get("code") == "model_not_found":
+            return (
+                f"模型接口请求失败（HTTP {status_code}）：当前模型没有可用通道，"
+                "请检查模型名称及账号分组的可用模型，或联系模型服务管理员；已保留程序候选供人工选择。"
+            )
         return f"模型接口请求失败（HTTP {status_code}），已保留程序候选供人工选择。"
     return f"模型请求未完成（{type(exc).__name__}），已保留程序候选供人工选择；请检查模型配置、网络和服务状态。"
 
@@ -286,10 +300,14 @@ def _matched_features_for_step(
     candidate: TemplateGroupMappingCandidateIn,
 ) -> list[str]:
     source = _normalized_text(step.step_name)
+    qualified_chamfers = {"内倒角", "外倒角", "边倒角"}
+    explicit_chamfers = {feature for feature in qualified_chamfers if feature in source}
     return [
         feature
         for feature in candidate.feature_selections
-        if any(
+        # A generic alias must not override an explicit positional qualifier.
+        if (not explicit_chamfers or feature not in qualified_chamfers or feature in explicit_chamfers)
+        and any(
             (normalized := _normalized_text(term)) and normalized in source
             for term in _feature_terms(feature)
         )

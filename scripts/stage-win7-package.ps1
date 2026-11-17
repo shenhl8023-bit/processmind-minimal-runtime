@@ -3,7 +3,8 @@ param(
   [string] $SourceRoot,
   [Parameter(Mandatory = $true)]
   [string] $Destination,
-  [string] $PythonRuntime = ''
+  [string] $PythonRuntime = '',
+  [string] $ProductProfile = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -91,6 +92,17 @@ if (-not (Test-Path -LiteralPath (Join-Path $PythonRuntime 'python.exe') -PathTy
   throw "Missing CPython 3.8.10 runtime: $PythonRuntime\python.exe"
 }
 
+if (-not $ProductProfile) {
+  $ProductProfile = Join-Path $SourceRoot 'product-profile.json'
+}
+if (-not (Test-Path -LiteralPath $ProductProfile -PathType Leaf)) {
+  throw "Missing product profile: $ProductProfile"
+}
+Copy-Item -LiteralPath $ProductProfile -Destination (Join-Path $Destination 'product-profile.json') -Force
+if (Test-Path -LiteralPath (Join-Path $SourceRoot 'product-features.json') -PathType Leaf) {
+  Copy-FileIfPresent 'product-features.json'
+}
+
 Copy-TreeFiltered -Source (Join-Path $SourceRoot 'process-plan-agent-api') -Target (Join-Path $Destination 'process-plan-agent-api') -RelativePath 'process-plan-agent-api'
 Copy-TreeFiltered -Source $frontend -Target (Join-Path $Destination 'process-plan-agent-ui\dist') -RelativePath 'process-plan-agent-ui/dist'
 Copy-TreeFiltered -Source (Join-Path $SourceRoot 'docs\配置模板') -Target (Join-Path $Destination 'docs\配置模板') -RelativePath 'docs/配置模板'
@@ -101,10 +113,12 @@ foreach ($file in @(
   'start-win7.bat',
   'stop-win7.cmd',
   'status-win7.cmd',
+  'launcher-config.json',
   'requirements-win7-py38.txt',
   '.env.example',
   'README.md',
   'docs\用户使用说明.md',
+  'docs\deployment-features.md',
   'docs\系统简介.md',
   'docs\Win7功能测试方案-20261025.md',
   'docs\Win7缺陷清单-20261025.md'
@@ -118,6 +132,17 @@ foreach ($file in @(
   'scripts\verify-win7-package.py'
 )) {
   Copy-FileIfPresent $file
+}
+
+$deliveryProfile = Get-Content -LiteralPath $ProductProfile -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($deliveryProfile.edition -eq 'basic-trial') {
+  Copy-FileIfPresent 'docs\基础试用版-快速使用说明.md'
+  $guide = Join-Path $Destination 'docs\基础试用版-快速使用说明.md'
+  Copy-Item -LiteralPath $guide -Destination (Join-Path $Destination 'docs\用户使用说明.md') -Force
+  Copy-Item -LiteralPath $guide -Destination (Join-Path $Destination 'README.md') -Force
+  $guideText = [System.IO.File]::ReadAllText($guide, [System.Text.Encoding]::UTF8)
+  $guideText = $guideText -replace '\r?\n', "`r`n"
+  [System.IO.File]::WriteAllText((Join-Path $Destination '使用说明.txt'), $guideText, (New-Object System.Text.UTF8Encoding $true))
 }
 
 # A second pass protects the package if an allowlisted source directory is

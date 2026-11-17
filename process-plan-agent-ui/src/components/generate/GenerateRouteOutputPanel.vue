@@ -33,7 +33,7 @@
           </span>
           <div>
             <strong>规则包</strong>
-            <span>{{ hasRulePackage ? '已加载已发布规则包' : '等待第4步完成规则定稿并发布' }}</span>
+            <span>{{ hasRulePackage ? '已加载当前可验证规则' : '等待第4步保存规则定稿' }}</span>
           </div>
           <div class="readiness-action-cell">
             <span class="readiness-state">{{ hasRulePackage ? '就绪' : '待处理' }}</span>
@@ -85,20 +85,6 @@
             <span class="stat-inline-item">工步 <strong>{{ processStepCount }}</strong> 项</span>
           </span>
         </div>
-        <div class="output-actions">
-          <button class="copy-button" type="button" @click="copyJson" :disabled="!result.output_json_text">
-            {{ copied ? '已复制 ✓' : '复制 JSON' }}
-          </button>
-          <button class="export-button" type="button" @click="emit('download')" :disabled="!result.output_json_text">导出 JSON</button>
-        </div>
-      </div>
-
-      <div v-if="isStale" class="output-stale-banner" role="alert">
-        <span class="stale-dot">!</span>
-        <div class="stale-text">
-          <strong>规则包已更新至 V{{ currentPackageVersion }}</strong>
-          <span>当前展示为基于旧版 V{{ result.rule_package_version }} 生成的推演结果，建议重新生成以验证最新规则。</span>
-        </div>
       </div>
 
       <div class="route-tree">
@@ -111,14 +97,13 @@
             <div class="route-name-row">
               <div class="route-title-group">
                 <span class="route-seq" :class="{ 'route-seq--active': step.op_type === 'MAIN' }">{{ displayStepSequence(step, index) }}</span>
-                <h3>{{ step.name }}</h3>
+                <h3 :title="step.name">{{ step.name }}</h3>
               </div>
               <span class="route-kind" :class="{ branch: step.op_type !== 'MAIN' }">
                 {{ step.op_type === 'MAIN' ? '主线工序' : '条件工序' }}
               </span>
-            </div>
-            <div v-if="normalizedProcessSteps(step).length" class="route-step-area">
               <button
+                v-if="normalizedProcessSteps(step).length"
                 type="button"
                 class="route-step-summary"
                 :aria-expanded="isProcessStepsExpanded(step, index)"
@@ -146,22 +131,22 @@
                 <span>工步</span>
                 <span class="route-step-count">{{ normalizedProcessSteps(step).length }}</span>
               </button>
-              <Transition name="process-steps-expand">
-                <div
-                  v-if="isProcessStepsExpanded(step, index)"
-                  :id="processStepRegionId(index)"
-                  class="process-step-chips"
-                >
-                  <span
-                    v-for="(processStep, stepIndex) in normalizedProcessSteps(step)"
-                    :key="`${step.name}-${stepIndex}`"
-                    class="process-step-chip"
-                  >
-                    {{ processStep }}
-                  </span>
-                </div>
-              </Transition>
             </div>
+            <Transition name="process-steps-expand">
+              <div
+                v-if="normalizedProcessSteps(step).length && isProcessStepsExpanded(step, index)"
+                :id="processStepRegionId(index)"
+                class="route-step-area process-step-chips"
+              >
+                <span
+                  v-for="(processStep, stepIndex) in normalizedProcessSteps(step)"
+                  :key="`${step.name}-${stepIndex}`"
+                  class="process-step-chip"
+                >
+                  {{ processStep }}
+                </span>
+              </div>
+            </Transition>
           </article>
         </div>
       </div>
@@ -191,7 +176,6 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (event: 'download'): void
   (event: 'go-finalize'): void
   (event: 'fill-example'): void
 }>()
@@ -204,8 +188,7 @@ const processStepCount = computed(() => (
 
 type GeneratedStep = NonNullable<GenerateRouteResult['steps']>[number]
 
-const collapsedProcessStepKeys = ref<Set<string>>(new Set())
-const copied = ref(false)
+const expandedProcessStepKeys = ref<Set<string>>(new Set())
 
 function processStepKey(step: GeneratedStep, index: number) {
   return `${displayStepSequence(step, index)}:${step.name}:${index}`
@@ -216,63 +199,51 @@ function processStepRegionId(index: number) {
 }
 
 function isProcessStepsExpanded(step: GeneratedStep, index: number) {
-  return !collapsedProcessStepKeys.value.has(processStepKey(step, index))
+  return expandedProcessStepKeys.value.has(processStepKey(step, index))
 }
 
 function toggleProcessSteps(step: GeneratedStep, index: number) {
   const key = processStepKey(step, index)
-  const next = new Set(collapsedProcessStepKeys.value)
+  const next = new Set(expandedProcessStepKeys.value)
   if (next.has(key)) next.delete(key)
   else next.add(key)
-  collapsedProcessStepKeys.value = next
-}
-
-async function copyJson() {
-  if (!props.result?.output_json_text) return
-  try {
-    await navigator.clipboard.writeText(props.result.output_json_text)
-    copied.value = true
-    setTimeout(() => { copied.value = false }, 2000)
-  } catch (e) {
-    console.error('Failed to copy json', e)
-  }
+  expandedProcessStepKeys.value = next
 }
 
 watch(() => props.result, () => {
-  collapsedProcessStepKeys.value = new Set()
-  copied.value = false
+  expandedProcessStepKeys.value = new Set()
 })
 </script>
 
 <style scoped>
 .result-panel {
-  --ink: #0f172a;
-  --muted: #64748b;
-  --line: #e2e8f0;
-  --panel: #f8fafc;
-  --accent: #4f46e5;
-  --accent-soft: #eef2ff;
+  --ink: var(--pm-text);
+  --muted: var(--pm-text-muted);
+  --line: var(--pm-border);
+  --panel: var(--pm-surface-subtle);
+  --accent: var(--pm-primary);
+  --accent-soft: var(--pm-primary-soft);
   height: 100%;
   overflow-y: auto;
   border: 1px solid var(--line);
-  border-radius: 14px;
-  background-color: #ffffff;
+  border-radius: var(--pm-radius-card);
+  background-color: var(--pm-surface);
   box-shadow: var(--shadow-sm);
 }
 
 .result-panel::-webkit-scrollbar { width: 6px; height: 6px; }
-.result-panel::-webkit-scrollbar-track { background: #f8fafc; border-radius: 6px; }
-.result-panel::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 6px; }
-.result-panel::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+.result-panel::-webkit-scrollbar-track { background: var(--pm-surface-subtle); border-radius: 6px; }
+.result-panel::-webkit-scrollbar-thumb { background: var(--pm-border-strong); border-radius: 6px; }
+.result-panel::-webkit-scrollbar-thumb:hover { background: var(--pm-text-muted); }
 
 .route-placeholder {
-  min-height: 604px;
+  min-height: 360px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   max-width: 620px;
   margin: 0 auto;
-  padding: 42px 32px;
+  padding: 24px;
 }
 
 .placeholder-heading {
@@ -296,9 +267,9 @@ watch(() => props.result, () => {
 .output-head h2 {
   margin: 0;
   color: var(--ink);
-  font-size: 20px;
-  line-height: 1.25;
-  font-weight: 700;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
 }
 
 .placeholder-copy {
@@ -320,7 +291,7 @@ watch(() => props.result, () => {
   grid-template-columns: 24px minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  padding: 13px 0;
+  padding: 10px 0;
   border-bottom: 1px solid var(--line);
 }
 
@@ -330,19 +301,19 @@ watch(() => props.result, () => {
   justify-content: center;
   width: 24px;
   height: 24px;
-  border: 1px solid #c7d2fe;
+  border: 1px solid var(--pm-primary-border);
   border-radius: 50%;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   transition: all 0.2s ease;
 }
 
 .readiness-item.ready .readiness-index {
-  border-color: #22c55e;
-  background: #22c55e;
-  color: #ffffff;
+  border-color: var(--pm-success);
+  background: var(--pm-success);
+  color: var(--pm-surface);
 }
 
 .readiness-item div {
@@ -356,7 +327,7 @@ watch(() => props.result, () => {
 
 .readiness-item strong {
   color: var(--ink);
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -380,23 +351,23 @@ watch(() => props.result, () => {
 }
 
 .readiness-item.ready .readiness-state {
-  color: #16a34a;
+  color: var(--pm-success);
 }
 
 .readiness-link-btn {
   padding: 2px 8px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--pm-border-strong);
   border-radius: 5px;
-  background: #ffffff;
-  color: #4f46e5;
-  font-size: 11px;
+  background: var(--pm-surface);
+  color: var(--pm-primary);
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 .readiness-link-btn:hover {
-  background: #eef2ff;
-  border-color: #6366f1;
+  background: var(--pm-primary-soft);
+  border-color: var(--pm-primary);
 }
 
 .generating-state {
@@ -434,10 +405,10 @@ watch(() => props.result, () => {
   gap: 10px;
   margin: 14px 14px -2px;
   padding: 11px 12px;
-  border: 1px solid #f3c6c6;
+  border: 1px solid var(--pm-danger-border);
   border-radius: 8px;
-  background: #fff4f4;
-  color: #9f1d1d;
+  background: var(--pm-danger-soft);
+  color: var(--pm-danger);
 }
 
 .error-mark {
@@ -447,8 +418,8 @@ watch(() => props.result, () => {
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background: #c43b3b;
-  color: #ffffff;
+  background: var(--pm-danger);
+  color: var(--pm-surface);
   font-family: Georgia, serif;
   font-weight: 800;
 }
@@ -456,16 +427,19 @@ watch(() => props.result, () => {
 .error-panel strong { display: block; font-size: 12px; }
 .error-panel p { margin: 2px 0 0; font-size: 12px; line-height: 1.5; }
 
-.route-output { padding: 12px; }
+.route-output { min-width: 0; }
 
 .output-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 10px;
+  gap: 2px 8px;
+  padding: 6px 12px;
   border-bottom: 1px solid var(--line);
-  margin-bottom: 10px;
+  background: var(--pm-surface-subtle);
 }
 
 .output-head-left {
@@ -476,7 +450,8 @@ watch(() => props.result, () => {
 }
 
 .output-title {
-  font-size: 14px;
+  font-size: 13px;
+  line-height: 20px;
   font-weight: 700;
   color: var(--ink);
   white-space: nowrap;
@@ -486,13 +461,14 @@ watch(() => props.result, () => {
 .output-stats-inline {
   display: flex;
   align-items: center;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 2px 6px;
   margin-left: 6px;
   padding-left: 8px;
-  border-left: 1px solid #e2e8f0;
+  border-left: 1px solid var(--pm-border);
   font-size: 12px;
   color: var(--muted);
-  white-space: nowrap;
+  min-width: 0;
 }
 
 .stat-inline-item strong {
@@ -501,14 +477,7 @@ watch(() => props.result, () => {
 }
 
 .stat-inline-sep {
-  color: #cbd5e1;
-}
-
-.output-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
+  color: var(--pm-border-strong);
 }
 
 .output-stale-banner {
@@ -517,12 +486,12 @@ watch(() => props.result, () => {
   gap: 10px;
   padding: 10px 14px;
   margin: 10px 0 14px;
-  background: #fffbeb;
-  border: 1px solid #fef08a;
-  border-left: 4px solid #f59e0b;
+  background: var(--pm-warning-soft);
+  border: 1px solid var(--pm-warning-border);
+  border-left: 4px solid var(--pm-warning);
   border-radius: 8px;
   font-size: 13px;
-  color: #92400e;
+  color: var(--pm-warning);
 }
 
 .stale-dot {
@@ -532,10 +501,10 @@ watch(() => props.result, () => {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: #f59e0b;
-  color: #ffffff;
+  background: var(--pm-warning);
+  color: var(--pm-surface);
   font-weight: 700;
-  font-size: 11px;
+  font-size: 12px;
   flex-shrink: 0;
 }
 
@@ -546,70 +515,25 @@ watch(() => props.result, () => {
 }
 
 .stale-text strong {
-  color: #b45309;
-  font-size: 12.5px;
+  color: var(--pm-warning);
+  font-size: 13px;
 }
 
 .stale-text span {
-  color: #78350f;
-  font-size: 11.5px;
-}
-
-.copy-button {
-  height: 26px;
-  padding: 0 9px;
-  border: 1px solid #6366f1;
-  border-radius: 6px;
-  background: #ffffff;
-  color: #6366f1;
-  font: inherit;
-  font-size: 11.5px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.copy-button:hover:not(:disabled) {
-  background: #f5f3ff;
-  border-color: #4f46e5;
-  color: #4f46e5;
-}
-
-.export-button {
-  height: 26px;
-  padding: 0 10px;
-  border: 1px solid #6366f1;
-  border-radius: 6px;
-  background: #ffffff;
-  color: #6366f1;
-  font: inherit;
-  font-size: 11.5px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.export-button:hover:not(:disabled) {
-  background: #f5f3ff;
-  border-color: #4f46e5;
-  color: #4f46e5;
-}
-
-.export-button:disabled,
-.copy-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
+  color: var(--pm-warning);
+  font-size: 12px;
 }
 
 .route-tree {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
+  padding: 8px 12px 12px;
 }
 
 .route-node {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
+  grid-template-columns: 16px minmax(0, 1fr);
   gap: 8px;
 }
 
@@ -618,62 +542,64 @@ watch(() => props.result, () => {
   flex-direction: column;
   align-items: center;
   flex-shrink: 0;
-  width: 14px;
-  padding-top: 10px;
+  width: 16px;
+  padding-top: 12px;
 }
 
 .route-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #cbd5e1;
-  border: 2px solid #ffffff;
-  box-shadow: 0 0 0 1px #cbd5e1;
+  background: var(--pm-border-strong);
+  border: 2px solid var(--pm-surface);
+  box-shadow: 0 0 0 1px var(--pm-border-strong);
   flex-shrink: 0;
   transition: all 0.15s ease;
   z-index: 1;
 }
 
 .route-dot--active {
-  background: #6366f1;
-  box-shadow: 0 0 0 1px #6366f1, 0 0 0 3px rgba(99, 102, 241, 0.25);
+  background: var(--pm-primary);
+  box-shadow: 0 0 0 1px var(--pm-primary), 0 0 0 3px rgba(36, 95, 168, 0.25);
 }
 
 .route-line {
   flex: 1;
   width: 1px;
   min-height: 16px;
-  background: #cbd5e1;
+  background: var(--pm-border-strong);
 }
 
 .route-card {
-  margin-bottom: 6px;
-  padding: 8px 12px;
+  min-width: 0;
+  margin-bottom: 2px;
+  padding: 5px 10px;
   border: 1px solid var(--line);
-  border-left: 3px solid #6366f1;
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--pm-surface);
   transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
 .route-card.branch {
-  border-left-color: #8b5cf6;
-  background: #faf8ff;
+  border-left-color: var(--pm-primary);
+  background: var(--pm-primary-soft);
 }
 
 .route-card:hover {
-  border-color: #c7d2fe;
-  box-shadow: 0 7px 18px rgba(31, 45, 51, 0.06);
+  border-color: var(--pm-primary-border);
+  box-shadow: none;
 }
 
 .route-name-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  min-height: 24px;
+  gap: 2px 8px;
 }
 
 .route-title-group {
+  flex: 1 1 120px;
   display: flex;
   align-items: center;
   min-width: 0;
@@ -688,30 +614,30 @@ watch(() => props.result, () => {
   height: 16px;
   padding: 0 5px;
   border-radius: 3px;
-  background: #f1f5f9;
-  color: #475569;
+  background: var(--pm-surface-subtle);
+  color: var(--pm-text-secondary);
   font-weight: 700;
-  font-size: 10px;
+  font-size: 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   flex-shrink: 0;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--pm-border);
   transition: all 0.15s ease;
 }
 
 .route-seq--active {
-  background: #6366f1;
-  color: #ffffff;
-  border-color: #6366f1;
+  background: var(--pm-primary);
+  color: var(--pm-surface);
+  border-color: var(--pm-primary);
 }
 
 .route-name-row h3 {
-  overflow: hidden;
+  min-width: 0;
   margin: 0;
   color: var(--ink);
-  font-size: 14px;
-  font-weight: 750;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  overflow-wrap: anywhere;
 }
 
 .route-kind {
@@ -720,28 +646,31 @@ watch(() => props.result, () => {
   align-items: center;
   height: 22px;
   padding: 0 7px;
-  border-radius: 999px;
+  border-radius: 4px;
   background: var(--accent-soft);
-  color: #4338ca;
-  font-size: 10px;
-  font-weight: 800;
+  color: var(--pm-primary-hover);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .route-kind.branch {
-  background: #f3e8ff;
-  color: #7e22ce;
+  background: var(--pm-primary-soft);
+  color: var(--pm-primary);
 }
 
 .route-step-area {
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px dashed #e2e8f0;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--pm-border);
 }
 
 .route-step-summary {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex: 0 0 auto;
+  min-height: 24px;
+  white-space: nowrap;
   margin: 0;
   padding: 0;
   border: 0;
@@ -749,7 +678,7 @@ watch(() => props.result, () => {
   color: var(--muted);
   cursor: pointer;
   font-family: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 500;
   line-height: 1.4;
   text-align: left;
@@ -762,7 +691,7 @@ watch(() => props.result, () => {
 
 .route-step-summary:focus-visible {
   border-radius: 3px;
-  outline: 2px solid rgba(79, 70, 229, 0.35);
+  outline: 2px solid rgba(36, 95, 168, 0.35);
   outline-offset: 3px;
 }
 
@@ -777,19 +706,19 @@ watch(() => props.result, () => {
 }
 
 .route-step-count {
-  background: #f1f5f9;
-  color: #475569;
+  background: var(--pm-surface-subtle);
+  color: var(--pm-text-secondary);
   border-radius: 999px;
   padding: 1px 6px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--pm-border);
   transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
 }
 
 .route-step-summary:hover .route-step-count {
-  border-color: rgba(79, 70, 229, 0.18);
-  background: rgba(79, 70, 229, 0.08);
+  border-color: rgba(36, 95, 168, 0.18);
+  background: rgba(36, 95, 168, 0.08);
   color: var(--accent);
 }
 
@@ -803,14 +732,16 @@ watch(() => props.result, () => {
 .process-step-chip {
   display: inline-flex;
   align-items: center;
-  min-height: 22px;
-  padding: 2px 7px;
-  border: 1px solid #e2e8f0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  min-height: 20px;
+  padding: 1px 6px;
+  border: 1px solid var(--pm-border);
   border-radius: 4px;
-  background: #f8fafc;
-  color: #334155;
-  font-size: 11px;
-  font-weight: 600;
+  background: var(--pm-surface-subtle);
+  color: var(--pm-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
   line-height: 1.35;
 }
 
@@ -830,7 +761,7 @@ watch(() => props.result, () => {
 .no-process-steps {
   margin-bottom: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 @keyframes pulse {
@@ -840,9 +771,16 @@ watch(() => props.result, () => {
 
 @media (max-width: 700px) {
   .route-placeholder { padding: 24px 16px; }
-  .route-output { padding: 16px; }
   .output-head { align-items: center; flex-wrap: wrap; }
-  .route-name-row { align-items: flex-start; flex-direction: column; }
-  .route-kind { align-self: flex-start; }
+}
+
+.readiness-link-btn { min-height: var(--pm-control-height-small); height: auto; padding: 3px 10px; line-height: 20px; }
+.output-head-left, .route-name-row { flex-wrap: wrap; }
+.output-stats-inline { margin-left: 0; }
+.route-seq { min-height: 20px; height: auto; }
+.route-step-summary:focus-visible { outline-color: var(--pm-primary); }
+@media (prefers-reduced-motion: reduce) {
+  .generation-loader span { animation: none; }
+  .route-dot, .route-card, .route-seq, .route-step-caret, .route-step-count { transition: none; }
 }
 </style>

@@ -12,6 +12,7 @@ import httpx
 from dotenv import load_dotenv
 
 from app.services.settings_store import get_llm_settings_map
+from app.services.llm_errors import tls_error_cause
 
 load_dotenv(override=True)
 
@@ -303,6 +304,8 @@ async def request_llm_completion(
                 raise
             except (httpx.TimeoutException, httpx.ConnectError) as exc:
                 last_error = exc
+                if tls_error_cause(exc) is not None:
+                    raise
                 if attempt < max_attempts - 1:
                     await asyncio.sleep(2 * (attempt + 1))
                     continue
@@ -349,6 +352,8 @@ async def request_llm_completion_with_web_search(
                 raise
             except (httpx.TimeoutException, httpx.ConnectError) as exc:
                 last_error = exc
+                if tls_error_cause(exc) is not None:
+                    raise
                 if attempt < 1:
                     await asyncio.sleep(2 * (attempt + 1))
                     continue

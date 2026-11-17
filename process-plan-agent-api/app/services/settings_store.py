@@ -9,6 +9,7 @@ import os
 import tempfile
 import threading
 from datetime import datetime, timezone
+from typing import Optional
 
 from app.core.paths import SETTINGS_FILE_PATH
 
@@ -64,13 +65,13 @@ def _default_settings_map() -> dict[str, dict[str, str]]:
 
 def _normalize_settings_payload(payload: dict[str, dict[str, str]]) -> list[dict[str, str]]:
     normalized: list[dict[str, str]] = []
-    for idx, (key, description, _) in enumerate(SETTING_DEFINITIONS, start=1):
+    for idx, (key, description, default_value) in enumerate(SETTING_DEFINITIONS, start=1):
         row = payload.get(key) or {}
         normalized.append(
             {
                 "id": idx,
                 "key": key,
-                "value": str(row.get("value") if row.get("value") is not None else _env_value(key)),
+                "value": str(row.get("value") if row.get("value") is not None else _env_value(key, default_value)),
                 "description": str(row.get("description") or description),
                 "updated_at": str(row.get("updated_at") or datetime.now(timezone.utc).isoformat()),
             }
@@ -158,6 +159,30 @@ def save_settings(settings: list[dict[str, str]]) -> None:
 def update_setting_value(key: str, value: str) -> dict[str, str]:
     with _SETTINGS_LOCK:
         return _update_setting_value_unlocked(key, value)
+
+
+def update_llm_settings(api_url: str, model: str, api_key: Optional[str] = None) -> list[dict[str, str]]:
+    """Commit one complete configuration, preserving a blank secret and other settings."""
+    api_url, model, api_key = api_url.strip(), model.strip(), (api_key or '').strip()
+    if not api_url or not model:
+        raise ValueError('API 地址和模型名称不能为空')
+    if api_key == '__use_saved__':
+        raise ValueError('保存配置时请留空以保留密钥，或输入新的 API Key')
+    with _SETTINGS_LOCK:
+        settings = _load_settings_unlocked()
+        saved_key = next((row['value'] for row in settings if row['key'] == 'LLM_API_KEY'), '')
+        if not api_key and not saved_key.strip():
+            raise ValueError('请输入 API Key')
+        updates = {'LLM_API_URL': api_url, 'LLM_MODEL': model}
+        if api_key:
+            updates['LLM_API_KEY'] = api_key
+        now = datetime.now(timezone.utc).isoformat()
+        for row in settings:
+            if row['key'] in updates:
+                row['value'] = updates[row['key']]
+                row['updated_at'] = now
+        save_settings(settings)
+        return settings
 
 
 def _update_setting_value_unlocked(key: str, value: str) -> dict[str, str]:
