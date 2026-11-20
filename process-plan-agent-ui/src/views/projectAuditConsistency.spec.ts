@@ -145,6 +145,7 @@ describe('A8 finalization workspace ownership', () => {
 
 function contextScope() {
   const scope = {
+    exportError: ref(''),
     projectId: ref<number | null>(1), projectName: ref('任务一'), route: { path: '/generate', query: { project_id: '1' } },
     router: { replace: vi.fn() }, generateViewActive: true, initialLoadFinished: true,
     contextLoading: ref(false), contextLoadRequestId: 0, generationRequestId: 0,

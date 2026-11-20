@@ -27,7 +27,7 @@ function deferred<T>() {
 function generationScope() {
   return {
     projectId: ref<number | null>(1), contextLoading: ref(false), canGenerate: ref(true),
-    generating: ref(false), error: ref(''), result: ref<any>(null), inputsRequireRegeneration: ref(false),
+    generating: ref(false), error: ref(''), exportError: ref(''), result: ref<any>(null), inputsRequireRegeneration: ref(false),
     executableRevision: ref<any>({ id: 7, revision: 1, content_hash: 'old', generation_ready: true }),
     workflowRevision: ref(3), fieldValues: ref({ 'material.grade': 'A' }), factorValues: ref({ material: { grade: 'A' } }), factorMetadata: ref({}),
     inputFields: ref([{ key: 'material.grade', name: '材料' }]),

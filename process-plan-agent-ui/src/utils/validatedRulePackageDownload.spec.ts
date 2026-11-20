@@ -3,7 +3,7 @@ import type { FinalizedRulePackageResult } from '@/api/extract'
 import { downloadValidatedRulePackage } from './validatedRulePackageDownload'
 import { downloadBlob } from './exportArchive'
 import { allocatePublicRulePackageIdentities } from '@/api/publicRulePackageIdentities'
-import { sampleRulePackageTables, type PublicRulePackageIdentityRegistry } from './sampleRulePackageAdapter'
+import { sampleRulePackageTables, validateSampleRulePackageTables, type PublicRulePackageIdentityRegistry } from './sampleRulePackageAdapter'
 const evidenceLocation = (globalThis as any).process?.env.PM035_EVIDENCE_DIR as string | undefined
 const evidenceFs = evidenceLocation ? await import(/* @vite-ignore */ ['node', 'fs'].join(':')) : undefined
 
@@ -185,15 +185,73 @@ describe('sample-compatible shared download boundary', () => {
     withEvidence(scope === 'operation_one' ? 'constraints' : 'constraints-shared-it', saved, inputs)
   })
 
-  it('blocks shared-feature exports when conditional parameter requiredness cannot be represented by the sample protocol', () => {
+  it.each([false, true])('exports shared-feature conditional requirements and rewrites their short-ID references (static required: %s)', async required => {
     const saved = sampleSnapshot(), pkg = internals(saved)
     const scope = 'project_factor.feature_5b54_28_901a_5b54_29'
     pkg.input_schema.fields.push(
       { key: `${scope}.present`, label: '孔(通孔)', type: 'boolean', required: false },
-      { key: `${scope}.direction`, label: '孔(通孔)的方位', type: 'single_select', options: [{ value: 'A侧', label: 'A侧' }] },
-      { key: `${scope}.it`, label: '孔(通孔)的实际尺寸精度等级', type: 'number', unit: 'IT', validation: { min: 5, max: 10 } },
+      { key: `${scope}.direction`, label: '孔(通孔)的方位', type: 'single_select', required, options: [{ value: 'A侧', label: 'A侧' }] },
+      { key: `${scope}.it`, label: '孔(通孔)的实际尺寸精度等级', type: 'number', required, unit: 'IT', validation: { min: 5, max: 10 } },
+      { key: `${scope}.ra`, label: '孔(通孔)的实际Ra', type: 'number', required, unit: 'μm' },
     )
-    expect(() => sampleRulePackageTables(saved)).toThrow(/动态必填/)
+    pkg.route_rules.process_configurations[1].when = { all: [
+      { field: `${scope}.present`, op: 'eq', value: true },
+      { field: `${scope}.direction`, op: 'eq', value: 'A侧' },
+      { field: `${scope}.it`, op: 'lte', value: 7 },
+      { field: `${scope}.ra`, op: 'lte', value: 0.8 },
+    ] }
+    const tables = sampleRulePackageTables(saved), registry = identityRegistry(saved)
+    for (const suffix of ['direction', 'it', 'ra']) {
+      expect(tables.factor_table.find(f => f.key === `${scope}.${suffix}`)).toMatchObject({
+        required_when: { field: `${scope}.present`, op: 'eq', value: true }, default: null,
+      })
+      expect(tables.factor_table.find(f => f.key === `${scope}.${suffix}`)?.required).not.toBe(true)
+      const compact = sampleRulePackageTables(saved, registry)
+      expect(compact.factor_table.find(f => f.key === registry.factors[`${scope}.${suffix}`])?.required_when)
+        .toEqual({ field: registry.factors[`${scope}.present`], op: 'eq', value: true })
+    }
+    const base = { 'job.length': 20 }
+    const valid = { ...base, [`${scope}.present`]: true, [`${scope}.direction`]: 'A侧', [`${scope}.it`]: 7, [`${scope}.ra`]: 0.8 }
+    const inputs = [base, { ...base, [`${scope}.present`]: false }, valid, { ...valid, [`${scope}.it`]: 8 }]
+    expect(inputs.map(input => selectedIds(tables, input))).toEqual([
+      ['internal.prepare'], ['internal.prepare'], ['internal.prepare', 'internal.drill'], ['internal.prepare'],
+    ])
+    await downloadValidatedRulePackage(saved, '共享特征')
+    const archive = await unzipStored(vi.mocked(downloadBlob).mock.calls[0]![0])
+    expect(Object.keys(archive).sort()).toEqual(['factor_table.json', 'full_route_table.json', 'rule_table.json'])
+    expect(archive['factor_table.json'].some((f: any) => f.required_when?.field === registry.factors[`${scope}.present`])).toBe(true)
+    withEvidence(`conditional-required-${required}`, saved, inputs)
+  })
+
+  it.each([
+    { field: 'missing', op: 'eq', value: true },
+    { field: 'job.length', op: 'eq', value: true },
+    { field: 'selected_processes', op: 'contains', value: 'internal.drill' },
+    { some: { field: 'job.length', op: 'gte', value: 20 } },
+    null,
+    { field: 'project_factor.manual_process_mark', op: 'eq', value: null },
+    { field: 'project_factor.manual_process_mark', op: 'neq', value: null },
+  ])('rejects invalid or route-dependent conditional input requirements: %j', required_when => {
+    const tables = sampleRulePackageTables(sampleSnapshot())
+    tables.factor_table[0]!.required_when = required_when
+    expect(() => validateSampleRulePackageTables(tables)).toThrow()
+  })
+
+  it.each([
+    { field: 'project_factor.feature_plane.direction', op: 'neq', value: 'A侧' },
+    { not: { field: 'project_factor.feature_plane.direction', op: 'eq', value: 'A侧' } },
+    { field: 'project_factor.feature_plane.direction', op: 'contains_all', value: [] },
+  ])('uses effective requiredness when checking missing-sensitive shared-parameter conditions: %j', when => {
+    const saved = sampleSnapshot(), pkg = internals(saved)
+    pkg.input_schema.fields.push(
+      { key: 'project_factor.feature_plane.present', label: '平面', type: 'boolean' },
+      { key: 'project_factor.feature_plane.direction', label: '平面的方位', type: 'single_select', required: true,
+        options: [{ value: 'A侧', label: 'A侧' }] },
+    )
+    pkg.route_rules.process_configurations[1].when = when
+    // An absent field and explicit null differ in Native V2. The sample reader
+    // cannot distinguish them, so retain the existing optional-condition guard.
+    expect(() => sampleRulePackageTables(saved)).toThrow(/非必填/)
   })
 
   it('honors rule priority, manual false overrides and global trigger any/all gates', () => {

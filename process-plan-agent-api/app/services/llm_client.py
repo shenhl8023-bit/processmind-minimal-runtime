@@ -12,7 +12,7 @@ import httpx
 from dotenv import load_dotenv
 
 from app.services.settings_store import get_llm_settings_map
-from app.services.llm_errors import tls_error_cause
+from app.services.llm_errors import LLMResponseError, tls_error_cause
 
 load_dotenv(override=True)
 
@@ -22,10 +22,6 @@ DEFAULT_LLM_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 DEFAULT_LLM_MODEL = "meta/llama-3.1-70b-instruct"
 DEFAULT_LLM_REQUEST_TIMEOUT_SECONDS = 180.0
 DEFAULT_LLM_MAX_RETRIES = 2
-
-
-class LLMResponseError(ValueError):
-    """The provider returned a successful response without usable text."""
 
 
 def llm_request_timeout_seconds(override: float | None = None) -> float:
@@ -109,11 +105,14 @@ def is_responses_api_url(url: str) -> bool:
 def _extract_text_from_responses_sse(lines: list[str]) -> str:
     deltas: list[str] = []
     done_text = ""
+    saw_data = False
+    saw_text = False
 
     for line in lines:
-        if not line.startswith("data: "):
+        if not line.startswith("data:"):
             continue
-        payload = line[6:].strip()
+        saw_data = True
+        payload = line[5:].strip()
         if not payload:
             continue
         try:
@@ -121,15 +120,33 @@ def _extract_text_from_responses_sse(lines: list[str]) -> str:
         except json.JSONDecodeError:
             continue
 
-        if item.get("type") == "response.output_text.delta":
+        if not isinstance(item, dict):
+            continue
+        event_type = item.get("type")
+        if event_type in ("response.refusal.delta", "response.refusal.done"):
+            _response_error("refused")
+        if event_type in ("error", "response.failed"):
+            _response_error("invalid")
+        if event_type == "response.incomplete":
+            _response_error("truncated")
+        if event_type == "response.completed":
+            response = item.get("response")
+            done_text = _checked_response_text(response, responses=True)
+            saw_text = True
+
+        if event_type == "response.output_text.delta":
             delta = item.get("delta")
             if isinstance(delta, str):
                 deltas.append(delta)
-        elif item.get("type") == "response.output_text.done":
+                saw_text = True
+        elif event_type == "response.output_text.done":
             text = item.get("text")
             if isinstance(text, str):
                 done_text = text
+                saw_text = True
 
+    if saw_data and not saw_text:
+        _response_error("invalid")
     return done_text or "".join(deltas)
 
 
@@ -191,25 +208,95 @@ def extract_text_from_responses_json(payload: dict) -> str:
     return _extract_text_from_chat_completion_json(payload)
 
 
+def _response_error(reason: str, payload=None):
+    """Log fixed metadata only, never arbitrary provider values or response text."""
+    body = payload if isinstance(payload, dict) else {}
+    choices = body.get("choices")
+    choice = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
+    message = choice.get("message")
+    message = message if isinstance(message, dict) else {}
+    finish = choice.get("finish_reason")
+    finish = finish if isinstance(finish, str) and finish in {"stop", "length", "content_filter", "tool_calls"} else "other"
+    content, reasoning = message.get("content"), message.get("reasoning_content")
+    logger.warning("LLM response unusable reason=%s choices=%s finish=%s content_length=%s reasoning_length=%s",
+                   reason, len(choices) if isinstance(choices, list) else 0, finish,
+                   len(content) if isinstance(content, (str, list)) else 0,
+                   len(reasoning) if isinstance(reasoning, str) else 0)
+    raise LLMResponseError(reason=reason)
+
+
+def _checked_response_text(payload, *, responses=False) -> str:
+    if not isinstance(payload, dict):
+        _response_error("invalid")
+    choices = payload.get("choices")
+    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+        choice = choices[0]
+        message = choice.get("message")
+        message = message if isinstance(message, dict) else {}
+        if choice.get("finish_reason") == "length":
+            _response_error("truncated", payload)
+        if choice.get("finish_reason") == "content_filter" or message.get("refusal"):
+            _response_error("refused", payload)
+        if not ("content" in message or isinstance(choice.get("text"), str)):
+            _response_error("invalid", payload)
+        if message.get("tool_calls") or not isinstance(message.get("content"), (str, list, type(None))):
+            _response_error("invalid", payload)
+        parts = message.get("content")
+        if isinstance(parts, list) and parts:
+            if any(isinstance(part, dict) and part.get("type") == "refusal" for part in parts):
+                _response_error("refused", payload)
+            if not any(isinstance(part, dict) and part.get("type") in (None, "text", "output_text")
+                       and isinstance(part.get("text"), str) for part in parts):
+                _response_error("invalid", payload)
+        text = _extract_text_from_chat_completion_json(payload)
+    elif responses and (isinstance(payload.get("output"), list) or isinstance(payload.get("output_text"), str)):
+        if payload.get("status") == "incomplete":
+            _response_error("truncated", payload)
+        if payload.get("status") == "failed":
+            _response_error("invalid", payload)
+        output = payload.get("output")
+        items = output if isinstance(output, list) else []
+        for item in items:
+            if not isinstance(item, dict) or not isinstance(item.get("content"), list):
+                continue
+            if any(isinstance(part, dict) and part.get("type") == "refusal" for part in item["content"]):
+                _response_error("refused", payload)
+        text = extract_text_from_responses_json(payload)
+        if not text and items:
+            for item in items:
+                if isinstance(item, dict) and item.get("type") == "reasoning":
+                    continue
+                if not isinstance(item, dict) or item.get("type") != "message" or not isinstance(item.get("content"), list):
+                    _response_error("invalid", payload)
+                if any(not isinstance(part, dict) or part.get("type") != "output_text"
+                       or not isinstance(part.get("text"), str) for part in item["content"]):
+                    _response_error("invalid", payload)
+    else:
+        _response_error("invalid", payload)
+    if not text.strip():
+        _response_error("empty", payload)
+    return text
+
+
 def _require_response_text(text: str) -> str:
     if not isinstance(text, str) or not text.strip():
-        raise LLMResponseError("LLM response did not contain text")
+        _response_error("empty")
     return text
 
 
 def _extract_text_from_responses_lines(lines: list[str]) -> str:
     """Extract text from either Responses SSE or a JSON body read as lines."""
     sse_text = _extract_text_from_responses_sse(lines)
-    if sse_text:
+    if any(line.startswith("data:") for line in lines):
         return sse_text
     body = "\n".join(lines).strip()
     if not body:
-        return ""
+        _response_error("invalid")
     try:
         payload = json.loads(body)
     except json.JSONDecodeError:
-        return ""
-    return extract_text_from_responses_json(payload) if isinstance(payload, dict) else ""
+        _response_error("invalid")
+    return _checked_response_text(payload, responses=True)
 
 
 def _build_headers(api_key: str) -> dict[str, str]:
@@ -283,6 +370,7 @@ async def request_llm_completion(
 
     last_error: Exception | None = None
     max_attempts = 1 + llm_max_retries(max_retries)
+    empty_retried = False
     async with httpx.AsyncClient(timeout=llm_request_timeout_seconds(timeout_seconds)) as client:
         for attempt in range(max_attempts):
             try:
@@ -293,8 +381,19 @@ async def request_llm_completion(
                     return _require_response_text(_extract_text_from_responses_lines(lines))
                 resp = await client.post(config["url"], headers=headers, json=payload)
                 resp.raise_for_status()
-                data = resp.json()
-                return _require_response_text(_extract_text_from_chat_completion_json(data))
+                try:
+                    data = resp.json()
+                except ValueError:
+                    _response_error("invalid")
+                return _checked_response_text(data)
+            except LLMResponseError as exc:
+                # Retry only a recognized empty answer, once and within the
+                # caller's existing attempt/deadline budget. Never use reasoning.
+                if exc.reason == "empty" and not empty_retried and attempt < max_attempts - 1:
+                    empty_retried = True
+                    await asyncio.sleep(2)
+                    continue
+                raise
             except httpx.HTTPStatusError as exc:
                 last_error = exc
                 status = exc.response.status_code
@@ -342,8 +441,11 @@ async def request_llm_completion_with_web_search(
             try:
                 resp = await client.post(config["url"], headers=headers, json=payload)
                 resp.raise_for_status()
-                data = resp.json()
-                return _require_response_text(extract_text_from_responses_json(data))
+                try:
+                    data = resp.json()
+                except ValueError:
+                    _response_error("invalid")
+                return _checked_response_text(data, responses=True)
             except httpx.HTTPStatusError as exc:
                 last_error = exc
                 if exc.response.status_code in (429, 500, 502, 503, 504) and attempt < 1:

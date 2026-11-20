@@ -81,6 +81,30 @@ function reviewResponse(args: any) {
 }
 
 describe('useAnalysisWorkspace batch accept all', () => {
+  it.each(['generating', 'failed'] as const)('does not auto-confirm or report missing answers while guidance is %s and resumes when ready', async (state) => {
+    mocks.saveSegmentRuleReview.mockImplementation(async args => reviewResponse(args))
+    const { workspace, scope } = createAutosaveWorkspace()
+    try {
+      const ready = workspace.analysisGuidance.value
+      workspace.analysisGuidance.value = null
+      workspace.guidanceGenerating.value = state === 'generating'
+      workspace.guidanceError.value = state === 'failed' ? '模型未返回有效正文' : ''
+      workspace.savedRoute.value!.segments[0]!.doc_coverage = { hit_docs: 2, total_docs: 2, ratio: 1, label: '2/2' }
+      workspace.selectedSegmentId.value = 'a'
+      await settleAutosave()
+      expect(mocks.saveSegmentRuleReview).not.toHaveBeenCalled()
+      expect(workspace.error.value).toBe('')
+      expect(workspace.savedRoute.value!.segments[0]!.rule_review).toBeNull()
+
+      workspace.guidanceGenerating.value = false
+      workspace.guidanceError.value = ''
+      workspace.analysisGuidance.value = ready
+      await settleAutosave()
+      expect(workspace.savedRoute.value!.segments[0]!.rule_review?.decision).toBe('accepted')
+      expect(workspace.error.value).toBe('')
+    } finally { scope.stop() }
+  })
+
   it.each(['success', 'failure'] as const)('clears adoption feedback as soon as generation starts and keeps saved answers on %s', async (outcome) => {
     mocks.saveSegmentRuleReview.mockImplementation(async args => reviewResponse(args))
     const { workspace, scope } = createAutosaveWorkspace()
@@ -590,6 +614,7 @@ describe('useAnalysisWorkspace batch accept all', () => {
 
     workspace.projectId.value = 1
     workspace.analysisGuidance.value = { schema_version: '1.0', revision: 0, guidance: '', materials: [], directions: ['周边'], feature_mappings: {}, operation_guidance: { 标记: { recommendation: { mode: 'manual' } } } }
+    mocks.generateAnalysisGuidance.mockResolvedValueOnce({ configuration: workspace.analysisGuidance.value })
     await workspace.loadSavedRoute(true)
     expect(workspace.savedRoute.value).toBeTruthy()
 

@@ -8,6 +8,14 @@ from typing import Optional, Tuple
 import httpx
 
 
+class LLMResponseError(ValueError):
+    """A provider response was unusable; retain only a safe enumerated reason."""
+
+    def __init__(self, message="LLM response did not contain text", *, reason="invalid"):
+        self.reason = reason if reason in {"empty", "truncated", "refused", "invalid"} else "invalid"
+        super().__init__(message)
+
+
 def tls_error_cause(error: BaseException) -> Optional[ssl.SSLError]:
     """HTTPX wraps TLS errors several times; inspect types, never provider text."""
     pending = [error]
@@ -51,6 +59,14 @@ def describe_llm_error(error: Exception) -> Tuple[str, str]:
         return 'llm_http_error', '模型服务返回 HTTP %s，请检查接口配置。' % status
     if isinstance(error, httpx.HTTPError):
         return 'llm_request_failed', '无法完成模型请求，请检查网络或接口地址。'
+    if isinstance(error, LLMResponseError):
+        descriptions = {
+            'empty': ('llm_empty_response', '模型未返回有效正文，请稍后重试。'),
+            'truncated': ('llm_output_truncated', '模型输出达到长度限制，未完整生成，请重试或调整模型输出限制。'),
+            'refused': ('llm_response_refused', '模型拒绝了本次请求，未生成可用答案，请检查请求或更换模型后重试。'),
+        }
+        if error.reason in descriptions:
+            return descriptions[error.reason]
     if isinstance(error, (KeyError, TypeError, ValueError)):
-        return 'llm_response_invalid', '模型响应格式无效，请检查接口是否兼容 OpenAI 协议。'
+        return 'llm_response_invalid', '模型服务返回了无法识别的响应，请重试；持续失败时请检查接口配置。'
     return 'llm_request_failed', '模型请求失败，请检查配置后重试。'

@@ -466,7 +466,8 @@ export function useAnalysisWorkspace() {
     questionTreeTrail,
     getAnalysisDraft: getAnalysisDraftForSegment,
     getQuestionTrail: getTrailForSegment,
-    isSaveAllowed: () => !resettingWorkflow.value,
+    isSaveAllowed: () => !resettingWorkflow.value && !loading.value
+      && !guidanceGenerating.value && !!analysisGuidance.value,
     clearQuestionTreeRejudging,
     goToNextPendingSegment,
     onWorkflowConflict: () => applyAnalysisWorkflowReset(),
@@ -523,6 +524,7 @@ export function useAnalysisWorkspace() {
   })
 
   const autoRuleDecision = computed<'accepted' | 'rejected' | null>(() => {
+    if (loading.value || guidanceGenerating.value || !analysisGuidance.value) return null
     if (!selectedSegment.value) return null
     if (canAutoAcceptSegmentReview({
       hasQuestionTree: questionTreeVisible.value,
@@ -543,6 +545,7 @@ export function useAnalysisWorkspace() {
 
   async function handleAcceptAllRecommendedForAllSegments() {
     if (disposed || analysisReadOnly.value || resettingWorkflow.value || guidanceGenerating.value || loading.value) return
+    if (!analysisGuidance.value) return
     if (!savedRoute.value || !projectId.value || batchAcceptingAll.value) return
     batchAcceptingAll.value = true
     recommendationSummary.value = ''

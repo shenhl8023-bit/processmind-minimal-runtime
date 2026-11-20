@@ -179,7 +179,7 @@ def validate_demo_tables(tables: dict) -> None:
     factors = {}
     for i, f in enumerate(tables["factor_table"]):
         path = f"factor_table[{i}]"
-        if not _exact_keys(f, {"key", "label", "type", "source", "visible"}, {"options", "required", "default", "validation"}, path, issues):
+        if not _exact_keys(f, {"key", "label", "type", "source", "visible"}, {"options", "required", "required_when", "default", "validation"}, path, issues):
             continue
         key = f["key"]
         if not isinstance(key, str) or not key.strip():
@@ -216,6 +216,28 @@ def validate_demo_tables(tables: dict) -> None:
                 defaults = default if isinstance(default, list) else ([default] if default else [])
                 if any(x not in f["options"] for x in defaults):
                     _issue(issues, "invalid_factor_default", path, f"因素 {key} default 不在选项内")
+    for key, f in factors.items():
+        if "required_when" not in f:
+            continue
+        path = f"factor_table.{key}.required_when"
+        _validate_condition(f["required_when"], factors, set(), path, issues)
+        pending = [f["required_when"]]
+        while pending:
+            condition = pending.pop()
+            if not isinstance(condition, dict):
+                continue
+            if "some" in condition:
+                _issue(issues, "invalid_input_requirement", path, "输入必填条件不能依赖逐行CAD数据")
+            if condition.get("op") in ("eq", "neq") and condition.get("value") is None:
+                _issue(issues, "invalid_condition_type", path, "输入必填条件的比较值不能为null")
+            for branch in ("all", "any"):
+                if isinstance(condition.get(branch), list):
+                    pending.extend(condition[branch])
+            if "not" in condition:
+                pending.append(condition["not"])
+            field = condition.get("field")
+            if isinstance(field, str) and "[]" in str(factors.get(field, {}).get("source", "")):
+                _issue(issues, "invalid_input_requirement", path, "输入必填条件不能依赖聚合CAD数据")
     nodes, processes, parents = set(), set(), {}
     for i, p in enumerate(tables["full_route_table"]):
         path = f"full_route_table[{i}]"

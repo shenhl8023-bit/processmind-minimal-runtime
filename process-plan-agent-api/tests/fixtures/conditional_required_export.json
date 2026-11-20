@@ -1,0 +1,971 @@
+{
+  "saved": {
+    "id": 1,
+    "project_id": 35,
+    "version": 2,
+    "export_sources": {
+      "compiler_version": "native-v2/1",
+      "project_id": 35,
+      "mother_route": {
+        "internal.prepare": {
+          "auxiliary": true,
+          "steps": []
+        },
+        "internal.drill": {
+          "auxiliary": false,
+          "steps": [
+            {
+              "step_id": "internal.drill.first",
+              "name": "钻导孔",
+              "kind": "primary"
+            },
+            {
+              "step_id": "internal.drill.second",
+              "name": "扩孔",
+              "kind": "primary"
+            },
+            {
+              "step_id": "internal.drill.third",
+              "name": "去毛刺",
+              "kind": "attached"
+            }
+          ]
+        },
+        "internal.mark": {
+          "auxiliary": true,
+          "steps": []
+        },
+        "internal.coat": {
+          "auxiliary": true,
+          "steps": []
+        },
+        "internal.strip": {
+          "auxiliary": true,
+          "steps": []
+        }
+      },
+      "native_snapshot": {
+        "schema_version": "2.0",
+        "normalized_route": [
+          {
+            "export_process_id": "internal.prepare",
+            "phase": "auxiliary"
+          },
+          {
+            "export_process_id": "internal.drill",
+            "phase": "rough"
+          },
+          {
+            "export_process_id": "internal.mark",
+            "phase": "auxiliary"
+          },
+          {
+            "export_process_id": "internal.coat",
+            "phase": "surface_treatment"
+          },
+          {
+            "export_process_id": "internal.strip",
+            "phase": "surface_treatment"
+          }
+        ],
+        "rule_package": {
+          "manifest": {
+            "project_id": 35
+          },
+          "factor_dictionary": {
+            "fields": [
+              {
+                "key": "job.material",
+                "label": "材料",
+                "type": "single_select",
+                "options": [
+                  {
+                    "value": "Steel",
+                    "label": "钢"
+                  },
+                  {
+                    "value": "Al",
+                    "label": "铝"
+                  }
+                ]
+              },
+              {
+                "key": "project_factor.object_one.features",
+                "label": "同一加工对象特征",
+                "type": "multi_select",
+                "options": [
+                  {
+                    "value": "盲孔",
+                    "label": "盲孔"
+                  },
+                  {
+                    "value": "通孔",
+                    "label": "通孔"
+                  }
+                ]
+              },
+              {
+                "key": "project_factor.object_one.direction",
+                "label": "同一加工对象方位",
+                "type": "single_select",
+                "options": [
+                  {
+                    "value": "A侧",
+                    "label": "A侧"
+                  },
+                  {
+                    "value": "周边",
+                    "label": "周边"
+                  },
+                  {
+                    "value": "所有方位",
+                    "label": "所有方位"
+                  }
+                ]
+              },
+              {
+                "key": "project_factor.manual_process_mark",
+                "label": "是否标记",
+                "type": "boolean",
+                "source": "用户直接设定"
+              },
+              {
+                "key": "project_factor.manual_process_coat",
+                "label": "是否镀层",
+                "type": "boolean",
+                "source": "用户直接设定"
+              },
+              {
+                "key": "job.length",
+                "label": "长度（mm）",
+                "type": "number",
+                "unit": "mm",
+                "required": true,
+                "validation": {
+                  "min": 2,
+                  "max": 800
+                }
+              },
+              {
+                "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                "label": "孔(通孔)",
+                "type": "boolean",
+                "required": false
+              },
+              {
+                "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                "label": "孔(通孔)的方位",
+                "type": "single_select",
+                "required": false,
+                "options": [
+                  {
+                    "value": "A侧",
+                    "label": "A侧"
+                  }
+                ]
+              },
+              {
+                "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+                "label": "孔(通孔)的实际尺寸精度等级",
+                "type": "number",
+                "required": false,
+                "unit": "IT",
+                "validation": {
+                  "min": 5,
+                  "max": 10
+                }
+              },
+              {
+                "key": "project_factor.feature_5b54_28_901a_5b54_29.ra",
+                "label": "孔(通孔)的实际Ra",
+                "type": "number",
+                "required": false,
+                "unit": "μm"
+              }
+            ]
+          },
+          "input_schema": {
+            "fields": [
+              {
+                "key": "job.material",
+                "label": "材料",
+                "type": "single_select",
+                "options": [
+                  {
+                    "value": "Steel",
+                    "label": "钢"
+                  },
+                  {
+                    "value": "Al",
+                    "label": "铝"
+                  }
+                ]
+              },
+              {
+                "key": "project_factor.object_one.features",
+                "label": "同一加工对象特征",
+                "type": "multi_select",
+                "options": [
+                  {
+                    "value": "盲孔",
+                    "label": "盲孔"
+                  },
+                  {
+                    "value": "通孔",
+                    "label": "通孔"
+                  }
+                ]
+              },
+              {
+                "key": "project_factor.object_one.direction",
+                "label": "同一加工对象方位",
+                "type": "single_select",
+                "options": [
+                  {
+                    "value": "A侧",
+                    "label": "A侧"
+                  },
+                  {
+                    "value": "周边",
+                    "label": "周边"
+                  },
+                  {
+                    "value": "所有方位",
+                    "label": "所有方位"
+                  }
+                ]
+              },
+              {
+                "key": "project_factor.manual_process_mark",
+                "label": "是否标记",
+                "type": "boolean",
+                "source": "用户直接设定"
+              },
+              {
+                "key": "project_factor.manual_process_coat",
+                "label": "是否镀层",
+                "type": "boolean",
+                "source": "用户直接设定"
+              },
+              {
+                "key": "job.length",
+                "label": "长度（mm）",
+                "type": "number",
+                "unit": "mm",
+                "required": true,
+                "validation": {
+                  "min": 2,
+                  "max": 800
+                }
+              },
+              {
+                "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                "label": "孔(通孔)",
+                "type": "boolean",
+                "required": false
+              },
+              {
+                "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                "label": "孔(通孔)的方位",
+                "type": "single_select",
+                "required": false,
+                "options": [
+                  {
+                    "value": "A侧",
+                    "label": "A侧"
+                  }
+                ]
+              },
+              {
+                "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+                "label": "孔(通孔)的实际尺寸精度等级",
+                "type": "number",
+                "required": false,
+                "unit": "IT",
+                "validation": {
+                  "min": 5,
+                  "max": 10
+                }
+              },
+              {
+                "key": "project_factor.feature_5b54_28_901a_5b54_29.ra",
+                "label": "孔(通孔)的实际Ra",
+                "type": "number",
+                "required": false,
+                "unit": "μm"
+              }
+            ]
+          },
+          "route_catalog": {
+            "processes": [
+              {
+                "process_id": "internal.prepare",
+                "display_name": "准备",
+                "main": true,
+                "default_sequence": 10,
+                "phase": "auxiliary",
+                "steps": []
+              },
+              {
+                "process_id": "internal.drill",
+                "display_name": "钻孔",
+                "main": true,
+                "default_sequence": 20,
+                "phase": "rough",
+                "steps": [
+                  {
+                    "step_id": "internal.drill.first",
+                    "name": "钻导孔",
+                    "kind": "primary"
+                  },
+                  {
+                    "step_id": "internal.drill.second",
+                    "name": "扩孔",
+                    "kind": "primary"
+                  },
+                  {
+                    "step_id": "internal.drill.third",
+                    "name": "去毛刺",
+                    "kind": "attached"
+                  }
+                ],
+                "constraints": {
+                  "requires": [
+                    "internal.prepare"
+                  ]
+                }
+              },
+              {
+                "process_id": "internal.mark",
+                "display_name": "标记",
+                "default_sequence": 30,
+                "phase": "auxiliary",
+                "steps": []
+              },
+              {
+                "process_id": "internal.coat",
+                "display_name": "镀层",
+                "default_sequence": 40,
+                "phase": "surface_treatment",
+                "steps": []
+              },
+              {
+                "process_id": "internal.strip",
+                "display_name": "去镀层",
+                "default_sequence": 50,
+                "phase": "surface_treatment",
+                "steps": []
+              }
+            ]
+          },
+          "route_rules": {
+            "rules": [],
+            "process_relations": [],
+            "process_configurations": [
+              {
+                "process_id": "internal.prepare",
+                "occurrence": "always",
+                "when": null,
+                "relations": []
+              },
+              {
+                "process_id": "internal.drill",
+                "occurrence": "conditional",
+                "when": {
+                  "all": [
+                    {
+                      "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+                      "op": "eq",
+                      "value": true
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+                      "op": "eq",
+                      "value": "A侧"
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_901a_5b54_29.it",
+                      "op": "lte",
+                      "value": 7
+                    },
+                    {
+                      "field": "project_factor.feature_5b54_28_901a_5b54_29.ra",
+                      "op": "lte",
+                      "value": 0.8
+                    }
+                  ]
+                },
+                "relations": []
+              },
+              {
+                "process_id": "internal.mark",
+                "occurrence": "manual",
+                "when": {
+                  "field": "project_factor.manual_process_mark",
+                  "op": "eq",
+                  "value": true
+                },
+                "relations": []
+              },
+              {
+                "process_id": "internal.coat",
+                "occurrence": "manual",
+                "when": {
+                  "field": "project_factor.manual_process_coat",
+                  "op": "eq",
+                  "value": true
+                },
+                "relations": []
+              },
+              {
+                "process_id": "internal.strip",
+                "occurrence": "associated",
+                "when": null,
+                "relations": [
+                  {
+                    "relation_type": "trigger_after",
+                    "source_process_ids": [
+                      "internal.coat"
+                    ],
+                    "target_process_ids": [
+                      "internal.strip"
+                    ],
+                    "source_match": "any"
+                  }
+                ]
+              }
+            ]
+          },
+          "test_cases": []
+        }
+      }
+    }
+  },
+  "inputs": [
+    {
+      "job.length": 20
+    },
+    {
+      "job.length": 20,
+      "project_factor.feature_5b54_28_901a_5b54_29.present": false
+    },
+    {
+      "job.length": 20,
+      "project_factor.feature_5b54_28_901a_5b54_29.present": true,
+      "project_factor.feature_5b54_28_901a_5b54_29.direction": "A侧",
+      "project_factor.feature_5b54_28_901a_5b54_29.it": 7,
+      "project_factor.feature_5b54_28_901a_5b54_29.ra": 0.8
+    },
+    {
+      "job.length": 20,
+      "project_factor.feature_5b54_28_901a_5b54_29.present": true,
+      "project_factor.feature_5b54_28_901a_5b54_29.direction": "A侧",
+      "project_factor.feature_5b54_28_901a_5b54_29.it": 8,
+      "project_factor.feature_5b54_28_901a_5b54_29.ra": 0.8
+    }
+  ],
+  "tables": {
+    "factor_table": [
+      {
+        "key": "job.material",
+        "label": "材料",
+        "type": "enum",
+        "source": "manual_defaults.job.material",
+        "visible": true,
+        "options": [
+          "Steel",
+          "Al"
+        ],
+        "default": null
+      },
+      {
+        "key": "project_factor.object_one.features",
+        "label": "同一加工对象特征",
+        "type": "multi_enum",
+        "source": "manual_defaults.project_factor.object_one.features",
+        "visible": true,
+        "options": [
+          "盲孔",
+          "通孔"
+        ],
+        "default": null
+      },
+      {
+        "key": "project_factor.object_one.direction",
+        "label": "同一加工对象方位",
+        "type": "enum",
+        "source": "manual_defaults.project_factor.object_one.direction",
+        "visible": true,
+        "options": [
+          "A侧",
+          "周边",
+          "所有方位"
+        ],
+        "default": null
+      },
+      {
+        "key": "project_factor.manual_process_mark",
+        "label": "是否标记",
+        "type": "bool",
+        "source": "manual_defaults.project_factor.manual_process_mark",
+        "visible": true,
+        "default": null
+      },
+      {
+        "key": "project_factor.manual_process_coat",
+        "label": "是否镀层",
+        "type": "bool",
+        "source": "manual_defaults.project_factor.manual_process_coat",
+        "visible": true,
+        "default": null
+      },
+      {
+        "key": "job.length",
+        "label": "长度（mm）",
+        "type": "number",
+        "source": "manual_defaults.job.length",
+        "visible": true,
+        "required": true,
+        "default": null,
+        "validation": {
+          "min": 2,
+          "max": 800
+        }
+      },
+      {
+        "key": "project_factor.feature_5b54_28_901a_5b54_29.present",
+        "label": "孔(通孔)",
+        "type": "bool",
+        "source": "manual_defaults.project_factor.feature_5b54_28_901a_5b54_29.present",
+        "visible": true,
+        "default": null
+      },
+      {
+        "key": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+        "label": "孔(通孔)的方位",
+        "type": "enum",
+        "source": "manual_defaults.project_factor.feature_5b54_28_901a_5b54_29.direction",
+        "visible": true,
+        "options": [
+          "A侧"
+        ],
+        "required_when": {
+          "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+          "op": "eq",
+          "value": true
+        },
+        "default": null
+      },
+      {
+        "key": "project_factor.feature_5b54_28_901a_5b54_29.it",
+        "label": "孔(通孔)的实际尺寸精度等级（IT）",
+        "type": "int",
+        "source": "manual_defaults.project_factor.feature_5b54_28_901a_5b54_29.it",
+        "visible": true,
+        "required_when": {
+          "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+          "op": "eq",
+          "value": true
+        },
+        "default": null,
+        "validation": {
+          "min": 5,
+          "max": 10
+        }
+      },
+      {
+        "key": "project_factor.feature_5b54_28_901a_5b54_29.ra",
+        "label": "孔(通孔)的实际Ra（μm）",
+        "type": "number",
+        "source": "manual_defaults.project_factor.feature_5b54_28_901a_5b54_29.ra",
+        "visible": true,
+        "required_when": {
+          "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+          "op": "eq",
+          "value": true
+        },
+        "default": null,
+        "validation": {
+          "min": 5e-324
+        }
+      }
+    ],
+    "full_route_table": [
+      {
+        "process_name": "准备",
+        "process_type": "辅助工序",
+        "precision": "辅助工序",
+        "steps": [],
+        "process_id": "internal.prepare"
+      },
+      {
+        "process_name": "钻孔",
+        "process_type": "加工工序",
+        "precision": "粗加工",
+        "steps": [
+          {
+            "step_name": "钻导孔",
+            "candidates": {},
+            "step_id": "internal.drill.first"
+          },
+          {
+            "step_name": "扩孔",
+            "candidates": {},
+            "step_id": "internal.drill.second"
+          },
+          {
+            "step_name": "去毛刺",
+            "candidates": {},
+            "step_id": "internal.drill.third"
+          }
+        ],
+        "process_id": "internal.drill"
+      },
+      {
+        "process_name": "标记",
+        "process_type": "辅助工序",
+        "precision": "辅助工序",
+        "steps": [],
+        "process_id": "internal.mark"
+      },
+      {
+        "process_name": "镀层",
+        "process_type": "辅助工序",
+        "precision": "辅助工序",
+        "steps": [],
+        "process_id": "internal.coat"
+      },
+      {
+        "process_name": "去镀层",
+        "process_type": "辅助工序",
+        "precision": "辅助工序",
+        "steps": [],
+        "process_id": "internal.strip"
+      }
+    ],
+    "rule_table": [
+      {
+        "target": "internal.prepare",
+        "required": true
+      },
+      {
+        "target": "internal.drill",
+        "when": {
+          "all": [
+            {
+              "field": "project_factor.feature_5b54_28_901a_5b54_29.present",
+              "op": "eq",
+              "value": true
+            },
+            {
+              "field": "project_factor.feature_5b54_28_901a_5b54_29.direction",
+              "op": "in",
+              "value": [
+                "A侧"
+              ]
+            },
+            {
+              "field": "project_factor.feature_5b54_28_901a_5b54_29.it",
+              "op": "lte",
+              "value": 7
+            },
+            {
+              "field": "project_factor.feature_5b54_28_901a_5b54_29.ra",
+              "op": "lte",
+              "value": 0.8
+            }
+          ]
+        }
+      },
+      {
+        "target": "internal.mark",
+        "when": {
+          "field": "project_factor.manual_process_mark",
+          "op": "eq",
+          "value": true
+        }
+      },
+      {
+        "target": "internal.coat",
+        "when": {
+          "field": "project_factor.manual_process_coat",
+          "op": "eq",
+          "value": true
+        }
+      },
+      {
+        "target": "internal.strip",
+        "when": {
+          "field": "selected_processes",
+          "op": "contains",
+          "value": "internal.coat"
+        }
+      }
+    ]
+  },
+  "compact": {
+    "factor_table": [
+      {
+        "key": "F002",
+        "label": "材料",
+        "type": "enum",
+        "source": "manual_defaults.F002",
+        "visible": true,
+        "options": [
+          "Steel",
+          "Al"
+        ],
+        "default": null
+      },
+      {
+        "key": "F010",
+        "label": "同一加工对象特征",
+        "type": "multi_enum",
+        "source": "manual_defaults.F010",
+        "visible": true,
+        "options": [
+          "盲孔",
+          "通孔"
+        ],
+        "default": null
+      },
+      {
+        "key": "F009",
+        "label": "同一加工对象方位",
+        "type": "enum",
+        "source": "manual_defaults.F009",
+        "visible": true,
+        "options": [
+          "A侧",
+          "周边",
+          "所有方位"
+        ],
+        "default": null
+      },
+      {
+        "key": "F008",
+        "label": "是否标记",
+        "type": "bool",
+        "source": "manual_defaults.F008",
+        "visible": true,
+        "default": null
+      },
+      {
+        "key": "F007",
+        "label": "是否镀层",
+        "type": "bool",
+        "source": "manual_defaults.F007",
+        "visible": true,
+        "default": null
+      },
+      {
+        "key": "F001",
+        "label": "长度（mm）",
+        "type": "number",
+        "source": "manual_defaults.F001",
+        "visible": true,
+        "required": true,
+        "default": null,
+        "validation": {
+          "min": 2,
+          "max": 800
+        }
+      },
+      {
+        "key": "F005",
+        "label": "孔(通孔)",
+        "type": "bool",
+        "source": "manual_defaults.F005",
+        "visible": true,
+        "default": null
+      },
+      {
+        "key": "F003",
+        "label": "孔(通孔)的方位",
+        "type": "enum",
+        "source": "manual_defaults.F003",
+        "visible": true,
+        "options": [
+          "A侧"
+        ],
+        "required_when": {
+          "field": "F005",
+          "op": "eq",
+          "value": true
+        },
+        "default": null
+      },
+      {
+        "key": "F004",
+        "label": "孔(通孔)的实际尺寸精度等级（IT）",
+        "type": "int",
+        "source": "manual_defaults.F004",
+        "visible": true,
+        "required_when": {
+          "field": "F005",
+          "op": "eq",
+          "value": true
+        },
+        "default": null,
+        "validation": {
+          "min": 5,
+          "max": 10
+        }
+      },
+      {
+        "key": "F006",
+        "label": "孔(通孔)的实际Ra（μm）",
+        "type": "number",
+        "source": "manual_defaults.F006",
+        "visible": true,
+        "required_when": {
+          "field": "F005",
+          "op": "eq",
+          "value": true
+        },
+        "default": null,
+        "validation": {
+          "min": 5e-324
+        }
+      }
+    ],
+    "full_route_table": [
+      {
+        "process_name": "准备",
+        "process_type": "辅助工序",
+        "precision": "辅助工序",
+        "steps": [],
+        "process_id": "P004"
+      },
+      {
+        "process_name": "钻孔",
+        "process_type": "加工工序",
+        "precision": "粗加工",
+        "steps": [
+          {
+            "step_name": "钻导孔",
+            "candidates": {},
+            "step_id": "S001"
+          },
+          {
+            "step_name": "扩孔",
+            "candidates": {},
+            "step_id": "S002"
+          },
+          {
+            "step_name": "去毛刺",
+            "candidates": {},
+            "step_id": "S003"
+          }
+        ],
+        "process_id": "P002"
+      },
+      {
+        "process_name": "标记",
+        "process_type": "辅助工序",
+        "precision": "辅助工序",
+        "steps": [],
+        "process_id": "P003"
+      },
+      {
+        "process_name": "镀层",
+        "process_type": "辅助工序",
+        "precision": "辅助工序",
+        "steps": [],
+        "process_id": "P001"
+      },
+      {
+        "process_name": "去镀层",
+        "process_type": "辅助工序",
+        "precision": "辅助工序",
+        "steps": [],
+        "process_id": "P005"
+      }
+    ],
+    "rule_table": [
+      {
+        "target": "P004",
+        "required": true
+      },
+      {
+        "target": "P002",
+        "when": {
+          "all": [
+            {
+              "field": "F005",
+              "op": "eq",
+              "value": true
+            },
+            {
+              "field": "F003",
+              "op": "in",
+              "value": [
+                "A侧"
+              ]
+            },
+            {
+              "field": "F004",
+              "op": "lte",
+              "value": 7
+            },
+            {
+              "field": "F006",
+              "op": "lte",
+              "value": 0.8
+            }
+          ]
+        }
+      },
+      {
+        "target": "P003",
+        "when": {
+          "field": "F008",
+          "op": "eq",
+          "value": true
+        }
+      },
+      {
+        "target": "P001",
+        "when": {
+          "field": "F007",
+          "op": "eq",
+          "value": true
+        }
+      },
+      {
+        "target": "P005",
+        "when": {
+          "field": "selected_processes",
+          "op": "contains",
+          "value": "P001"
+        }
+      }
+    ]
+  },
+  "registry": {
+    "processes": {
+      "internal.coat": "P001",
+      "internal.drill": "P002",
+      "internal.mark": "P003",
+      "internal.prepare": "P004",
+      "internal.strip": "P005"
+    },
+    "steps": {
+      "internal.drill.first": "S001",
+      "internal.drill.second": "S002",
+      "internal.drill.third": "S003"
+    },
+    "factors": {
+      "job.length": "F001",
+      "job.material": "F002",
+      "project_factor.feature_5b54_28_901a_5b54_29.direction": "F003",
+      "project_factor.feature_5b54_28_901a_5b54_29.it": "F004",
+      "project_factor.feature_5b54_28_901a_5b54_29.present": "F005",
+      "project_factor.feature_5b54_28_901a_5b54_29.ra": "F006",
+      "project_factor.manual_process_coat": "F007",
+      "project_factor.manual_process_mark": "F008",
+      "project_factor.object_one.direction": "F009",
+      "project_factor.object_one.features": "F010"
+    }
+  }
+}

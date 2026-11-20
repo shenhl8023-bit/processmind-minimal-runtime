@@ -74,10 +74,12 @@ function factor(field: RulePackageInputField, dynamicFeatureScopes: Set<string>)
   if (field.type === 'single_select' || field.type === 'multi_select') {
     if (!field.allow_custom) result.options = (field.options || []).map(option => option.value)
   }
-  if (field.required) result.required = true
-  if (sharedFeatureParameterScope(field) && dynamicFeatureScopes.has(sharedFeatureParameterScope(field)!)) {
-    fail('dynamic_required_input', path, `因素“${field.label}”在选择对应特征后才必填，但当前样包协议只能表达静态 required；为避免下游静默漏掉路线，请先使用支持动态必填的接收端或调整规则。`)
-  }
+  const scope = sharedFeatureParameterScope(field)
+  if (scope && dynamicFeatureScopes.has(scope)) {
+    // Native validation makes these parameters required only when selected,
+    // even if the original field carried static required=true.
+    result.required_when = { field: `${scope}.present`, op: 'eq', value: true }
+  } else if (field.required) result.required = true
   // Native missing fields never implicitly become False, an empty string or [].
   result.default = null
   const validation: Row = {}
@@ -128,7 +130,7 @@ function compileCondition(condition: RulePackageCondition, definitions: Map<stri
     return join(branch, (condition as Row)[branch].map((child: RulePackageCondition, i: number) => compileCondition(child, definitions, publicFactors, `${path}.${branch}[${i}]`)))
   }
   if ('not' in condition) {
-    const optional = referencedFields(condition.not).filter(key => !definitions.get(key)?.required)
+    const optional = referencedFields(condition.not).filter(key => !publicFactors.get(key)?.required)
     if (optional.length) fail('optional_negation', path, `取反引用非必填因素 ${optional.join('、')}，缺失输入的判断与样包不同；请改为必填或明确的正向条件。`)
     return negate(compileCondition(condition.not, definitions, publicFactors, `${path}.not`))
   }
@@ -136,7 +138,7 @@ function compileCondition(condition: RulePackageCondition, definitions: Map<stri
   if (!field) fail('unknown_factor', path, `因素 ${key} 未在活动输入表定义，请重新验证规则。`)
   const leaf = (operator: string, expected: unknown): SampleCondition => ({ field: key, op: operator, value: expected })
   if (op === 'exists' || op === 'not_exists') return leaf('exists', op === 'exists')
-  if (op === 'neq' && !field.required) fail('optional_inequality', path, `非必填因素“${field.label}”使用不等于，缺失输入时不能等价；请改为必填或正向判断。`)
+  if (op === 'neq' && !publicFactors.get(key)?.required) fail('optional_inequality', path, `非必填因素“${field.label}”使用不等于，缺失输入时不能等价；请改为必填或正向判断。`)
   if (field.type === 'multi_select' && ['eq', 'neq', 'in'].includes(op)) fail('collection_equality', path, `多选因素“${field.label}”使用整体相等比较，样包是逐元素比较；请改用包含条件。`)
   if (field.type === 'string' || (['single_select', 'multi_select'].includes(field.type) && (field.allow_custom || !field.options?.length))) {
     fail('open_text_comparison', path, `开放文本因素“${field.label}”的大小写和空白归一化无法用样包表达；请先审定有限枚举选项。`)
@@ -165,7 +167,7 @@ function compileCondition(condition: RulePackageCondition, definitions: Map<stri
     ? join('any', values.map(v => leaf('contains', v))) : values.length ? leaf('in', [...new Set(values)]) : false
   if (op === 'contains_any' || op === 'contains_all') {
     if (!Array.isArray(value)) fail('invalid_condition_value', path, '包含条件必须是选值数组，请重新确认。')
-    if (!value.length && op === 'contains_all' && !field.required) fail('empty_optional_collection', path, `非必填因素“${field.label}”的空全部包含条件不能无损导出；请至少选择一个值。`)
+    if (!value.length && op === 'contains_all' && !publicFactors.get(key)?.required) fail('empty_optional_collection', path, `非必填因素“${field.label}”的空全部包含条件不能无损导出；请至少选择一个值。`)
     return join(op === 'contains_any' ? 'any' : 'all', value.map(v => accepts(matching(v, field.type === 'single_select'))))
   }
   if (op === 'contains') return accepts(matching(value, field.type === 'single_select'))
@@ -198,6 +200,7 @@ export function sampleRulePackageTables(saved: FinalizedRulePackageResult, regis
   const fields = rows(pkg.input_schema?.fields, 'input_schema.fields')
   const definitions = index(fields, 'key', 'input_schema.fields')
   const dynamicFeatureScopes = new Set(fields
+    .filter(field => field.type === 'boolean')
     .map(field => String(field.key || '').match(/^(project_factor\.feature_[^.]+)\.present$/)?.[1])
     .filter((scope): scope is string => Boolean(scope)))
   const factors = fields.map(field => factor(field as RulePackageInputField, dynamicFeatureScopes))
@@ -372,7 +375,8 @@ export function compactSampleRulePackageTables(tables: SampleRulePackageTables, 
       : { ...c, field: factorIds.get(c.field) }
   }
   const result = {
-    factor_table: tables.factor_table.map(f => ({ ...f, key: factorIds.get(f.key), source: generatedSources.includes(f.key) ? `manual_defaults.${factorIds.get(f.key)}` : f.source })),
+    factor_table: tables.factor_table.map(f => ({ ...f, key: factorIds.get(f.key), source: generatedSources.includes(f.key) ? `manual_defaults.${factorIds.get(f.key)}` : f.source,
+      ...('required_when' in f ? { required_when: rewrite(f.required_when) } : {}) })),
     full_route_table: tables.full_route_table.map(p => ({ ...p, process_id: processIds.get(p.process_id), steps: p.steps.map((s: Row) => ({ ...s, step_id: resolve('steps', s.step_id) })) })),
     rule_table: tables.rule_table.map(rule => ({ ...rule, target: processIds.get(rule.target), ...('when' in rule ? { when: rewrite(rule.when) } : {}) })),
   }
@@ -388,7 +392,7 @@ export function validateSampleRulePackageTables(tables: SampleRulePackageTables)
   const factors = index(rows(tables.factor_table, 'factor_table'), 'key', 'factor_table')
   factors.forEach((f, key) => {
     const path = `factor_table.${key}`
-    exact(f, ['key', 'label', 'type', 'source', 'visible'], ['options', 'required', 'default', 'validation'], path)
+    exact(f, ['key', 'label', 'type', 'source', 'visible'], ['options', 'required', 'required_when', 'default', 'validation'], path)
     if (key === 'selected_processes' || !['bool', 'int', 'number', 'string', 'enum', 'multi_enum'].includes(f.type)
       || typeof f.label !== 'string' || !f.label.trim() || !sourcePath.test(f.source) || typeof f.visible !== 'boolean'
       || f.required != null && typeof f.required !== 'boolean') fail('invalid_public_factor', path, '因素类型、标签或来源无效，请核对因素定义。')
@@ -415,27 +419,29 @@ export function validateSampleRulePackageTables(tables: SampleRulePackageTables)
     })
   })
   const targets = new Set<string>(), dependencies = new Map([...processes.keys()].map(pid => [pid, new Set<string>()]))
-  const condition = (c: SampleCondition, path: string, deps: Set<string>) => {
+  const condition = (c: SampleCondition, path: string, deps: Set<string>, inputOnly = false) => {
     if (typeof c === 'boolean') return
     if (!c || typeof c !== 'object' || Array.isArray(c)) fail('invalid_public_condition', path, '条件格式无效，请重新验证。')
     for (const branch of ['all', 'any', 'not']) {
       if (!(branch in c)) continue
       if (Object.keys(c).length !== 1) fail('invalid_public_condition', path, '组合条件含多余字段，请重新验证。')
-      if (branch === 'not') condition(c.not, path, deps)
+      if (branch === 'not') condition(c.not, path, deps, inputOnly)
       else {
         if (!Array.isArray(c[branch]) || !c[branch].length) fail('invalid_public_condition', path, '组合条件必须为非空数组，请重新确认。')
-        c[branch].forEach((child: SampleCondition) => condition(child, path, deps))
+        c[branch].forEach((child: SampleCondition) => condition(child, path, deps, inputOnly))
       }
       return
     }
     exact(c, ['field', 'op', 'value'], [], path)
     const { field, op, value } = c
     if (field === 'selected_processes') {
+      if (inputOnly) fail('invalid_input_requirement', path, '输入必填条件不能依赖路线生成结果。')
       if (op !== 'contains' || !processes.has(value)) fail('unknown_process', path, '规则引用未知工序，请重新验证。')
       deps.add(value); return
     }
     const f = factors.get(field)
     if (!f) fail('unknown_factor', path, `规则引用未知因素 ${field}，请重新验证。`)
+    if (inputOnly && f.source.includes('[]')) fail('invalid_input_requirement', path, '输入必填条件不能依赖逐行或聚合CAD数据。')
     const scalar = (v: unknown) => f.type === 'bool' ? typeof v === 'boolean' : ['int', 'number'].includes(f.type) ? typeof v === 'number' && Number.isFinite(v) && (f.type !== 'int' || Number.isInteger(v)) : typeof v === 'string'
     const valid = op === 'exists' ? typeof value === 'boolean' : ['gt', 'gte', 'lt', 'lte'].includes(op) ? ['int', 'number'].includes(f.type) && typeof value === 'number' && Number.isFinite(value)
       : op === 'in' ? f.type !== 'multi_enum' && Array.isArray(value) && value.every(scalar)
@@ -443,6 +449,9 @@ export function validateSampleRulePackageTables(tables: SampleRulePackageTables)
           : ['eq', 'neq'].includes(op) && scalar(value)
     if (!valid) fail('invalid_public_condition_type', path, `因素 ${field} 的条件值与类型不匹配，请重新确认。`)
   }
+  factors.forEach((f, key) => {
+    if ('required_when' in f) condition(f.required_when, `factor_table.${key}.required_when`, new Set(), true)
+  })
   rows(tables.rule_table, 'rule_table').forEach(rule => {
     const path = `rule_table.${rule.target}`
     exact(rule, ['target'], ['required', 'when'], path)

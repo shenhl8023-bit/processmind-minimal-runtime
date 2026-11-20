@@ -159,6 +159,7 @@ const packageVersion = ref<number | null>(null)
 const workflowRevision = ref(0)
 const generating = ref(false)
 const error = ref('')
+const exportError = ref('')
 const result = ref<GenerateRouteResult | null>(null)
 const {
   addCustomArrayValue,
@@ -196,6 +197,7 @@ const {
 
 watch(() => JSON.stringify([fieldValues.value, factorValues.value, factorMetadata.value]), () => {
   if (contextLoading.value) return
+  exportError.value = ''
   inputsRequireRegeneration.value = true
   result.value = null
 }, { flush: 'sync' })
@@ -231,6 +233,7 @@ const generateHintText = computed(() => {
 })
 const generateNotices = computed<WorkflowNotice[]>(() => {
   if (error.value) return [{ id: 'generate-error', level: 'error', summary: '规则验证或路线生成未完成', detail: error.value, actions: [{ label: '返回规则定稿', run: goFinalize }] }]
+  if (exportError.value) return [{ id: 'export-error', level: 'error', summary: '规则包导出未完成', detail: exportError.value, actions: [{ label: '重试导出', run: exportRulePackage, disabled: !canExportRules.value || exportingRules.value }] }]
   if (isResultStale.value) return [{ id: 'stale-result', level: 'warning', summary: '规则已更新，请重新生成路线', detail: `当前结果基于旧版 V${result.value?.executable_revision}，最新规则为 V${packageVersion.value}。`, actions: [{ label: '重新生成路线', run: runGenerate, disabled: !canGenerate.value || generating.value }] }]
   if (generating.value) return [{ id: 'generating', level: 'progress', summary: '正在生成工艺路线' }]
   if (inputsRequireRegeneration.value) return [{ id: 'changed-inputs', level: 'info', summary: '输入参数已修改，请重新生成路线', actions: [{ label: '重新生成路线', run: runGenerate, disabled: !canGenerate.value }] }]
@@ -280,6 +283,7 @@ function clearGeneratedWorkflowState() {
   hasRulePackage.value = false
   result.value = null
   error.value = ''
+  exportError.value = ''
   generating.value = false
   resetRulePackageMetadata()
   resetFieldValues()
@@ -305,10 +309,11 @@ function goTemplateMapping() {
 
 async function exportRulePackage() {
   if (!canExportRules.value || !executableRevision.value || !projectId.value || exportingRules.value) return
-  const revision = executableRevision.value, id = projectId.value, context = contextLoadRequestId
-  const isCurrent = () => projectId.value === id && executableRevision.value?.id === revision.id && contextLoadRequestId === context && !inputsRequireRegeneration.value
+  const revision = executableRevision.value, id = projectId.value, context = contextLoadRequestId, generation = generationRequestId
+  const isCurrent = () => projectId.value === id && executableRevision.value?.id === revision.id && contextLoadRequestId === context && generationRequestId === generation && !inputsRequireRegeneration.value
   exportingRules.value = true
   error.value = ''
+  exportError.value = ''
   try {
     const saved = await exportExecutableRuleRevision(revision.id, {
       project_id: id, expected_workflow_revision: workflowRevision.value,
@@ -317,7 +322,7 @@ async function exportRulePackage() {
     if (!isCurrent()) return
     await downloadValidatedRulePackage(saved, projectName.value, { isCurrent })
   } catch (e: any) {
-    if (projectId.value === id && contextLoadRequestId === context) error.value = formatGenerateErrorDetail(e?.response?.data?.detail || e?.message)
+    if (isCurrent()) exportError.value = formatGenerateErrorDetail(e?.response?.data?.detail || e?.message)
   } finally { exportingRules.value = false }
 }
 
@@ -331,6 +336,7 @@ async function runGenerate() {
   const requestedFields = JSON.stringify(fieldValues.value)
   generating.value = true
   error.value = ''
+  exportError.value = ''
   try {
     const generatedResult = await generateRoute({
       project_id: generatedProjectId,
@@ -376,6 +382,7 @@ function clearRulePackageContext() {
   result.value = null
   inputSchema.value = null
   hasRulePackage.value = false
+  exportError.value = ''
   resetRulePackageMetadata()
   resetFieldValues()
 }
@@ -424,6 +431,7 @@ async function loadGenerateContext(retryInvalidated = true) {
   const hintedProjectId = Number(requestedProjectId)
   contextLoading.value = true
   error.value = ''
+  exportError.value = ''
   if (Number.isInteger(hintedProjectId) && hintedProjectId > 0) {
     setLoadingProject(hintedProjectId)
   }

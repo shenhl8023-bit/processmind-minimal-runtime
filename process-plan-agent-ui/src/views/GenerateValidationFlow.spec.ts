@@ -8,6 +8,8 @@ import { useGenerateInputFields } from '@/composables/useGenerateInputFields'
 const script = ts.createSourceFile('Generate.ts', parse(source).descriptor.scriptSetup!.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
 function run(scope: Record<string, any>, name: string) {
   scope.inputsRequireRegeneration ??= ref(false)
+  scope.exportError ??= ref('')
+  scope.generationRequestId ??= 0
   const fn = script.statements.find((n): n is ts.FunctionDeclaration => ts.isFunctionDeclaration(n) && n.name?.text === name)
   if (!fn) throw new Error(`missing ${name}`)
   return new Function('scope', `with(scope) { ${ts.transpile(fn.getText(script))}; return ${name} }`)(scope)
@@ -26,12 +28,22 @@ function exportAvailability(scope: Record<string, any>) {
   return new Function('scope', `with(scope) { ${ts.transpile(declaration.getText(script))}; return canExportRules }`)({ ...scope, computed })
 }
 
+function notices(scope: Record<string, any>) {
+  const declaration = script.statements.find(node => ts.isVariableStatement(node)
+    && node.declarationList.declarations.some(item => item.name.getText(script) === 'generateNotices'))!
+  return new Function('scope', `with(scope) { ${ts.transpile(declaration.getText(script))}; return generateNotices }`)({
+    ...scope, computed, isResultStale: ref(false), generating: ref(false), hasRulePackage: ref(true),
+    canGenerate: ref(true), inputFields: ref([]), inputsRequireRegeneration: ref(false),
+    goFinalize: vi.fn(), exportRulePackage: vi.fn(), canExportRules: ref(true), exportingRules: ref(false),
+  })
+}
+
 function generationScope() {
   return {
     projectId: ref(1), contextLoading: ref(false), generating: ref(false), canGenerate: ref(true),
     executableRevision: ref({ id: 7, revision: 3, content_hash: 'hash', generation_ready: true, has_current_generation: true }),
     generationRequestGuard: createLatestWorkflowRequestGuard(), contextLoadRequestId: 1, generationRequestId: 0,
-    error: ref(''), result: ref<any>({ executable_revision_id: 7, executable_content_hash: 'hash', steps: [{ name: '磨孔' }] }),
+    error: ref(''), exportError: ref(''), result: ref<any>({ executable_revision_id: 7, executable_content_hash: 'hash', steps: [{ name: '磨孔' }] }),
     workflowRevision: ref(2), fieldValues: ref({ it: 6 }), factorValues: ref({ it: 6 }), factorMetadata: ref({}),
     inputsRequireRegeneration: ref(false), refreshGeneratedPackageMetadata: vi.fn(),
     formatGenerateErrorDetail: String, inputFields: ref([]),
@@ -68,6 +80,7 @@ it.each(['restored', 'pending'])('invalidates a %s result when an empty numeric 
 
 it('clears an old route and blocks export when the displayed part parameters change', async () => {
   const scope = generationScope(), effects = effectScope()
+  scope.exportError.value = '上次导出失败'
   try {
     effects.run(() => parameterWatch(scope))
     const canExport = exportAvailability(scope)
@@ -76,6 +89,7 @@ it('clears an old route and blocks export when the displayed part parameters cha
     await nextTick()
     expect(scope.result.value).toBeNull()
     expect(canExport.value).toBe(false)
+    expect(scope.exportError.value).toBe('')
   } finally { effects.stop() }
 })
 
@@ -125,8 +139,89 @@ it('reports asynchronous export conversion or identity allocation failures', asy
   void failure.catch(() => {})
   const scope = { canExportRules: computed(() => true), executableRevision: ref({ id: 7, content_hash: 'hash' }), exportingRules: ref(false), projectId: ref(1), workflowRevision: ref(2), contextLoadRequestId: 1, exportExecutableRuleRevision: vi.fn().mockResolvedValue({ id: 10 }), downloadValidatedRulePackage: vi.fn().mockReturnValue(failure), projectName: ref('任务'), error: ref(''), formatGenerateErrorDetail: String }
   await run(scope, 'exportRulePackage')()
-  expect(scope.error.value).toContain('编号分配失败')
+  expect((scope as any).exportError.value).toContain('编号分配失败')
+  expect(scope.error.value).toBe('')
   expect(scope.exportingRules.value).toBe(false)
+})
+it('reports conditional-required export rejection separately while keeping the validated route', async () => {
+  const scope = {
+    ...generationScope(), canExportRules: computed(() => true), exportingRules: ref(false),
+    exportError: ref(''), projectName: ref('任务'),
+    exportExecutableRuleRevision: vi.fn().mockResolvedValue({ id: 10 }),
+    downloadValidatedRulePackage: vi.fn().mockRejectedValue(new Error('平面的方位：当前样包不支持动态必填')),
+  }
+  const original = scope.result.value
+  await run(scope, 'exportRulePackage')()
+  expect(scope.exportError.value).toContain('动态必填')
+  expect(scope.error.value).toBe('')
+  expect(scope.result.value).toBe(original)
+  expect(exportAvailability(scope).value).toBe(true)
+  expect(notices(scope).value).toMatchObject([{
+    id: 'export-error', summary: '规则包导出未完成', detail: scope.exportError.value,
+    actions: [{ label: '重试导出' }],
+  }])
+})
+it('keeps actual generation failures classified as generation failures', () => {
+  expect(notices({ error: ref('缺少必填输入'), exportError: ref('') }).value).toMatchObject([{
+    id: 'generate-error', summary: '规则验证或路线生成未完成',
+  }])
+})
+it('shows the current export failure after an earlier generation attempt failed', async () => {
+  const scope = {
+    ...generationScope(), canExportRules: computed(() => true), exportingRules: ref(false), projectName: ref('任务'),
+    exportExecutableRuleRevision: vi.fn().mockRejectedValue(new Error('本次导出失败')),
+    downloadValidatedRulePackage: vi.fn(),
+  }
+  scope.error.value = '旧生成网络错误'
+  await run(scope, 'exportRulePackage')()
+  expect(scope.error.value).toBe('')
+  expect(notices(scope).value).toMatchObject([{ id: 'export-error', detail: '本次导出失败' }])
+})
+it.each(['success', 'failure'])('ignores a late export %s after new parameters were successfully regenerated', async phase => {
+  let resolve!: (value: any) => void, reject!: (reason: unknown) => void
+  const scope = {
+    ...generationScope(), canExportRules: computed(() => true), exportingRules: ref(false), projectName: ref('任务'),
+    exportExecutableRuleRevision: vi.fn().mockReturnValue(new Promise((yes, no) => { resolve = yes; reject = no })),
+    downloadValidatedRulePackage: vi.fn(),
+  }
+  const pending = run(scope, 'exportRulePackage')()
+  scope.factorValues.value = { it: 8 }
+  scope.fieldValues.value = { it: 8 }
+  scope.inputsRequireRegeneration.value = true
+  scope.generateRoute.mockResolvedValue({ executable_revision_id: 7, executable_content_hash: 'hash', steps: [] })
+  await run(scope, 'runGenerate')()
+  expect(scope.inputsRequireRegeneration.value).toBe(false)
+  if (phase === 'success') resolve({ id: 10 })
+  else reject(new Error('旧参数的导出失败'))
+  await pending
+  expect(scope.exportError.value).toBe('')
+  expect(scope.downloadValidatedRulePackage).not.toHaveBeenCalled()
+})
+it('clears an old export failure before retrying a successful export', async () => {
+  const scope = {
+    ...generationScope(), canExportRules: computed(() => true), exportingRules: ref(false),
+    exportError: ref('上次导出失败'), projectName: ref('任务'),
+    exportExecutableRuleRevision: vi.fn().mockResolvedValue({ id: 10 }),
+    downloadValidatedRulePackage: vi.fn().mockResolvedValue(true),
+  }
+  await run(scope, 'exportRulePackage')()
+  expect(scope.exportError.value).toBe('')
+})
+it('ignores a late export failure after the part parameters change', async () => {
+  let reject!: (reason: unknown) => void
+  const scope = {
+    ...generationScope(), canExportRules: computed(() => true), exportingRules: ref(false),
+    exportError: ref(''), projectName: ref('任务'),
+    exportExecutableRuleRevision: vi.fn().mockReturnValue(new Promise((_, fail) => { reject = fail })),
+    downloadValidatedRulePackage: vi.fn(),
+  }
+  const pending = run(scope, 'exportRulePackage')()
+  scope.inputsRequireRegeneration.value = true
+  reject(new Error('旧输入的导出失败'))
+  await pending
+  expect(scope.exportError.value).toBe('')
+  expect(scope.error.value).toBe('')
+  expect(scope.downloadValidatedRulePackage).not.toHaveBeenCalled()
 })
 it('cancels a pending identity download after the validation context changes', async () => {
   let release!: () => void
