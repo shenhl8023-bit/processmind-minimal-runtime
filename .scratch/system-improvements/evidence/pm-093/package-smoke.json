@@ -1,0 +1,15 @@
+{
+  "packaged_api_startup": "passed",
+  "empty_initial_projects": true,
+  "credentials_unconfigured": true,
+  "production_entry_assets": 2,
+  "spa_route": "passed",
+  "full_edition": true,
+  "no_expiry": true,
+  "mapping_code_and_api_included": true,
+  "mapping_ui_visibility": "preserved false",
+  "packaged_empty_response_recovery": "passed",
+  "source_revision": "20444657cf8a9a03f25fdf9b76143634ff5b20c0",
+  "source_files_match_current": true,
+  "runtime": "macOS host Python; native Win7 not executed"
+}

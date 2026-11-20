@@ -1,0 +1,21 @@
+{
+  "source_revision": "20444657cf8a9a03f25fdf9b76143634ff5b20c0",
+  "remote_source_revision_verified": true,
+  "committed_api_and_receiver_files_matched": 156,
+  "archive_sha256": "97381a7cf937443f9aa13b0de836f359905f89c8bcdb3ac2f0a6c5ac665a88a1",
+  "source_files": 308,
+  "runtime_files_unchanged": 1967,
+  "formal_database_and_settings_unchanged": true,
+  "backend_tests": {
+    "passed": 2294,
+    "skipped": 111
+  },
+  "frontend_tests": {
+    "passed": 1418,
+    "skipped": 1
+  },
+  "build": "passed",
+  "python38_source_check": "passed",
+  "unpacked_package_verifier": "passed",
+  "win7_execution_verified": false
+}
