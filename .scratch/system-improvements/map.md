@@ -1,7 +1,9 @@
 # 系统改进总账
 
-创建日期：2026-11-03（北京时间）  
-最近更新：2026-11-20  
+创建日期：2026-11-03（北京时间）
+
+最近更新：2026-11-20
+
 当前交付完成（2026-11-20）：[PM-093](issues/93-full-release-git-20261120.md)已提交并推送产品版本2044465到origin/codex/zhaoyw；交付`dist-win7/processmind-win7-full-template-20261120-pm092.zip`，46,434,947字节/2277文件，full且包含PM-091及PM-092/038。ZIP/逐文件摘要/Win7运行时/解压API启动通过；前后端全量及构建通过。正式数据/设置保留，PM-065继续deferred；Win7实机尚未测。详见[交付验收](../../docs/superpowers/reviews/2026-11-20-full-release-acceptance.md)。
 联合修复完成（2026-11-20）：PM-092与PM-038已修正响应分类/有限空正文恢复及问答就绪保存时序，并通过真实连接、34工序生成、第四步/第五步联动。后端2294 passed/111 skipped、前端1418 passed/1 skipped、构建、Python3.8静态语法与独立复核通过。仍有外部请求偶发超时，非性能保证。正式数据库/设置SHA-256未变，最新8000/5173已启动；PM-091改动保留，未打包、提交或推送。见[联合验收](../../docs/superpowers/reviews/2026-11-20-model-response-repair-acceptance.md)。
 未实施项盘点（2026-11-20，交付后）：93张工单中92项done，仅PM-065（28份同等样本分支全集方案）仍needs-info/deferred。PM-038本轮真实第三步生成已验收；PM-089经完整包及Git提交d459731核对补记关闭，PM-091后续修复已随2044465提交推送。
